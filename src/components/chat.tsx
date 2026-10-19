@@ -1,17 +1,23 @@
 "use client";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { ArrowUpIcon, TerminalIcon } from "lucide-react";
+import { ArrowUpIcon, PaperclipIcon, TerminalIcon } from "lucide-react";
+import { type DraftAttachment, useAttachments } from "@/hooks/use-attachments";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } from "@/components/ui/input-group";
 import { clientError, reportClient } from "@/lib/client-logging";
 import { stageMessage, updateDelivery, useThread } from "@/hooks/use-thread";
 import { useEffect, useRef, useState } from "react";
+import { ComposerAttachments } from "./composer-attachments";
 import { Conversation } from "./conversation";
 import { NotificationPrompt } from "./notification-prompt";
 import { connectionStatus } from "@/lib/connection-status";
 import { modelDescription } from "@/lib/model-description";
 import { post } from "@/lib/client-api";
 import { useDraft } from "@/hooks/use-draft";
+
+function hasMessage(text: string, files: DraftAttachment[]) {
+  return (!!text.trim() || files.length > 0) && files.every((entry) => !!entry.uploaded);
+}
 
 export function Chat() {
   const { state, connected: streamConnected } = useThread();
@@ -20,6 +26,21 @@ export function Chat() {
   const [error, setError] = useState("");
   const messageId = useRef<string | null>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
+  const filePicker = useRef<HTMLInputElement>(null);
+  const recoveredMessage = useRef<string | undefined>(undefined);
+  const attachments = useAttachments(state.threadId);
+
+  useEffect(() => {
+    if (!attachments.pending || recoveredMessage.current === attachments.pending.id) {
+      return;
+    }
+
+    recoveredMessage.current = attachments.pending.id;
+
+    if (!draft && !sending) {
+      setDraft(attachments.pending.text);
+    }
+  }, [attachments.pending, draft, sending, setDraft]);
 
   useEffect(() => {
     if ("serviceWorker" in navigator && process.env.NODE_ENV === "production") {
@@ -32,20 +53,24 @@ export function Chat() {
 
   async function send() {
     const text = draft.trim();
+    const files = attachments.files.flatMap((entry) => (entry.uploaded ? [entry.uploaded] : []));
 
-    if (!text || sending || !connected) {
+    if (!hasMessage(text, attachments.files) || sending || !connected || !attachments.ready) {
       return;
     }
 
-    const id = (messageId.current ??= crypto.randomUUID());
+    const id = (messageId.current ??=
+      attachments.pending?.text === text ? attachments.pending.id : crypto.randomUUID());
     reportClient("message.send", { id, text, activeTurnId: state.activeTurnId });
     setSending(true);
     setError("");
-    stageMessage(id, text);
-    setDraft("");
 
     try {
-      const result = await post("/api/messages", { id, text });
+      await attachments.rememberSend(id, text);
+
+      stageMessage(id, text, files);
+      setDraft("");
+      const result = await post("/api/messages", { id, text, attachments: files.map((file) => file.id) });
 
       if (result.status === "unknown") {
         throw new Error("Delivery is uncertain. Check the conversation on your computer before sending again.");
@@ -53,6 +78,9 @@ export function Chat() {
 
       updateDelivery(id, result.status === "sent" ? "sent" : "queued");
       reportClient("message.acknowledged", { id, status: result.status });
+
+      await attachments.clear();
+
       messageId.current = null;
       textarea.current?.focus();
     } catch (error_) {
@@ -85,9 +113,9 @@ export function Chat() {
       <Conversation state={state} />
       <footer className="composer-wrap">
         <NotificationPrompt />
-        {(error || state.error) && (
+        {(error || attachments.error || state.error) && (
           <Alert variant="destructive" className="mb-3">
-            <AlertDescription>{error || state.error}</AlertDescription>
+            <AlertDescription>{error || attachments.error || state.error}</AlertDescription>
           </Alert>
         )}
         <form
@@ -98,6 +126,29 @@ export function Chat() {
         >
           <FieldGroup>
             <Field>
+              <ComposerAttachments
+                files={attachments.files}
+                disabled={sending}
+                remove={async (id) => {
+                  messageId.current = null;
+                  await attachments.remove(id);
+                }}
+                retry={attachments.retry}
+              />
+              <input
+                ref={filePicker}
+                type="file"
+                multiple
+                hidden
+                aria-label="Choose attachments"
+                disabled={sending || !attachments.ready || state.connection === "unconfigured"}
+                onChange={(event) => {
+                  const files = [...(event.target.files ?? [])];
+                  event.target.value = "";
+                  messageId.current = null;
+                  void attachments.add(files);
+                }}
+              />
               <FieldLabel className="sr-only" htmlFor="message">
                 Message Pocket
               </FieldLabel>
@@ -130,12 +181,23 @@ export function Chat() {
                 />
                 <InputGroupAddon align="inline-end">
                   <InputGroupButton
+                    type="button"
+                    size="icon-sm"
+                    className="min-h-11 min-w-11"
+                    aria-label="Attach images or files"
+                    title="Attach images or files"
+                    disabled={sending || !attachments.ready || state.connection === "unconfigured"}
+                    onClick={() => filePicker.current?.click()}
+                  >
+                    <PaperclipIcon aria-hidden="true" />
+                  </InputGroupButton>
+                  <InputGroupButton
                     type="submit"
                     variant="default"
                     size="icon-sm"
                     className="send-button"
                     aria-label="Send message"
-                    disabled={!draft.trim() || sending || !connected}
+                    disabled={!hasMessage(draft, attachments.files) || sending || !connected || !attachments.ready}
                   >
                     <ArrowUpIcon />
                   </InputGroupButton>

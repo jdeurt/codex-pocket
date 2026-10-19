@@ -1,5 +1,6 @@
 // Forward-compatible subset of Codex app-server v2, checked against CLI 0.163.
 // Unknown item fields are preserved so newer CLI output remains inspectable.
+import type { FileAttachment } from "./attachments";
 export type Data = Record<string, unknown>;
 export type Item = Data & { id: string; type: string };
 export interface Turn {
@@ -24,6 +25,7 @@ export type PendingRequest = RpcEvent & { id: string | number };
 export interface QueuedMessage {
   id: string;
   text: string;
+  attachments?: FileAttachment[];
   status: "queued" | "sending" | "unknown" | "sent";
 }
 export interface Snapshot {

@@ -2,6 +2,7 @@ import { type CodexRpc, RpcError } from "./rpc";
 import type { Snapshot, Thread, Turn } from "../lib/protocol";
 import type { Config } from "./config";
 import type { Receipt } from "./outbox";
+import { attachmentInput } from "./uploads";
 
 async function startTurn(rpc: CodexRpc, config: Config, state: Snapshot, input: unknown[], id: string) {
   const { turn } = await rpc.request<{ turn: Turn }>("turn/start", {
@@ -20,7 +21,10 @@ async function startTurn(rpc: CodexRpc, config: Config, state: Snapshot, input: 
 }
 
 export async function deliverMessage(rpc: CodexRpc, config: Config, state: Snapshot, receipt: Receipt) {
-  const input = [{ type: "text", text: receipt.text, text_elements: [] }];
+  const input = [
+    ...(receipt.text ? [{ type: "text", text: receipt.text, text_elements: [] }] : []),
+    ...attachmentInput(config.threadId, receipt.attachments ?? []),
+  ];
 
   if (!state.activeTurnId) {
     await startTurn(rpc, config, state, input, receipt.id);

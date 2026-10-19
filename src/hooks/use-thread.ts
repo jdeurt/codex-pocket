@@ -1,5 +1,6 @@
 "use client";
 import { type QueuedMessage, type Snapshot, initialSnapshot } from "@/lib/protocol";
+import type { FileAttachment } from "@/lib/attachments";
 import { reconcileDeliveries } from "@/lib/deliveries";
 import { reportClient } from "@/lib/client-logging";
 import { useSyncExternalStore } from "react";
@@ -25,8 +26,11 @@ function publish(state: Snapshot, connected: boolean) {
   }
 }
 
-export function stageMessage(id: string, text: string) {
-  store.pending = [...store.pending.filter((message) => message.id !== id), { id, text, status: "sending" }];
+export function stageMessage(id: string, text: string, attachments?: FileAttachment[]) {
+  store.pending = [
+    ...store.pending.filter((message) => message.id !== id),
+    { id, text, attachments, status: "sending" },
+  ];
   publish(store.latestState, store.current.connected);
 }
 

@@ -69,7 +69,7 @@ export function imageUrl(source: string) {
     return source;
   }
 
-  if (/^https?:\/\//i.test(source) || source.startsWith("/api/images?")) {
+  if (/^https?:\/\//i.test(source) || source.startsWith("/api/images?") || source.startsWith("/api/uploads?")) {
     return source;
   }
 
@@ -78,4 +78,5 @@ export function imageUrl(source: string) {
     : `/api/images?path=${encodeURIComponent(source)}`;
 }
 
-export const thumbnailUrl = (source: string) => (source.startsWith("/api/images?") ? `${source}&thumbnail=1` : source);
+export const thumbnailUrl = (source: string) =>
+  source.startsWith("/api/images?") || source.startsWith("/api/uploads?") ? `${source}&thumbnail=1` : source;

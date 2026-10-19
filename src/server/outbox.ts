@@ -1,4 +1,5 @@
 import { readLocal, writeLocal } from "./local-state";
+import type { FileAttachment } from "../lib/attachments";
 import type { QueuedMessage } from "../lib/protocol";
 
 const RECEIPT_LIMIT = 1000;
@@ -6,6 +7,7 @@ const RECEIPT_LIMIT = 1000;
 export interface Receipt {
   id: string;
   text: string;
+  attachments?: FileAttachment[];
   status: QueuedMessage["status"];
 }
 interface Outbox {
@@ -34,7 +36,9 @@ export async function restoreReceipts(threadId: string) {
 }
 export async function persistReceipts(threadId: string, receipts: Receipt[]) {
   const recent = [
-    ...receipts.filter((r) => r.status === "sent").slice(-RECEIPT_LIMIT),
+    // Attachment receipts also hold the saved message's display metadata.
+    ...receipts.filter((r) => r.status === "sent" && r.attachments?.length),
+    ...receipts.filter((r) => r.status === "sent" && !r.attachments?.length).slice(-RECEIPT_LIMIT),
     ...receipts.filter((r) => r.status !== "sent"),
   ];
   await writeLocal("outbox.json", { threadId, receipts: recent });
