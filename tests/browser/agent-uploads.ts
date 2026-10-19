@@ -58,7 +58,8 @@ export async function checkAgentUploads(page: Page) {
   });
   const selected = page.getByRole("list", { name: "Selected attachments" });
   await expect(selected.getByText("Ready to send", { exact: true })).toBeVisible();
-  await expect(selected.getByRole("img", { name, exact: true })).toBeVisible();
+  await expect(selected.getByText(name, { exact: true })).toBeVisible();
+  await expect(selected.getByRole("img")).toHaveCount(0);
   await headers(page);
   const opens = await page.evaluate((key) => globalThis.sessionStorage.getItem(key), storageKey);
   const actions: string[] = [];

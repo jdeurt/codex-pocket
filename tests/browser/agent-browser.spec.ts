@@ -5,6 +5,7 @@ import { expect, test } from "@playwright/test";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import Database from "better-sqlite3";
 import { checkAgentCache } from "./agent-cache";
+import { checkAgentScroll } from "./agent-scroll";
 import { checkAgentUploads } from "./agent-uploads";
 
 // OFFLINE whole-flow replay: real Next routes, SQLite, JSON-RPC transport, Claude
@@ -315,4 +316,8 @@ test("offline replay: denied access, network reconnect, native Claude chat and n
   await page.keyboard.press("Escape");
   await page.keyboard.press("Escape");
   await expect(page.getByRole("button", { name: "6 agents", exact: true })).toBeFocused();
+});
+
+test("offline replay: parent offsets survive incoming appends while navigating child chats", async ({ page }) => {
+  await checkAgentScroll(page, control);
 });

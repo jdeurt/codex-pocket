@@ -1,8 +1,8 @@
+import { CodexRpc, requireConnectedRpc } from "./rpc";
 import { type Config, readConfig } from "./config";
 import { type QueuedMessage, type RpcEvent, type Snapshot, type Turn, initialSnapshot } from "../lib/protocol";
 import { type Receipt, persistReceipts, restoreReceipts } from "./outbox";
 import { assertMessageContent, projectAttachments, resolveUploads } from "./uploads";
-import { CodexRpc } from "./rpc";
 import { EventEmitter } from "node:events";
 import { deliverMessage } from "./delivery";
 import { loadHistory } from "./history";
@@ -269,11 +269,7 @@ export class Bridge extends EventEmitter {
     }
   }
   agentReader() {
-    if (!this.rpc?.running || this.snapshot.connection !== "connected") {
-      throw new Error("Harness inspection is disconnected.");
-    }
-
-    return this.rpc;
+    return requireConnectedRpc(this.rpc, this.snapshot.connection === "connected");
   }
   refreshScheduled() {
     if (this.config) {

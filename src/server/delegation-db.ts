@@ -1,5 +1,6 @@
 import { chmodSync, mkdirSync } from "node:fs";
 import Database from "better-sqlite3";
+import type { DelegationCommand } from "./delegations";
 import path from "node:path";
 
 const BUSY_TIMEOUT_MS = 1000;
@@ -42,4 +43,14 @@ export function delegationDatabase(directory: string) {
   `);
 
   return db;
+}
+
+export function lastCommandStatus(db: Database.Database, parentId: string, childId: string) {
+  const row = db
+    .prepare(
+      "SELECT status FROM delegation_commands WHERE parentId=? AND childId=? ORDER BY createdAt DESC,rowid DESC LIMIT 1"
+    )
+    .get(parentId, childId) as { status: DelegationCommand["status"] } | undefined;
+
+  return row?.status;
 }

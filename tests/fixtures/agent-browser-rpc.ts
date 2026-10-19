@@ -1,5 +1,5 @@
 // OFFLINE JSON-RPC replay. Refuses every mutation directed at a child session.
-import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, readFileSync, watchFile, writeFileSync } from "node:fs";
 import { replayParent, replayThreads, replayTurns } from "./agent-browser-data";
 import { createInterface } from "node:readline";
 
@@ -15,6 +15,38 @@ const stage = () => JSON.parse(readFileSync(`${directory}/control.json`, "utf8")
 const replay = { promptSent: false, activeReads: 0, maxReads: 0 };
 const HISTORY_DELAY_MS = 30;
 const PAGE_LIMIT = 20;
+const APPEND_POLL_MS = 50;
+const APPEND_REPETITIONS = 12;
+const appended = new Set<string>();
+
+// Inject real parent notifications through JSON-RPC/SSE while a child overlay is
+// open. This is synthetic output, never an action dispatched to a harness.
+watchFile(`${directory}/control.json`, { interval: APPEND_POLL_MS, persistent: false }, () => {
+  const current = stage();
+
+  if (!current.startsWith("parent-append:") || appended.has(current)) {
+    return;
+  }
+
+  appended.add(current);
+  const id = `parent-incoming-${current.split(":", 2)[1]}`;
+  const turn = { id, status: "inProgress", items: [] };
+  emit({ method: "turn/started", params: { threadId: replayParent, turn } });
+  emit({
+    method: "item/completed",
+    params: {
+      threadId: replayParent,
+      turnId: id,
+      item: {
+        id,
+        type: "agentMessage",
+        phase: "final_answer",
+        text: `${id}. ${"Parent output arriving while reading a child. ".repeat(APPEND_REPETITIONS)}`,
+      },
+    },
+  });
+  emit({ method: "turn/completed", params: { threadId: replayParent, turn: { ...turn, status: "completed" } } });
+});
 
 function turnPage(params: Record<string, unknown>, state: string) {
   const turns = replayTurns(String(params.threadId), state);

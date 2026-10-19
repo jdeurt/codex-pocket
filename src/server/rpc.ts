@@ -152,3 +152,12 @@ export class CodexRpc extends EventEmitter {
     await waitForProcessExit(child);
   }
 }
+
+// Inspection must use an existing live transport, without connecting/resuming it.
+export function requireConnectedRpc(rpc: CodexRpc | undefined, connected: boolean): CodexRpc {
+  if (!rpc?.running || !connected) {
+    throw new Error("Harness inspection is disconnected.");
+  }
+
+  return rpc;
+}

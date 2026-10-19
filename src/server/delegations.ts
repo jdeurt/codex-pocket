@@ -1,9 +1,9 @@
 import type { ChildContext, Harness, ParentPolicy } from "./harness/types";
+import { delegationDatabase, lastCommandStatus } from "./delegation-db";
 import { DelegationMailbox } from "./delegation-mail";
 import { DelegationNotifications } from "./delegation-notifications";
 import { claudePermissions } from "./harness/permissions";
 import { createHash } from "node:crypto";
-import { delegationDatabase } from "./delegation-db";
 import { localDirectory } from "./local-state";
 import { log } from "./logging";
 import { requireClaudeBinary } from "./harness/claude-binary";
@@ -57,6 +57,7 @@ export class DelegationStore {
   private db;
   private notifications: DelegationNotifications;
   readonly mail: DelegationMailbox;
+  lastCommandStatus = (parentId: string, childId: string) => lastCommandStatus(this.db, parentId, childId);
   constructor(directory: string) {
     this.db = delegationDatabase(directory);
     this.notifications = new DelegationNotifications(directory);
@@ -189,15 +190,6 @@ export class DelegationStore {
     return this.db
       .prepare("SELECT * FROM delegation_commands WHERE parentId=? AND childId=? ORDER BY createdAt,rowid")
       .all(parentId, childId) as DelegationCommand[];
-  }
-  lastCommandStatus(parentId: string, childId: string) {
-    const row = this.db
-      .prepare(
-        "SELECT status FROM delegation_commands WHERE parentId=? AND childId=? ORDER BY createdAt DESC,rowid DESC LIMIT 1"
-      )
-      .get(parentId, childId) as { status: DelegationCommand["status"] } | undefined;
-
-    return row?.status;
   }
   claim(parentId: string, childId: string) {
     return this.db
