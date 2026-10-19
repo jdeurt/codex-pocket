@@ -2,9 +2,9 @@
 import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Message, MessageContent } from "@/components/ui/message";
-import { MessageScrollerItem } from "@/components/ui/message-scroller";
 import { ActivitySpinner } from "./activity-spinner";
 import { FileAttachments } from "./file-attachments";
+import { MessageScrollerItem } from "@/components/ui/message-scroller";
 import { Prompt } from "./prompt";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Snapshot } from "@/lib/protocol";

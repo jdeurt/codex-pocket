@@ -93,8 +93,8 @@ test("visible message edges and pending status use one shared outer gap", async 
   const emptyFooter = page.locator('[data-slot="transcript-footer"]');
   await expect(emptyFooter).toBeEmpty();
   await expect(emptyFooter).toHaveCSS("padding-top", "0px");
-  await expect(emptyFooter).toHaveCSS("row-gap", "normal");
-  await expect(emptyFooter).toHaveCSS("height", "0px");
+  await expect(emptyFooter).toHaveCSS("row-gap", "0px");
+  expect(await emptyFooter.evaluate((element) => element.getBoundingClientRect().height)).toBe(0);
   state.turns = [];
   state.activeTurnId = "gap-turn";
   state.queue = [{ id: "gap-queued", text: "First queued bubble", status: "sent" }];

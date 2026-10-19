@@ -62,8 +62,6 @@ export class TranscriptScrollMotion {
     const target = this.target();
 
     if (smooth && !this.reduced() && !this.seeked && Math.abs(target - element.scrollTop) > element.clientHeight * 2) {
-      // Crossing thousands of dynamic rows in 200ms causes measurement churn.
-      // Seek into the tail with the library, then animate its final approach.
       this.seeked = true;
       instance.scrollToOffset(
         Math.max(target + (Math.sign(element.scrollTop - target) * element.clientHeight) / 2, 0),
@@ -106,8 +104,6 @@ export class TranscriptScrollMotion {
       this.following = true;
       this.intent = true;
     }
-
-    this.disclosure = false;
 
     if (this.ready && this.following && !this.suspended && !this.anchored && total < this.previousSize) {
       this.heldSize = Math.max(this.heldSize, this.previousSize);
@@ -322,6 +318,10 @@ export class TranscriptScrollMotion {
     this.following = follow;
     this.intent = follow;
     this.disclosure = true;
+  }
+
+  disclosed() {
+    this.disclosure = false;
   }
 
   latest() {
