@@ -191,8 +191,10 @@ test("prepend, streaming, append and steering preserve the reader anchor and fol
   const stream = { id: "stream", type: "agentMessage", text: "Streaming start" };
   state.turns[0].items.push(stream);
   state.activeTurnId = state.turns[0].id;
+  state.activity = "Inspecting virtualization fixture";
   await publish(page, state);
   await expectAnchor(page, anchor);
+  await expect(page.getByRole("status", { name: "Pocket activity" })).toHaveText(state.activity);
 
   for (let index = 0; index < 8; index++) {
     stream.text += "\n\nMore streaming text with **markdown**. ".repeat(5);
@@ -241,9 +243,30 @@ test("empty and short chats preserve drafts, activity, images, selection and red
   await expect(page.locator(row)).toHaveCount(140);
   await scrollToFraction(page, 0.4);
   const anchor = await settledAnchor(page);
+  const scroller = await page.locator(viewport).elementHandle();
+
+  if (!scroller) {
+    throw new Error("Missing shared conversation scroller");
+  }
+
   state.turns[0].items.push(...history(30, 140).turns[0].items);
   await publish(page, state);
   await expectAnchor(page, anchor);
+  expect(
+    await scroller.evaluate(
+      (element) => element === globalThis.document.querySelector('[data-slot="message-scroller-viewport"]')
+    )
+  ).toBe(true);
+  state.turns[0].items.splice(140);
+  await publish(page, state);
+  await expect(page.locator(row)).toHaveCount(140);
+  await expectAnchor(page, anchor);
+  expect(
+    await scroller.evaluate(
+      (element) => element === globalThis.document.querySelector('[data-slot="message-scroller-viewport"]')
+    )
+  ).toBe(true);
+  await expect(page.getByRole("textbox", { name: "Message Pocket" })).toHaveValue("Preserved first draft");
   state.turns.push({
     id: "activity-turn",
     status: "completed",
