@@ -242,15 +242,14 @@ export async function downloadUpload(parent: string, id: string) {
 }
 
 export function attachmentInput(parent: string, files: FileAttachment[]) {
-  return files.map((file) =>
-    file.kind === "image"
-      ? { type: "localImage", path: uploadPath(parent, file, true) }
-      : {
-          type: "text",
-          text: `Attached file on this computer (read it using your file tools):\n${JSON.stringify({ name: file.name, mediaType: file.mediaType, size: file.size, path: uploadPath(parent, file) })}`,
-          text_elements: [],
-        }
-  );
+  return files.flatMap((file) => [
+    ...(file.kind === "image" ? [{ type: "localImage", path: uploadPath(parent, file, true) }] : []),
+    {
+      type: "text",
+      text: `Attached file on this computer (read it using your file tools):\n${JSON.stringify({ name: file.name, mediaType: file.mediaType, size: file.size, path: uploadPath(parent, file) })}`,
+      text_elements: [],
+    },
+  ]);
 }
 
 export function projectAttachments(state: Snapshot, receipts: Receipt[]) {

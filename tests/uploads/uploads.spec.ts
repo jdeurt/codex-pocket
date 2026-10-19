@@ -75,7 +75,8 @@ test("pick, retry, remove, file-only send, reload, queued recovery and real stor
     request.input.some((part: { type: string }) => part.type === "localImage")
   );
   expect(photoRequest.bytes[0].size).toBeGreaterThan(0);
-  expect(photoRequest.input.map((part: { type: string }) => part.type)).toEqual(["localImage"]);
+  expect(photoRequest.input.map((part: { type: string }) => part.type)).toEqual(["localImage", "text"]);
+  expect(Buffer.from(photoRequest.bytes[1].base64, "base64")).toEqual(png);
 
   // An upload failure keeps the Blob, survives reload, then retries using the same ID.
   let failedId = "";
@@ -268,5 +269,60 @@ test("keyboard picker, upload progress, parent draft and IME sending", async ({ 
       return entries.filter((entry) => entry.input.some((part: { text?: string }) => part.text === draft)).length;
     })
     .toBe(1);
+  await control("complete");
+});
+
+test("animated GIF exposes its durable original path to harness tools", async ({ page }, info) => {
+  const edge = 16;
+  const channels = 3;
+  const white = 0xff;
+  const firstDelay = 80;
+  const secondDelay = 120;
+  const frame = Buffer.alloc(edge * edge * channels);
+  const gif = await sharp(Buffer.concat([frame, Buffer.alloc(frame.length, white)]), {
+    raw: { width: edge, height: edge * 2, channels, pageHeight: edge },
+  })
+    .gif({ delay: [firstDelay, secondDelay], loop: 0 })
+    .toBuffer();
+  const sourceMetadata = await sharp(gif, { animated: true }).metadata();
+  expect(sourceMetadata.pages).toBe(2);
+  await page.goto("/");
+  await expect(page.getByRole("button", { name: "Attach images or files", exact: true })).toBeEnabled();
+  await control("complete");
+  await expect(page.locator("header [role=status]")).toHaveText("Connected");
+  const name = `${info.project.name}-animated-spinner.gif`;
+  await page.locator('input[type="file"]').setInputFiles({ name, mimeType: "image/gif", buffer: gif });
+  await expect(
+    page.getByRole("list", { name: "Selected attachments" }).getByText("Ready to send", { exact: true })
+  ).toBeVisible();
+  await page.reload();
+  await expect(
+    page.getByRole("list", { name: "Selected attachments" }).getByText("Ready to send", { exact: true })
+  ).toBeVisible();
+  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await expect(page.getByRole("list", { name: "Selected attachments" })).toHaveCount(0);
+  const captured = await requests();
+  const delivered = captured.findLast((request) => request.bytes.some((file: { name?: string }) => file.name === name));
+  expect(delivered.input.map((part: { type: string }) => part.type)).toEqual(["localImage", "text"]);
+  const original = delivered.bytes.find((file: { name?: string }) => file.name === name);
+  expect(original.mediaType).toBe("image/gif");
+  expect(Buffer.from(original.base64, "base64")).toEqual(gif);
+  const durableBytes = await readFile(original.path);
+  expect(durableBytes).toEqual(gif);
+  const metadata = await sharp(durableBytes, { animated: true }).metadata();
+  expect(metadata.pages).toBe(2);
+  expect(metadata.delay).toEqual(sourceMetadata.delay);
+  expect(metadata.loop).toBe(0);
+  const imagePath = delivered.input.find((part: { type: string }) => part.type === "localImage").path;
+  expect(imagePath).not.toBe(original.path);
+  const preview = await sharp(imagePath).metadata();
+  expect(preview.format).toBe("png");
+  const link = page.getByRole("link", { name: new RegExp(`Download ${name},`) });
+  const url = await link.getAttribute("href");
+  const download = await page.request.get(url ?? "");
+  expect(await download.body()).toEqual(gif);
+  await page.reload();
+  expect(await readFile(original.path)).toEqual(gif);
+  await expect(link).toBeVisible();
   await control("complete");
 });
