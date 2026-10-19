@@ -95,6 +95,13 @@ These later requests are tracked separately in Linear. Keep their existing owner
 - [x] Suppress a push only after a fresh foreground acknowledgement from the receiving subscription; retain delivery for background, locked, closed and stale connections.
 - [x] Verify the updated reply preview, foreground suppression, background delivery, reconnects and tap-to-open on the installed iPhone PWA after deployment. The operator confirmed all iPhone checks pass.
 
+## Spinner and configured effort correction
+
+- [x] Replace the wobbling spinner with a concentric track and arc, centered on the SVG view box and respecting reduced motion (JUA-40).
+- [x] Apply the computer's effective reasoning effort on the initial saved-thread resume and each new turn; a real saved-thread check persisted xhigh followed by medium.
+- [x] Read complete SSE frames before decoding deployment snapshots, including fragmented UTF-8 and keepalive frames.
+- [ ] Deploy the reviewed batch after active turns finish and verify the running thread reports medium effort.
+
 ## Delivery cadence
 
 Push each finished batch and rebuild/restart the Next.js service so changes are visible on the phone. Wait for active turns to finish before restarting. Keep local configuration, credentials, database state and logs out of Git.
