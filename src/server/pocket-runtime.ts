@@ -19,6 +19,7 @@ export function pocketServerArgs(config: Config) {
     "mcp_servers.pocket.default_tools_approval_mode": "approve",
     "mcp_servers.pocket.env.CODEX_POCKET_STATE_DIR": localDirectory(),
     "mcp_servers.pocket.env.POCKET_THREAD_ID": config.threadId,
+    "mcp_servers.pocket.env.POCKET_MAIN_THREAD_ID": config.threadId,
   };
 
   return [

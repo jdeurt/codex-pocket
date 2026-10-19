@@ -4,6 +4,8 @@ export function codexParentTools(server: AdapterOptions["parentTools"]) {
   const overrides: Record<string, unknown> = {
     "mcp_servers.pocket.enabled": false,
     "mcp_servers.pocket.command": process.execPath,
+    "mcp_servers.pocket.env.POCKET_MAIN_THREAD_ID": "",
+    "mcp_servers.pocket.env.POCKET_CHILD_ID": server?.env.POCKET_CHILD_ID ?? "side-pocket",
   };
 
   if (server) {

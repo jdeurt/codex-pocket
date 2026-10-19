@@ -2,6 +2,7 @@ import { scheduleInput, schedulePatch, schedules } from "../src/server/schedules
 import { McpServer } from "@modelcontextprotocol/server";
 import { log } from "../src/server/logging";
 import { registerDelegationTools } from "./delegation-tools";
+import { registerSpinnerTools } from "./spinner-tools";
 import { toolResult as result } from "../src/server/mcp-result";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { z } from "zod";
@@ -66,6 +67,7 @@ serveStdio(
     );
 
     registerDelegationTools(server, owner);
+    registerSpinnerTools(server, owner);
 
     return server;
   },
