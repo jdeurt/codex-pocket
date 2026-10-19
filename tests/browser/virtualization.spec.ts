@@ -54,6 +54,7 @@ async function visibleCoverage(page: Page) {
 
 async function scrollToFraction(page: Page, fraction: number) {
   await page.locator(viewport).evaluate((element, part) => {
+    element.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
     element.scrollTop = (element.scrollHeight - element.clientHeight) * part;
   }, fraction);
   await expect.poll(() => visibleCoverage(page)).toBe(true);
@@ -291,7 +292,7 @@ test("empty and short chats preserve drafts, activity, images, selection and red
   await page.getByRole("button", { name: "Show activity" }).click();
   await expect(page.getByRole("button", { name: "Hide activity" })).toHaveAttribute("aria-expanded", "true");
   expect(await page.locator(row).count()).toBeLessThan(MAX_MOUNTED_ROWS);
-  await page.getByRole("button", { name: "Jump to latest message" }).click();
+  await expect(page.locator('[data-message-id="activity-final"]')).toBeVisible();
   const preview = page.getByRole("button", { name: "Preview image: Virtualized image" });
 
   if (info.project.use.hasTouch) {
