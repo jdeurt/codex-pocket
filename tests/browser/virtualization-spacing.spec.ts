@@ -80,7 +80,24 @@ test("visible message edges and pending status use one shared outer gap", async 
     await expect.poll(async () => Math.max(...(await outerGaps()))).toBeLessThan(1);
   }
 
+  state.turns[1].items = [
+    {
+      id: "attachment-only",
+      type: "userMessage",
+      attachments: [{ id: "fixture-file", kind: "file", name: "fixture.txt", size: 7, mediaType: "text/plain" }],
+    },
+  ];
+  await publish(page, state);
+  await expect(page.locator('[data-transcript-row="gap-turn/attachment-only"]')).toBeAttached();
+  state.activeTurnId = undefined;
+  await publish(page, state);
+  const emptyFooter = page.locator('[data-slot="transcript-footer"]');
+  await expect(emptyFooter).toBeEmpty();
+  await expect(emptyFooter).toHaveCSS("padding-top", "0px");
+  await expect(emptyFooter).toHaveCSS("row-gap", "normal");
+  await expect(emptyFooter).toHaveCSS("height", "0px");
   state.turns = [];
+  state.activeTurnId = "gap-turn";
   state.queue = [{ id: "gap-queued", text: "First queued bubble", status: "sent" }];
   await publish(page, state);
   await expect(page.getByRole("status", { name: "Pocket activity" })).toBeVisible();
