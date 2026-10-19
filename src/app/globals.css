@@ -417,13 +417,13 @@
   color: var(--muted-foreground);
 }
 .markdown table {
-  display: block;
-  max-width: 100%;
-  overflow: auto;
+  width: max-content;
   border-collapse: collapse;
 }
 .markdown th,
 .markdown td {
+  box-sizing: content-box;
+  max-width: 24rem;
   border: 1px solid var(--border);
   padding: 8px 12px;
 }

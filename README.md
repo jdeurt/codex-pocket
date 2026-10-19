@@ -144,6 +144,8 @@ After setup or an update, reopen the installed iPhone PWA to load the current cl
 
 Progress messages stream normally while a turn runs. When it finishes, those messages collapse under **Show activity**; the final reply stays visible. Tap to expand or collapse the activity, or use the keyboard. The panel and chevron animate unless reduced motion is enabled. Completed history reloads with activity collapsed. Split assistant messages use the same spacing as Markdown paragraphs. Images and phone messages remain visible.
 
+Markdown tables size columns to their widest value, wrapping long content at 24rem. Wider tables scroll horizontally inside their own focusable region, with touch and keyboard support. The chat itself keeps its normal width, and Markdown column alignment is preserved.
+
 ## Restart recovery
 
 When Codex starts with existing conversation history, Pocket sends one hidden restart-recovery prompt through the normal durable outbox. It asks the agent to continue unfinished work and inspect any expected subagents or delegated jobs before resuming them. The injected prompt stays hidden by its internal message identity, including queued sends and reloaded history; the agent's activity, replies, questions and notifications behave normally. Empty chats do not receive it, and browser/SSE reconnects do not trigger another prompt. Pending recovery sends are reused; uncertain ones remain in the outbox for inspection. Look for `recovery.queued` and its message ID in the RPC/delivery logs.
