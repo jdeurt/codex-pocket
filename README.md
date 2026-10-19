@@ -167,6 +167,14 @@ Schedules and immutable delivery history live in owner-private `.local/schedules
 
 Tasks run only while this Mac is awake and Pocket is running. After downtime, Pocket sends one overdue occurrence per task and advances a repeated task to its next future occurrence; it does not flood the chat with every missed repetition. Restart recovery reuses each run's durable message ID. An uncertain Codex acknowledgment is retained for inspection rather than automatically replayed. Diagnose `schedule.*` events alongside the matching outbox receipt before retrying anything.
 
+## Images
+
+Pocket displays generated images, image-view output, MCP/tool image content and image attachments already in the conversation. Assistant Markdown images can reference absolute computer paths, `file:` URLs, paths relative to `CODEX_CWD`, HTTPS URLs or inline raster images.
+
+Chat thumbnails fit the complete image without cropping, with rounded corners and reserved layout space to keep history scrolling stable. Tap an image for a larger screen-fitted preview; use the close control, tap outside it or press Escape to return to chat.
+
+Local and tool images go through Pocket's guarded image endpoint. It validates raster content, limits input to 25 MiB and 40 million pixels, and serves WebP thumbnails/previews. SVG is unsupported by that endpoint. Remote HTTP(S) images load directly in the browser. Tool image bytes are omitted from live snapshots and summarized by size in diagnostics. Removed or inaccessible local files show an unavailable state.
+
 ## Environment variables
 
 | Variable                    | Purpose                                                   | Default                                |
@@ -228,9 +236,11 @@ npm run build
 npm run test:e2e
 npm run test:e2e:queue
 npm run test:e2e:questions
+npm run test:e2e:schedules
+npm run test:e2e:images
 ```
 
-`npm run lint` runs ESLint with **`--max-warnings=0`**. ESLint and Prettier use the configs and pinned dependencies bundled with `jdeurt-engineering` 1.2.0. Their source lives in `tooling/engineering/`; the `.mjs` ESLint file is compiled from the bundled TypeScript source. Generated shadcn components and bundled tooling are excluded from application lint; Prettier checks the component source. The application uses the shared non-type-aware ESLint rules together with a separate strict TypeScript check. The two overrides preserve Node's event API and protocol/React `null` values.
+`npm run lint` runs ESLint with **`--max-warnings=0`**. ESLint and Prettier use the configs and pinned dependencies bundled with `jdeurt-engineering` 1.2.0. Their source lives in `tooling/engineering/`; the `.mjs` ESLint file is compiled from the bundled TypeScript source. Generated shadcn components and bundled tooling are excluded from application lint; Prettier checks the component source. The application uses the shared non-type-aware ESLint rules together with a separate strict TypeScript check. The two overrides preserve Node's event API and protocol/storage/React `null` values.
 
 Build first with `npm run build`. Browser tests use the real installed Codex process, make model calls in a new integration-test thread, and archive that thread afterward. They use port 3101 and a separate ignored state directory. Install Playwright's Chromium once with `npx playwright install chromium` if it is unavailable.
 

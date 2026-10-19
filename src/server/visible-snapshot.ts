@@ -1,4 +1,5 @@
-import { type Snapshot, string } from "../lib/protocol";
+import { type Item, type Snapshot, string } from "../lib/protocol";
+import { itemImageSources, itemImageUrl } from "../lib/images";
 
 // Only messages and explicitly projected display items leave the computer.
 export function visibleSnapshot(state: Snapshot): Snapshot {
@@ -14,13 +15,32 @@ export function visibleSnapshot(state: Snapshot): Snapshot {
     }),
     turns: state.turns.map((turn) => ({
       ...turn,
-      items: turn.items
-        .filter((item) => ["userMessage", "agentMessage"].includes(item.type))
-        .map((item) => {
-          const marker = item.type === "userMessage" ? scheduled.get(string(item.clientId)) : undefined;
+      items: turn.items.flatMap<Item>((item) => {
+        const marker = item.type === "userMessage" ? scheduled.get(string(item.clientId)) : undefined;
 
-          return marker ? { id: item.id, clientId: item.clientId, type: "scheduledTask", ...marker } : item;
-        }),
+        if (marker) {
+          return { id: item.id, clientId: item.clientId, type: "scheduledTask", ...marker };
+        }
+
+        const images = itemImageSources(item).map((source, index) => ({
+          source: /^https?:\/\//i.test(source) ? source : itemImageUrl(item.id, index),
+          alt: "Image from Pocket",
+        }));
+
+        if (["userMessage", "agentMessage"].includes(item.type)) {
+          return {
+            ...item,
+            ...(images.length > 0 && {
+              images,
+              content: Array.isArray(item.content)
+                ? item.content.filter((part) => (part as { type?: string }).type === "text")
+                : item.content,
+            }),
+          };
+        }
+
+        return images.length > 0 ? { id: item.id, type: "imageOutput", images } : [];
+      }),
     })),
   };
 }

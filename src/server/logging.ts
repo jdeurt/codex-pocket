@@ -15,13 +15,27 @@ const SECRET_KEY =
 export function redactLog(value: unknown): unknown {
   const normalized = value instanceof Error ? pino.stdSerializers.err(value) : value;
 
+  if (typeof normalized === "string" && normalized.startsWith("data:image/")) {
+    return { inlineImageLength: normalized.length };
+  }
+
   if (Array.isArray(normalized)) {
     return normalized.map((entry) => redactLog(entry));
   }
 
   return normalized && typeof normalized === "object"
     ? Object.fromEntries(
-        Object.entries(normalized).map(([key, entry]) => [key, SECRET_KEY.test(key) ? "[REDACTED]" : redactLog(entry)])
+        Object.entries(normalized).map(([key, entry]) => {
+          const image = (normalized as Record<string, unknown>).type;
+          const binary =
+            typeof entry === "string" &&
+            ((image === "imageGeneration" && key === "result") || (image === "image" && key === "data"));
+
+          return [
+            key,
+            SECRET_KEY.test(key) ? "[REDACTED]" : binary ? { imageBytesBase64Length: entry.length } : redactLog(entry),
+          ];
+        })
       )
     : normalized;
 }

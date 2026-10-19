@@ -6,7 +6,53 @@ async function send(page: Page, text: string) {
   await page.getByRole("button", { name: "Send message", exact: true }).click();
 }
 
-if (process.env.CODEX_TEST_SCHEDULES === "1") {
+if (process.env.CODEX_TEST_IMAGES === "1") {
+  test("real Codex image references fit the phone and open an accessible full-size preview", async ({ page }) => {
+    const TOUCH_TARGET_SIZE = 44;
+    await page.goto("/");
+    await expect(page.getByText("Connected", { exact: true })).toBeVisible();
+    await send(
+      page,
+      `Reply with exactly this Markdown image and no extra text: ![Pocket image check](${process.cwd()}/public/icon-512.png). Do not use tools.`
+    );
+    const thumbnail = page.getByRole("img", { name: "Pocket image check", exact: true });
+    await expect(thumbnail).toBeVisible();
+    await expect.poll(() => thumbnail.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);
+    await expect(thumbnail).toHaveCSS("object-fit", "contain");
+    await page.getByRole("button", { name: "Preview image: Pocket image check", exact: true }).click();
+    const preview = page.getByRole("dialog", { name: "Pocket image check", exact: true });
+    await expect(preview).toBeVisible();
+    const close = page.getByRole("button", { name: "Close image preview", exact: true });
+    await expect
+      .poll(async () => {
+        const bounds = await close.boundingBox();
+
+        return bounds?.width ?? 0;
+      })
+      .toBeGreaterThanOrEqual(TOUCH_TARGET_SIZE);
+    await expect
+      .poll(async () => {
+        const bounds = await close.boundingBox();
+
+        return bounds?.height ?? 0;
+      })
+      .toBeGreaterThanOrEqual(TOUCH_TARGET_SIZE);
+    await expect
+      .poll(() => preview.locator("img").evaluate((image: HTMLImageElement) => image.naturalWidth))
+      .toBeGreaterThan(0);
+    const fits = await preview.locator("img").evaluate((image: HTMLImageElement) => {
+      const box = image.getBoundingClientRect();
+
+      return box.left >= 0 && box.top >= 0 && box.right <= innerWidth && box.bottom <= innerHeight;
+    });
+    expect(fits).toBe(true);
+    await close.click();
+    await expect(preview).toHaveCount(0);
+    await page.reload();
+    await expect(thumbnail).toBeVisible();
+    await expect.poll(() => thumbnail.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);
+  });
+} else if (process.env.CODEX_TEST_SCHEDULES === "1") {
   test("real Codex calls the bundled MCP and receives a scheduled task with a hidden-body marker", async ({ page }) => {
     const SCHEDULE_DELAY_MS = 30_000;
     await page.goto("/");

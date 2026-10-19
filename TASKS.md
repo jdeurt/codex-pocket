@@ -47,7 +47,7 @@ The working backlog is the [Pocket project in Linear](https://linear.app/juan-de
 - [x] Immediate muted outgoing messages, confirmation without duplicates and live updates to connected clients.
 - [x] Keep failed-message text in the input field. Preserve this behavior in future changes.
 - [x] Muted response-size activity spinner, larger send button with equal spacing, stable history layout and larger jump-to-bottom control.
-- [x] Web Push for turn completion, with an upfront permission action. Actual Chrome push delivery reached the service worker with the page closed; iPhone permission and delivery require checking on the phone.
+- [x] Web Push for turn completion, with an upfront permission action. Actual Chrome push delivery reached the service worker with the page closed; the operator also confirmed delivery on the installed iPhone PWA.
 
 ## Notification and diagnostics batch (shipped)
 
@@ -56,7 +56,7 @@ The working backlog is the [Pocket project in Linear](https://linear.app/juan-de
 - [x] Pino diagnostics covering client failures, HTTP requests, SSE, message delivery, Codex RPC, push delivery and server lifecycle.
 - [x] Rotate private JSONL logs at a configurable size, using each file's creation time as its ISO filename.
 - [x] Retain client diagnostics through temporary disconnections and make restart/non-JSON errors understandable.
-- [x] Verify failed-send text preservation with real Codex, log rotation/redaction with unit tests, and notification geometry in Chrome; push and restart the deployed server. Visible iPhone notification delivery remains JUA-23.
+- [x] Verify failed-send text preservation with real Codex, log rotation/redaction with unit tests, and notification geometry in Chrome; push and restart the deployed server. Visible iPhone notification delivery was confirmed in JUA-23.
 
 ## Scheduling batch (shipped)
 
@@ -69,12 +69,20 @@ The working backlog is the [Pocket project in Linear](https://linear.app/juan-de
 - [x] Document setup, tools, recurrence, restart recovery and diagnosis for an agent.
 - [x] Test with real Codex, require zero ESLint warnings, push the completed changes and restart the service.
 
-## Images batch
+## Images batch (shipped)
 
-- [ ] Display image output and local image references in the conversation.
-- [ ] Fit the complete image within the phone layout with rounded corners.
-- [ ] Open a screen-fitted full-size preview on tap, with an accessible touch-size close control.
-- [ ] Verify image loading and preview behavior on mobile, then push and restart the service.
+- [x] Display image output and local image references in the conversation.
+- [x] Fit the complete image within the phone layout with rounded corners.
+- [x] Open a screen-fitted full-size preview on tap, with an accessible touch-size close control.
+- [x] Verify image loading and preview behavior on mobile, then push and restart the service. Real Codex image-reference tests pass; Chromium/WebKit geometry matches, and Safari's preview and close control were checked directly.
+
+## Follow-up tickets created through Pocket
+
+These later requests are tracked separately in Linear. Keep their existing owners and work in progress intact.
+
+- [ ] [JUA-34](https://linear.app/juan-de-urtubey/issue/JUA-34): Use reply text as the push notification body.
+- [ ] [JUA-35](https://linear.app/juan-de-urtubey/issue/JUA-35): Suppress completion notifications while Pocket is visible.
+- [ ] [JUA-36](https://linear.app/juan-de-urtubey/issue/JUA-36): Collapse completed-turn activity under animated “Show activity” / “Hide activity” controls and match message spacing to Markdown.
 
 ## Delivery cadence
 

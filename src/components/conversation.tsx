@@ -11,6 +11,7 @@ import {
   MessageScrollerProvider,
   MessageScrollerViewport,
 } from "@/components/ui/message-scroller";
+import { ChatImage } from "./chat-image";
 import { Markdown } from "./markdown";
 import { Prompt } from "./prompt";
 import { ScheduledMarker } from "./scheduled-marker";
@@ -34,7 +35,7 @@ function messageText(item: Item) {
 export function Conversation({ state }: { state: Snapshot }) {
   const messages = state.turns
     .flatMap((turn) => turn.items)
-    .filter((item) => ["userMessage", "agentMessage", "scheduledTask"].includes(item.type));
+    .filter((item) => ["userMessage", "agentMessage", "scheduledTask", "imageOutput"].includes(item.type));
   const thinking = !!state.activeTurnId && state.requests.length === 0;
 
   return (
@@ -86,6 +87,14 @@ export function Conversation({ state }: { state: Snapshot }) {
                           align={item.type === "userMessage" ? "end" : "start"}
                         >
                           <BubbleContent>
+                            {Array.isArray(item.images) &&
+                              item.images.map((image) => (
+                                <ChatImage
+                                  key={string(object(image).source)}
+                                  source={string(object(image).source)}
+                                  alt={string(object(image).alt) || "Image from Pocket"}
+                                />
+                              ))}
                             {item.type === "userMessage" ? (
                               <p className="whitespace-pre-wrap">{messageText(item)}</p>
                             ) : (
