@@ -10,6 +10,7 @@ import {
   MessageScrollerProvider,
   MessageScrollerViewport,
 } from "@/components/ui/message-scroller";
+import { FileAttachments } from "./file-attachments";
 import { Prompt } from "./prompt";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Snapshot } from "@/lib/protocol";
@@ -73,6 +74,7 @@ export function Conversation({ state }: { state: Snapshot }) {
                     <MessageContent>
                       <Bubble variant="secondary" align="end" data-message-id={item.id} data-delivery={item.status}>
                         <BubbleContent>
+                          {item.attachments && <FileAttachments files={item.attachments} />}
                           <p className="whitespace-pre-wrap">{item.text}</p>
                         </BubbleContent>
                       </Bubble>

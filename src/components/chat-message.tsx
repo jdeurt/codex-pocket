@@ -3,6 +3,8 @@ import { type Item, object, string } from "@/lib/protocol";
 import { Message, MessageContent } from "@/components/ui/message";
 import { AttachmentGroup } from "@/components/ui/attachment";
 import { ChatImage } from "./chat-image";
+import type { FileAttachment } from "@/lib/attachments";
+import { FileAttachments } from "./file-attachments";
 import { Markdown } from "./markdown";
 
 function messageText(item: Item) {
@@ -30,6 +32,7 @@ export function ChatMessage({ item }: { item: Item }) {
           align={item.type === "userMessage" ? "end" : "start"}
         >
           <BubbleContent>
+            {Array.isArray(item.attachments) && <FileAttachments files={item.attachments as FileAttachment[]} />}
             {Array.isArray(item.images) && item.images.length > 0 && (
               <AttachmentGroup layout="wrap" className="chat-images">
                 {item.images.map((image) => (

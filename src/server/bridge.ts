@@ -1,6 +1,7 @@
 import { type Config, readConfig } from "./config";
 import { type QueuedMessage, type RpcEvent, type Snapshot, type Turn, initialSnapshot } from "../lib/protocol";
 import { type Receipt, persistReceipts, restoreReceipts } from "./outbox";
+import { assertMessageContent, projectAttachments, resolveUploads } from "./uploads";
 import { CodexRpc } from "./rpc";
 import { EventEmitter } from "node:events";
 import { deliverMessage } from "./delivery";
@@ -48,6 +49,8 @@ export class Bridge extends EventEmitter {
     return result;
   }
   private publish() {
+    projectAttachments(this.snapshot, this.receipts);
+
     if (this.flushTimer) {
       return;
     }
@@ -278,7 +281,7 @@ export class Bridge extends EventEmitter {
       );
     }
   }
-  async send(id: string, text: string) {
+  async send(id: string, text: string, attachmentIds: string[] = []) {
     log().info({ id, text }, "message.received");
 
     return this.exclusive(async () => {
@@ -291,14 +294,13 @@ export class Bridge extends EventEmitter {
       const existing = this.receipts.find((r) => r.id === id);
 
       if (existing) {
-        if (existing.text !== text) {
-          throw new Error("Message ID already belongs to different text.");
-        }
+        assertMessageContent(existing, text, attachmentIds);
 
         return { id, status: existing.status };
       }
 
-      const receipt: Receipt = { id, text, status: "queued" };
+      const attachments = await resolveUploads(this.config.threadId, attachmentIds);
+      const receipt: Receipt = { id, text, ...(attachments.length > 0 && { attachments }), status: "queued" };
       this.receipts.push(receipt);
       await this.persist();
       await this.drain();

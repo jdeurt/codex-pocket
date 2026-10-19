@@ -23,6 +23,12 @@ export function visibleSnapshot(state: Snapshot): Snapshot {
           return [];
         }
 
+        if (item.type === "userMessage" && Array.isArray(item.attachments)) {
+          const { pocketAttachmentText, ...message } = item;
+
+          return { ...message, content: pocketAttachmentText ? [{ type: "text", text: pocketAttachmentText }] : [] };
+        }
+
         const images = itemImageSources(item).map((source, index) => ({
           source: /^https?:\/\//i.test(source) ? source : itemImageUrl(item.id, index),
           alt: "Image from Pocket",

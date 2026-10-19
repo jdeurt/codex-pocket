@@ -2,7 +2,7 @@ import { HTTP_BAD_REQUEST, MAX_BODY_BYTES } from "../lib/constants";
 import { log } from "./logging";
 import { readConfig } from "./config";
 
-export async function guard(request: Request, mutation = false) {
+export async function guard(request: Request, mutation = false, contentType = "application/json") {
   log().debug(
     {
       requestId: request.headers.get("x-pocket-request-id"),
@@ -28,8 +28,8 @@ export async function guard(request: Request, mutation = false) {
     throw new Error("Origin is not allowed.");
   }
 
-  if (mutation && !request.headers.get("content-type")?.startsWith("application/json")) {
-    throw new Error("Expected JSON.");
+  if (mutation && !request.headers.get("content-type")?.startsWith(contentType)) {
+    throw new Error(`Expected ${contentType}.`);
   }
 }
 export async function readBody(request: Request) {
