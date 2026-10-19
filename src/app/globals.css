@@ -325,7 +325,8 @@
 [data-delivery="unknown"] {
   opacity: 0.55;
 }
-.activity-indicator {
+.activity-indicator,
+.system-event {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -334,7 +335,11 @@
   font-size: 13px;
   line-height: 20px;
 }
-.activity-spinner {
+.system-event {
+  justify-content: center;
+}
+.activity-spinner,
+.system-event-icon {
   display: block;
   flex-shrink: 0;
   width: 1rem;

@@ -6,6 +6,7 @@ import { ChatImage } from "./chat-image";
 import type { FileAttachment } from "@/lib/attachments";
 import { FileAttachments } from "./file-attachments";
 import { Markdown } from "./markdown";
+import { SystemEvent } from "./system-event";
 
 function messageText(item: Item) {
   if (item.type === "agentMessage") {
@@ -21,6 +22,10 @@ function messageText(item: Item) {
 }
 
 export function ChatMessage({ item }: { item: Item }) {
+  if (item.type === "pocketRestart") {
+    return <SystemEvent />;
+  }
+
   return (
     <Message align={item.type === "userMessage" ? "end" : "start"}>
       <MessageContent>

@@ -9,6 +9,7 @@ import { loadHistory } from "./history";
 import { log } from "./logging";
 import { notifyTurnComplete } from "./push";
 import { queueRecovery } from "./recovery";
+import { recordRestart } from "./restart-events";
 import { reduceEvent } from "./reducer";
 import { resolveDesktopReplies } from "./desktop";
 import { resumePocket } from "./pocket-runtime";
@@ -37,9 +38,7 @@ export class Bridge extends EventEmitter {
       try {
         await previous;
       } catch {
-        /*
-        A failed operation must not block the next one.
-        */
+        // A failed operation must not block the next one.
       }
 
       return fn();
@@ -154,6 +153,8 @@ export class Bridge extends EventEmitter {
     for (const event of events ?? []) {
       this.event(event);
     }
+
+    this.snapshot.restartEvents = await recordRestart(this.snapshot);
 
     if (queueRecovery(this.snapshot, this.receipts)) {
       await this.persist();

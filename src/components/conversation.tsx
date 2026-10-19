@@ -19,9 +19,12 @@ import { TurnMessages } from "./turn-messages";
 import { post } from "@/lib/client-api";
 import { turnMessages } from "@/lib/turn-messages";
 
-export function Conversation({ state }: { state: Snapshot }) {
+export function Conversation({ state, readOnly = false }: { state: Snapshot; readOnly?: boolean }) {
   const messages = state.turns.flatMap((turn) => {
-    const entries = turnMessages(turn, turn.id === state.activeTurnId || turn.status === "inProgress");
+    const entries = turnMessages(
+      readOnly ? { ...turn, items: turn.items.filter((item) => item.type !== "pocketRestart") } : turn,
+      turn.id === state.activeTurnId || turn.status === "inProgress"
+    );
 
     return entries.length > 0 ? { id: turn.id, entries } : [];
   });

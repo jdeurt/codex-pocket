@@ -28,6 +28,11 @@ export interface QueuedMessage {
   attachments?: FileAttachment[];
   status: "queued" | "sending" | "unknown" | "sent";
 }
+export interface RestartEvent {
+  id: string;
+  threadId: string;
+  after: { turnId: string; itemId: string };
+}
 export interface Snapshot {
   connection: "unconfigured" | "connecting" | "connected" | "disconnected";
   title: string;
@@ -37,6 +42,7 @@ export interface Snapshot {
   activeTurnId?: string;
   activity?: string;
   turns: Turn[];
+  restartEvents?: RestartEvent[];
   queue: QueuedMessage[];
   requests: PendingRequest[];
   notices: { id: string; title: string; detail: string }[];

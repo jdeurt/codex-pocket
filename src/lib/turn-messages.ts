@@ -2,7 +2,7 @@ import { type Item, type Turn, object, string } from "./protocol";
 
 export type TurnEntry = { kind: "message"; item: Item } | { kind: "activity"; id: string; items: Item[] };
 
-export function turnMessages(turn: Turn, active: boolean): TurnEntry[] {
+function messageEntries(turn: Turn, active: boolean): TurnEntry[] {
   const messages = turn.items.filter((item) => {
     if (!["userMessage", "agentMessage", "imageOutput"].includes(item.type)) {
       return false;
@@ -47,4 +47,28 @@ export function turnMessages(turn: Turn, active: boolean): TurnEntry[] {
 
     return { kind: "activity", id: `activity-${turn.id}`, items: activity };
   });
+}
+
+export function turnMessages(turn: Turn, active: boolean): TurnEntry[] {
+  const entries: TurnEntry[] = [];
+  let items: Item[] = [];
+  let segment = 0;
+
+  for (const item of turn.items) {
+    if (item.type === "pocketRestart") {
+      // A display event is meaningful without text or media; keep it outside the empty-message filter.
+      entries.push(...messageEntries({ ...turn, id: segment ? `${turn.id}:${segment}` : turn.id, items }, active), {
+        kind: "message",
+        item,
+      });
+      items = [];
+      segment += 1;
+    } else {
+      items.push(item);
+    }
+  }
+
+  entries.push(...messageEntries({ ...turn, id: segment ? `${turn.id}:${segment}` : turn.id, items }, active));
+
+  return entries;
 }
