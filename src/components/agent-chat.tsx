@@ -1,10 +1,9 @@
 "use client";
-import { type AgentEntry, type AgentTranscript, agentSource, agentStatus } from "@/lib/agents";
-import { ArrowLeftIcon, XIcon } from "lucide-react";
+import type { AgentEntry, AgentTranscript } from "@/lib/agents";
 import { useEffect, useRef } from "react";
+import { ArrowLeftIcon } from "lucide-react";
 import { Button } from "./ui/button";
 import { Conversation } from "./conversation";
-import { Dialog } from "@base-ui/react/dialog";
 import { useAgentRead } from "@/hooks/use-agents";
 
 export function AgentChat({ agent, back }: { agent: AgentEntry; back: () => void }) {
@@ -33,13 +32,8 @@ export function AgentChat({ agent, back }: { agent: AgentEntry; back: () => void
           </p>
           {metadata && <p aria-label="Model and reasoning effort">{metadata}</p>}
         </div>
-        <Dialog.Close render={<Button variant="ghost" size="icon-xl" aria-label="Close agents" />}>
-          <XIcon />
-        </Dialog.Close>
+        <span className="size-11 shrink-0" aria-hidden="true" />
       </header>
-      <p className="agent-read-only">
-        {agentSource(current)} · {agentStatus(current.status)} · Read only
-      </p>
       {current.status === "failed" && (
         <p className="agent-notice" role="alert">
           This agent’s last turn failed. Its saved messages are shown below.

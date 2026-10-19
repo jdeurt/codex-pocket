@@ -169,6 +169,9 @@ test("offline replay: mobile/desktop read-only navigation, ellipsis, focus and p
     .evaluate((button: HTMLButtonElement) => button.click());
   const dialog = page.getByRole("dialog", { name: "Agents", exact: true });
   await expect(dialog).toBeVisible();
+  await expect(dialog.locator(".agents-list-header").getByRole("button")).toHaveCount(1);
+  await expect(dialog.getByRole("button", { name: "Back to Pocket", exact: true })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Close agents", exact: true })).toHaveCount(0);
   await expect(dialog).toHaveCSS("transform", "matrix(1, 0, 0, 1, 0, 0)");
   await expect(dialog.getByRole("button", { name: /Finished research/ })).toBeVisible();
   expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBeTruthy();
@@ -180,6 +183,10 @@ test("offline replay: mobile/desktop read-only navigation, ellipsis, focus and p
   await page.screenshot({ animations: "disabled", path: ".local/agent-browser-screenshots/mobile-list.png" });
   await row.click();
   await expect(dialog.getByRole("heading", { name: "Side Pocket", exact: true })).toBeFocused();
+  await expect(dialog.locator(".agent-chat-header").getByRole("button")).toHaveCount(1);
+  await expect(dialog.getByRole("button", { name: "Back to agents", exact: true })).toBeVisible();
+  await expect(dialog.locator(".agent-read-only")).toHaveCount(0);
+  await expect(dialog.getByLabel("Model and reasoning effort")).toHaveText("gpt-replay · high reasoning");
   await expect(dialog.getByText("Saved native-codex result", { exact: true })).toBeVisible();
   await expect(dialog.getByRole("textbox")).toHaveCount(0);
   await expect(dialog.getByRole("button", { name: /Send|Approve|Decline|Interrupt|Resume|Restart/i })).toHaveCount(0);
@@ -277,9 +284,18 @@ test("offline replay: denied access, network reconnect, native Claude chat and n
   const dialog = page.getByRole("dialog", { name: "Agents", exact: true });
   await expect(dialog).toHaveCSS("transform", "matrix(1, 0, 0, 1, 0, 0)");
   expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBeTruthy();
+  await expect(dialog.locator(".agents-list-header").getByRole("button")).toHaveCount(1);
+  await expect(dialog.getByRole("button", { name: "Back to Pocket", exact: true })).toBeFocused();
+  await page.screenshot({ animations: "disabled", path: ".local/agent-browser-screenshots/narrow-list.png" });
   await dialog.getByRole("button", { name: /Researching an exceptionally long/ }).click();
   const chat = dialog.locator(".agent-chat");
   await expect(chat.getByText("Saved native-codex result", { exact: true })).toBeVisible();
+  await expect(chat.locator("header").getByRole("button")).toHaveCount(1);
+  await expect(chat.getByRole("button", { name: "Back to agents", exact: true })).toBeVisible();
+  await expect(dialog.getByRole("button", { name: "Close agents", exact: true })).toHaveCount(0);
+  await expect(chat.locator(".agent-read-only")).toHaveCount(0);
+  expect(await chat.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBeTruthy();
+  await page.screenshot({ animations: "disabled", path: ".local/agent-browser-screenshots/narrow-chat.png" });
   connection.mode = "denied";
   await expect(chat.getByText(/Access denied/)).toBeVisible();
   await expect(chat.getByText("Saved native-codex result", { exact: true })).toBeVisible();
@@ -289,6 +305,7 @@ test("offline replay: denied access, network reconnect, native Claude chat and n
   await page.evaluate(() => globalThis.dispatchEvent(new globalThis.Event("online")));
   await expect(chat.getByText(/Access denied|Updates unavailable/)).toHaveCount(0);
   await page.keyboard.press("Escape");
+  await expect(dialog.getByRole("button", { name: /Researching an exceptionally long/ })).toBeFocused();
   await dialog.getByRole("button", { name: /Claude native research/ }).click();
   await expect(chat.getByText("Claude saved transcript a-replay", { exact: true })).toBeVisible();
   await expect(chat.getByRole("img", { name: "Image from Pocket" })).toBeVisible();

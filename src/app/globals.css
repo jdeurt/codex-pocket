@@ -680,12 +680,6 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-.agent-read-only {
-  color: var(--muted-foreground);
-  font-size: 12px;
-  text-align: center;
-  padding: 0 16px 12px;
-}
 .agent-notice {
   color: var(--muted-foreground);
   font-size: 13px;

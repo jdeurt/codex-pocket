@@ -1,6 +1,6 @@
 "use client";
 import { type AgentEntry, agentSource, agentStatus } from "@/lib/agents";
-import { ArrowLeftIcon, ChevronRightIcon, XIcon } from "lucide-react";
+import { ArrowLeftIcon, ChevronRightIcon } from "lucide-react";
 import { Button } from "./ui/button";
 import { Dialog } from "@base-ui/react/dialog";
 import type { RefObject } from "react";
@@ -27,9 +27,7 @@ export function AgentList({
           <ArrowLeftIcon />
         </Dialog.Close>
         <h2>Agents</h2>
-        <Dialog.Close render={<Button variant="ghost" size="icon-xl" aria-label="Close agents" />}>
-          <XIcon />
-        </Dialog.Close>
+        <span className="size-11 shrink-0" aria-hidden="true" />
       </header>
       <div className="agents-list">
         {error || warnings.length > 0 ? (
