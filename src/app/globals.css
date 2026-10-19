@@ -152,7 +152,7 @@
   min-width: 0;
   max-width: min(100%, 420px);
   padding: 0;
-  overflow: hidden;
+  overflow: visible;
   border-radius: 20px;
   margin: 0;
   user-select: none;
@@ -170,6 +170,7 @@
   max-width: 100%;
   aspect-ratio: auto;
   border-radius: inherit;
+  overflow: visible;
 }
 .chat-image-media img {
   display: block;
@@ -200,6 +201,7 @@
 .image-placeholder {
   position: absolute;
   inset: 0;
+  border-radius: inherit;
 }
 .image-fit-stage {
   position: absolute;
