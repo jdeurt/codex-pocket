@@ -52,3 +52,69 @@ test("disconnect resolves an in-flight probe without muting the device", async (
   disconnect();
   assert.equal(await pending, false);
 });
+
+test("the live presence route carries probes, accepts same-origin acknowledgements and releases aborted streams", async () => {
+  const { GET, POST } = await import("../src/app/api/notifications/presence/route");
+  const { notificationPresence } = await import("../src/server/notification-presence");
+  const previousThread = process.env.CODEX_THREAD_ID;
+  const previousOrigins = process.env.CODEX_ALLOWED_ORIGINS;
+  process.env.CODEX_THREAD_ID = "presence-route-test";
+  process.env.CODEX_ALLOWED_ORIGINS = "http://127.0.0.1:3000";
+  const deviceId = notificationDeviceId(PHONE);
+  const abort = new AbortController();
+
+  try {
+    const response = await GET(
+      new Request(`http://127.0.0.1:3000/api/notifications/presence?device=${deviceId}`, {
+        headers: { host: "127.0.0.1:3000" },
+        signal: abort.signal,
+      })
+    );
+    const HTTP_OK = 200;
+    assert.equal(response.status, HTTP_OK);
+    assert.match(response.headers.get("content-type") ?? "", /text\/event-stream/);
+    const reader = response.body?.getReader();
+    assert.ok(reader);
+    await reader.read();
+    const pending = notificationPresence.isForeground(PHONE);
+    const probeMessage = await reader.read();
+    const probe = new TextDecoder().decode(probeMessage.value);
+    const data = probe.split("data: ", 2)[1].trim();
+    const { challengeId } = JSON.parse(data) as { challengeId: string };
+    const acknowledge = await POST(
+      new Request("http://127.0.0.1:3000/api/notifications/presence", {
+        method: "POST",
+        headers: { host: "127.0.0.1:3000", origin: "http://127.0.0.1:3000", "content-type": "application/json" },
+        body: JSON.stringify({ deviceId, challengeId }),
+      })
+    );
+    assert.deepEqual(await acknowledge.json(), { acknowledged: true });
+    assert.equal(await pending, true);
+    abort.abort();
+    assert.equal(await notificationPresence.isForeground(PHONE), false);
+    await reader.cancel();
+    const rejected = await POST(
+      new Request("http://127.0.0.1:3000/api/notifications/presence", {
+        method: "POST",
+        headers: { host: "127.0.0.1:3000", origin: "https://untrusted.example", "content-type": "application/json" },
+        body: JSON.stringify({ deviceId, challengeId }),
+      })
+    );
+    const HTTP_FORBIDDEN = 403;
+    assert.equal(rejected.status, HTTP_FORBIDDEN);
+  } finally {
+    abort.abort();
+
+    if (previousThread === undefined) {
+      delete process.env.CODEX_THREAD_ID;
+    } else {
+      process.env.CODEX_THREAD_ID = previousThread;
+    }
+
+    if (previousOrigins === undefined) {
+      delete process.env.CODEX_ALLOWED_ORIGINS;
+    } else {
+      process.env.CODEX_ALLOWED_ORIGINS = previousOrigins;
+    }
+  }
+});
