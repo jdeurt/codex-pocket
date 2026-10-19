@@ -50,7 +50,10 @@ function measureRow(element: HTMLElement, entry: ResizeObserverEntry | undefined
 
 function hasVisibleContent(item: Item) {
   // Empty streaming placeholders must not create an invisible row before status.
-  if (Array.isArray(item.images) && item.images.length > 0) {
+  if (
+    (Array.isArray(item.attachments) && item.attachments.length > 0) ||
+    (Array.isArray(item.images) && item.images.length > 0)
+  ) {
     return true;
   }
 
@@ -236,10 +239,10 @@ function MeasuredTranscript({
                 <div
                   ref={(element) => virtualizer.measureElement(element)}
                   data-index={rows.length}
-                  className="absolute top-0 left-0 flex w-full min-w-0 flex-col gap-(--message-block-gap)"
+                  data-slot="transcript-footer"
+                  className="absolute top-0 left-0 flex w-full min-w-0 flex-col [&:has(>:not(:empty))]:gap-(--message-block-gap) [&:has(>:not(:empty))]:pt-(--message-block-gap) [&>:empty]:hidden"
                   style={{
                     transform: `translateY(${footerRow?.start ?? 0}px)`,
-                    paddingTop: footer.length > 0 ? "var(--message-block-gap)" : 0,
                   }}
                 >
                   {footer}
