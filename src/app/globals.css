@@ -433,6 +433,8 @@
 }
 .copy-action {
   display: flex;
+  width: fit-content;
+  max-width: 100%;
   align-items: center;
   flex-wrap: wrap;
   gap: 8px;
@@ -440,6 +442,9 @@
 .copy-action-status {
   color: var(--muted-foreground);
   font-size: 13px;
+}
+.copy-action-status:empty {
+  position: absolute;
 }
 .markdown h1,
 .markdown h2,

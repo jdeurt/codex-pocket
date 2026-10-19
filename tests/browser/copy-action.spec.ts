@@ -210,6 +210,40 @@ test("streaming partial and malformed markers remain code until a valid closing 
   await expect(markdown.getByRole("status")).toHaveText("");
 });
 
+test("an empty streamed marker stays visible without empty flow blocks or extra wrapper space", async ({ page }) => {
+  await spyClipboard(page);
+  const { markdown, stream } = await showChat(page, "Before\n\n```pocket-copy");
+
+  for (const partial of [
+    "```",
+    "```p",
+    "```pocket-",
+    "```pocket-copy",
+    "```pocket-copy\n",
+    "```pocket-copy\n \n",
+    "```pocket-copy\n\n```",
+    '```pocket-copy\n"unfinished',
+  ]) {
+    await stream("Before\n\n" + partial);
+    await expect(markdown).toContainText(partial.trim());
+    await expect(markdown.getByRole("button")).toHaveCount(0);
+    expect(
+      await markdown.evaluate((element) => [...element.children].every((child) => child.textContent?.trim()))
+    ).toBe(true);
+  }
+
+  await stream(marker(""));
+  const button = markdown.getByRole("button", { name: "Copy text", exact: true });
+  await expect(button).toBeVisible();
+  const dimensions = await button.evaluate((element) => {
+    const buttonRect = element.getBoundingClientRect();
+    const action = element.parentElement?.getBoundingClientRect();
+
+    return action ? { width: action.width - buttonRect.width, height: action.height - buttonRect.height } : null;
+  });
+  expect(dimensions).toEqual({ width: 0, height: 0 });
+});
+
 for (const mode of ["reject", "unavailable"] as const) {
   test(`clipboard ${mode} reports an accessible error and never claims success`, async ({ page }, testInfo) => {
     await spyClipboard(page, mode);

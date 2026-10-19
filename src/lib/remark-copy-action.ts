@@ -7,7 +7,7 @@ function transformCopyActions(tree: Root, file: VFile) {
   const source = String(file);
 
   for (const node of tree.children) {
-    if (node.type !== "code" || node.lang !== "pocket-copy" || node.meta) {
+    if (node.type !== "code") {
       continue;
     }
 
@@ -18,7 +18,22 @@ function transformCopyActions(tree: Root, file: VFile) {
       continue;
     }
 
-    const marker = /^```pocket-copy\r?\n([\s\S]*?)\r?\n```[\t ]*$/.exec(source.slice(start, end));
+    const raw = source.slice(start, end);
+
+    if (!node.value.trim() && "```pocket-copy".startsWith(raw.trimEnd())) {
+      node.value = raw;
+      continue;
+    }
+
+    if (node.lang !== "pocket-copy") {
+      continue;
+    }
+
+    const marker = node.meta ? null : /^```pocket-copy\r?\n([\s\S]*?)\r?\n```[\t ]*$/.exec(raw);
+
+    // A streamed opening fence can have no body yet. Keep its literal source
+    // visible instead of producing an empty code box that consumes a flow gap.
+    node.value = raw;
 
     if (!marker) {
       continue;
