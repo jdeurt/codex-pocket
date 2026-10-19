@@ -193,7 +193,7 @@ Local and tool images go through Pocket's guarded image endpoint. It validates r
 | `CODEX_SERVER_ARGS`         | JSON array of arguments passed directly to Codex          | `["app-server","--listen","stdio://"]` |
 | `CODEX_POCKET_STATE_DIR`    | Local receipts, requests, push keys, schedules and logs   | `.local`                               |
 
-Codex uses its local login and configuration. The bridge sends no per-turn model, sandbox, permission or approval-policy overrides. Configure process-wide overrides with `CODEX_SERVER_ARGS` on the computer. The header displays the effective model and reasoning effort returned by Codex.
+Codex uses its local login and configuration. The bridge sends no per-turn model, sandbox, permission or approval-policy overrides. Configure process-wide overrides with `CODEX_SERVER_ARGS` on the computer. Pocket applies the computer's effective reasoning effort explicitly when resuming a saved thread and starting each new turn, so a saved thread's older effort does not override the selected setting. The header displays the effective model and reasoning effort returned by Codex.
 
 The default transport owns a local `codex app-server` process. It resumes the saved thread at service startup and restarts that process after a disconnect. It cannot steer an unrelated CLI process already running elsewhere. Use this bridge as the thread's active owner. Codex builds that provide a shared daemon can use `CODEX_SERVER_ARGS='["app-server","proxy"]'`; that requires a daemon started separately, and only rejoins threads hosted by that daemon.
 
