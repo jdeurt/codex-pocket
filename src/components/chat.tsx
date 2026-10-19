@@ -3,13 +3,13 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ArrowUpIcon, TerminalIcon } from "lucide-react";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } from "@/components/ui/input-group";
+import { stageMessage, updateDelivery, useThread } from "@/hooks/use-thread";
 import { useEffect, useRef, useState } from "react";
 import { Conversation } from "./conversation";
 import { connectionStatus } from "@/lib/connection-status";
 import { modelDescription } from "@/lib/model-description";
 import { post } from "@/lib/client-api";
 import { useDraft } from "@/hooks/use-draft";
-import { useThread } from "@/hooks/use-thread";
 
 export function Chat() {
   const { state, connected: streamConnected } = useThread();
@@ -38,6 +38,8 @@ export function Chat() {
     const id = (messageId.current ??= crypto.randomUUID());
     setSending(true);
     setError("");
+    stageMessage(id, text);
+    setDraft("");
 
     try {
       const result = await post("/api/messages", { id, text });
@@ -46,10 +48,12 @@ export function Chat() {
         throw new Error("Delivery is uncertain. Check the conversation on your computer before sending again.");
       }
 
-      setDraft("");
+      updateDelivery(id, result.status === "sent" ? "sent" : "queued");
       messageId.current = null;
       textarea.current?.focus();
     } catch (error_) {
+      updateDelivery(id, "unknown");
+      setDraft(text);
       setError(error_ instanceof Error ? error_.message : "Couldn't send. Try again when connected.");
     } finally {
       setSending(false);

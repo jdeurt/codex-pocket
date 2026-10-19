@@ -1,9 +1,10 @@
 "use client";
 import { CodeBlock, CodeBlockContent } from "@/components/ui/code-block";
 import ReactMarkdown from "react-markdown";
+import { memo } from "react";
 import remarkGfm from "remark-gfm";
 
-export function Markdown({ children: source }: { children: string }) {
+export const Markdown = memo(function MarkdownContent({ children: source }: { children: string }) {
   return (
     <div className="markdown">
       <ReactMarkdown
@@ -32,4 +33,4 @@ export function Markdown({ children: source }: { children: string }) {
       </ReactMarkdown>
     </div>
   );
-}
+});

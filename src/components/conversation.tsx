@@ -2,7 +2,6 @@
 import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { type Item, type Snapshot, object, string } from "@/lib/protocol";
-import { Marker, MarkerContent } from "@/components/ui/marker";
 import { Message, MessageContent } from "@/components/ui/message";
 import {
   MessageScroller,
@@ -15,6 +14,7 @@ import {
 import { Markdown } from "./markdown";
 import { Prompt } from "./prompt";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Spinner } from "@/components/ui/spinner";
 import { post } from "@/lib/client-api";
 
 function messageText(item: Item) {
@@ -76,6 +76,8 @@ export function Conversation({ state }: { state: Snapshot }) {
                   <Message align={item.type === "userMessage" ? "end" : "start"}>
                     <MessageContent>
                       <Bubble
+                        data-message-id={string(item.clientId) || item.id}
+                        data-delivery={item.type === "userMessage" ? "sent" : undefined}
                         variant={item.type === "userMessage" ? "secondary" : "ghost"}
                         align={item.type === "userMessage" ? "end" : "start"}
                       >
@@ -95,18 +97,20 @@ export function Conversation({ state }: { state: Snapshot }) {
                 <MessageScrollerItem messageId={`queue-${item.id}`} key={item.id}>
                   <Message align="end">
                     <MessageContent>
-                      <Bubble variant="secondary" align="end">
+                      <Bubble variant="secondary" align="end" data-message-id={item.id} data-delivery={item.status}>
                         <BubbleContent>
                           <p className="whitespace-pre-wrap">{item.text}</p>
                         </BubbleContent>
                       </Bubble>
-                      <p className="delivery-status">
-                        {item.status === "unknown"
-                          ? "Delivery uncertain. Check on your computer."
-                          : item.status === "sending"
-                            ? "Sending…"
-                            : "Queued"}
-                      </p>
+                      {item.status !== "sent" && (
+                        <p className="delivery-status">
+                          {item.status === "unknown"
+                            ? "Delivery uncertain. Check on your computer."
+                            : item.status === "sending"
+                              ? "Sending…"
+                              : "Queued"}
+                        </p>
+                      )}
                     </MessageContent>
                   </Message>
                 </MessageScrollerItem>
@@ -123,17 +127,12 @@ export function Conversation({ state }: { state: Snapshot }) {
               ))}
               {thinking && (
                 <MessageScrollerItem messageId="thinking">
-                  <Marker role="status">
-                    <MarkerContent>
-                      <span className="shimmer">Thinking</span>
-                      <span aria-hidden="true">…</span>
-                    </MarkerContent>
-                  </Marker>
+                  <Spinner className="activity-spinner" aria-label="Thinking" />
                 </MessageScrollerItem>
               )}
             </MessageScrollerContent>
           </MessageScrollerViewport>
-          <MessageScrollerButton aria-label="Jump to latest message" />
+          <MessageScrollerButton aria-label="Jump to latest message" size="icon-xl" className="rounded-full" />
         </MessageScroller>
       </div>
     </MessageScrollerProvider>

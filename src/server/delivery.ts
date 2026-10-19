@@ -28,7 +28,12 @@ export async function deliverMessage(rpc: CodexRpc, config: Config, state: Snaps
   }
 
   try {
-    await rpc.request("turn/steer", { threadId: config.threadId, expectedTurnId: state.activeTurnId, input });
+    await rpc.request("turn/steer", {
+      threadId: config.threadId,
+      expectedTurnId: state.activeTurnId,
+      input,
+      clientUserMessageId: receipt.id,
+    });
   } catch (error) {
     // An explicit rejection is safe to recover. A timeout may already have delivered.
     if (!(error instanceof RpcError) || error.code === undefined) {

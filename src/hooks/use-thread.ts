@@ -1,18 +1,37 @@
 "use client";
-import { type Snapshot, initialSnapshot } from "@/lib/protocol";
+import { type QueuedMessage, type Snapshot, initialSnapshot } from "@/lib/protocol";
+import { reconcileDeliveries } from "@/lib/deliveries";
 import { useSyncExternalStore } from "react";
 
 const listeners = new Set<() => void>();
 const RECONNECT_DELAY_MS = 3000;
 const initial = { state: initialSnapshot, connected: false };
-const store: { current: typeof initial; stop?: () => void } = { current: initial };
+const store: {
+  current: typeof initial;
+  latestState: Snapshot;
+  pending: QueuedMessage[];
+  stop?: () => void;
+} = { current: initial, latestState: initialSnapshot, pending: [] };
 
 function publish(state: Snapshot, connected: boolean) {
-  store.current = { state, connected };
+  store.latestState = state;
+  const reconciled = reconcileDeliveries(state, store.pending);
+  store.pending = reconciled.pending;
+  store.current = { state: reconciled.state, connected };
 
   for (const listener of listeners) {
     listener();
   }
+}
+
+export function stageMessage(id: string, text: string) {
+  store.pending = [...store.pending.filter((message) => message.id !== id), { id, text, status: "sending" }];
+  publish(store.latestState, store.current.connected);
+}
+
+export function updateDelivery(id: string, status: QueuedMessage["status"]) {
+  store.pending = store.pending.map((message) => (message.id === id ? { ...message, status } : message));
+  publish(store.latestState, store.current.connected);
 }
 
 function start() {
@@ -33,7 +52,7 @@ function start() {
       source?.close();
       retry = setTimeout(connect, RECONNECT_DELAY_MS);
     });
-    source.addEventListener("error", () => publish(store.current.state, false));
+    source.addEventListener("error", () => publish(store.latestState, false));
   };
   const wake = () => {
     if (document.visibilityState === "visible") {

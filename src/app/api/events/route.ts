@@ -71,6 +71,11 @@ export async function GET(request: Request) {
   });
 
   return new Response(stream, {
-    headers: { ...noStore, "Content-Type": "text/event-stream", "X-Accel-Buffering": "no" },
+    headers: {
+      ...noStore,
+      "Cache-Control": "no-store, no-transform",
+      "Content-Type": "text/event-stream",
+      "X-Accel-Buffering": "no",
+    },
   });
 }

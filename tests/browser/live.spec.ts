@@ -1,4 +1,5 @@
 import { type Page, expect, test } from "@playwright/test";
+import type { Snapshot } from "../../src/lib/protocol";
 
 async function send(page: Page, text: string) {
   await page.getByRole("textbox", { name: "Message Codex" }).fill(text);
@@ -28,10 +29,74 @@ if (process.env.CODEX_TEST_PLAN_MODE === "1") {
     await expect(page.getByRole("heading", { name: "Pocket", exact: true })).toBeVisible();
     await expect(page.getByText("Connected", { exact: true })).toBeVisible();
     await expect(page.getByLabel("Model and reasoning effort")).toContainText("reasoning");
+    const observer = await page.context().newPage();
+    await observer.goto("/");
+    await expect(observer.getByText("Connected", { exact: true })).toBeVisible();
+    const dispatch = Promise.withResolvers<boolean>();
+    await page.route(
+      "**/api/messages",
+      async (route) => {
+        await dispatch.promise;
+        await route.continue();
+      },
+      { times: 1 }
+    );
     await send(page, "Reply exactly POCKET_OK. Do not use tools.");
+    await expect(page.getByText("Sending…", { exact: true })).toBeVisible();
+    await expect(page.getByRole("textbox", { name: "Message Codex" })).toHaveValue("");
+    await expect(page.locator('[data-delivery="sending"]')).toHaveCSS("opacity", "0.55");
+    dispatch.resolve(true);
     await expect(page.getByText("POCKET_OK", { exact: true })).toBeVisible();
+    await expect(page.getByText("Reply exactly POCKET_OK. Do not use tools.", { exact: true })).toHaveCount(1);
+    await expect(page.getByText("Sending…", { exact: true })).toHaveCount(0);
+    await expect(observer.getByText("POCKET_OK", { exact: true })).toBeVisible();
+    const streaming = observer.evaluate(
+      () =>
+        new Promise<number>((resolve, reject) => {
+          const STREAM_TIMEOUT_MS = 90_000;
+          const source = new EventSource("/api/events");
+          const prefixes = new Set<string>();
+          const timer = setTimeout(() => {
+            source.close();
+            reject(new Error("Live response streaming timed out."));
+          }, STREAM_TIMEOUT_MS);
+          source.addEventListener("message", (event: MessageEvent<string>) => {
+            const LAST_TURN_INDEX = -1;
+            const state = JSON.parse(event.data) as Snapshot;
+            const text =
+              state.turns
+                .at(LAST_TURN_INDEX)
+                ?.items.filter((item) => item.type === "agentMessage")
+                .map((item) => item.text)
+                .join("") ?? "";
+
+            if (!text.startsWith("STREAM_START")) {
+              return;
+            }
+
+            if (state.activeTurnId) {
+              prefixes.add(text);
+            }
+
+            if (!text.includes("STREAM_END") || state.activeTurnId) {
+              return;
+            }
+
+            clearTimeout(timer);
+            source.close();
+            resolve(prefixes.size);
+          });
+        })
+    );
+    await send(
+      page,
+      "Start with STREAM_START, list the numbers 1 through 120 one per line, and finish with STREAM_END. Do not use tools."
+    );
+    expect(await streaming).toBeGreaterThan(1);
+    await expect(observer.getByText(/STREAM_START[\s\S]*STREAM_END/).last()).toBeVisible();
+    await observer.close();
     await send(page, "Run the read-only shell command sleep 5, then reply BEFORE_STEER. Do not change any files.");
-    await expect(page.getByText("Thinking", { exact: true })).toBeVisible();
+    await expect(page.getByRole("status", { name: "Thinking" })).toBeVisible();
     await send(page, "Steering update: reply exactly STEER_OK instead.");
 
     if (process.env.CODEX_TEST_ACTIVE_MODE === "queue") {

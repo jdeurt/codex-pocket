@@ -122,6 +122,10 @@
   margin-inline: auto;
   padding: 24px 24px 32px;
 }
+.transcript > [data-slot="message-scroller-item"] {
+  content-visibility: visible;
+  contain-intrinsic-size: none;
+}
 .chat-empty {
   min-height: 52dvh;
 }
@@ -142,6 +146,18 @@
   padding-top: 4px;
   text-align: right;
 }
+[data-delivery="sending"],
+[data-delivery="queued"],
+[data-delivery="unknown"] {
+  opacity: 0.55;
+}
+.activity-spinner {
+  display: block;
+  width: 1em;
+  height: 1em;
+  color: var(--muted-foreground);
+  opacity: 0.7;
+}
 .composer-wrap {
   flex-shrink: 0;
   width: min(100%, 768px);
@@ -149,30 +165,32 @@
   padding: 10px 16px max(16px, env(safe-area-inset-bottom));
 }
 .composer {
+  --composer-control-size: 44px;
   background: var(--secondary);
   border-color: transparent;
-  border-radius: 28px;
-  padding: 6px 8px 6px 16px;
+  border-radius: 30px;
+  padding: 6px 6px 6px 16px;
   align-items: flex-end;
 }
 .composer textarea {
-  min-height: 36px;
+  min-height: var(--composer-control-size);
   max-height: 168px;
   font-size: 16px;
   line-height: 24px;
-  padding: 6px 0;
+  padding: 10px 0;
   border: 0;
   margin: 0;
 }
 .composer [data-slot="input-group-addon"] {
   padding: 0;
-  height: 36px;
+  margin: 0;
+  height: var(--composer-control-size);
   align-self: flex-end;
 }
 .send-button {
   border-radius: 50%;
-  min-width: 36px;
-  min-height: 36px;
+  width: var(--composer-control-size);
+  height: var(--composer-control-size);
 }
 .prompt {
   background: var(--card);

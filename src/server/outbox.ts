@@ -6,7 +6,7 @@ const RECEIPT_LIMIT = 1000;
 export interface Receipt {
   id: string;
   text: string;
-  status: QueuedMessage["status"] | "sent";
+  status: QueuedMessage["status"];
 }
 interface Outbox {
   threadId: string;

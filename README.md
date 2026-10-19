@@ -1,42 +1,126 @@
 # Pocket
 
-A small phone interface for one Codex thread running on your computer. Messages stream live. Tool activity appears as **Thinking**. Codex can ask questions and request approvals in the conversation.
+A small phone interface for one Codex thread running on your computer. Messages stream live. Tool activity appears as a small muted spinner. Sends appear immediately in a muted bubble and become solid when Codex acknowledges them. Codex can ask questions and request approvals in the conversation.
 
 Built with Next.js, Tailwind CSS and shadcn/ui. Session selection and behavior belong to the computer; the phone has a conversation and a send button.
 
-## Run on your computer
+## Agent setup on macOS
 
-Use Node.js 24, npm, and a signed-in Codex CLI with app-server support. The bridge was checked against `codex-cli 0.163.0-alpha.10.2`.
+Follow these steps from the repository on the computer that will run Codex. Keep its `.env.local`, thread selection and service configuration local to that computer.
+
+### 1. Check the computer
+
+You need npm, a Codex CLI signed in with app-server support, and Tailscale connected to the phone's tailnet. This bridge was checked against `codex-cli 0.163.0-alpha.10.2`. Clone the private repository under `~/Developer/codex-pocket` if it is missing, then enter it.
 
 ```sh
+cd "$HOME/Developer/codex-pocket"
+export CODEX_BINARY="$(command -v codex)"
+"$CODEX_BINARY" login status
+tailscale status
+tailscale serve status --json
+lsof -nP -iTCP:3000 -sTCP:LISTEN
+```
+
+An empty `lsof` result means port 3000 is available. If something owns it, identify it before continuing. Preserve existing Tailscale routes; do not reset Serve or overwrite another service's root HTTPS route.
+
+Use Node.js 24. If the computer's default Node is older, install a persistent repository-local runtime:
+
+```sh
+npm install --prefix .local/runtime --package-lock=false --no-audit --no-fund node@24
+export PATH="$PWD/.local/runtime/node_modules/node/bin:$PATH"
+node --version
 npm ci
-cp .env.example .env.local
 ```
 
-Set `CODEX_THREAD_ID` to an existing local thread ID and `CODEX_CWD` to its absolute project directory. `codex resume` helps you find a saved thread. Set `CODEX_BINARY` to the full executable path if Codex is not on your PATH.
+Use this PATH for every command below. The service installer records the current Node executable's absolute path, so it must point to a persistent runtime.
+
+### 2. Configure one thread
+
+Derive the computer's HTTPS origin and choose an absolute working directory:
 
 ```sh
+export POCKET_ORIGIN="$(tailscale status --json | python3 -c 'import json,sys; print("https://" + json.load(sys.stdin)["Self"]["DNSName"].rstrip("."))')"
+export CODEX_CWD="$HOME/Developer"
+```
+
+Model, effort and permissions are configured on the computer through `CODEX_SERVER_ARGS` or the local Codex configuration. For an unrestricted deployment explicitly requested by the operator, this profile selects **gpt-6.1-sol**, **xhigh**, unrestricted command/filesystem access and no approval prompts:
+
+```sh
+export CODEX_SERVER_ARGS='["app-server","--listen","stdio://","-c","model=\"gpt-6.1-sol\"","-c","model_reasoning_effort=\"xhigh\"","-c","sandbox_mode=\"danger-full-access\"","-c","approval_policy=\"never\""]'
+```
+
+These overrides apply to Pocket's Codex process. They do not edit the computer's global Codex configuration. With `CODEX_SERVER_ARGS` unset, a fresh setup inherits the local Codex settings.
+
+For a first setup, create a dedicated saved thread:
+
+```sh
+POCKET_THREAD_ID='' npm run setup
+```
+
+The setup command starts a real Codex process, names the thread Pocket, runs a short welcome turn and writes `.env.local` with owner-only permissions. It prints the effective model, effort, sandbox and approval policy. It also adds the Tailscale origin to `CODEX_ALLOWED_ORIGINS`. Verify the printed settings against the operator's request.
+
+To select an existing saved thread, use `POCKET_THREAD_ID=YOUR_THREAD_ID npm run setup`. The setup helper deliberately ignores the shell's inherited `CODEX_THREAD_ID`, which Codex injects for its own conversation. Running `npm run setup` without `POCKET_THREAD_ID` preserves the thread already saved in `.env.local` and updates the other supplied values. Do not create a new thread on routine restarts or updates.
+
+For manual setup, copy `.env.example` to `.env.local`, then fill in `CODEX_THREAD_ID`, `CODEX_CWD`, `CODEX_BINARY` and the allowed origins. The phone has no session settings.
+
+### 3. Build and install the service
+
+```sh
+npm run check
+npm test
 npm run build
-npm start
+npm run service:install
+launchctl print "gui/$(id -u)/dev.pocket.web"
+curl --fail http://127.0.0.1:3000 > /dev/null
 ```
 
-Open <http://localhost:3000>. For development, use `npm run dev`. Restart the server after changing environment variables.
+Allow a few seconds for startup before the HTTP check. The installer creates `~/Library/LaunchAgents/dev.pocket.web.plist` and starts Pocket on `127.0.0.1:3000`. It runs at login and restarts after a crash. The Mac must remain awake and the user must remain logged in.
 
-## Use your phone through Tailscale
+### 4. Serve privately through Tailscale
 
-Run this on the computer with Tailscale installed and signed in:
+Once local HTTP responds, and the root HTTPS route is available:
 
 ```sh
-tailscale serve --bg http://127.0.0.1:3000
+tailscale serve --bg --yes http://127.0.0.1:3000
+tailscale serve status --json
+curl --fail "$POCKET_ORIGIN" > /dev/null
 ```
 
-Add the HTTPS origin printed by Tailscale to `CODEX_ALLOWED_ORIGINS`, then restart Pocket. Keep the local origins if you use them:
+Use Tailscale Serve for private tailnet access. Check that the route targets `http://127.0.0.1:3000` and Funnel is disabled. If Tailscale requires enabling HTTPS, complete the action printed by its CLI and rerun the command.
 
-```dotenv
-CODEX_ALLOWED_ORIGINS=http://localhost:3000,http://127.0.0.1:3000,https://your-computer.your-tailnet.ts.net
+Connect the phone to the same tailnet, open `POCKET_ORIGIN` and add it to the home screen. Tailnet access grants control of the configured Codex thread; the app has no separate account system. Set tailnet ACLs for the intended operators. Pocket checks request hosts and mutation origins.
+
+### 5. Verify the running deployment
+
+Open the HTTPS URL in a mobile browser or a mobile browser emulator. Confirm the title is Pocket, the model/effort match the requested profile and the connection is live. Send a harmless message through the UI and confirm a real reply. The outgoing bubble should appear immediately, become solid after acknowledgment and appear on a second connected client without a refresh. Replies and the activity spinner update through server-sent events.
+
+Check the effective permission settings printed during setup and the actual service process arguments. Verify history returns after a page reload and an idle service restart. Do not interrupt an active Codex turn to deploy an update. Report the HTTPS URL, chosen working directory, model/effort, access policy and checks performed to the operator. Do not commit `.env.local`, `.local/`, local thread IDs or machine-specific URLs.
+
+## Operate and update
+
+Restart after editing `.env.local`:
+
+```sh
+launchctl kickstart -k "gui/$(id -u)/dev.pocket.web"
 ```
 
-Connect your phone to the same tailnet, open that HTTPS URL and add it to your home screen. Tailscale Serve supplies HTTPS and tailnet access; configure your tailnet ACLs for the people allowed to operate Codex. The app listens on loopback and checks request hosts and mutation origins. It has no separate account system. Use Serve, rather than public Funnel, for this setup.
+Logs are in `.local/logs/pocket.log` and `.local/logs/pocket.err.log`. To inspect service state, use `launchctl print "gui/$(id -u)/dev.pocket.web"`.
+
+Before updating dependencies or rebuilding an installed deployment, wait for Codex to finish its active turn, then stop Pocket's service. This prevents the running server from serving a partially replaced build:
+
+```sh
+launchctl bootout "gui/$(id -u)/dev.pocket.web"
+git pull --ff-only
+npm ci
+npm run check
+npm test
+npm run build
+npm run service:install
+```
+
+Recheck local HTTP, HTTPS and resumed history after the update. Tailscale's existing Serve route stays in place. To remove only this root HTTPS proxy, use `tailscale serve --https=443 off` after checking that it is still Pocket's route.
+
+For development, use `npm run dev`. For a foreground production server, use `npm start` after building; both bind to loopback. Restart after changing environment variables.
 
 ## Environment variables
 
@@ -50,9 +134,11 @@ Connect your phone to the same tailnet, open that HTTPS URL and add it to your h
 | `CODEX_SERVER_ARGS`         | JSON array of arguments passed directly to Codex          | `["app-server","--listen","stdio://"]` |
 | `CODEX_POCKET_STATE_DIR`    | Local delivery receipts and pending desktop requests      | `.local`                               |
 
-Codex uses its local login and configuration. The bridge sends no model, sandbox, permission or approval-policy overrides. Edit those settings on the computer.
+Codex uses its local login and configuration. The bridge sends no per-turn model, sandbox, permission or approval-policy overrides. Configure process-wide overrides with `CODEX_SERVER_ARGS` on the computer. The header displays the effective model and reasoning effort returned by Codex.
 
 The default transport owns a local `codex app-server` process. It resumes the saved thread when connecting and restarts that process after a disconnect. It cannot steer an unrelated CLI process already running elsewhere. Use this bridge as the thread's active owner. Codex builds that provide a shared daemon can use `CODEX_SERVER_ARGS='["app-server","proxy"]'`; that requires a daemon started separately, and only rejoins threads hosted by that daemon.
+
+Pending sends appear locally before the network round trip. Codex client message IDs reconcile them with confirmed history, including steering messages, without duplicating identical text. Failed or uncertain sends stay visible.
 
 Queue mode persists pending sends across bridge restarts. Delivery receipts deduplicate repeated message IDs. If the process dies before acknowledging a send, its delivery becomes uncertain and the bridge leaves it for inspection in `.local/outbox.json`; it does not replay that message automatically. Check the Codex thread before resolving the local outbox.
 

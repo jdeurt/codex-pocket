@@ -1,12 +1,12 @@
-import { type RpcEvent, type Thread, object } from "../src/lib/protocol";
 import { CodexRpc } from "../src/server/rpc";
+import type { Thread } from "../src/lib/protocol";
 import { configSchema } from "../src/server/config";
 import { mkdir } from "node:fs/promises";
 import nextEnv from "@next/env";
 import path from "node:path";
+import { seedThread } from "./seed-thread";
 import { spawn } from "node:child_process";
 
-const TURN_TIMEOUT_MS = 120_000;
 nextEnv.loadEnvConfig(process.cwd());
 const directory = path.resolve(".local", "live-check", crypto.randomUUID());
 const project = path.join(directory, "project");
@@ -27,43 +27,14 @@ const started = await rpc.request<{ thread: Thread; model: string; reasoningEffo
 const threadId = started.thread.id;
 await rpc.request("thread/name/set", { threadId, name: "Pocket live integration check" });
 
-async function seed() {
-  const completion = Promise.withResolvers<boolean>();
-  const timer = setTimeout(() => completion.reject(new Error("Codex seed turn timed out.")), TURN_TIMEOUT_MS);
-  const listener = (event: RpcEvent) => {
-    if (event.method !== "turn/completed" || event.params.threadId !== threadId) {
-      return;
-    }
-
-    const turn = object(event.params.turn);
-
-    if (turn.status === "completed") {
-      completion.resolve(true);
-    } else {
-      completion.reject(new Error(`Codex seed failed: ${JSON.stringify(turn.error)}`));
-    }
-  };
-  rpc.on("event", listener);
-
-  try {
-    await rpc.request("turn/start", {
-      threadId,
-      ...(process.env.CODEX_TEST_PLAN_MODE === "1" && {
-        collaborationMode: {
-          mode: "plan",
-          settings: { model: started.model, reasoning_effort: started.reasoningEffort },
-        },
-      }),
-      input: [{ type: "text", text: "Integration check. Reply exactly READY. Do not use tools.", text_elements: [] }],
-    });
-    await completion.promise;
-  } finally {
-    clearTimeout(timer);
-    rpc.off("event", listener);
-  }
-}
-
-await seed();
+await seedThread(rpc, threadId, "Integration check. Reply exactly READY. Do not use tools.", {
+  ...(process.env.CODEX_TEST_PLAN_MODE === "1" && {
+    collaborationMode: {
+      mode: "plan",
+      settings: { model: started.model, reasoning_effort: started.reasoningEffort },
+    },
+  }),
+});
 rpc.close();
 
 const host = spawn(

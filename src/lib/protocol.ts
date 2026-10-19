@@ -24,7 +24,7 @@ export type PendingRequest = RpcEvent & { id: string | number };
 export interface QueuedMessage {
   id: string;
   text: string;
-  status: "queued" | "sending" | "unknown";
+  status: "queued" | "sending" | "unknown" | "sent";
 }
 export interface Snapshot {
   connection: "unconfigured" | "connecting" | "connected" | "disconnected";

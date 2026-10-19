@@ -17,7 +17,9 @@
     "desktop": "tsx scripts/desktop.ts",
     "test:server": "tsx scripts/live-server.ts",
     "test:e2e:queue": "env -u NO_COLOR CODEX_TEST_ACTIVE_MODE=queue playwright test",
-    "test:e2e:questions": "env -u NO_COLOR CODEX_TEST_PLAN_MODE=1 playwright test"
+    "test:e2e:questions": "env -u NO_COLOR CODEX_TEST_PLAN_MODE=1 playwright test",
+    "setup": "tsx scripts/configure.ts",
+    "service:install": "tsx scripts/install-service.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.9.0",
@@ -32,6 +34,7 @@
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
     "tw-animate-css": "^1.4.0",
+    "web-push": "^3.6.7",
     "zod": "^4.6.7"
   },
   "devDependencies": {
@@ -42,6 +45,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@types/web-push": "^3.6.4",
     "eslint": "10.13.0",
     "eslint-config-prettier": "10.1.8",
     "eslint-plugin-prettier": "5.5.7",
