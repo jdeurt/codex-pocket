@@ -117,6 +117,7 @@
   line-height: 1.6;
 }
 .transcript {
+  --message-block-gap: 16px;
   max-width: 768px;
   width: 100%;
   margin-inline: auto;
@@ -222,10 +223,16 @@
   border-radius: 16px;
 }
 .markdown-paragraph {
-  margin-block: 0 1em;
+  margin: 0;
 }
-.markdown-paragraph:last-child {
-  margin-bottom: 0;
+.turn-messages,
+.activity-messages {
+  display: flex;
+  flex-direction: column;
+  gap: var(--message-block-gap);
+}
+[data-variant="ghost"] > [data-slot="bubble-content"] {
+  border: 0;
 }
 .transcript > [data-slot="message-scroller-item"] {
   content-visibility: visible;
@@ -343,7 +350,7 @@
   overflow-wrap: anywhere;
 }
 .markdown > * + * {
-  margin-top: 1em;
+  margin-top: var(--message-block-gap, 1em);
 }
 .markdown h1,
 .markdown h2,

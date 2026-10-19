@@ -83,7 +83,7 @@ export function itemActivity(item: Item): string | undefined {
     }
 
     case "agentMessage": {
-      return "Writing responses";
+      return "";
     }
 
     case "plan": {
@@ -117,7 +117,7 @@ function eventActivity(event: RpcEvent, turn: Turn | undefined) {
     }
 
     case "item/agentMessage/delta": {
-      return "Writing responses";
+      return "";
     }
 
     case "turn/plan/updated":
@@ -169,7 +169,7 @@ export function currentActivity(state: Snapshot) {
         state.turns
           .find((turn) => turn.id === state.activeTurnId)
           ?.items.map((item) => itemActivity(item))
-          .findLast(Boolean) ??
+          .findLast((label) => label !== undefined) ??
         "Considering options")
     : undefined;
 }

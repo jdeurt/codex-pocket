@@ -6,7 +6,64 @@ async function send(page: Page, text: string) {
   await page.getByRole("button", { name: "Send message", exact: true }).click();
 }
 
-if (process.env.CODEX_TEST_IMAGES === "1") {
+if (process.env.CODEX_TEST_ACTIVITY === "1") {
+  test("real Codex activity stays live, collapses at completion and preserves its final reply", async ({ page }) => {
+    await page.goto("/");
+    await expect(page.getByText("Connected", { exact: true })).toBeVisible();
+    await send(
+      page,
+      "First send a commentary update with exactly two paragraphs: ACTIVITY_ONE_FIRST and ACTIVITY_ONE_SECOND. Then run the read-only shell command sleep 4. Send another commentary message exactly ACTIVITY_TWO, then run sleep 4. Finally send a final answer exactly ACTIVITY_FINAL. Do not modify files."
+    );
+    await expect(page.getByText("ACTIVITY_ONE_FIRST", { exact: true })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Show activity", exact: true })).toHaveCount(0);
+    await expect(page.getByRole("status", { name: "Pocket activity" })).toContainText("Running commands");
+    await expect(page.getByText("ACTIVITY_FINAL", { exact: true })).toBeVisible();
+    const show = page.getByRole("button", { name: "Show activity", exact: true });
+    await expect(show).toBeVisible();
+    await expect(page.getByText("ACTIVITY_ONE_FIRST", { exact: true })).toBeHidden();
+    await show.click();
+    const hide = page.getByRole("button", { name: "Hide activity", exact: true });
+    await expect(hide).toHaveAttribute("aria-expanded", "true");
+    await expect(page.getByText("ACTIVITY_TWO", { exact: true })).toBeVisible();
+    const panel = page.locator('[data-slot="trace-collapsible-content"]');
+    await expect(panel.getByText("ACTIVITY_FINAL", { exact: true })).toHaveCount(0);
+    const first = await page.getByText("ACTIVITY_ONE_FIRST", { exact: true }).boundingBox();
+    const second = await page.getByText("ACTIVITY_ONE_SECOND", { exact: true }).boundingBox();
+    const next = await page.getByText("ACTIVITY_TWO", { exact: true }).boundingBox();
+
+    if (!first || !second || !next) {
+      throw new Error("Expanded activity geometry is unavailable");
+    }
+
+    const QUARTER_TURN_DEGREES = 90;
+    const paragraphGap = second.y - first.y - first.height;
+    const messageGap = next.y - second.y - second.height;
+    expect(Math.abs(messageGap - paragraphGap)).toBeLessThan(1);
+    await expect(hide.locator('[data-slot="trace-line"]')).toHaveCSS("font-size", "16px");
+    await expect(hide.locator("svg")).toHaveCSS("width", "16px");
+    await expect
+      .poll(() =>
+        hide
+          .locator("svg")
+          .evaluate((icon) => Number(getComputedStyle(icon.parentElement as Element).rotate.replace("deg", "")) || 0)
+      )
+      .toBe(QUARTER_TURN_DEGREES);
+    await page.screenshot({ path: ".local/activity-expanded.png" });
+    await hide.click();
+    await expect(show).toHaveAttribute("aria-expanded", "false");
+    await expect(page.getByText("ACTIVITY_TWO", { exact: true })).toBeHidden();
+    await expect(page.getByText("ACTIVITY_FINAL", { exact: true })).toBeVisible();
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await show.focus();
+    await page.keyboard.press("Enter");
+    await expect(hide).toBeVisible();
+    await expect(panel).toHaveCSS("transition-duration", "0s");
+    await page.reload();
+    await expect(show).toBeVisible();
+    await expect(page.getByText("ACTIVITY_ONE_FIRST", { exact: true })).toBeHidden();
+    await expect(page.getByText("ACTIVITY_FINAL", { exact: true })).toBeVisible();
+  });
+} else if (process.env.CODEX_TEST_IMAGES === "1") {
   test("real Codex image references fit the phone and open an accessible full-size preview", async ({ page }) => {
     const TOUCH_TARGET_SIZE = 44;
     await page.goto("/");

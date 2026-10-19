@@ -82,10 +82,12 @@ These later requests are tracked separately in Linear. Keep their existing owner
 
 - [x] [JUA-34](https://linear.app/juan-de-urtubey/issue/JUA-34): Use reply text as the push notification body.
 - [x] [JUA-35](https://linear.app/juan-de-urtubey/issue/JUA-35): Suppress completion notifications while Pocket is visible.
-- [ ] [JUA-36](https://linear.app/juan-de-urtubey/issue/JUA-36): Collapse completed-turn activity under animated “Show activity” / “Hide activity” controls and match message spacing to Markdown.
+- [x] [JUA-36](https://linear.app/juan-de-urtubey/issue/JUA-36): Collapse completed-turn activity under animated “Show activity” / “Hide activity” controls and match message spacing to Markdown.
 - [x] [JUA-37](https://linear.app/juan-de-urtubey/issue/JUA-37): Run scheduled tasks silently without chat markers.
 - [x] [JUA-38](https://linear.app/juan-de-urtubey/issue/JUA-38): Show concise, plural activity labels beside the spinner, using “Calling tools” for all tool calls.
 - [x] [JUA-39](https://linear.app/juan-de-urtubey/issue/JUA-39): Restore fresh-open CSS/JavaScript and use the normal stop/build/start sequence. The operator accepted restarting the full service; keep the existing build layout.
+- [ ] [JUA-40](https://linear.app/juan-de-urtubey/issue/JUA-40): Keep spinner rotation centered and stable. Preserve the concurrent implementation of this ticket.
+- [ ] [JUA-41](https://linear.app/juan-de-urtubey/issue/JUA-41): Send a hidden restart/recovery prompt when resuming an existing chat. Show the agent's normal replies; no completion marker.
 
 ## Notification content and foreground behavior
 

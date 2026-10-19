@@ -92,7 +92,7 @@ Connect the phone to the same tailnet, open `POCKET_ORIGIN` and add it to the ho
 
 ### 5. Verify the running deployment
 
-Open the HTTPS URL in a mobile browser or a mobile browser emulator. Confirm the title is Pocket, the model/effort match the requested profile and the connection is live. Send a harmless message through the UI and confirm a real reply. The outgoing bubble should appear immediately, become solid after acknowledgment and appear on a second connected client without a refresh. Replies and the activity spinner update through server-sent events. A small muted label beside the spinner summarizes the latest action, such as Reading files, Editing files or Calling tools, without exposing paths, arguments or private reasoning. Labels use plural targets with no trailing punctuation; MCP and other tool calls share Calling tools.
+Open the HTTPS URL in a mobile browser or a mobile browser emulator. Confirm the title is Pocket, the model/effort match the requested profile and the connection is live. Send a harmless message through the UI and confirm a real reply. The outgoing bubble should appear immediately, become solid after acknowledgment and appear on a second connected client without a refresh. Replies and the activity spinner update through server-sent events. A small muted label beside the spinner summarizes the latest action, such as Reading files, Editing files or Calling tools, without exposing paths, arguments or private reasoning. Labels use plural targets with no trailing punctuation; MCP and other tool calls share Calling tools. While response text streams, show only the spinner, without a label.
 
 Check the effective permission settings printed during setup and the actual service process arguments. Verify history returns after a page reload and an idle service restart. Do not interrupt an active Codex turn to deploy an update. Report the HTTPS URL, chosen working directory, model/effort, access policy and checks performed to the operator. Do not commit `.env.local`, `.local/`, local thread IDs or machine-specific URLs.
 
@@ -139,6 +139,10 @@ Pocket suppresses a completion push only after that subscription's visible page 
 VAPID keys, device subscriptions and notification receipts are generated automatically and saved privately in `.local/push.json`. Keep this file across restarts and deployments. Deleting it invalidates existing device subscriptions, which must then be enabled again. Expired subscriptions are removed when their push service rejects them. No API key or paid notification service is needed.
 
 After setup or an update, reopen the installed iPhone PWA to load the current client. Verify that a reply produces no notification while Pocket is visible, then background or lock the phone before a reply completes and confirm its text appears in a notification. Tap it to check that Pocket opens, and repeat after reconnecting. Keep Pocket open on a second device while the phone is backgrounded to verify device isolation. This visible delivery check must happen on the actual phone; a desktop browser emulator does not verify iOS notification delivery.
+
+## Conversation activity
+
+Progress messages stream normally while a turn runs. When it finishes, those messages collapse under **Show activity**; the final reply stays visible. Tap to expand or collapse the activity, or use the keyboard. The panel and chevron animate unless reduced motion is enabled. Completed history reloads with activity collapsed. Split assistant messages use the same spacing as Markdown paragraphs. Images and phone messages remain visible.
 
 ## Scheduled tasks
 
@@ -240,6 +244,7 @@ npm run test:e2e:queue
 npm run test:e2e:questions
 npm run test:e2e:schedules
 npm run test:e2e:images
+npm run test:e2e:activity
 ```
 
 `npm run lint` runs ESLint with **`--max-warnings=0`**. ESLint and Prettier use the configs and pinned dependencies bundled with `jdeurt-engineering` 1.2.0. Their source lives in `tooling/engineering/`; the `.mjs` ESLint file is compiled from the bundled TypeScript source. Generated shadcn components and bundled tooling are excluded from application lint; Prettier checks the component source. The application uses the shared non-type-aware ESLint rules together with a separate strict TypeScript check. The two overrides preserve Node's event API and protocol/storage/React `null` values.

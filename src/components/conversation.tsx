@@ -1,7 +1,6 @@
 "use client";
 import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
-import { type Item, type Snapshot, object, string } from "@/lib/protocol";
 import { Message, MessageContent } from "@/components/ui/message";
 import {
   MessageScroller,
@@ -11,31 +10,22 @@ import {
   MessageScrollerProvider,
   MessageScrollerViewport,
 } from "@/components/ui/message-scroller";
-import { ChatImage } from "./chat-image";
-import { Markdown } from "./markdown";
 import { Prompt } from "./prompt";
 import { Skeleton } from "@/components/ui/skeleton";
+import type { Snapshot } from "@/lib/protocol";
 import { Spinner } from "@/components/ui/spinner";
+import { TurnMessages } from "./turn-messages";
 import { post } from "@/lib/client-api";
-
-function messageText(item: Item) {
-  if (item.type === "agentMessage") {
-    return string(item.text);
-  }
-
-  return Array.isArray(item.content)
-    ? item.content
-        .map((part) => string(object(part).text))
-        .filter(Boolean)
-        .join("\n")
-    : "";
-}
+import { turnMessages } from "@/lib/turn-messages";
 
 export function Conversation({ state }: { state: Snapshot }) {
-  const messages = state.turns
-    .flatMap((turn) => turn.items)
-    .filter((item) => ["userMessage", "agentMessage", "imageOutput"].includes(item.type));
+  const messages = state.turns.flatMap((turn) => {
+    const entries = turnMessages(turn, turn.id === state.activeTurnId || turn.status === "inProgress");
+
+    return entries.length > 0 ? { id: turn.id, entries } : [];
+  });
   const thinking = !!state.activeTurnId && state.requests.length === 0;
+  const activity = state.activity ?? "Considering options";
 
   return (
     <MessageScrollerProvider autoScroll defaultScrollPosition="end">
@@ -72,34 +62,9 @@ export function Conversation({ state }: { state: Snapshot }) {
                   </Empty>
                 </MessageScrollerItem>
               ) : null}
-              {messages.map((item) => (
-                <MessageScrollerItem messageId={item.id} key={item.id}>
-                  <Message align={item.type === "userMessage" ? "end" : "start"}>
-                    <MessageContent>
-                      <Bubble
-                        data-message-id={string(item.clientId) || item.id}
-                        data-delivery={item.type === "userMessage" ? "sent" : undefined}
-                        variant={item.type === "userMessage" ? "secondary" : "ghost"}
-                        align={item.type === "userMessage" ? "end" : "start"}
-                      >
-                        <BubbleContent>
-                          {Array.isArray(item.images) &&
-                            item.images.map((image) => (
-                              <ChatImage
-                                key={string(object(image).source)}
-                                source={string(object(image).source)}
-                                alt={string(object(image).alt) || "Image from Pocket"}
-                              />
-                            ))}
-                          {item.type === "userMessage" ? (
-                            <p className="whitespace-pre-wrap">{messageText(item)}</p>
-                          ) : (
-                            <Markdown>{messageText(item)}</Markdown>
-                          )}
-                        </BubbleContent>
-                      </Bubble>
-                    </MessageContent>
-                  </Message>
+              {messages.map((turn) => (
+                <MessageScrollerItem messageId={turn.id} key={turn.id}>
+                  <TurnMessages entries={turn.entries} />
                 </MessageScrollerItem>
               ))}
               {state.queue.map((item) => (
@@ -144,7 +109,7 @@ export function Conversation({ state }: { state: Snapshot }) {
                     aria-atomic="true"
                   >
                     <Spinner className="activity-spinner" aria-hidden="true" role={undefined} />
-                    <span>{state.activity || "Considering options"}</span>
+                    {activity && <span>{activity}</span>}
                   </div>
                 </MessageScrollerItem>
               )}

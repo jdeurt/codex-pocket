@@ -1,0 +1,50 @@
+"use client";
+import {
+  Trace,
+  TraceCollapsible,
+  TraceCollapsibleContent,
+  TraceCollapsibleTrigger,
+  TraceLine,
+  TraceTitle,
+} from "@/components/ui/trace";
+import { ChatMessage } from "./chat-message";
+import type { Item } from "@/lib/protocol";
+import type { TurnEntry } from "@/lib/turn-messages";
+import { useState } from "react";
+
+function CompletedActivity({ items }: { items: Item[] }) {
+  const [open, setOpen] = useState(false);
+
+  return (
+    <Trace>
+      <TraceCollapsible open={open} onOpenChange={setOpen}>
+        <TraceCollapsibleTrigger className="min-h-11">
+          <TraceLine size="md">
+            <TraceTitle>{open ? "Hide activity" : "Show activity"}</TraceTitle>
+          </TraceLine>
+        </TraceCollapsibleTrigger>
+        <TraceCollapsibleContent variant="messages">
+          <div className="activity-messages">
+            {items.map((item) => (
+              <ChatMessage item={item} key={item.id} />
+            ))}
+          </div>
+        </TraceCollapsibleContent>
+      </TraceCollapsible>
+    </Trace>
+  );
+}
+
+export function TurnMessages({ entries }: { entries: TurnEntry[] }) {
+  return (
+    <div className="turn-messages">
+      {entries.map((entry) =>
+        entry.kind === "activity" ? (
+          <CompletedActivity key={entry.id} items={entry.items} />
+        ) : (
+          <ChatMessage key={entry.item.id} item={entry.item} />
+        )
+      )}
+    </div>
+  );
+}

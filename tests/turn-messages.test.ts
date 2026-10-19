@@ -1,0 +1,67 @@
+import type { Item, Turn } from "../src/lib/protocol";
+import assert from "node:assert/strict";
+import test from "node:test";
+import { turnMessages } from "../src/lib/turn-messages";
+
+const LAST_ITEM_INDEX = -1;
+const items: Item[] = [
+  { id: "user", type: "userMessage" },
+  { id: "first", type: "agentMessage", phase: "commentary", text: "First update" },
+  { id: "private", type: "reasoning", content: ["Not visible"] },
+  { id: "steering", type: "userMessage" },
+  { id: "second", type: "agentMessage", phase: "commentary", text: "Second update" },
+  { id: "image", type: "imageOutput", images: [] },
+  { id: "final", type: "agentMessage", phase: "final_answer", text: "Final reply" },
+];
+const turn: Turn = { id: "turn", status: "completed", items };
+
+test("a running turn keeps visible messages in order without an expander", () => {
+  const entries = turnMessages(turn, true);
+  assert.equal(
+    entries.every((entry) => entry.kind === "message"),
+    true
+  );
+  assert.deepEqual(
+    entries.map((entry) => entry.kind === "message" && entry.item.id),
+    items.filter((item) => item.type !== "reasoning").map((item) => item.id)
+  );
+});
+
+test("completed activity collapses per turn while final replies, user steering and images stay outside", () => {
+  const entries = turnMessages(turn, false);
+  const activity = entries.find((entry) => entry.kind === "activity");
+  assert.ok(activity?.kind === "activity");
+  assert.deepEqual(
+    activity.items.map((item) => item.id),
+    ["first", "second"]
+  );
+  assert.deepEqual(
+    entries.flatMap((entry) => (entry.kind === "message" ? [entry.item.id] : [])),
+    ["user", "steering", "image", "final"]
+  );
+  assert.deepEqual(turnMessages(structuredClone(turn), false), entries);
+  assert.notEqual(
+    turnMessages({ ...turn, id: "another" }, false).find((entry) => entry.kind === "activity")?.id,
+    activity.id
+  );
+});
+
+test("legacy phase-less history keeps its last reply, and commentary-only interrupted turns remain inspectable", () => {
+  const legacy = {
+    ...turn,
+    items: items.filter((item) => item.type === "agentMessage").map((item) => ({ ...item, phase: null })),
+  };
+  const entries = turnMessages(legacy, false);
+  assert.equal(entries.at(LAST_ITEM_INDEX)?.kind, "message");
+  assert.equal(
+    entries.some((entry) => entry.kind === "message" && entry.item.id === "final"),
+    true
+  );
+  const onlyFinal = turnMessages({ ...turn, items: [items.at(LAST_ITEM_INDEX) as Item] }, false);
+  assert.equal(
+    onlyFinal.some((entry) => entry.kind === "activity"),
+    false
+  );
+  const interrupted = turnMessages({ ...turn, status: "interrupted", items: [items[1]] }, false);
+  assert.equal(interrupted[0].kind, "activity");
+});

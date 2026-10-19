@@ -53,7 +53,6 @@ test("activity labels use plural targets and no punctuation across Codex item ty
     "collabAgentToolCall",
     "subAgentActivity",
     "sleep",
-    "agentMessage",
     "plan",
     "enteredReviewMode",
     "exitedReviewMode",
@@ -71,6 +70,7 @@ test("activity labels use plural targets and no punctuation across Codex item ty
     "Browsing pages"
   );
   assert.equal(itemActivity({ id: "user", type: "userMessage" }), undefined);
+  assert.equal(itemActivity({ id: "response", type: "agentMessage" }), "");
 });
 
 test("live activity follows the latest event in this turn, survives reload and clears at completion", () => {
@@ -107,6 +107,12 @@ test("live activity follows the latest event in this turn, survives reload and c
     params: { threadId: "thread", turnId: "turn", delta: "private thoughts" },
   });
   assert.equal(currentActivity(state), "Considering options");
+  reduceEvent(state, {
+    method: "item/started",
+    params: { threadId: "thread", turnId: "turn", item: { id: "response", type: "agentMessage", text: "Hello" } },
+  });
+  assert.equal(currentActivity(state), "");
+  assert.equal(currentActivity({ ...state, activity: undefined }), "");
   reduceEvent(state, {
     method: "turn/completed",
     params: { threadId: "thread", turn: { id: "turn", status: "completed" } },
