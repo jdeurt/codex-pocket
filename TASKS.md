@@ -42,7 +42,7 @@ The working backlog is the [Pocket project in Linear](https://linear.app/juan-de
 - [x] Engineering plugin ESLint/Prettier configuration; ESLint runs with `--max-warnings=0`.
 - [x] One real local Codex thread selected through environment configuration; steering or queueing configured on the computer.
 - [x] Minimal phone chat, questions and approvals, with the page titled Pocket and the effective model/effort displayed.
-- [x] This computer uses `gpt-6.1-sol`, `xhigh`, unrestricted Codex access and approval policy `never`.
+- [x] This computer uses `gpt-6.1-sol`, `medium`, unrestricted Codex access and approval policy `never`.
 - [x] Persistent login service, private Tailscale HTTPS access and agent setup instructions in the README.
 - [x] Immediate muted outgoing messages, confirmation without duplicates and live updates to connected clients.
 - [x] Keep failed-message text in the input field. Preserve this behavior in future changes.
@@ -83,6 +83,12 @@ These later requests are tracked separately in Linear. Keep their existing owner
 - [ ] [JUA-34](https://linear.app/juan-de-urtubey/issue/JUA-34): Use reply text as the push notification body.
 - [ ] [JUA-35](https://linear.app/juan-de-urtubey/issue/JUA-35): Suppress completion notifications while Pocket is visible.
 - [ ] [JUA-36](https://linear.app/juan-de-urtubey/issue/JUA-36): Collapse completed-turn activity under animated “Show activity” / “Hide activity” controls and match message spacing to Markdown.
+
+## Notification content and foreground behavior
+
+- [x] Send the final reply text, retaining full text within the Web Push transport limit and a fallback without final text.
+- [x] Suppress a push only after a fresh foreground acknowledgement from the receiving subscription; retain delivery for background, locked, closed and stale connections.
+- [ ] Verify the updated reply preview, foreground suppression, background delivery, reconnects and tap-to-open on the installed iPhone PWA after deployment.
 
 ## Delivery cadence
 

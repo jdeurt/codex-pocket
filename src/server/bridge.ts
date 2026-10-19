@@ -185,7 +185,9 @@ export class Bridge extends EventEmitter {
 
       if (event.method === "turn/completed") {
         if (this.config) {
-          void notifyTurnComplete(this.config.threadId, event.params.turn as Turn).catch(console.error);
+          const completed = event.params.turn as Turn;
+          const turn = this.snapshot.turns.find((entry) => entry.id === completed.id) ?? completed;
+          void notifyTurnComplete(this.config.threadId, turn).catch(console.error);
         }
 
         void this.exclusive(() => this.drain()).catch((error) => this.fail(error));

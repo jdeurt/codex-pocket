@@ -5,6 +5,7 @@ import { get, post } from "@/lib/client-api";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { XIcon } from "lucide-react";
+import { useNotificationPresence } from "@/hooks/use-notification-presence";
 
 type Status = "loading" | "ready" | "subscribing" | "enabled" | "blocked" | "unsupported" | "dismissed";
 const PREPARATION_TIMEOUT_MS = 5000;
@@ -36,8 +37,10 @@ async function prepareRegistration() {
 export function NotificationPrompt() {
   const [status, setStatus] = useState<Status>("loading");
   const [error, setError] = useState("");
+  const [endpoint, setEndpoint] = useState("");
   const registration = useRef<ServiceWorkerRegistration | null>(null);
   const publicKey = useRef<Uint8Array<ArrayBuffer> | null>(null);
+  useNotificationPresence(endpoint);
 
   useEffect(() => {
     let active = true;
@@ -89,9 +92,12 @@ export function NotificationPrompt() {
         await post("/api/notifications", subscription.toJSON());
       }
 
-      if (active) {
-        setStatus(subscription ? "enabled" : "ready");
+      if (!active) {
+        return;
       }
+
+      setEndpoint(subscription?.endpoint ?? "");
+      setStatus(subscription ? "enabled" : "ready");
     }
 
     void prepare().catch((error_: unknown) => {
@@ -126,6 +132,7 @@ export function NotificationPrompt() {
         applicationServerKey: publicKey.current,
       });
       await post("/api/notifications", subscription.toJSON());
+      setEndpoint(subscription.endpoint);
       setStatus("enabled");
     } catch (error_) {
       reportClient("notifications.subscribe_failed", clientError(error_), "error");
