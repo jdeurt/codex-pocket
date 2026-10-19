@@ -1,4 +1,4 @@
-import type { DelegationCommand, DelegationStore, SidePocket } from "./delegations";
+import { type DelegationCommand, type DelegationStore, MAX_CONCURRENT_CHILDREN, type SidePocket } from "./delegations";
 import type { HarnessAdapter, HarnessRequest, HarnessResult } from "./harness/types";
 import type { Config } from "./config";
 import { createAdapter } from "./harness";
@@ -7,8 +7,11 @@ import { log } from "./logging";
 import { object } from "../lib/protocol";
 import path from "node:path";
 
-const POLL_INTERVAL_MS = 500;
-const MAX_CONCURRENT_CHILDREN = 4;
+const RECOVERY_INTERVAL_MS = 30_000;
+interface WorkerOptions {
+  createAdapter?: (harness: SidePocket["harness"], options: Parameters<typeof createAdapter>[1]) => HarnessAdapter;
+  recoveryIntervalMs?: number;
+}
 interface ParentDelivery {
   send: (id: string, text: string) => Promise<{ status: string }>;
 }
@@ -32,14 +35,21 @@ export function parentToolServer(childId: string, commandId: string) {
 
 export class DelegationWorker {
   private timer?: NodeJS.Timeout;
-  private ticking = false;
+  private unsubscribe?: () => void;
+  private ticking?: Promise<void>;
+  private forwarding?: Promise<void>;
+  private dirty = false;
+  private mailDirty = false;
+  private started = false;
   private stopped = false;
   private active = new Map<string, { adapter: HarnessAdapter; done: Promise<void> }>();
+  private closing = new Map<string, Promise<void>>();
   private waiting = new Map<string, WaitingRequest>();
   constructor(
     private store: DelegationStore,
     private parent: ParentDelivery,
-    private config: Config
+    private config: Config,
+    private options: WorkerOptions = {}
   ) {}
   private request(child: SidePocket, request: HarnessRequest) {
     const id = this.store.mail.request(child.parentId, child.id, request);
@@ -60,8 +70,7 @@ export class DelegationWorker {
 
         this.waiting.delete(request.id);
 
-        if (request.status === "answered") {
-          this.store.setStatus(child.parentId, child.id, "running");
+        if (request.status === "answered" && this.store.continueChild(child.parentId, child.id)) {
           waiting.resolve(JSON.parse(request.answer as string));
         } else {
           waiting.reject(new Error("Side Pocket request was cancelled."));
@@ -81,6 +90,8 @@ export class DelegationWorker {
     log().info({ childId: child.id, commandId: command.id, result, closing }, "side_pocket.completed");
   }
   private async execute(child: SidePocket, command: DelegationCommand, adapter: HarnessAdapter) {
+    // Reserve the active slot before even a synchronous adapter can finish.
+    await Promise.resolve();
     let sending = false;
 
     try {
@@ -114,15 +125,23 @@ export class DelegationWorker {
 
       log().error({ error, childId: child.id, commandId: command.id }, "side_pocket.failed");
     } finally {
-      await adapter.close();
-      this.active.delete(child.id);
+      try {
+        await adapter.close();
+        this.active.delete(child.id);
+      } catch (error) {
+        // Keep the slot occupied until process exit can be confirmed.
+        this.store.setStatus(child.parentId, child.id, "unknown");
+        log().error({ error, childId: child.id }, "side_pocket.cleanup_failed");
+      }
+
       this.store.mail.cancelRequests(child.id);
+      void this.tick();
     }
   }
   private launch(child: SidePocket, command: DelegationCommand) {
     const policy = this.store.parent(child.parentId).policy;
     const { sessionStarted } = object(JSON.parse(child.metadata));
-    const adapter = createAdapter(child.harness, {
+    const adapter = (this.options.createAdapter ?? createAdapter)(child.harness, {
       config: this.config,
       child: { ...child, policy, ...(typeof sessionStarted === "boolean" && { sessionStarted }) },
       parentTools: parentToolServer(child.id, command.id),
@@ -146,6 +165,7 @@ export class DelegationWorker {
     }
 
     await running?.done;
+    this.active.delete(child.id);
     this.store.setStatus(child.parentId, child.id, "closed");
     log().info({ childId: child.id, sessionId: child.sessionId }, "side_pocket.closed");
   }
@@ -162,46 +182,115 @@ ${mail.payload}`;
       }
     }
   }
-  private async dispatch() {
-    for (const child of this.store.list(this.config.threadId)) {
-      if (child.status === "closing") {
-        await this.closeRequested(child);
-      } else if (!this.active.has(child.id) && this.active.size < MAX_CONCURRENT_CHILDREN) {
-        const command = this.store.claim(child.parentId, child.id);
+  private async forwardPending() {
+    await Promise.resolve();
 
-        if (command) {
-          this.launch(child, command);
+    try {
+      while (this.mailDirty && !this.stopped) {
+        this.mailDirty = false;
+
+        try {
+          await this.forward();
+        } catch (error) {
+          log().error({ error }, "side_pocket.forward_failed");
         }
+      }
+    } finally {
+      this.forwarding = undefined;
+
+      if (this.mailDirty && !this.stopped) {
+        this.forwardSoon();
+      }
+    }
+  }
+  private forwardSoon() {
+    this.mailDirty = true;
+    this.forwarding ??= this.forwardPending();
+  }
+  private async closeSafely(child: SidePocket) {
+    try {
+      await this.closeRequested(child);
+    } catch (error) {
+      log().error({ error, childId: child.id }, "side_pocket.close_failed");
+    } finally {
+      this.closing.delete(child.id);
+    }
+  }
+  private dispatch() {
+    for (const child of this.store.list(this.config.threadId)) {
+      if (child.status !== "closing" || this.closing.has(child.id)) {
+        continue;
+      }
+
+      const closing = this.closeSafely(child);
+      this.closing.set(child.id, closing);
+    }
+
+    for (const child of this.store.queuedChildren(this.config.threadId)) {
+      if (this.active.size >= MAX_CONCURRENT_CHILDREN) {
+        break;
+      }
+
+      if (this.active.has(child.id) || this.closing.has(child.id)) {
+        continue;
+      }
+
+      const command = this.store.claim(child.parentId, child.id);
+
+      if (command) {
+        this.launch(child, command);
+      }
+    }
+  }
+  private async drain() {
+    await Promise.resolve();
+
+    try {
+      while (this.dirty && !this.stopped) {
+        this.dirty = false;
+
+        try {
+          this.answers();
+          this.dispatch();
+          this.forwardSoon();
+        } catch (error) {
+          log().error({ error }, "side_pocket.worker_failed");
+        }
+      }
+    } finally {
+      this.ticking = undefined;
+
+      if (this.dirty && !this.stopped) {
+        void this.tick();
       }
     }
   }
   async tick() {
-    if (this.ticking || this.stopped) {
+    if (this.stopped) {
       return;
     }
 
-    this.ticking = true;
-
-    try {
-      this.answers();
-
-      await this.dispatch();
-
-      await this.forward();
-    } catch (error) {
-      log().error({ error }, "side_pocket.worker_failed");
-    } finally {
-      this.ticking = false;
-    }
+    this.dirty = true;
+    this.ticking ??= this.drain();
+    await this.ticking;
   }
   start() {
+    if (this.started) {
+      return;
+    }
+
+    this.started = true;
+    this.unsubscribe = this.store.subscribe(() => void this.tick());
     this.store.recover(this.config.threadId);
-    this.timer = setInterval(() => void this.tick(), POLL_INTERVAL_MS);
+    // fs.watch can lose events, and a writer can crash after commit but before
+    // publishing. This bounded reconciliation also retries parent delivery.
+    this.timer = setInterval(() => void this.tick(), this.options.recoveryIntervalMs ?? RECOVERY_INTERVAL_MS);
     this.timer.unref();
     void this.tick();
   }
   async stop() {
     this.stopped = true;
+    this.unsubscribe?.();
     clearInterval(this.timer);
 
     for (const waiting of this.waiting.values()) {
@@ -209,6 +298,7 @@ ${mail.payload}`;
     }
 
     this.waiting.clear();
+    await this.ticking;
     const running = this.active.values().toArray();
 
     for (const entry of running) {
@@ -216,5 +306,7 @@ ${mail.payload}`;
     }
 
     await Promise.allSettled(running.map((entry) => entry.done));
+    await Promise.allSettled(this.closing.values());
+    await this.forwarding;
   }
 }

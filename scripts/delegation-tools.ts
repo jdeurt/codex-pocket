@@ -2,32 +2,61 @@ import { delegationBody, delegationInput, delegationKey, delegations } from "../
 import type { McpServer } from "@modelcontextprotocol/server";
 import { findClaudeBinary } from "../src/server/harness/claude-binary";
 import { harnessCapabilities } from "../src/server/harness/types";
-import { setTimeout } from "node:timers/promises";
 import { toolResult } from "../src/server/mcp-result";
 import { z } from "zod";
 
-const CLOSE_POLL_MS = 250;
 const CLOSE_TIMEOUT_MS = 15_000;
 const idSchema = z.object({ id: z.string().uuid() }).strict();
 
 async function closeChild(owner: string, id: string) {
   const store = delegations();
-  store.closeChild(owner, id);
-  const deadline = Date.now() + CLOSE_TIMEOUT_MS;
 
-  while (Date.now() < deadline) {
-    const child = store.get(owner, id);
+  return new Promise<ReturnType<typeof store.get>>((resolve, reject) => {
+    // Cleanup captures this before the subscription is installed.
+    // eslint-disable-next-line prefer-const
+    let unsubscribe: (() => void) | undefined;
+    // The cleanup callback runs after this timer has been installed.
+    // eslint-disable-next-line prefer-const
+    let timer: NodeJS.Timeout | undefined;
+    const cleanup = () => {
+      clearTimeout(timer);
+      unsubscribe?.();
+    };
+    const check = () => {
+      const child = store.get(owner, id);
 
-    if (child.status === "closed") {
-      return child;
+      if (child.status === "closed") {
+        cleanup();
+        resolve(child);
+
+        return true;
+      }
+
+      return false;
+    };
+    unsubscribe = store.subscribe(check);
+    timer = setTimeout(() => {
+      // A final read covers a lost close notification without another poller.
+      if (check()) {
+        return;
+      }
+
+      cleanup();
+      reject(
+        new Error(
+          "Close is recorded but the host has not confirmed process exit. Check side_pocket_list before resuming."
+        )
+      );
+    }, CLOSE_TIMEOUT_MS);
+
+    try {
+      store.closeChild(owner, id);
+      check();
+    } catch (error) {
+      cleanup();
+      reject(error);
     }
-
-    await setTimeout(CLOSE_POLL_MS);
-  }
-
-  throw new Error(
-    "Close is recorded but the host has not confirmed process exit. Check side_pocket_list before resuming."
-  );
+  });
 }
 
 export function registerDelegationTools(server: McpServer, owner: string) {
