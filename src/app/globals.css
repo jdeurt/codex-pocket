@@ -257,6 +257,7 @@
 .markdown-paragraph {
   margin: 0;
 }
+.transcript,
 .turn-messages,
 .activity-messages {
   display: flex;
