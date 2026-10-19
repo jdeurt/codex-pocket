@@ -1,6 +1,7 @@
 "use client";
 
 import { Children, type ReactNode, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { type Item, object, string } from "@/lib/protocol";
 import {
   MessageScroller,
   MessageScrollerButton,
@@ -14,7 +15,6 @@ import { ArrowDownIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ChatMessage } from "./chat-message";
 import type { TurnEntry } from "@/lib/turn-messages";
-import { string } from "@/lib/protocol";
 
 const INITIAL_MESSAGE_WINDOW = 150;
 const FORWARD_MESSAGES = 50;
@@ -22,7 +22,6 @@ const ESTIMATED_MESSAGE_HEIGHT = 180;
 const BOTTOM_THRESHOLD = 8;
 const PADDING_START = 24;
 const PADDING_END = 32;
-const TURN_GAP = "calc(var(--spacing) * 6)";
 const LAST_ITEM = -1;
 
 interface TranscriptTurn {
@@ -31,7 +30,6 @@ interface TranscriptTurn {
 }
 interface Row {
   id: string;
-  turnId: string;
   entry: TurnEntry;
 }
 
@@ -50,13 +48,26 @@ function measureRow(element: HTMLElement, entry: ResizeObserverEntry | undefined
   return entry?.borderBoxSize[0]?.blockSize ?? element.getBoundingClientRect().height;
 }
 
+function hasVisibleContent(item: Item) {
+  // Empty streaming placeholders must not create an invisible row before status.
+  if (Array.isArray(item.images) && item.images.length > 0) {
+    return true;
+  }
+
+  return item.type === "agentMessage"
+    ? string(item.text).trim().length > 0
+    : Array.isArray(item.content) && item.content.some((part) => string(object(part).text).trim().length > 0);
+}
+
 function EmptyTranscript({ children }: { children: ReactNode }) {
   return (
     <MessageScrollerProvider autoScroll defaultScrollPosition="end">
       <div className="min-h-0 flex-1">
         <MessageScroller>
           <MessageScrollerViewport>
-            <MessageScrollerContent className="transcript">{children}</MessageScrollerContent>
+            <MessageScrollerContent className="transcript" style={{ gap: "var(--message-block-gap)" }}>
+              {children}
+            </MessageScrollerContent>
           </MessageScrollerViewport>
           <MessageScrollerButton
             aria-label="Jump to latest message"
@@ -74,17 +85,24 @@ function rowsForTurns(turns: TranscriptTurn[], expanded: Set<string>): Row[] {
   return turns.flatMap((turn) =>
     turn.entries.flatMap<Row>((entry) => {
       if (entry.kind === "message") {
-        return { id: `${turn.id}/${string(entry.item.clientId) || entry.item.id}`, turnId: turn.id, entry };
+        return hasVisibleContent(entry.item)
+          ? { id: `${turn.id}/${string(entry.item.clientId) || entry.item.id}`, entry }
+          : [];
       }
 
-      const header = { id: entry.id, turnId: turn.id, entry };
+      const items = entry.items.filter((item) => hasVisibleContent(item));
+
+      if (items.length === 0) {
+        return [];
+      }
+
+      const header = { id: entry.id, entry: { ...entry, items } };
 
       return expanded.has(entry.id)
         ? [
             header,
-            ...entry.items.map((item) => ({
+            ...items.map((item) => ({
               id: `${turn.id}/${string(item.clientId) || item.id}`,
-              turnId: turn.id,
               entry: { kind: "message" as const, item },
             })),
           ]
@@ -189,13 +207,7 @@ function MeasuredTranscript({
                         aria-posinset={virtualRow.index + 1}
                         aria-setsize={rows.length}
                         className="min-w-0"
-                        style={{
-                          paddingBottom: next
-                            ? next.turnId === row.turnId
-                              ? "var(--message-block-gap)"
-                              : TURN_GAP
-                            : 0,
-                        }}
+                        style={{ paddingBottom: next ? "var(--message-block-gap)" : 0 }}
                       >
                         {row.entry.kind === "message" ? (
                           <ChatMessage item={row.entry.item} />
@@ -224,10 +236,10 @@ function MeasuredTranscript({
                 <div
                   ref={(element) => virtualizer.measureElement(element)}
                   data-index={rows.length}
-                  className="absolute top-0 left-0 flex w-full min-w-0 flex-col gap-6"
+                  className="absolute top-0 left-0 flex w-full min-w-0 flex-col gap-(--message-block-gap)"
                   style={{
                     transform: `translateY(${footerRow?.start ?? 0}px)`,
-                    paddingTop: footer.length > 0 ? TURN_GAP : 0,
+                    paddingTop: footer.length > 0 ? "var(--message-block-gap)" : 0,
                   }}
                 >
                   {footer}
