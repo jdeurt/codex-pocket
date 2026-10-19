@@ -8,7 +8,7 @@ import { projectRestarts } from "./restart-events";
 const internal = (id: unknown) => isRecoveryMessageId(id) || string(id).startsWith(delegationMessagePrefix);
 
 // Only messages and explicitly projected display items leave the computer.
-export function visibleSnapshot(state: Snapshot): Snapshot {
+export function visibleSnapshot(state: Snapshot, options: { tools?: boolean } = {}): Snapshot {
   const scheduled = new Set(Object.keys(state.scheduled ?? {}));
 
   return {
@@ -49,6 +49,33 @@ export function visibleSnapshot(state: Snapshot): Snapshot {
                 ? item.content.filter((part) => (part as { type?: string }).type === "text")
                 : item.content,
             }),
+          };
+        }
+
+        if (
+          options.tools &&
+          ["toolTrace", "commandExecution", "mcpToolCall", "dynamicToolCall", "fileChange", "webSearch"].includes(
+            item.type
+          )
+        ) {
+          return {
+            id: item.id,
+            type: "toolTrace",
+            tool:
+              string(item.tool) ||
+              (
+                {
+                  commandExecution: "Command",
+                  mcpToolCall: "Tool call",
+                  dynamicToolCall: "Tool call",
+                  fileChange: "File changes",
+                  webSearch: "Web search",
+                } as Record<string, string>
+              )[item.type] ||
+              "Tool",
+            status: string(item.status),
+            text: string(item.text) || string(item.aggregatedOutput),
+            ...(images.length > 0 && { images }),
           };
         }
 

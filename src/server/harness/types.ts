@@ -1,5 +1,5 @@
+import type { Data, Item } from "../../lib/protocol";
 import type { Config } from "../config";
-import type { Data } from "../../lib/protocol";
 
 export type Harness = "codex" | "claude";
 export interface ParentPolicy {
@@ -32,8 +32,9 @@ export interface HarnessResult {
 }
 export interface HarnessMessage {
   id: string;
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "tool";
   text: string;
+  item?: Item;
 }
 export interface HarnessCallbacks {
   request: (request: HarnessRequest) => Promise<unknown>;

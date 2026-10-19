@@ -1,8 +1,18 @@
 import type { AdapterOptions, HarnessAdapter, HarnessMessage, HarnessResult } from "./types";
 import { CodexRpc, RpcError } from "../rpc";
-import { type Item, type PendingRequest, type RpcEvent, type Thread, type Turn, string } from "../../lib/protocol";
+import {
+  type Item,
+  type PendingRequest,
+  type RpcEvent,
+  type Thread,
+  type Turn,
+  object,
+  string,
+} from "../../lib/protocol";
 import { codexParentTools } from "./mcp-config";
 import { codexPermissions } from "./permissions";
+import { harnessMessages } from "./transcript";
+import { loadHistory } from "../history";
 import { log } from "../logging";
 import { sidePocketInstructions } from "./instructions";
 import { validateAnswer } from "../answers";
@@ -32,12 +42,72 @@ export class CodexAdapter implements HarnessAdapter {
   private active?: string;
   private pending?: { resolve: (result: HarnessResult) => void; reject: (error: Error) => void };
   private outputs = new Map<string, string>();
+  private nativeAgents: Record<string, { parentId: string; name: string; status: string }> = {};
   constructor(private options: AdapterOptions) {
     this.rpc.on("event", (event: RpcEvent) => this.event(event));
     this.rpc.on("diagnostic", (message: string) => log().debug({ message }, "side_pocket.codex.stderr"));
     this.rpc.on("disconnect", (error: Error) => this.pending?.reject(error));
   }
+  private observeNative(event: RpcEvent) {
+    if (
+      ![
+        "thread/started",
+        "thread/status/changed",
+        "turn/completed",
+        "thread/closed",
+        "thread/archived",
+        "thread/deleted",
+      ].includes(event.method)
+    ) {
+      return;
+    }
+
+    const thread = object(event.params.thread);
+    const id = string(thread.id) || string(event.params.threadId);
+    const parentId =
+      string(thread.parentThreadId) ||
+      string(object(object(object(thread.source).subAgent).thread_spawn).parent_thread_id);
+
+    if (
+      event.method === "thread/started" &&
+      parentId &&
+      (parentId === this.sessionId || Object.hasOwn(this.nativeAgents, parentId))
+    ) {
+      this.nativeAgents[id] = {
+        parentId,
+        name: string(thread.name) || string(thread.agentNickname),
+        status: "unknown",
+      };
+    }
+
+    if (!Object.hasOwn(this.nativeAgents, id)) {
+      return;
+    }
+
+    if (event.method === "thread/status/changed" || event.method === "thread/started") {
+      const status = object(event.params.status ?? thread.status);
+      this.nativeAgents[id].status =
+        status.type === "active"
+          ? Array.isArray(status.activeFlags) && status.activeFlags.length > 0
+            ? "waiting"
+            : "running"
+          : status.type === "idle"
+            ? "idle"
+            : status.type === "systemError"
+              ? "failed"
+              : "unknown";
+    } else if (["thread/closed", "thread/archived", "thread/deleted"].includes(event.method)) {
+      this.nativeAgents[id].status = "closed";
+    } else if (event.method === "turn/completed") {
+      const status = string(object(event.params.turn).status);
+      this.nativeAgents[id].status = status === "completed" ? "completed" : status === "failed" ? "failed" : "idle";
+    }
+
+    this.options.callbacks.metadata({ nativeAgents: this.nativeAgents });
+  }
   private event(event: RpcEvent) {
+    this.observeNative(event);
+
     if (event.params.threadId && event.params.threadId !== this.sessionId) {
       return;
     }
@@ -112,6 +182,7 @@ export class CodexAdapter implements HarnessAdapter {
   }
   async open() {
     const { config, child, callbacks, parentTools } = this.options;
+    callbacks.metadata({ nativeAgents: null });
     await this.rpc.connect(
       {
         ...config,
@@ -172,17 +243,7 @@ export class CodexAdapter implements HarnessAdapter {
       includeTurns: true,
     });
 
-    return thread.turns.flatMap((turn) =>
-      turn.items.flatMap<HarnessMessage>((item) =>
-        ["userMessage", "agentMessage"].includes(item.type)
-          ? {
-              id: string(item.clientId) || item.id,
-              role: item.type === "userMessage" ? "user" : "assistant",
-              text: text(item),
-            }
-          : []
-      )
-    );
+    return harnessMessages(await loadHistory(this.rpc, thread));
   }
   async interrupt() {
     if (this.active) {

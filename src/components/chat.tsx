@@ -8,6 +8,7 @@ import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } fro
 import { clientError, reportClient } from "@/lib/client-logging";
 import { stageMessage, updateDelivery, useThread } from "@/hooks/use-thread";
 import { useEffect, useRef, useState } from "react";
+import { AgentBrowser } from "./agent-browser";
 import { ComposerAttachments } from "./composer-attachments";
 import { Conversation } from "./conversation";
 import { NotificationPrompt } from "./notification-prompt";
@@ -26,6 +27,7 @@ export function Chat() {
   const [draft, setDraft] = useDraft();
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
+  const [agentsOpen, setAgentsOpen] = useState(false);
   const messageId = useRef<string | null>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
   useComposerViewport(textarea);
@@ -113,7 +115,11 @@ export function Chat() {
         </div>
         <span className="header-balance" aria-hidden="true" />
       </header>
-      <Conversation state={state} />
+      <Conversation
+        state={state}
+        suspended={agentsOpen}
+        activityControl={<AgentBrowser onOpenChange={setAgentsOpen} />}
+      />
       <footer className="composer-wrap">
         <NotificationPrompt />
         {(error || attachments.error || state.error) && (

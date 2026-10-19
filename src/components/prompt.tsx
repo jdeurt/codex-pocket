@@ -67,14 +67,20 @@ function Approval({
 export function Prompt({
   request,
   answer,
+  readOnly = false,
 }: {
   request: PendingRequest;
-  answer: (id: string | number, result: unknown) => Promise<void>;
+  readOnly?: boolean;
+  answer?: (id: string | number, result: unknown) => Promise<void>;
 }) {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
 
   async function submit(result: unknown) {
+    if (readOnly || !answer) {
+      return;
+    }
+
     setSending(true);
     setError("");
 
@@ -88,6 +94,25 @@ export function Prompt({
   }
 
   const questions = questionsSchema.safeParse(request.params.questions);
+
+  if (readOnly) {
+    return (
+      <Alert className="prompt">
+        <AlertTitle>Waiting for input</AlertTitle>
+        <AlertDescription>
+          <div className="flex w-full flex-col gap-4">
+            {questions.success ? (
+              questions.data.map((question) => <p key={question.id}>{question.question}</p>)
+            ) : (
+              <p>{string(request.params.reason) || "This agent has a pending request."}</p>
+            )}
+            <p>Read only. Handle this request from the parent chat or on your computer.</p>
+          </div>
+        </AlertDescription>
+      </Alert>
+    );
+  }
+
   let title = "Input needed on your computer";
   let content = <p>Handle this request in the terminal on your computer.</p>;
 

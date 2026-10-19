@@ -1,0 +1,72 @@
+"use client";
+import { type AgentEntry, agentSource, agentStatus } from "@/lib/agents";
+import { ArrowLeftIcon, ChevronRightIcon, XIcon } from "lucide-react";
+import { Button } from "./ui/button";
+import { Dialog } from "@base-ui/react/dialog";
+import type { RefObject } from "react";
+
+export function AgentList({
+  entries,
+  hidden,
+  error,
+  warnings,
+  rows,
+  select,
+}: {
+  entries: AgentEntry[];
+  hidden: boolean;
+  error?: string;
+  warnings: string[];
+  rows: RefObject<Map<string, HTMLButtonElement>>;
+  select: (agent: AgentEntry) => void;
+}) {
+  return (
+    <div className="agents-list-view" hidden={hidden}>
+      <header className="agents-list-header">
+        <Dialog.Close render={<Button variant="ghost" size="icon-xl" aria-label="Back to Pocket" />}>
+          <ArrowLeftIcon />
+        </Dialog.Close>
+        <h2>Agents</h2>
+        <Dialog.Close render={<Button variant="ghost" size="icon-xl" aria-label="Close agents" />}>
+          <XIcon />
+        </Dialog.Close>
+      </header>
+      <div className="agents-list">
+        {error || warnings.length > 0 ? (
+          <p className="agent-notice" role="status">
+            {error || warnings.join(" ")}
+            {error && " Showing the last update; statuses may be stale."}
+          </p>
+        ) : null}
+        {entries.map((agent) => (
+          <button
+            type="button"
+            key={agent.id}
+            className="agent-row"
+            ref={(node) => {
+              if (node) {
+                rows.current.set(agent.id, node);
+              } else {
+                rows.current.delete(agent.id);
+              }
+            }}
+            onClick={() => select(agent)}
+          >
+            <span className="agent-row-content">
+              <span className="agent-row-title">
+                <span className="agent-name" title={agent.name}>
+                  {agent.name}
+                </span>
+                <span className="agent-status">{agentStatus(agent.status)}</span>
+              </span>
+              <span className="agent-source">{agentSource(agent)}</span>
+              <span className="agent-preview">{agent.preview || "No visible messages saved yet."}</span>
+            </span>
+            <ChevronRightIcon aria-hidden="true" />
+          </button>
+        ))}
+        {entries.length === 0 && <p className="agent-notice">No agents are available in this chat.</p>}
+      </div>
+    </div>
+  );
+}

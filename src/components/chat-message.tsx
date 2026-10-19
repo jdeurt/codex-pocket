@@ -7,6 +7,7 @@ import type { FileAttachment } from "@/lib/attachments";
 import { FileAttachments } from "./file-attachments";
 import { Markdown } from "./markdown";
 import { SystemEvent } from "./system-event";
+import { ToolMessage } from "./tool-message";
 
 function messageText(item: Item) {
   if (item.type === "agentMessage") {
@@ -24,6 +25,10 @@ function messageText(item: Item) {
 export function ChatMessage({ item }: { item: Item }) {
   if (item.type === "pocketRestart") {
     return <SystemEvent />;
+  }
+
+  if (item.type === "toolTrace") {
+    return <ToolMessage item={item} />;
   }
 
   return (
@@ -52,7 +57,9 @@ export function ChatMessage({ item }: { item: Item }) {
             {item.type === "userMessage" ? (
               <p className="whitespace-pre-wrap">{messageText(item)}</p>
             ) : (
-              <Markdown allowCopyActions={item.type === "agentMessage"}>{messageText(item)}</Markdown>
+              <Markdown imageBase={string(item.imageBase) || undefined} allowCopyActions={item.type === "agentMessage"}>
+                {messageText(item)}
+              </Markdown>
             )}
           </BubbleContent>
         </Bubble>

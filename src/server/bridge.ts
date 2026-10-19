@@ -31,7 +31,6 @@ export class Bridge extends EventEmitter {
   private hydration?: RpcEvent[];
   private disposed = false;
   snapshot: Snapshot = structuredClone(initialSnapshot);
-
   private exclusive<T>(fn: () => Promise<T>): Promise<T> {
     const previous = this.serial;
     const result = (async () => {
@@ -78,7 +77,6 @@ export class Bridge extends EventEmitter {
     this.snapshot.queue = this.receipts.filter((r) => r.status !== "sent") as QueuedMessage[];
     this.publish();
   }
-
   private async connect() {
     try {
       await this.openConnection();
@@ -271,6 +269,13 @@ export class Bridge extends EventEmitter {
     } finally {
       this.connecting = undefined;
     }
+  }
+  agentReader() {
+    if (!this.rpc?.running || this.snapshot.connection !== "connected") {
+      throw new Error("Harness inspection is disconnected.");
+    }
+
+    return this.rpc;
   }
   refreshScheduled() {
     if (this.config) {

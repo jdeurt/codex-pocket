@@ -13,13 +13,68 @@ import {
 import { ActivitySpinner } from "./activity-spinner";
 import { FileAttachments } from "./file-attachments";
 import { Prompt } from "./prompt";
+import type { ReactNode } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Snapshot } from "@/lib/protocol";
 import { TurnMessages } from "./turn-messages";
 import { post } from "@/lib/client-api";
 import { turnMessages } from "@/lib/turn-messages";
+import { useConversationScroll } from "@/hooks/use-conversation-scroll";
 
-export function Conversation({ state, readOnly = false }: { state: Snapshot; readOnly?: boolean }) {
+function ConversationEmpty({
+  connection,
+  empty,
+  readOnly,
+  emptyMessage,
+}: {
+  connection: Snapshot["connection"];
+  empty: boolean;
+  readOnly: boolean;
+  emptyMessage: string;
+}) {
+  return connection === "unconfigured" ? (
+    <MessageScrollerItem messageId="setup">
+      <Empty className="chat-empty">
+        <EmptyHeader>
+          <EmptyTitle>Pocket, from here.</EmptyTitle>
+          <EmptyDescription>Set CODEX_THREAD_ID in .env.local on your computer, then restart the app.</EmptyDescription>
+        </EmptyHeader>
+      </Empty>
+    </MessageScrollerItem>
+  ) : connection === "connecting" && empty ? (
+    <MessageScrollerItem messageId="loading">
+      <div aria-label="Loading conversation" className="flex flex-col gap-4 py-8">
+        <Skeleton className="ml-auto h-12 w-2/3" />
+        <Skeleton className="h-4 w-4/5" />
+        <Skeleton className="h-4 w-1/2" />
+      </div>
+    </MessageScrollerItem>
+  ) : empty ? (
+    <MessageScrollerItem messageId="empty">
+      <Empty className="chat-empty">
+        <EmptyHeader>
+          <EmptyTitle>{readOnly ? emptyMessage : "What are we working on?"}</EmptyTitle>
+          {!readOnly && <EmptyDescription>Continue the conversation with Pocket on your computer.</EmptyDescription>}
+        </EmptyHeader>
+      </Empty>
+    </MessageScrollerItem>
+  ) : null;
+}
+
+export function Conversation({
+  state,
+  readOnly = false,
+  emptyMessage = "No visible messages saved yet.",
+  activityControl,
+  suspended = false,
+}: {
+  state: Snapshot;
+  readOnly?: boolean;
+  emptyMessage?: string;
+  activityControl?: ReactNode;
+  suspended?: boolean;
+}) {
+  const { viewportRef, autoScroll, onScroll } = useConversationScroll(suspended);
   const messages = state.turns.flatMap((turn) => {
     const entries = turnMessages(
       readOnly ? { ...turn, items: turn.items.filter((item) => item.type !== "pocketRestart") } : turn,
@@ -32,40 +87,17 @@ export function Conversation({ state, readOnly = false }: { state: Snapshot; rea
   const activity = state.activity ?? "Considering options";
 
   return (
-    <MessageScrollerProvider autoScroll defaultScrollPosition="end">
+    <MessageScrollerProvider autoScroll={autoScroll} defaultScrollPosition="end">
       <div className="min-h-0 flex-1">
         <MessageScroller>
-          <MessageScrollerViewport>
+          <MessageScrollerViewport ref={viewportRef} onScroll={onScroll}>
             <MessageScrollerContent className="transcript">
-              {state.connection === "unconfigured" ? (
-                <MessageScrollerItem messageId="setup">
-                  <Empty className="chat-empty">
-                    <EmptyHeader>
-                      <EmptyTitle>Pocket, from here.</EmptyTitle>
-                      <EmptyDescription>
-                        Set CODEX_THREAD_ID in .env.local on your computer, then restart the app.
-                      </EmptyDescription>
-                    </EmptyHeader>
-                  </Empty>
-                </MessageScrollerItem>
-              ) : state.connection === "connecting" && messages.length === 0 ? (
-                <MessageScrollerItem messageId="loading">
-                  <div aria-label="Loading conversation" className="flex flex-col gap-4 py-8">
-                    <Skeleton className="ml-auto h-12 w-2/3" />
-                    <Skeleton className="h-4 w-4/5" />
-                    <Skeleton className="h-4 w-1/2" />
-                  </div>
-                </MessageScrollerItem>
-              ) : messages.length === 0 ? (
-                <MessageScrollerItem messageId="empty">
-                  <Empty className="chat-empty">
-                    <EmptyHeader>
-                      <EmptyTitle>What are we working on?</EmptyTitle>
-                      <EmptyDescription>Continue the conversation with Pocket on your computer.</EmptyDescription>
-                    </EmptyHeader>
-                  </Empty>
-                </MessageScrollerItem>
-              ) : null}
+              <ConversationEmpty
+                connection={state.connection}
+                empty={messages.length === 0}
+                readOnly={readOnly}
+                emptyMessage={emptyMessage}
+              />
               {messages.map((turn) => (
                 <MessageScrollerItem messageId={turn.id} key={turn.id}>
                   <TurnMessages entries={turn.entries} />
@@ -98,23 +130,33 @@ export function Conversation({ state, readOnly = false }: { state: Snapshot; rea
                 <MessageScrollerItem messageId={`request-${request.id}`} key={request.id}>
                   <Prompt
                     request={request}
-                    answer={async (id, result) => {
-                      await post("/api/answers", { id, result });
-                    }}
+                    readOnly={readOnly}
+                    answer={
+                      readOnly
+                        ? undefined
+                        : async (id, result) => {
+                            await post("/api/answers", { id, result });
+                          }
+                    }
                   />
                 </MessageScrollerItem>
               ))}
-              {thinking && (
-                <MessageScrollerItem messageId="thinking">
-                  <div
-                    className="activity-indicator"
-                    role="status"
-                    aria-label="Pocket activity"
-                    aria-live="polite"
-                    aria-atomic="true"
-                  >
-                    <ActivitySpinner />
-                    {activity && <span>{activity}</span>}
+              {(thinking || activityControl) && (
+                <MessageScrollerItem messageId="thinking" className="activity-item">
+                  <div className="activity-row">
+                    {thinking && (
+                      <div
+                        className="activity-indicator"
+                        role="status"
+                        aria-label="Pocket activity"
+                        aria-live="polite"
+                        aria-atomic="true"
+                      >
+                        <ActivitySpinner />
+                        {activity && <span>{activity}</span>}
+                      </div>
+                    )}
+                    {activityControl}
                   </div>
                 </MessageScrollerItem>
               )}

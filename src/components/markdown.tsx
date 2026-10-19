@@ -36,15 +36,23 @@ function MarkdownCode({ children, className, node }: ComponentProps<"code"> & Ex
 export const Markdown = memo(function MarkdownContent({
   children: source,
   allowCopyActions = false,
+  imageBase,
 }: {
   children: string;
   allowCopyActions?: boolean;
+  imageBase?: string;
 }) {
   return (
     <div className="markdown">
       <ReactMarkdown
         remarkPlugins={allowCopyActions ? [remarkGfm, remarkCopyAction] : [remarkGfm]}
-        urlTransform={(url, key) => (key === "src" ? imageUrl(url) : defaultUrlTransform(url))}
+        urlTransform={(url, key) =>
+          key === "src"
+            ? imageBase && imageUrl(url) && !url.startsWith("data:")
+              ? `${imageBase}&source=${encodeURIComponent(url)}`
+              : imageUrl(url)
+            : defaultUrlTransform(url)
+        }
         components={{
           table: ({ children }) => (
             <Table

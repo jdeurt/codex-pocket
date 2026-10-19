@@ -19,7 +19,7 @@ export function itemImageSources(item: Item): string[] {
         ? item.contentItems
         : item.type === "functionCallOutput"
           ? item.output
-          : item.type === "userMessage"
+          : ["userMessage", "agentMessage", "imageOutput"].includes(item.type)
             ? item.content
             : [];
   const sources = Array.isArray(content)
@@ -69,7 +69,10 @@ export function imageUrl(source: string) {
     return source;
   }
 
-  if (/^https?:\/\//i.test(source) || source.startsWith("/api/images?") || source.startsWith("/api/uploads?")) {
+  if (
+    /^https?:\/\//i.test(source) ||
+    ["/api/images?", "/api/uploads?", "/api/agents?"].some((prefix) => source.startsWith(prefix))
+  ) {
     return source;
   }
 
@@ -79,4 +82,6 @@ export function imageUrl(source: string) {
 }
 
 export const thumbnailUrl = (source: string) =>
-  source.startsWith("/api/images?") || source.startsWith("/api/uploads?") ? `${source}&thumbnail=1` : source;
+  ["/api/images?", "/api/uploads?", "/api/agents?"].some((prefix) => source.startsWith(prefix))
+    ? `${source}&thumbnail=1`
+    : source;

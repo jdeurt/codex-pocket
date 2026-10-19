@@ -9,6 +9,7 @@ import {
   getSessionMessages,
   query,
 } from "@anthropic-ai/claude-agent-sdk";
+import { claudeTranscript, harnessMessages } from "./transcript";
 import { object, string } from "../../lib/protocol";
 import { claudePermissions } from "./permissions";
 import { log } from "../logging";
@@ -20,7 +21,12 @@ import { z } from "zod";
 const HOOK_TIMEOUT_SECONDS = 3600;
 const questionsAnswer = z.object({ answers: z.record(z.string(), z.string()) }).strict();
 
-export function claudeOptions(options: AdapterOptions, sessionId: string, resume: boolean): Options {
+export function claudeOptions(
+  options: AdapterOptions,
+  sessionId: string,
+  resume: boolean,
+  nativeRequest?: (id: string, waiting: boolean) => void
+): Options {
   const { child, callbacks, parentTools } = options;
   const inheritedEffort = child.effort ?? child.policy.effort;
   const effort = inheritedEffort === "minimal" ? "low" : inheritedEffort;
@@ -51,20 +57,29 @@ export function claudeOptions(options: AdapterOptions, sessionId: string, resume
               }
 
               const data = object(input.tool_input);
-              const updatedInput =
-                input.tool_name === "AskUserQuestion"
-                  ? {
-                      ...data,
-                      ...questionsAnswer.parse(
-                        await callbacks.request({
-                          id: crypto.randomUUID(),
-                          kind: "question",
-                          method: input.tool_name,
-                          input: data,
-                        })
-                      ),
-                    }
-                  : data;
+              const question = input.tool_name === "AskUserQuestion";
+
+              if (question && input.agent_id) {
+                nativeRequest?.(input.agent_id, true);
+              }
+
+              const updatedInput = question
+                ? {
+                    ...data,
+                    ...questionsAnswer.parse(
+                      await callbacks.request({
+                        id: crypto.randomUUID(),
+                        kind: "question",
+                        method: input.tool_name,
+                        input: data,
+                      })
+                    ),
+                  }
+                : data;
+
+              if (question && input.agent_id) {
+                nativeRequest?.(input.agent_id, false);
+              }
 
               return {
                 hookSpecificOutput: {
@@ -95,12 +110,66 @@ export class ClaudeAdapter implements HarnessAdapter {
   private current?: Query;
   private process?: ChildProcess;
   private interrupted = false;
+  private nativeAgents: Record<string, { name: string; status: string; parentId?: string; background?: boolean }> = {};
   constructor(private options: AdapterOptions) {
     this.sessionId = options.child.sessionId ?? crypto.randomUUID();
     this.resume = !!options.child.sessionId;
   }
   private event(message: SDKMessage) {
     log().debug({ childId: this.options.child.id, message }, "side_pocket.claude.event");
+
+    // Persist only native lifecycle display metadata, never task prompts or inputs.
+    if (
+      message.type === "system" &&
+      ["task_started", "task_updated", "task_notification", "background_tasks_changed"].includes(message.subtype)
+    ) {
+      if (message.subtype === "task_started" && message.task_type === "local_agent" && !message.ambient) {
+        this.nativeAgents[message.task_id] = {
+          name: message.description,
+          status: "running",
+          parentId: message.parent_task_id,
+          background: message.is_backgrounded,
+        };
+      } else if (message.subtype === "task_updated" && Object.hasOwn(this.nativeAgents, message.task_id)) {
+        if (message.patch.is_backgrounded !== undefined) {
+          this.nativeAgents[message.task_id].background = message.patch.is_backgrounded;
+        }
+
+        const status = message.patch.status;
+
+        if (status) {
+          this.nativeAgents[message.task_id].status =
+            status === "paused"
+              ? "unknown"
+              : status === "killed"
+                ? "closed"
+                : status === "pending"
+                  ? "unknown"
+                  : status;
+        }
+      } else if (message.subtype === "task_notification" && Object.hasOwn(this.nativeAgents, message.task_id)) {
+        this.nativeAgents[message.task_id].status = message.status === "stopped" ? "closed" : message.status;
+      } else if (message.subtype === "background_tasks_changed") {
+        for (const task of Object.values(this.nativeAgents)) {
+          if (task.background && task.status === "running") {
+            task.status = "unknown";
+          }
+        }
+
+        for (const task of message.tasks) {
+          if (task.task_type === "local_agent" && !task.ambient) {
+            this.nativeAgents[task.task_id] = {
+              name: task.description,
+              status: "running",
+              parentId: task.parent_task_id,
+              background: true,
+            };
+          }
+        }
+      }
+
+      this.options.callbacks.metadata({ nativeAgents: this.nativeAgents });
+    }
 
     if (message.type === "system" && message.subtype === "init") {
       this.options.callbacks.metadata({
@@ -150,6 +219,8 @@ export class ClaudeAdapter implements HarnessAdapter {
   }
   async run(id: string, text: string): Promise<HarnessResult> {
     this.interrupted = false;
+    this.nativeAgents = {};
+    this.options.callbacks.metadata({ nativeAgents: null });
     const finished = Promise.withResolvers<undefined>();
     const input = async function* () {
       yield {
@@ -163,7 +234,14 @@ export class ClaudeAdapter implements HarnessAdapter {
     const run = query({
       prompt: input(),
       options: {
-        ...claudeOptions(this.options, this.sessionId, this.resume),
+        ...claudeOptions(this.options, this.sessionId, this.resume, (nativeId, waiting) => {
+          if (!Object.hasOwn(this.nativeAgents, nativeId)) {
+            return;
+          }
+
+          this.nativeAgents[nativeId].status = waiting ? "waiting" : "running";
+          this.options.callbacks.metadata({ nativeAgents: this.nativeAgents });
+        }),
         spawnClaudeCodeProcess: (options) => {
           const child = spawn(options.command, options.args, {
             cwd: options.cwd,
@@ -193,15 +271,7 @@ export class ClaudeAdapter implements HarnessAdapter {
   async history(): Promise<HarnessMessage[]> {
     const messages = await getSessionMessages(this.sessionId, { dir: this.options.child.cwd });
 
-    return messages.flatMap<HarnessMessage>((message) =>
-      message.type === "system" || !messageText(object(message.message).content)
-        ? []
-        : {
-            id: message.uuid,
-            role: message.type === "user" ? "user" : "assistant",
-            text: messageText(object(message.message).content),
-          }
-    );
+    return harnessMessages(claudeTranscript(messages));
   }
   async interrupt() {
     this.interrupted = true;

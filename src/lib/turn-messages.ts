@@ -4,6 +4,10 @@ export type TurnEntry = { kind: "message"; item: Item } | { kind: "activity"; id
 
 function messageEntries(turn: Turn, active: boolean): TurnEntry[] {
   const messages = turn.items.filter((item) => {
+    if (item.type === "toolTrace") {
+      return true;
+    }
+
     if (!["userMessage", "agentMessage", "imageOutput"].includes(item.type)) {
       return false;
     }
