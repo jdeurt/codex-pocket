@@ -1,0 +1,25 @@
+/* The document is not a second scroller while composing. Keep all native input
+   gestures and the transcript/panel scroll containers available. */
+html:has(.chat-shell .composer textarea:focus) {
+  overflow: clip;
+  overscroll-behavior: none;
+}
+
+body:has(.chat-shell .composer textarea:focus) {
+  position: fixed;
+  inset: 0;
+  overflow: clip;
+  overscroll-behavior: none;
+}
+
+.chat-shell:has(.composer textarea:focus) {
+  position: relative;
+  top: var(--composer-viewport-top, 0px);
+  height: var(--composer-viewport-height, var(--app-height, 100dvh));
+  overflow: clip;
+  overscroll-behavior: none;
+}
+
+.chat-shell .composer textarea {
+  overscroll-behavior-y: contain;
+}
