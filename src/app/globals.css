@@ -181,6 +181,10 @@
   object-fit: contain;
   border-radius: inherit;
 }
+.chat-image-media img,
+.image-preview-stage img {
+  border: 1px solid rgb(255 255 255 / 10%);
+}
 [data-slot="bubble"]:has(.chat-image),
 [data-slot="bubble-content"]:has(.chat-image) {
   width: 100%;
@@ -448,7 +452,6 @@
 }
 .markdown img {
   max-width: 100%;
-  border-radius: 12px;
 }
 @media (max-width: 480px) {
   .transcript {
