@@ -12,7 +12,7 @@ The working backlog is the [Pocket project in Linear](https://linear.app/juan-de
 - [JUA-8](https://linear.app/juan-de-urtubey/issue/JUA-8/build-the-minimal-mobile-chat-with-questions-and-approvals): Build the minimal mobile chat with questions and approvals
 - [JUA-9](https://linear.app/juan-de-urtubey/issue/JUA-9/show-the-effective-model-and-reasoning-effort): Show the effective model and reasoning effort
 - [JUA-10](https://linear.app/juan-de-urtubey/issue/JUA-10/configure-unrestricted-access-for-this-computers-pocket-chat): Configure unrestricted access for this computer's Pocket chat
-- [JUA-11](https://linear.app/juan-de-urtubey/issue/JUA-11/serve-pocket-privately-through-tailscale-and-a-persistent-login): Serve Pocket privately through Tailscale and a persistent login service
+- [JUA-11](https://linear.app/juan-de-urtubey/issue/JUA-11): Serve Pocket through private HTTPS and a persistent login service
 - [JUA-12](https://linear.app/juan-de-urtubey/issue/JUA-12/document-agent-followable-setup-and-deployment-in-readme): Document agent-followable setup and deployment in README
 - [JUA-13](https://linear.app/juan-de-urtubey/issue/JUA-13/align-the-mobile-composer-and-enlarge-the-send-button): Align the mobile composer and enlarge the send button
 - [JUA-14](https://linear.app/juan-de-urtubey/issue/JUA-14/stream-live-updates-and-show-outgoing-messages-immediately): Stream live updates and show outgoing messages immediately
@@ -43,7 +43,7 @@ The working backlog is the [Pocket project in Linear](https://linear.app/juan-de
 - [x] One real local Codex thread selected through environment configuration; steering or queueing configured on the computer.
 - [x] Minimal phone chat, questions and approvals, with the page titled Pocket and the effective model/effort displayed.
 - [x] This computer uses `gpt-6.1-sol`, `medium`, unrestricted Codex access and approval policy `never`.
-- [x] Persistent login service, private Tailscale HTTPS access and agent setup instructions in the README.
+- [x] Persistent login service, configurable private HTTPS access and agent setup instructions in the README.
 - [x] Immediate muted outgoing messages, confirmation without duplicates and live updates to connected clients.
 - [x] Keep failed-message text in the input field. Preserve this behavior in future changes.
 - [x] Muted response-size activity spinner, larger send button with equal spacing, stable history layout and larger jump-to-bottom control.
@@ -104,6 +104,14 @@ These later requests are tracked separately in Linear. Keep their existing owner
 - [x] Apply the computer's effective reasoning effort on the initial saved-thread resume and each new turn; a real saved-thread check persisted xhigh followed by medium.
 - [x] Read complete SSE frames before decoding deployment snapshots, including fragmented UTF-8 and keepalive frames.
 - [x] Deploy the reviewed batch and verify the running thread reports medium effort. Later full service restarts are authorized by the operator.
+
+## Installer and Side Pockets
+
+- [ ] [JUA-45](https://linear.app/juan-de-urtubey/issue/JUA-45): Add a Claude harness adapter for delegated Side Pockets. Main Pocket always stays Codex.
+- [ ] [JUA-46](https://linear.app/juan-de-urtubey/issue/JUA-46): Implement independent Codex/Claude Side Pockets, with host-relayed parent communication and no child Pocket tools or further delegation.
+- [x] [JUA-47](https://linear.app/juan-de-urtubey/issue/JUA-47): Provide a one-click Mac installer and make setup independent of tunnel providers.
+
+The operator authorized implementing all three, pushing normal commits to main as they finish. Children receive only the scoped Pocket role prompt; do not expose scheduling, delegation or custom parent-communication tooling to them. Describe actual harness capabilities in the parent’s appended instructions.
 
 ## Delivery cadence
 
