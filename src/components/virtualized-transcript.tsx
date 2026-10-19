@@ -16,7 +16,7 @@ import { ChatMessage } from "./chat-message";
 import type { TurnEntry } from "@/lib/turn-messages";
 import { string } from "@/lib/protocol";
 
-const INITIAL_MESSAGE_WINDOW = 250;
+const INITIAL_MESSAGE_WINDOW = 150;
 const FORWARD_MESSAGES = 50;
 const ESTIMATED_MESSAGE_HEIGHT = 180;
 const BOTTOM_THRESHOLD = 8;
