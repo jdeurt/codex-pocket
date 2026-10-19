@@ -45,6 +45,8 @@ test("activity disclosure keeps shared outer gaps and hit target through expansi
   const scroller = page.locator('[data-slot="message-scroller-viewport"]');
   const show = page.getByRole("button", { name: "Show activity", exact: true });
   const hide = page.getByRole("button", { name: "Hide activity", exact: true });
+  await scroller.dispatchEvent("pointerdown");
+  await scroller.evaluate((element) => element.scrollBy({ top: -100, behavior: "instant" }));
   const gapErrors = (expanded: boolean) =>
     scroller.evaluate(
       (element, { open, count }) => {
@@ -95,6 +97,7 @@ test("activity disclosure keeps shared outer gaps and hit target through expansi
     })
     .toBeLessThan(ANCHOR_TOLERANCE);
   await scroller.evaluate((element) => {
+    element.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
     element.scrollTop = 0;
   });
   await expect(hide).toHaveCount(0);

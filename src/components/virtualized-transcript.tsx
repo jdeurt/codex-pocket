@@ -7,6 +7,7 @@ import { Trace, TraceCollapsible, TraceCollapsibleTrigger, TraceLine, TraceTitle
 import { ArrowDownIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ChatMessage } from "./chat-message";
+import { TranscriptScrollMotion } from "@/lib/transcript-scroll-motion";
 import type { TurnEntry } from "@/lib/turn-messages";
 import { string } from "@/lib/protocol";
 
@@ -69,18 +70,21 @@ function MeasuredTranscript({
   footer,
   expanded,
   toggle,
+  suspended,
 }: {
   rows: Row[];
   footer: ReactNode[];
   expanded: Set<string>;
   toggle: (id: string) => void;
+  suspended: boolean;
 }) {
   // TanStack exposes a mutable controller that React Compiler must not memoize.
   "use no memo";
 
   const viewport = useRef<HTMLDivElement>(null);
+  const canvas = useRef<HTMLDivElement>(null);
+  const [motion] = useState(() => new TranscriptScrollMotion());
   const [atEnd, setAtEnd] = useState(true);
-  const [paused, setPaused] = useState(false);
   // Its virtual key identifies appended output; the footer DOM stays mounted
   // independently so pending answer fields retain their local draft state.
   const footerKey = `footer:${rows.at(LAST_ITEM)?.id ?? "empty"}`;
@@ -96,19 +100,21 @@ function MeasuredTranscript({
     estimateSize: (index) => (index === rows.length ? 0 : ESTIMATED_MESSAGE_HEIGHT),
     initialOffset: () => rows.length * ESTIMATED_MESSAGE_HEIGHT,
     anchorTo: "end",
-    followOnAppend: !paused,
-    scrollEndThreshold: BOTTOM_THRESHOLD,
+    // One follow owner: the motion adapter. Library anchoring remains enabled.
+    followOnAppend: false,
+    scrollEndThreshold: -1,
     paddingStart: PADDING_START,
     paddingEnd: PADDING_END,
     rangeExtractor: messageRange,
+    // The custom range owns the DOM budget. Keep every mounted row eligible
+    // for core measurement while a smooth end command crosses older history.
+    overscan: rows.length + 1,
     measureElement: measureRow,
+    scrollToFn: (offset, options, instance) => motion.scrollTo(offset, options, instance),
     onChange: (instance, sync) => {
-      const end = instance.isAtEnd();
+      const end = instance.isAtEnd(BOTTOM_THRESHOLD);
       setAtEnd(end);
-
-      if (sync && end) {
-        setPaused(false);
-      }
+      motion.readPosition(instance, sync);
     },
   });
 
@@ -117,14 +123,42 @@ function MeasuredTranscript({
     // scroller, then applies the measured delta after the gesture settles.
     virtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item, _delta, instance) =>
       item.end <= (instance.scrollOffset ?? 0);
-    virtualizer.scrollToEnd({ behavior: "auto" });
 
-    return () => virtualizer.cancelScroll();
-  }, [virtualizer]);
+    if (canvas.current) {
+      motion.mount(virtualizer, canvas.current);
+    }
+
+    return () => motion.unmount();
+  }, [virtualizer, motion]);
+
+  const last = rows.at(LAST_ITEM);
+  useLayoutEffect(() => {
+    motion.suspend(suspended);
+
+    if (last?.entry.kind === "message" && last.entry.item.type === "agentMessage") {
+      motion.source(last.id, string(last.entry.item.text));
+    }
+
+    motion.layout();
+  });
 
   const items = virtualizer.getVirtualItems();
   const messages = items.filter((item) => item.index < rows.length);
   const footerRow = items.at(LAST_ITEM);
+
+  const pointerIntent = (event: { target: EventTarget | null }) => {
+    const target = event.target;
+
+    if (target instanceof Element && target.closest('[data-slot="trace-collapsible-trigger"]')) {
+      return;
+    }
+
+    if (target instanceof Element && target.closest('button, a, input, textarea, [role="button"]')) {
+      motion.control();
+    } else {
+      motion.interrupt();
+    }
+  };
 
   return (
     <MessageScrollerProvider autoScroll={false} defaultScrollPosition="start">
@@ -134,13 +168,29 @@ function MeasuredTranscript({
             ref={viewport}
             preserveScrollOnPrepend={false}
             style={{ overflowAnchor: "none" }}
-            onWheel={() => virtualizer.cancelScroll()}
-            onTouchStart={() => virtualizer.cancelScroll()}
-            onPointerDown={() => virtualizer.cancelScroll()}
-            onKeyDown={() => virtualizer.cancelScroll()}
+            onWheel={() => motion.interrupt()}
+            onTouchStart={pointerIntent}
+            onTouchMove={() => motion.interrupt()}
+            onPointerDown={pointerIntent}
+            onKeyDown={(event) => {
+              if (!(
+                (event.key === "Enter" || event.key === " ") &&
+                event.target instanceof Element &&
+                event.target.closest('[data-slot="trace-collapsible-trigger"]')
+              )) {
+                motion.interrupt();
+              }
+            }}
           >
             <div className="transcript" style={{ paddingBlock: 0 }}>
-              <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
+              <div
+                ref={canvas}
+                style={{
+                  height: virtualizer.getTotalSize(),
+                  minHeight: motion.size(virtualizer.getTotalSize()),
+                  position: "relative",
+                }}
+              >
                 <ul
                   aria-label="Conversation"
                   className="absolute top-0 left-0 w-full min-w-0"
@@ -169,8 +219,7 @@ function MeasuredTranscript({
                             <TraceCollapsible
                               open={expanded.has(row.id)}
                               onOpenChange={() => {
-                                virtualizer.cancelScroll();
-                                setPaused(true);
+                                motion.disclose(virtualizer.isAtEnd(BOTTOM_THRESHOLD));
                                 toggle(row.id);
                               }}
                             >
@@ -208,8 +257,7 @@ function MeasuredTranscript({
               className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full border-border bg-background"
               aria-label="Jump to latest message"
               onClick={() => {
-                setPaused(false);
-                virtualizer.scrollToEnd({ behavior: "auto" });
+                motion.latest();
               }}
             >
               <ArrowDownIcon />
@@ -223,7 +271,15 @@ function MeasuredTranscript({
 
 // Shared by parent and read-only conversations. Network and child lifecycle stay
 // with the caller; virtualization limits DOM work, not the transcript payload.
-export function VirtualizedTranscript({ turns, children }: { turns: TranscriptTurn[]; children: ReactNode }) {
+export function VirtualizedTranscript({
+  turns,
+  children,
+  suspended = false,
+}: {
+  turns: TranscriptTurn[];
+  children: ReactNode;
+  suspended?: boolean;
+}) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const rows = useMemo(() => rowsForTurns(turns, expanded), [turns, expanded]);
   const footer = Children.toArray(children);
@@ -233,6 +289,7 @@ export function VirtualizedTranscript({ turns, children }: { turns: TranscriptTu
       rows={rows}
       footer={footer}
       expanded={expanded}
+      suspended={suspended}
       toggle={(id) => {
         setExpanded((previous) => {
           const next = new Set(previous);
