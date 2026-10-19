@@ -1,6 +1,8 @@
 "use client";
 import { type AgentCatalog, type AgentEntry, activeAgent } from "@/lib/agents";
-import { useEffect, useRef, useState } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
+import { ActivityIndicatorContext } from "@/lib/activity-indicator-context";
+import { ActivityRow } from "./activity-row";
 import { AgentChat } from "./agent-chat";
 import { AgentList } from "./agent-list";
 import { Dialog } from "@base-ui/react/dialog";
@@ -15,11 +17,12 @@ function useAgentCatalog(open: boolean) {
   return {
     data,
     error: open ? (detail.error ?? overview.error) : overview.error,
-    count: overview.error ? 0 : (data?.agents.filter(activeAgent).length ?? 0),
+    count: overview.error ? 0 : (data?.agents?.filter(activeAgent).length ?? 0),
   };
 }
 
 export function AgentBrowser({ onOpenChange }: { onOpenChange: (open: boolean) => void }) {
+  const indicator = useContext(ActivityIndicatorContext);
   const [open, setOpen] = useState(false);
   const { data, error, count } = useAgentCatalog(open);
   const [selected, setSelected] = useState<AgentEntry | null>(null);
@@ -77,10 +80,15 @@ export function AgentBrowser({ onOpenChange }: { onOpenChange: (open: boolean) =
         setVisit({ data, entries: new Map() });
       }}
     >
-      {count > 0 && (
-        <Dialog.Trigger className="agents-trigger">
-          {count} {count === 1 ? "agent" : "agents"}
-        </Dialog.Trigger>
+      {(count > 0 || indicator) && (
+        <ActivityRow>
+          {indicator}
+          {count > 0 && (
+            <Dialog.Trigger className="agents-trigger">
+              {count} {count === 1 ? "agent" : "agents"}
+            </Dialog.Trigger>
+          )}
+        </ActivityRow>
       )}
       <Dialog.Portal>
         <Dialog.Backdrop className="agents-backdrop" />

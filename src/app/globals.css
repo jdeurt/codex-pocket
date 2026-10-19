@@ -531,9 +531,6 @@
   min-width: 0;
   gap: 12px;
 }
-.activity-item:has(> .activity-row:empty) {
-  display: none;
-}
 .agents-trigger {
   margin-left: auto;
   min-height: 44px;

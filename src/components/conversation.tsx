@@ -2,24 +2,18 @@
 import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Message, MessageContent } from "@/components/ui/message";
-import {
-  MessageScroller,
-  MessageScrollerButton,
-  MessageScrollerContent,
-  MessageScrollerItem,
-  MessageScrollerProvider,
-  MessageScrollerViewport,
-} from "@/components/ui/message-scroller";
+import { ActivityIndicatorContext } from "@/lib/activity-indicator-context";
+import { ActivityRow } from "./activity-row";
 import { ActivitySpinner } from "./activity-spinner";
 import { FileAttachments } from "./file-attachments";
+import { MessageScrollerItem } from "@/components/ui/message-scroller";
 import { Prompt } from "./prompt";
 import type { ReactNode } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Snapshot } from "@/lib/protocol";
-import { TurnMessages } from "./turn-messages";
+import { VirtualizedTranscript } from "./virtualized-transcript";
 import { post } from "@/lib/client-api";
 import { turnMessages } from "@/lib/turn-messages";
-import { useConversationScroll } from "@/hooks/use-conversation-scroll";
 
 function ConversationEmpty({
   connection,
@@ -74,7 +68,6 @@ export function Conversation({
   activityControl?: ReactNode;
   suspended?: boolean;
 }) {
-  const { viewportRef, autoScroll, onScroll } = useConversationScroll(suspended);
   const messages = state.turns.flatMap((turn) => {
     const entries = turnMessages(
       readOnly ? { ...turn, items: turn.items.filter((item) => item.type !== "pocketRestart") } : turn,
@@ -85,86 +78,70 @@ export function Conversation({
   });
   const thinking = !!state.activeTurnId && state.requests.length === 0;
   const activity = state.activity ?? "Considering options";
+  const indicator = thinking ? (
+    <div
+      className="activity-indicator"
+      role="status"
+      aria-label="Pocket activity"
+      aria-live="polite"
+      aria-atomic="true"
+    >
+      <ActivitySpinner />
+      {activity && <span>{activity}</span>}
+    </div>
+  ) : null;
 
   return (
-    <MessageScrollerProvider autoScroll={autoScroll} defaultScrollPosition="end">
-      <div className="min-h-0 flex-1">
-        <MessageScroller>
-          <MessageScrollerViewport ref={viewportRef} onScroll={onScroll}>
-            <MessageScrollerContent className="transcript">
-              <ConversationEmpty
-                connection={state.connection}
-                empty={messages.length === 0}
-                readOnly={readOnly}
-                emptyMessage={emptyMessage}
-              />
-              {messages.map((turn) => (
-                <MessageScrollerItem messageId={turn.id} key={turn.id}>
-                  <TurnMessages entries={turn.entries} />
-                </MessageScrollerItem>
-              ))}
-              {state.queue.map((item) => (
-                <MessageScrollerItem messageId={`queue-${item.id}`} key={item.id}>
-                  <Message align="end">
-                    <MessageContent>
-                      <Bubble variant="secondary" align="end" data-message-id={item.id} data-delivery={item.status}>
-                        <BubbleContent>
-                          {item.attachments && <FileAttachments files={item.attachments} />}
-                          <p className="whitespace-pre-wrap">{item.text}</p>
-                        </BubbleContent>
-                      </Bubble>
-                      {item.status !== "sent" && (
-                        <p className="delivery-status">
-                          {item.status === "unknown"
-                            ? "Delivery uncertain. Check on your computer."
-                            : item.status === "sending"
-                              ? "Sending…"
-                              : "Queued"}
-                        </p>
-                      )}
-                    </MessageContent>
-                  </Message>
-                </MessageScrollerItem>
-              ))}
-              {state.requests.map((request) => (
-                <MessageScrollerItem messageId={`request-${request.id}`} key={request.id}>
-                  <Prompt
-                    request={request}
-                    readOnly={readOnly}
-                    answer={
-                      readOnly
-                        ? undefined
-                        : async (id, result) => {
-                            await post("/api/answers", { id, result });
-                          }
-                    }
-                  />
-                </MessageScrollerItem>
-              ))}
-              {(thinking || activityControl) && (
-                <MessageScrollerItem messageId="thinking" className="activity-item">
-                  <div className="activity-row">
-                    {thinking && (
-                      <div
-                        className="activity-indicator"
-                        role="status"
-                        aria-label="Pocket activity"
-                        aria-live="polite"
-                        aria-atomic="true"
-                      >
-                        <ActivitySpinner />
-                        {activity && <span>{activity}</span>}
-                      </div>
-                    )}
-                    {activityControl}
-                  </div>
-                </MessageScrollerItem>
+    <VirtualizedTranscript turns={messages} suspended={suspended}>
+      <ConversationEmpty
+        connection={state.connection}
+        empty={messages.length === 0}
+        readOnly={readOnly}
+        emptyMessage={emptyMessage}
+      />
+      {state.queue.map((item) => (
+        <MessageScrollerItem messageId={`queue-${item.id}`} key={item.id}>
+          <Message align="end">
+            <MessageContent>
+              <Bubble variant="secondary" align="end" data-message-id={item.id} data-delivery={item.status}>
+                <BubbleContent>
+                  {item.attachments && <FileAttachments files={item.attachments} />}
+                  <p className="whitespace-pre-wrap">{item.text}</p>
+                </BubbleContent>
+              </Bubble>
+              {item.status !== "sent" && (
+                <p className="delivery-status">
+                  {item.status === "unknown"
+                    ? "Delivery uncertain. Check on your computer."
+                    : item.status === "sending"
+                      ? "Sending…"
+                      : "Queued"}
+                </p>
               )}
-            </MessageScrollerContent>
-          </MessageScrollerViewport>
-          <MessageScrollerButton aria-label="Jump to latest message" size="icon-xl" className="rounded-full" />
-        </MessageScroller>
-      </div>
-    </MessageScrollerProvider>
+            </MessageContent>
+          </Message>
+        </MessageScrollerItem>
+      ))}
+      {state.requests.map((request) => (
+        <MessageScrollerItem messageId={`request-${request.id}`} key={request.id}>
+          <Prompt
+            request={request}
+            readOnly={readOnly}
+            answer={
+              readOnly
+                ? undefined
+                : async (id, result) => {
+                    await post("/api/answers", { id, result });
+                  }
+            }
+          />
+        </MessageScrollerItem>
+      ))}
+      {activityControl ? (
+        <ActivityIndicatorContext.Provider value={indicator}>{activityControl}</ActivityIndicatorContext.Provider>
+      ) : (
+        thinking && <ActivityRow>{indicator}</ActivityRow>
+      )}
+    </VirtualizedTranscript>
   );
 }

@@ -1,4 +1,5 @@
 import * as React from "react";
+import { ACTIVITY_TRANSITION } from "@/lib/activity-motion";
 import { cn } from "cn";
 
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -108,7 +109,10 @@ function TraceCollapsibleTrigger({
       {...props}
     >
       {children}
-      <TraceIcon className="transition-transform duration-200 motion-reduce:transition-none group-aria-expanded/trace-collapsible-trigger:rotate-90">
+      <TraceIcon
+        style={ACTIVITY_TRANSITION}
+        className="transition-transform motion-reduce:transition-none group-aria-expanded/trace-collapsible-trigger:rotate-90"
+      >
         <ChevronRightIcon />
       </TraceIcon>
     </CollapsibleTrigger>
@@ -119,12 +123,14 @@ function TraceCollapsibleContent({
   className,
   children,
   variant = "default",
+  style,
   ...props
 }: React.ComponentProps<typeof CollapsibleContent> & { variant?: "default" | "messages" }) {
   return (
     <CollapsibleContent
       data-slot="trace-collapsible-content"
-      className="h-(--collapsible-panel-height) min-w-0 overflow-hidden transition-[height] duration-200 motion-reduce:transition-none data-ending-style:h-0 data-starting-style:h-0"
+      className="h-(--collapsible-panel-height) min-w-0 overflow-hidden transition-[height] motion-reduce:transition-none data-ending-style:h-0 data-starting-style:h-0"
+      style={{ ...ACTIVITY_TRANSITION, ...style }}
       {...props}
     >
       <div

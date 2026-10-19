@@ -30,7 +30,7 @@ watchFile(`${directory}/control.json`, { interval: APPEND_POLL_MS, persistent: f
   }
 
   appended.add(current);
-  const id = `parent-incoming-${current.split(":", 2)[1]}`;
+  const id = `parent-incoming-${current.slice("parent-append:".length).replaceAll(":", "-")}`;
   const turn = { id, status: "inProgress", items: [] };
   emit({ method: "turn/started", params: { threadId: replayParent, turn } });
   const text = `${id}. Parent streamed start. `;

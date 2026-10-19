@@ -38,8 +38,19 @@ export async function checkAgentScroll(page: Page, control: (stage: string) => P
   await composer.fill(draft);
   const parent = page.locator('main > [class] [data-slot="message-scroller-viewport"]').first();
   const dialog = page.getByRole("dialog", { name: "Agents", exact: true });
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        globalThis.requestAnimationFrame(() => globalThis.requestAnimationFrame(() => resolve()));
+      })
+  );
+  await expect(parent).toHaveAttribute("data-scroll-motion", "idle");
 
   for (const position of ["scrolled", "bottom"]) {
+    if (position === "scrolled") {
+      await parent.dispatchEvent("wheel", { deltaY: -SCROLLED_OFFSET });
+    }
+
     await parent.evaluate(
       (element, offset) => {
         element.scrollTop = offset ?? element.scrollHeight;
@@ -48,7 +59,6 @@ export async function checkAgentScroll(page: Page, control: (stage: string) => P
     );
     const before = await parent.evaluate((element) => element.scrollTop);
     expect(before).toBeGreaterThan(SCROLLED_OFFSET - OFFSET_TOLERANCE);
-    const oldHeight = await parent.evaluate((element) => element.scrollHeight);
     const beforeAnchor = await anchor(parent);
     // Do not scroll the offscreen activity control into view before opening.
     await trigger.evaluate((button: HTMLButtonElement) => button.click());
@@ -57,11 +67,12 @@ export async function checkAgentScroll(page: Page, control: (stage: string) => P
     await expect(dialog.getByRole("heading", { name: "Side Pocket", exact: true })).toBeFocused();
     await expect(dialog.getByText("Saved native-codex result", { exact: true })).toBeVisible();
     await expect(dialog.getByText("Pocket restarted", { exact: true })).toHaveCount(0);
-    await control(`parent-append:${position}`);
+    const appendKey = `${position}:${crypto.randomUUID()}`;
+    await control(`parent-append:${appendKey}`);
     // Parent remains mounted and consumes the actual RPC -> bridge -> SSE update.
-    const incoming = parent.locator(`[data-slot="bubble"][data-message-id="parent-incoming-${position}"]`);
+    const incomingId = `parent-incoming-${appendKey.replaceAll(":", "-")}`;
+    const incoming = parent.locator(`[data-slot="bubble"][data-message-id="${incomingId}"]`);
     await expect(incoming).toContainText("STREAM_FINISHED");
-    await expect.poll(() => parent.evaluate((element) => element.scrollHeight)).toBeGreaterThan(oldHeight);
     await page.evaluate(
       () =>
         new Promise<void>((resolve) => {

@@ -232,6 +232,8 @@ test("offline replay: live updates, retained terminal history, errors and zero a
   const trigger = page.getByRole("button", { name: "6 agents", exact: true });
   await expect(trigger).toBeVisible();
   const parentViewport = page.locator('[data-slot="message-scroller-viewport"]').first();
+  await expect(parentViewport).toHaveAttribute("data-scroll-motion", "idle");
+  await parentViewport.dispatchEvent("wheel", { deltaY: -180 });
   await parentViewport.evaluate((element) => {
     element.scrollTop = 180;
   });
