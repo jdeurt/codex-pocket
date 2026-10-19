@@ -10,11 +10,11 @@ import {
   MessageScrollerProvider,
   MessageScrollerViewport,
 } from "@/components/ui/message-scroller";
+import { ActivitySpinner } from "./activity-spinner";
 import { FileAttachments } from "./file-attachments";
 import { Prompt } from "./prompt";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Snapshot } from "@/lib/protocol";
-import { Spinner } from "@/components/ui/spinner";
 import { TurnMessages } from "./turn-messages";
 import { post } from "@/lib/client-api";
 import { turnMessages } from "@/lib/turn-messages";
@@ -110,7 +110,7 @@ export function Conversation({ state }: { state: Snapshot }) {
                     aria-live="polite"
                     aria-atomic="true"
                   >
-                    <Spinner className="activity-spinner" aria-hidden="true" role={undefined} />
+                    <ActivitySpinner />
                     {activity && <span>{activity}</span>}
                   </div>
                 </MessageScrollerItem>
