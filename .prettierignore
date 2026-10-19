@@ -1,0 +1,7 @@
+.next
+.local
+node_modules
+package-lock.json
+playwright-report
+test-results
+tooling/engineering
