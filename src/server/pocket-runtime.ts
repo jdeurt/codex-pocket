@@ -1,9 +1,8 @@
 import { type Thread, string } from "../lib/protocol";
-import { localDirectory, readLocal, writeLocal } from "./local-state";
 import type { CodexRpc } from "./rpc";
 import type { Config } from "./config";
-import { createHash } from "node:crypto";
 import { delegations } from "./delegations";
+import { localDirectory } from "./local-state";
 import { parentPolicy } from "./harness/permissions";
 import path from "node:path";
 
@@ -84,19 +83,6 @@ export async function resumePocket(rpc: CodexRpc, config: Config) {
       model_reasoning_effort: resumed.reasoningEffort ?? effort,
     }),
   });
-
-  // CLI 0.163 can ignore developerInstructions when resuming existing history.
-  // After an external thread rollback, remove instructions.json to reapply guidance.
-  const revisions = await readLocal<Record<string, string>>("instructions.json", {});
-  const revision = createHash("sha256").update(instructions).digest("hex");
-
-  if (revisions[config.threadId] !== revision) {
-    await rpc.request("thread/inject_items", {
-      threadId: config.threadId,
-      items: [{ type: "message", role: "developer", content: [{ type: "input_text", text: instructions }] }],
-    });
-    await writeLocal("instructions.json", { ...revisions, [config.threadId]: revision });
-  }
 
   return resumed;
 }
