@@ -10,8 +10,16 @@ if (process.platform !== "darwin" || userId === undefined) {
   throw new Error("This service installer requires macOS. Run npm start under a service manager on other systems.");
 }
 
+const MAX_TCP_PORT = 65_535;
+const configuredPort = process.env.POCKET_PORT ?? "3000";
+const portNumber = Number(configuredPort);
+
+if (!/^\d+$/.test(configuredPort) || !Number.isSafeInteger(portNumber) || portNumber < 1 || portNumber > MAX_TCP_PORT) {
+  throw new Error("POCKET_PORT must be a port number from 1 to 65535.");
+}
+
 const label = "dev.pocket.web";
-const port = "3000";
+const port = String(portNumber);
 const PRIVATE_FILE_MODE = 0o600;
 const BOOTSTRAP_RETRY_LIMIT = 30;
 const SERVICE_RETRY_MS = 1000;

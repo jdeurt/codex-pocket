@@ -28,9 +28,9 @@ if (options.some((option) => option !== "--yes")) {
   throw new Error("Usage: ./install.sh [--yes]");
 }
 
-const PORT = 3000;
 const STOP_RETRIES = 80;
 const STOP_INTERVAL_MS = 250;
+const MAX_TCP_PORT = 65_535;
 const NPM_CLI = path.resolve(path.dirname(process.execPath), "../lib/node_modules/npm/bin/npm-cli.js");
 
 const interactive = !options.includes("--yes") && process.stdin.isTTY;
@@ -107,7 +107,22 @@ async function findCodex(saved) {
   return installed;
 }
 
-async function portAvailable() {
+function configuredPort(saved) {
+  const savedLocalOrigin = saved.CODEX_ALLOWED_ORIGINS?.split(",")
+    .map((origin) => origin.trim())
+    .find((origin) => /^http:\/\/(?:localhost|127\.0\.0\.1):\d+$/.test(origin));
+  const value =
+    process.env.POCKET_PORT ?? saved.POCKET_PORT ?? (savedLocalOrigin && new URL(savedLocalOrigin).port) ?? "3000";
+  const port = Number(value);
+
+  if (!/^\d+$/.test(value) || !Number.isSafeInteger(port) || port < 1 || port > MAX_TCP_PORT) {
+    throw new Error("POCKET_PORT must be a port number from 1 to 65535.");
+  }
+
+  return port;
+}
+
+async function portAvailable(port) {
   return new Promise((resolve, reject) => {
     const probe = createServer();
     probe.once("error", (error) => {
@@ -117,11 +132,11 @@ async function portAvailable() {
         reject(error);
       }
     });
-    probe.listen(PORT, "127.0.0.1", () => probe.close(() => resolve(true)));
+    probe.listen(port, "127.0.0.1", () => probe.close(() => resolve(true)));
   });
 }
 
-async function stopService() {
+async function stopService(port) {
   const present = spawnSync("/bin/launchctl", ["print", target], { stdio: "ignore" }).status === 0;
 
   if (present) {
@@ -139,12 +154,12 @@ async function stopService() {
   }
 
   for (let attempt = 0; attempt <= STOP_RETRIES; attempt += 1) {
-    if (await portAvailable()) {
+    if (await portAvailable(port)) {
       return;
     }
 
     if (!present || attempt === STOP_RETRIES) {
-      throw new Error("Port 3000 is in use. Stop the application using that port, then run this installer again.");
+      throw new Error(`Port ${port} is in use. Stop the application using that port, then run this installer again.`);
     }
 
     await setTimeout(STOP_INTERVAL_MS);
@@ -162,6 +177,7 @@ async function install() {
     }
   }
 
+  const port = configuredPort(saved);
   const defaultFolder = process.env.POCKET_CWD ?? saved.CODEX_CWD ?? path.join(homedir(), "Developer");
   const folder = await ask("Working folder", defaultFolder);
   const cwd = path.resolve(folder === "~" ? homedir() : folder.replace(/^~\//, () => `${homedir()}/`));
@@ -171,7 +187,16 @@ async function install() {
     process.env.POCKET_ORIGIN ?? existingOrigin ?? ""
   );
   const origin = setupOrigin(enteredOrigin === "-" ? "" : enteredOrigin) ?? "";
-  const environment = { ...process.env, CODEX_CWD: cwd, POCKET_ORIGIN: origin };
+  const origins = new Set((saved.CODEX_ALLOWED_ORIGINS ?? "").split(",").filter(Boolean));
+  origins.add(`http://localhost:${port}`);
+  origins.add(`http://127.0.0.1:${port}`);
+  const environment = {
+    ...process.env,
+    CODEX_CWD: cwd,
+    CODEX_ALLOWED_ORIGINS: [...origins].join(","),
+    POCKET_ORIGIN: origin,
+    POCKET_PORT: String(port),
+  };
   delete environment.CODEX_THREAD_ID;
 
   if (!saved.CODEX_SERVER_ARGS && !process.env.CODEX_SERVER_ARGS) {
@@ -214,19 +239,24 @@ async function install() {
     throw new Error("This Codex executable lacks app-server support. Update Codex and run the installer again.");
   }
 
-  await stopService();
+  await stopService(port);
   console.info("Installing Pocket's dependencies…");
   npm(["ci", "--no-audit", "--no-fund"]);
   npm(["run", "setup"], environment);
+  run(process.execPath, [path.join(root, "node_modules/next/dist/bin/next"), "typegen"], environment);
   npm(["run", "check"]);
-  npm(["test"]);
+
+  if (process.env.CI === "true") {
+    npm(["test"]);
+  }
+
   npm(["run", "build"]);
-  npm(["run", "service:install"]);
-  console.info(`\nPocket is installed and starts at login. Open ${origin || "http://127.0.0.1:3000"}`);
+  npm(["run", "service:install"], environment);
+  console.info(`\nPocket is installed and starts at login. Open ${origin || `http://127.0.0.1:${port}`}`);
   console.info("Configuration: .env.local   State and logs: .local/");
 
   if (interactive) {
-    spawnSync("/usr/bin/open", [origin || "http://127.0.0.1:3000"], { stdio: "ignore" });
+    spawnSync("/usr/bin/open", [origin || `http://127.0.0.1:${port}`], { stdio: "ignore" });
   }
 }
 

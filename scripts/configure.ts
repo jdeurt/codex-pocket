@@ -32,6 +32,7 @@ async function saveEnvironment(threadId: string) {
   }
 
   const values = {
+    POCKET_PORT: process.env.POCKET_PORT ?? "3000",
     CODEX_THREAD_ID: threadId,
     CODEX_CWD: config.cwd,
     CODEX_BINARY: config.codexBinary,
