@@ -1,7 +1,8 @@
 import { type Thread, string } from "../lib/protocol";
+import { localDirectory, readLocal, writeLocal } from "./local-state";
 import type { CodexRpc } from "./rpc";
 import type { Config } from "./config";
-import { localDirectory } from "./local-state";
+import { createHash } from "node:crypto";
 import path from "node:path";
 
 export function pocketServerArgs(config: Config) {
@@ -29,6 +30,9 @@ export function pocketInstructions(existing: string, unrestricted: boolean) {
   return [
     existing,
     `You are Pocket, running inside a Codex harness on the user's computer. The phone interface is a minimal chat for this one session. ${unrestricted ? "This process has full, unrestricted access to the computer as configured by the user." : "Your access follows this process's computer-side Codex configuration."}
+Pocket displays image-view output and tool image content directly in the phone chat. An image returned by a tool is already visible to the user.
+For display-only requests, prefer one Markdown image with the absolute file path. Use an image-view tool when you need to inspect the image.
+Do not copy or host the file merely to display it. Use one delivery method per requested image. After tool image output, do not repeat that image in Markdown or another message. Repeat an image only when the user requests it or the task requires separate views. Confirm delivery in the final reply without embedding the image again.
 You have a bundled pocket MCP server for scheduled tasks: schedule_create, schedule_get, schedule_list, schedule_update and schedule_delete. Use it when asked to schedule a one-time or recurring task. Each schedule has a title, a body containing the future instructions, and iCalendar event text. Use DTSTART with UTC Z or an IANA TZID, optionally RRULE, RDATE and EXDATE. Example: DTSTART;TZID=America/Los_Angeles:20261020T090000 followed by RRULE:FREQ=DAILY. Read the current date/time on the computer before scheduling; this example is not the current time.
 Pocket injects the body as a user message when due, obeying its configured steering/queueing behavior. Scheduled triggers are hidden from the phone interface; start working on the instructions normally. Your responses, questions and approval requests remain visible. One-time tasks become inactive after firing. Tasks run only while this computer is awake and Pocket is running. After downtime Pocket delivers one overdue occurrence per task and skips the rest of the missed repetitions. Check tool results before claiming a task was scheduled. Use update/delete to revise or cancel future occurrences.`,
   ]
@@ -43,14 +47,33 @@ export async function resumePocket(rpc: CodexRpc, config: Config) {
   });
 
   const effort = string(effective.model_reasoning_effort);
+  const instructions = pocketInstructions(
+    string(effective.developer_instructions),
+    effective.sandbox_mode === "danger-full-access"
+  );
 
-  return rpc.request<{ thread: Thread; model: string; reasoningEffort: string | null }>("thread/resume", {
-    threadId: config.threadId,
-    excludeTurns: true,
-    ...(effort && { config: { model_reasoning_effort: effort } }),
-    developerInstructions: pocketInstructions(
-      string(effective.developer_instructions),
-      effective.sandbox_mode === "danger-full-access"
-    ),
-  });
+  const resumed = await rpc.request<{ thread: Thread; model: string; reasoningEffort: string | null }>(
+    "thread/resume",
+    {
+      threadId: config.threadId,
+      excludeTurns: true,
+      ...(effort && { config: { model_reasoning_effort: effort } }),
+      developerInstructions: instructions,
+    }
+  );
+
+  // CLI 0.163 can ignore developerInstructions when resuming existing history.
+  // After an external thread rollback, remove instructions.json to reapply guidance.
+  const revisions = await readLocal<Record<string, string>>("instructions.json", {});
+  const revision = createHash("sha256").update(instructions).digest("hex");
+
+  if (revisions[config.threadId] !== revision) {
+    await rpc.request("thread/inject_items", {
+      threadId: config.threadId,
+      items: [{ type: "message", role: "developer", content: [{ type: "input_text", text: instructions }] }],
+    });
+    await writeLocal("instructions.json", { ...revisions, [config.threadId]: revision });
+  }
+
+  return resumed;
 }

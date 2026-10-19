@@ -155,6 +155,15 @@
   overflow: hidden;
   border-radius: 20px;
   margin: 0;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.chat-image,
+.chat-image > button {
+  background: transparent;
+  box-shadow: none;
+  outline: none;
+  -webkit-tap-highlight-color: transparent;
 }
 .chat-image-media {
   width: auto;
