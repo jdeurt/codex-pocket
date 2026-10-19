@@ -3,6 +3,7 @@ import { type Data, object } from "../lib/protocol";
 import type { Config } from "./config";
 import { EventEmitter } from "node:events";
 import { createInterface } from "node:readline";
+import { log } from "./logging";
 
 const ACKNOWLEDGEMENT_TIMEOUT_MS = 90_000;
 
@@ -25,9 +26,12 @@ export class CodexRpc extends EventEmitter {
       resolve: (value: unknown) => void;
       reject: (error: Error) => void;
       timer: NodeJS.Timeout;
+      method: string;
+      startedAt: number;
     }
   >();
   private write(message: unknown) {
+    log().debug({ message }, "codex.rpc.out");
     this.child?.stdin.write(JSON.stringify(message) + "\n");
   }
   get running() {
@@ -35,6 +39,10 @@ export class CodexRpc extends EventEmitter {
   }
 
   async connect(config: Config) {
+    log().info(
+      { binary: config.codexBinary, args: config.serverArgs, cwd: config.cwd, threadId: config.threadId },
+      "codex.spawn"
+    );
     this.child = spawn(config.codexBinary, config.serverArgs, { cwd: config.cwd, shell: false });
     const child = this.child;
     const lines = createInterface({ input: child.stdout });
@@ -43,9 +51,13 @@ export class CodexRpc extends EventEmitter {
 
       try {
         message = JSON.parse(line);
-      } catch {
+      } catch (error) {
+        log().warn({ error, line }, "codex.stdout.invalid_json");
+
         return;
       }
+
+      log().debug({ message }, "codex.rpc.in");
 
       if ("method" in message) {
         this.emit("event", {
@@ -62,6 +74,10 @@ export class CodexRpc extends EventEmitter {
 
         this.pending.delete(message.id as number);
         clearTimeout(pending.timer);
+        log().debug(
+          { method: pending.method, id: message.id, durationMs: Date.now() - pending.startedAt, error: message.error },
+          "codex.rpc.acknowledged"
+        );
 
         if (message.error) {
           const error = message.error as { message: string; code: number };
@@ -79,6 +95,7 @@ export class CodexRpc extends EventEmitter {
       }
 
       closed = true;
+      log().error({ error }, "codex.disconnected");
       lines.close();
 
       for (const pending of this.pending.values()) {
@@ -108,6 +125,7 @@ export class CodexRpc extends EventEmitter {
 
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
+        log().error({ method, id }, "codex.rpc.timeout");
         this.pending.delete(id);
         reject(
           new RpcError(`Codex did not acknowledge ${method}. Its outcome is unknown; check the thread before retrying.`)
@@ -115,7 +133,7 @@ export class CodexRpc extends EventEmitter {
         // A late result cannot be safely associated with a subsequent send.
         this.close();
       }, ACKNOWLEDGEMENT_TIMEOUT_MS);
-      this.pending.set(id, { resolve: (value) => resolve(value as T), reject, timer });
+      this.pending.set(id, { resolve: (value) => resolve(value as T), reject, timer, method, startedAt: Date.now() });
       this.write({ id, method, params });
     });
   }

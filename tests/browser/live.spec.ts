@@ -2,7 +2,7 @@ import { type Page, expect, test } from "@playwright/test";
 import type { Snapshot } from "../../src/lib/protocol";
 
 async function send(page: Page, text: string) {
-  await page.getByRole("textbox", { name: "Message Codex" }).fill(text);
+  await page.getByRole("textbox", { name: "Message Pocket" }).fill(text);
   await page.getByRole("button", { name: "Send message", exact: true }).click();
 }
 
@@ -43,13 +43,30 @@ if (process.env.CODEX_TEST_PLAN_MODE === "1") {
     );
     await send(page, "Reply exactly POCKET_OK. Do not use tools.");
     await expect(page.getByText("Sending…", { exact: true })).toBeVisible();
-    await expect(page.getByRole("textbox", { name: "Message Codex" })).toHaveValue("");
+    await expect(page.getByRole("textbox", { name: "Message Pocket" })).toHaveValue("");
     await expect(page.locator('[data-delivery="sending"]')).toHaveCSS("opacity", "0.55");
     dispatch.resolve(true);
     await expect(page.getByText("POCKET_OK", { exact: true })).toBeVisible();
     await expect(page.getByText("Reply exactly POCKET_OK. Do not use tools.", { exact: true })).toHaveCount(1);
     await expect(page.getByText("Sending…", { exact: true })).toHaveCount(0);
     await expect(observer.getByText("POCKET_OK", { exact: true })).toBeVisible();
+    await page.route(
+      "**/api/messages",
+      (route) => route.fulfill({ status: 503, contentType: "text/html", body: "<html>Restarting</html>" }),
+      { times: 1 }
+    );
+    const retryText = "Reply exactly RETRY_OK. Do not use tools.";
+    await send(page, retryText);
+    await expect(page.getByRole("textbox", { name: "Message Pocket" })).toHaveValue(retryText);
+    await expect(
+      page.getByText("Pocket is restarting or returned an unreadable response. Your message is saved here.", {
+        exact: true,
+      })
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Send message", exact: true }).click();
+    await expect(page.getByText("RETRY_OK", { exact: true })).toBeVisible();
+    await expect(page.getByText(retryText, { exact: true })).toHaveCount(1);
+    await expect(page.getByText("Connected", { exact: true })).toBeVisible();
     const streaming = observer.evaluate(
       () =>
         new Promise<number>((resolve, reject) => {
@@ -67,10 +84,10 @@ if (process.env.CODEX_TEST_PLAN_MODE === "1") {
               state.turns
                 .at(LAST_TURN_INDEX)
                 ?.items.filter((item) => item.type === "agentMessage")
-                .map((item) => item.text)
-                .join("") ?? "";
+                .map((item) => String(item.text))
+                .findLast((message) => message.includes("STREAM_START")) ?? "";
 
-            if (!text.startsWith("STREAM_START")) {
+            if (!text.includes("STREAM_START")) {
               return;
             }
 
@@ -115,9 +132,9 @@ if (process.env.CODEX_TEST_PLAN_MODE === "1") {
     await expect(page.getByText("Approval needed", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Approve once", exact: true }).click();
     await expect(page.getByText("APPROVAL_OK", { exact: true })).toBeVisible();
-    await page.getByRole("textbox", { name: "Message Codex" }).fill("A draft that survives reload");
+    await page.getByRole("textbox", { name: "Message Pocket" }).fill("A draft that survives reload");
     await page.reload();
-    await expect(page.getByRole("textbox", { name: "Message Codex" })).toHaveValue("A draft that survives reload");
+    await expect(page.getByRole("textbox", { name: "Message Pocket" })).toHaveValue("A draft that survives reload");
     const centerDifference = await page.locator(".composer").evaluate((composer) => {
       const input = composer.querySelector("textarea");
       const button = composer.querySelector("button[type=submit]");

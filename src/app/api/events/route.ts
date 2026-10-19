@@ -2,6 +2,7 @@ import { errorResponse, guard, noStore } from "@/server/http";
 import { HTTP_FORBIDDEN } from "@/lib/constants";
 import type { Snapshot } from "@/lib/protocol";
 import { bridge } from "@/server/bridge";
+import { log } from "@/server/logging";
 
 const HEARTBEAT_MS = 15_000;
 
@@ -16,6 +17,8 @@ export async function GET(request: Request) {
   }
 
   let cleanup: ((closeStream: boolean) => void) | undefined;
+  const connectionId = crypto.randomUUID();
+  log().info({ connectionId, userAgent: request.headers.get("user-agent") }, "sse.open");
   const stream = new ReadableStream({
     start(controller) {
       const encoder = new TextEncoder();
@@ -48,6 +51,7 @@ export async function GET(request: Request) {
         }
 
         closed = true;
+        log().info({ connectionId }, "sse.closed");
         clearInterval(heartbeat);
         bridge.off("snapshot", send);
         request.signal.removeEventListener("abort", abort);

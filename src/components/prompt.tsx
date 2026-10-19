@@ -42,7 +42,7 @@ function Approval({
 
   return (
     <>
-      <p>{string(request.params.reason) || "Codex needs your permission to continue."}</p>
+      <p>{string(request.params.reason) || "Pocket needs your permission to continue."}</p>
       <ApprovalDetails request={request} />
       <div className="flex flex-wrap gap-2">
         {canDecline && (

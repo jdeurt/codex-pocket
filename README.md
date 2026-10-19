@@ -110,6 +110,12 @@ Before updating dependencies or rebuilding an installed deployment, wait for Cod
 
 ```sh
 launchctl bootout "gui/$(id -u)/dev.pocket.web"
+lsof -nP -iTCP:3000 -sTCP:LISTEN
+```
+
+Wait until port 3000 has no listener before continuing:
+
+```sh
 git pull --ff-only
 npm ci
 npm run check
@@ -126,7 +132,7 @@ For development, use `npm run dev`. For a foreground production server, use `npm
 
 On the first visit, Pocket offers an **Enable notifications** button. Tap it to open the browser's permission prompt. On iPhone or iPad, first add Pocket to the Home Screen and open it from that icon; a regular Safari tab cannot request Web Push permission.
 
-Pocket sends an encrypted Web Push notification when Codex ends a turn, including when the app is closed. Tapping the notification opens or focuses Pocket. Notification text says that Codex finished or stopped; it does not include conversation content. The Mac must be awake with Pocket running. Delivery also depends on the device's notification settings and push service.
+Pocket sends an encrypted Web Push notification when Codex ends a turn, including when the app is closed. Tapping the notification opens or focuses Pocket. Notification text says that Pocket finished or stopped; it does not include conversation content. The Mac must be awake with Pocket running. Delivery also depends on the device's notification settings and push service.
 
 VAPID keys, device subscriptions and notification receipts are generated automatically and saved privately in `.local/push.json`. Keep this file across restarts and deployments. Deleting it invalidates existing device subscriptions, which must then be enabled again. Expired subscriptions are removed when their push service rejects them. No API key or paid notification service is needed.
 
@@ -160,6 +166,29 @@ npm run desktop -- respond REQUEST_ID '{"decision":"decline"}'
 ```
 
 Keep `.env.local` and `.local/` private. The service worker caches the offline page only; conversation history and requests always come from the computer. Drafts stay in browser storage. Phone suspension disconnects the view while Codex continues on the computer; reopening the app restores the conversation.
+
+## Diagnostics
+
+Pocket writes structured Pino JSONL logs under `.local/logs/`. Each file is named with its ISO creation timestamp, for example `2026-10-19T05:00:00.000Z.jsonl`. It starts a new file before the next record would exceed 10 MiB and keeps the latest 20 files. A single oversized record stays intact in its own file.
+
+Logs cover server startup and errors, HTTP requests and request IDs, SSE connections, message receipt/delivery, Codex RPC requests/responses/events/stderr, push delivery and browser failures. Conversation and tool activity are included for diagnosis. Credential fields are redacted; log files are owner-only and ignored by Git. launchd's startup/stdout fallback remains in `pocket.log` and `pocket.err.log`.
+
+Browser diagnostics are queued locally while Pocket is unreachable and uploaded after reconnecting. Network and non-JSON restart failures retain the message in the composer for retry.
+
+```sh
+rg 'http.invalid_response|message.failed|codex.rpc.timeout|bridge.failed|push.failed' .local/logs/*.jsonl
+```
+
+For an agent diagnosing a failed phone send: read the browser's request/message ID, correlate it with HTTP and Codex RPC logs, then inspect `.local/outbox.json` and the Codex thread before retrying. An uncertain delivery must not be replayed automatically. Check launchd state, both HTTP endpoints, the configured origins and recent server errors if the client is stuck connecting.
+
+Optional environment settings:
+
+| Variable                     | Default       |
+| ---------------------------- | ------------- |
+| `CODEX_POCKET_LOG_DIR`       | `.local/logs` |
+| `CODEX_POCKET_LOG_LEVEL`     | `debug`       |
+| `CODEX_POCKET_LOG_MAX_BYTES` | `10485760`    |
+| `CODEX_POCKET_LOG_MAX_FILES` | `20`          |
 
 ## Checks
 

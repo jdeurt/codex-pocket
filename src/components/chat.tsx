@@ -3,6 +3,7 @@ import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ArrowUpIcon, TerminalIcon } from "lucide-react";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } from "@/components/ui/input-group";
+import { clientError, reportClient } from "@/lib/client-logging";
 import { stageMessage, updateDelivery, useThread } from "@/hooks/use-thread";
 import { useEffect, useRef, useState } from "react";
 import { Conversation } from "./conversation";
@@ -37,6 +38,7 @@ export function Chat() {
     }
 
     const id = (messageId.current ??= crypto.randomUUID());
+    reportClient("message.send", { id, text, activeTurnId: state.activeTurnId });
     setSending(true);
     setError("");
     stageMessage(id, text);
@@ -50,9 +52,11 @@ export function Chat() {
       }
 
       updateDelivery(id, result.status === "sent" ? "sent" : "queued");
+      reportClient("message.acknowledged", { id, status: result.status });
       messageId.current = null;
       textarea.current?.focus();
     } catch (error_) {
+      reportClient("message.failed", { id, ...clientError(error_) }, "error");
       updateDelivery(id, "unknown");
       setDraft(text);
       setError(error_ instanceof Error ? error_.message : "Couldn't send. Try again when connected.");
@@ -78,9 +82,9 @@ export function Chat() {
         </div>
         <span className="header-balance" aria-hidden="true" />
       </header>
-      <NotificationPrompt />
       <Conversation state={state} />
       <footer className="composer-wrap">
+        <NotificationPrompt />
         {(error || state.error) && (
           <Alert variant="destructive" className="mb-3">
             <AlertDescription>{error || state.error}</AlertDescription>
@@ -95,13 +99,13 @@ export function Chat() {
           <FieldGroup>
             <Field>
               <FieldLabel className="sr-only" htmlFor="message">
-                Message Codex
+                Message Pocket
               </FieldLabel>
               <InputGroup className="composer">
                 <InputGroupTextarea
                   ref={textarea}
                   id="message"
-                  placeholder="Message Codex…"
+                  placeholder="Message Pocket…"
                   value={draft}
                   rows={1}
                   maxLength={32_000}

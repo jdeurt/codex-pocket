@@ -1,6 +1,7 @@
 "use client";
 import { type QueuedMessage, type Snapshot, initialSnapshot } from "@/lib/protocol";
 import { reconcileDeliveries } from "@/lib/deliveries";
+import { reportClient } from "@/lib/client-logging";
 import { useSyncExternalStore } from "react";
 
 const listeners = new Set<() => void>();
@@ -35,14 +36,30 @@ export function updateDelivery(id: string, status: QueuedMessage["status"]) {
 }
 
 function start() {
+  let lastSummary = "";
   let source: EventSource | undefined;
   let retry: ReturnType<typeof setTimeout> | undefined;
   const connect = () => {
+    reportClient("sse.connecting");
     source?.close();
     clearTimeout(retry);
     source = new EventSource("/api/events");
     source.addEventListener("message", (event: MessageEvent<string>) => {
       const state = JSON.parse(event.data) as Snapshot;
+      const summary = JSON.stringify({
+        connection: state.connection,
+        activeTurnId: state.activeTurnId,
+        model: state.model,
+        effort: state.reasoningEffort,
+        queued: state.queue.length,
+        requests: state.requests.length,
+      });
+
+      if (summary !== lastSummary) {
+        reportClient("sse.state", JSON.parse(summary));
+        lastSummary = summary;
+      }
+
       publish(state, true);
 
       if (state.connection !== "disconnected") {
@@ -52,7 +69,10 @@ function start() {
       source?.close();
       retry = setTimeout(connect, RECONNECT_DELAY_MS);
     });
-    source.addEventListener("error", () => publish(store.latestState, false));
+    source.addEventListener("error", () => {
+      reportClient("sse.error", { readyState: source?.readyState, connection: store.latestState.connection }, "error");
+      publish(store.latestState, false);
+    });
   };
   const wake = () => {
     if (document.visibilityState === "visible") {

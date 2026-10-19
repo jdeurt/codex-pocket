@@ -1,7 +1,19 @@
 import { HTTP_BAD_REQUEST, MAX_BODY_BYTES } from "../lib/constants";
+import { log } from "./logging";
 import { readConfig } from "./config";
 
 export async function guard(request: Request, mutation = false) {
+  log().debug(
+    {
+      requestId: request.headers.get("x-pocket-request-id"),
+      method: request.method,
+      url: request.url,
+      host: request.headers.get("host"),
+      origin: request.headers.get("origin"),
+      userAgent: request.headers.get("user-agent"),
+    },
+    "http.request"
+  );
   const config = await readConfig();
   const allowed = config?.allowedOrigins ?? ["http://localhost:3000", "http://127.0.0.1:3000"];
   const host = request.headers.get("host");
@@ -51,6 +63,8 @@ export async function readBody(request: Request) {
 }
 export const noStore = { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" };
 export function errorResponse(error: unknown, status = HTTP_BAD_REQUEST) {
+  log().error({ error, status }, "http.failed");
+
   return Response.json(
     { error: error instanceof Error ? error.message : "Request failed." },
     { status, headers: noStore }

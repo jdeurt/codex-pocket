@@ -1,6 +1,7 @@
 import { readLocal, writeLocal } from "./local-state";
 import webpush, { type PushSubscription, type VapidKeys } from "web-push";
 import type { Turn } from "../lib/protocol";
+import { log } from "./logging";
 import { readConfig } from "./config";
 import { z } from "zod";
 
@@ -72,6 +73,7 @@ export async function saveSubscription(input: unknown) {
     state.subscriptions = state.subscriptions.filter((entry) => entry.endpoint !== subscription.endpoint);
     state.subscriptions.push(subscription);
   });
+  log().info({ provider: new URL(subscription.endpoint).origin }, "push.subscribed");
 }
 
 export function completionNotification(threadId: string, turn: Turn) {
@@ -79,8 +81,8 @@ export function completionNotification(threadId: string, turn: Turn) {
     title: "Pocket",
     body:
       turn.status === "completed"
-        ? "Codex finished. Your response is ready."
-        : "Codex stopped. Open Pocket to see what happened.",
+        ? "Pocket finished. Your response is ready."
+        : "Pocket stopped. Open Pocket to see what happened.",
     tag: `${threadId}:${turn.id}`,
     url: "/",
   };
@@ -120,13 +122,14 @@ export async function notifyTurnComplete(threadId: string, turn: Turn) {
           timeout: PUSH_TIMEOUT_MS,
           urgency: "normal",
         });
+        log().info({ threadId, turnId: turn.id, provider: new URL(subscription.endpoint).origin }, "push.delivered");
       } catch (error) {
         const status = (error as { statusCode?: number }).statusCode;
 
         if (status && EXPIRED_SUBSCRIPTION_STATUSES.has(status)) {
           expired.add(subscription.endpoint);
         } else {
-          console.error(`Push delivery failed (${status ?? "network error"}).`);
+          log().error({ status, threadId, turnId: turn.id }, "push.failed");
         }
       }
     })

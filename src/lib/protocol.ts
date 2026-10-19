@@ -41,7 +41,7 @@ export interface Snapshot {
 }
 export const initialSnapshot: Snapshot = {
   connection: "connecting",
-  title: "Codex",
+  title: "Pocket",
   turns: [],
   queue: [],
   requests: [],

@@ -1,11 +1,37 @@
 "use client";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { clientError, reportClient } from "@/lib/client-logging";
 import { get, post } from "@/lib/client-api";
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { XIcon } from "lucide-react";
 
 type Status = "loading" | "ready" | "subscribing" | "enabled" | "blocked" | "unsupported" | "dismissed";
+const PREPARATION_TIMEOUT_MS = 5000;
+
+async function readyRegistration() {
+  await navigator.serviceWorker.register("/sw.js");
+
+  return navigator.serviceWorker.ready;
+}
+
+async function prepareRegistration() {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+
+  try {
+    return await Promise.race([
+      readyRegistration(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(
+          () => reject(new Error("Open the installed Pocket app to enable notifications.")),
+          PREPARATION_TIMEOUT_MS
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 export function NotificationPrompt() {
   const [status, setStatus] = useState<Status>("loading");
@@ -36,8 +62,7 @@ export function NotificationPrompt() {
         return;
       }
 
-      await navigator.serviceWorker.register("/sw.js");
-      registration.current = await navigator.serviceWorker.ready;
+      registration.current = await prepareRegistration();
 
       if (typeof config.publicKey !== "string") {
         throw new TypeError("Notification configuration is unavailable.");
@@ -45,7 +70,20 @@ export function NotificationPrompt() {
 
       const base64 = config.publicKey.replaceAll("-", "+").replaceAll("_", "/");
       publicKey.current = Uint8Array.from(atob(base64), (character) => character.codePointAt(0) ?? 0);
-      const subscription = await registration.current.pushManager.getSubscription();
+      let subscription = await registration.current.pushManager.getSubscription();
+
+      if (subscription) {
+        const key = subscription.options.applicationServerKey;
+
+        if (
+          !key ||
+          new Uint8Array(key).some((value, index) => value !== publicKey.current?.[index]) ||
+          key.byteLength !== publicKey.current.byteLength
+        ) {
+          await subscription.unsubscribe();
+          subscription = null;
+        }
+      }
 
       if (subscription) {
         await post("/api/notifications", subscription.toJSON());
@@ -57,6 +95,8 @@ export function NotificationPrompt() {
     }
 
     void prepare().catch((error_: unknown) => {
+      reportClient("notifications.prepare_failed", clientError(error_), "error");
+
       if (!active) {
         return;
       }
@@ -87,7 +127,8 @@ export function NotificationPrompt() {
       });
       await post("/api/notifications", subscription.toJSON());
       setStatus("enabled");
-    } catch {
+    } catch (error_) {
+      reportClient("notifications.subscribe_failed", clientError(error_), "error");
       setStatus(Notification.permission === "denied" ? "blocked" : "ready");
       setError("Couldn't enable notifications. Try again from the installed Pocket app.");
     }
@@ -106,11 +147,11 @@ export function NotificationPrompt() {
               ? "Add Pocket to your Home Screen to enable notifications."
               : status === "blocked"
                 ? "Notifications are blocked. Enable them in your device settings."
-                : "Get notified when Codex finishes.")}
+                : "Get notified when Pocket finishes.")}
         </p>
         {(status === "ready" || status === "subscribing") && (
           <Button
-            size="sm"
+            size="touch"
             disabled={status === "subscribing"}
             onClick={() => void enable()}
             aria-label="Enable notifications"
@@ -120,7 +161,7 @@ export function NotificationPrompt() {
         )}
         <Button
           variant="ghost"
-          size="icon-xs"
+          size="icon-xl"
           aria-label="Dismiss notification prompt"
           onClick={() => setStatus("dismissed")}
         >

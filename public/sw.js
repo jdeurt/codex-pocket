@@ -49,7 +49,7 @@ globalThis.addEventListener("push", (event) => {
 
   event.waitUntil(
     globalThis.registration.showNotification(payload.title || "Pocket", {
-      body: payload.body || "Codex finished. Open Pocket to continue.",
+      body: payload.body || "Pocket finished. Open Pocket to continue.",
       icon: "/icon-192.png",
       badge: "/icon-192.png",
       tag: payload.tag || "pocket-turn-complete",

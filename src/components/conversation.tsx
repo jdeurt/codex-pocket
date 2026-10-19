@@ -46,7 +46,7 @@ export function Conversation({ state }: { state: Snapshot }) {
                 <MessageScrollerItem messageId="setup">
                   <Empty className="chat-empty">
                     <EmptyHeader>
-                      <EmptyTitle>Your Codex, from here.</EmptyTitle>
+                      <EmptyTitle>Pocket, from here.</EmptyTitle>
                       <EmptyDescription>
                         Set CODEX_THREAD_ID in .env.local on your computer, then restart the app.
                       </EmptyDescription>
@@ -66,7 +66,7 @@ export function Conversation({ state }: { state: Snapshot }) {
                   <Empty className="chat-empty">
                     <EmptyHeader>
                       <EmptyTitle>What are we working on?</EmptyTitle>
-                      <EmptyDescription>Continue the conversation with Codex on your computer.</EmptyDescription>
+                      <EmptyDescription>Continue the conversation with Pocket on your computer.</EmptyDescription>
                     </EmptyHeader>
                   </Empty>
                 </MessageScrollerItem>

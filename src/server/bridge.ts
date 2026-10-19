@@ -12,6 +12,7 @@ import { CodexRpc } from "./rpc";
 import { EventEmitter } from "node:events";
 import { deliverMessage } from "./delivery";
 import { loadHistory } from "./history";
+import { log } from "./logging";
 import { notifyTurnComplete } from "./push";
 import { reduceEvent } from "./reducer";
 import { resolveDesktopReplies } from "./desktop";
@@ -57,6 +58,16 @@ export class Bridge extends EventEmitter {
 
     this.flushTimer = setTimeout(() => {
       this.flushTimer = undefined;
+      log().debug(
+        {
+          connection: this.snapshot.connection,
+          activeTurnId: this.snapshot.activeTurnId,
+          turns: this.snapshot.turns.length,
+          queued: this.snapshot.queue.length,
+          requests: this.snapshot.requests.length,
+        },
+        "bridge.snapshot"
+      );
       this.emit("snapshot", this.snapshot);
     }, SNAPSHOT_THROTTLE_MS);
   }
@@ -127,7 +138,7 @@ export class Bridge extends EventEmitter {
       this.publish();
     });
     // Diagnostics stay in the host terminal; they can contain local account details.
-    rpc.on("diagnostic", (text: string) => process.stderr.write(text));
+    rpc.on("diagnostic", (text: string) => log().debug({ text }, "codex.stderr"));
     await rpc.connect(config);
     const resumed = await rpc.request<{ thread: Thread; model: string; reasoningEffort: string | null }>(
       "thread/resume",
@@ -234,6 +245,7 @@ export class Bridge extends EventEmitter {
     }
   }
   private fail(error: unknown) {
+    log().error({ error }, "bridge.failed");
     this.snapshot.error = error instanceof Error ? error.message : String(error);
     this.publish();
   }
@@ -259,6 +271,8 @@ export class Bridge extends EventEmitter {
     }
   }
   async send(id: string, text: string) {
+    log().info({ id, text }, "message.received");
+
     return this.exclusive(async () => {
       await this.ensureConnected();
 
@@ -280,6 +294,7 @@ export class Bridge extends EventEmitter {
       this.receipts.push(receipt);
       await this.persist();
       await this.drain();
+      log().info({ id, status: receipt.status }, "message.delivery");
 
       return { id, status: receipt.status };
     });
