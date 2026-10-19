@@ -246,15 +246,9 @@ async function check() {
     assert.equal(uncertain.visible.queue.length, 0);
 
     const { visibleSnapshot } = await import("../src/server/visible-snapshot");
-    const { renderToStaticMarkup } = await import("react-dom/server");
-    const { createElement } = await import("react");
     await import("../tests/fixtures/restart-css-loader.mjs");
-    const { Conversation } = await import("../src/components/conversation");
-    assert.match(renderToStaticMarkup(createElement(Conversation, { state: restarted.visible })), /Pocket restarted/);
-    assert.doesNotMatch(
-      renderToStaticMarkup(createElement(Conversation, { state: restarted.visible, readOnly: true })),
-      /Pocket restarted/
-    );
+    const { verifyRestartProjection } = await import("../tests/fixtures/restart-projection");
+    verifyRestartProjection(restarted.visible);
     const mismatched = visibleSnapshot({ ...second.raw, threadId: "other-thread" });
     assert.equal(events(mismatched).length, 0);
     const legacy: Turn = {
@@ -277,9 +271,7 @@ async function check() {
         ],
       })),
     };
-    const filteredMarkup = renderToStaticMarkup(createElement(Conversation, { state: emptyAroundEvent }));
-    assert.equal((filteredMarkup.match(/data-system-event="pocket-restarted"/g) ?? []).length, 1);
-    assert.doesNotMatch(filteredMarkup, /data-message-id="empty-/);
+    verifyRestartProjection(emptyAroundEvent);
     assert.deepEqual(
       emptyAroundEvent.turns
         .flatMap((turn) => turnMessages(turn, false))
