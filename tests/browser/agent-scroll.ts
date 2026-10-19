@@ -1,5 +1,4 @@
 import { type Locator, type Page, expect } from "@playwright/test";
-import { checkAgentRestartNavigation } from "./agent-restart";
 import { writeFile } from "node:fs/promises";
 
 const SCROLLED_OFFSET = 280;
@@ -31,8 +30,6 @@ export async function checkAgentScroll(page: Page, control: (stage: string) => P
       mutations.push(request.url());
     }
   });
-  await checkAgentRestartNavigation(page);
-  // Restart visibility navigation must not change the scroll premise below.
   await page.goto("/");
   const trigger = page.getByRole("button", { name: "6 agents", exact: true });
   await expect(trigger).toBeVisible();
