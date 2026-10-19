@@ -56,6 +56,7 @@ if (spawnSync("/bin/launchctl", ["print", target], { stdio: "ignore" }).status =
 
 execFileSync("/usr/bin/plutil", ["-convert", "xml1", "-o", plist, "-"], { input: JSON.stringify(definition) });
 await chmod(plist, PRIVATE_FILE_MODE);
+
 // launchd can still be removing a stopped job after bootout returns.
 for (let attempt = 0; ; attempt += 1) {
   const result = spawnSync("/bin/launchctl", ["bootstrap", domain, plist], { encoding: "utf8" });
@@ -70,5 +71,6 @@ for (let attempt = 0; ; attempt += 1) {
 
   await setTimeout(SERVICE_RETRY_MS);
 }
+
 console.info(`Installed ${target}. Pocket starts at login and restarts after a crash.`);
 console.info(`Logs: ${logs}`);

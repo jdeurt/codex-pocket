@@ -1,11 +1,7 @@
 import { object, string } from "./protocol";
 
-export async function post(path: string, data: unknown) {
-  const response = await fetch(path, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  });
+async function request(path: string, options: RequestInit) {
+  const response = await fetch(path, options);
 
   if (!response.ok) {
     const failure = object(await response.json());
@@ -14,3 +10,12 @@ export async function post(path: string, data: unknown) {
 
   return object(await response.json());
 }
+
+export const get = (path: string, signal: AbortSignal) => request(path, { signal });
+
+export const post = (path: string, data: unknown) =>
+  request(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });

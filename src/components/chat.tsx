@@ -6,6 +6,7 @@ import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } fro
 import { stageMessage, updateDelivery, useThread } from "@/hooks/use-thread";
 import { useEffect, useRef, useState } from "react";
 import { Conversation } from "./conversation";
+import { NotificationPrompt } from "./notification-prompt";
 import { connectionStatus } from "@/lib/connection-status";
 import { modelDescription } from "@/lib/model-description";
 import { post } from "@/lib/client-api";
@@ -77,6 +78,7 @@ export function Chat() {
         </div>
         <span className="header-balance" aria-hidden="true" />
       </header>
+      <NotificationPrompt />
       <Conversation state={state} />
       <footer className="composer-wrap">
         {(error || state.error) && (

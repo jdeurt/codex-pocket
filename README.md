@@ -74,7 +74,7 @@ launchctl print "gui/$(id -u)/dev.pocket.web"
 curl --fail http://127.0.0.1:3000 > /dev/null
 ```
 
-Allow a few seconds for startup before the HTTP check. The installer creates `~/Library/LaunchAgents/dev.pocket.web.plist` and starts Pocket on `127.0.0.1:3000`. It runs at login and restarts after a crash. The Mac must remain awake and the user must remain logged in.
+Allow a few seconds for startup before the HTTP check. The installer creates `~/Library/LaunchAgents/dev.pocket.web.plist` and starts Pocket on `127.0.0.1:3000`. It runs at login and restarts after a crash. The service uses launchd’s Interactive process class so macOS does not throttle chat requests and Codex as background maintenance work. The Mac must remain awake and the user must remain logged in.
 
 ### 4. Serve privately through Tailscale
 
@@ -121,6 +121,16 @@ npm run service:install
 Recheck local HTTP, HTTPS and resumed history after the update. Tailscale's existing Serve route stays in place. To remove only this root HTTPS proxy, use `tailscale serve --https=443 off` after checking that it is still Pocket's route.
 
 For development, use `npm run dev`. For a foreground production server, use `npm start` after building; both bind to loopback. Restart after changing environment variables.
+
+## Notifications
+
+On the first visit, Pocket offers an **Enable notifications** button. Tap it to open the browser's permission prompt. On iPhone or iPad, first add Pocket to the Home Screen and open it from that icon; a regular Safari tab cannot request Web Push permission.
+
+Pocket sends an encrypted Web Push notification when Codex ends a turn, including when the app is closed. Tapping the notification opens or focuses Pocket. Notification text says that Codex finished or stopped; it does not include conversation content. The Mac must be awake with Pocket running. Delivery also depends on the device's notification settings and push service.
+
+VAPID keys, device subscriptions and notification receipts are generated automatically and saved privately in `.local/push.json`. Keep this file across restarts and deployments. Deleting it invalidates existing device subscriptions, which must then be enabled again. Expired subscriptions are removed when their push service rejects them. No API key or paid notification service is needed.
+
+After setup, enable notifications on the actual phone, send a harmless message, close the PWA and verify that a notification arrives when Codex finishes. This device permission and delivery check must happen on the phone; a desktop browser emulator does not verify iOS notification delivery.
 
 ## Environment variables
 

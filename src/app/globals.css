@@ -122,6 +122,19 @@
   margin-inline: auto;
   padding: 24px 24px 32px;
 }
+.notification-prompt {
+  flex-shrink: 0;
+  width: min(calc(100% - 32px), 736px);
+  margin: 8px auto;
+}
+.notification-content {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.notification-content p {
+  flex: 1;
+}
 .transcript > [data-slot="message-scroller-item"] {
   content-visibility: visible;
   contain-intrinsic-size: none;

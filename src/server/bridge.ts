@@ -12,6 +12,7 @@ import { CodexRpc } from "./rpc";
 import { EventEmitter } from "node:events";
 import { deliverMessage } from "./delivery";
 import { loadHistory } from "./history";
+import { notifyTurnComplete } from "./push";
 import { reduceEvent } from "./reducer";
 import { resolveDesktopReplies } from "./desktop";
 import { validateAnswer } from "./answers";
@@ -182,6 +183,10 @@ export class Bridge extends EventEmitter {
       }
 
       if (event.method === "turn/completed") {
+        if (this.config) {
+          void notifyTurnComplete(this.config.threadId, event.params.turn as Turn).catch(console.error);
+        }
+
         void this.exclusive(() => this.drain()).catch((error) => this.fail(error));
       }
     } else {

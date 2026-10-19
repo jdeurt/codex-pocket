@@ -37,3 +37,39 @@ globalThis.addEventListener("fetch", (event) => {
     event.respondWith(navigate(event.request));
   }
 });
+
+globalThis.addEventListener("push", (event) => {
+  let payload = {};
+
+  try {
+    payload = event.data?.json() ?? {};
+  } catch {
+    // A visible fallback also covers empty or malformed pushes.
+  }
+
+  event.waitUntil(
+    globalThis.registration.showNotification(payload.title || "Pocket", {
+      body: payload.body || "Codex finished. Open Pocket to continue.",
+      icon: "/icon-192.png",
+      badge: "/icon-192.png",
+      tag: payload.tag || "pocket-turn-complete",
+      data: { url: "/" },
+    })
+  );
+});
+
+globalThis.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  event.waitUntil(
+    (async () => {
+      const windows = await globalThis.clients.matchAll({ type: "window", includeUncontrolled: true });
+      const existing = windows.find((client) => client.url.startsWith(globalThis.location.origin + "/"));
+
+      if (existing) {
+        await existing.focus();
+      } else {
+        await globalThis.clients.openWindow("/");
+      }
+    })()
+  );
+});
