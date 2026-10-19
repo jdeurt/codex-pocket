@@ -188,7 +188,9 @@ export class DelegationStore {
       }
 
       this.db.prepare("UPDATE delegation_commands SET status='running' WHERE id=?").run(command.id);
-      this.setStatus(parentId, childId, "running");
+      this.db
+        .prepare("UPDATE side_pockets SET status='running',policy=?,updatedAt=? WHERE parentId=? AND id=?")
+        .run(JSON.stringify(this.parent(parentId).policy), Date.now(), parentId, childId);
 
       return command;
     })();
@@ -215,6 +217,20 @@ export class DelegationStore {
     if (!["closing", "closed"].includes(child.status)) {
       this.setStatus(command.parentId, command.childId, status === "unknown" ? "unknown" : "idle");
     }
+  }
+  recordResult(
+    command: DelegationCommand,
+    status: DelegationCommand["status"],
+    result: string,
+    report?: { sourceId: string; kind: string; payload: unknown }
+  ) {
+    this.db.transaction(() => {
+      this.finish(command, status, result);
+
+      if (report) {
+        this.mail.record(command.parentId, command.childId, report.sourceId, report.kind, report.payload);
+      }
+    })();
   }
   closeChild(parentId: string, id: string) {
     return this.db.transaction(() => {
@@ -252,8 +268,12 @@ export class DelegationStore {
 
         const message =
           "Pocket restarted during this turn. Its outcome is unknown. Inspect the saved history and send a follow-up to continue; the original work will not be replayed automatically.";
-        this.finish(command, "unknown", message);
-        this.mail.record(parentId, child.id, `recovery:${command.id}`, "recovery", { message, commandId: command.id });
+        this.recordResult(command, "unknown", message, {
+          sourceId: `recovery:${command.id}`,
+          kind: "recovery",
+          payload: { message, commandId: command.id },
+        });
+        log().info({ childId: child.id, commandId: command.id }, "side_pocket.recovered");
       }
 
       this.mail.cancelRequests(child.id);

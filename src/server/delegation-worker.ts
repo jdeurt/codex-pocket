@@ -4,6 +4,7 @@ import type { Config } from "./config";
 import { createAdapter } from "./harness";
 import { localDirectory } from "./local-state";
 import { log } from "./logging";
+import { object } from "../lib/protocol";
 import path from "node:path";
 
 const POLL_INTERVAL_MS = 500;
@@ -70,15 +71,14 @@ export class DelegationWorker {
   }
   private complete(child: SidePocket, command: DelegationCommand, result: HarnessResult) {
     const closing = this.store.get(child.parentId, child.id).status === "closing";
-    this.store.finish(
+    const notify = !closing && (!this.store.mail.hasMessage(child.id, command.id) || result.status !== "completed");
+    this.store.recordResult(
       command,
       closing ? "cancelled" : result.status === "failed" ? "failed" : "completed",
-      JSON.stringify(result)
+      JSON.stringify(result),
+      notify ? { sourceId: `result:${command.id}`, kind: "completion", payload: result } : undefined
     );
-
-    if (!closing && (!this.store.mail.hasMessage(child.id, command.id) || result.status !== "completed")) {
-      this.store.mail.record(child.parentId, child.id, `result:${command.id}`, "completion", result);
-    }
+    log().info({ childId: child.id, commandId: command.id, result, closing }, "side_pocket.completed");
   }
   private async execute(child: SidePocket, command: DelegationCommand, adapter: HarnessAdapter) {
     let sending = false;
@@ -86,6 +86,10 @@ export class DelegationWorker {
     try {
       const sessionId = await adapter.open();
       this.store.setSession(child.parentId, child.id, sessionId);
+      log().info(
+        { childId: child.id, parentId: child.parentId, harness: child.harness, sessionId, commandId: command.id },
+        "side_pocket.started"
+      );
 
       if (this.store.get(child.parentId, child.id).status === "closing") {
         this.store.finish(command, "cancelled", "Closed before sending.");
@@ -99,14 +103,14 @@ export class DelegationWorker {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const closing = this.store.get(child.parentId, child.id).status === "closing";
-      this.store.finish(command, closing ? "cancelled" : sending ? "unknown" : "failed", message);
-
-      if (!closing) {
-        this.store.mail.record(child.parentId, child.id, `error:${command.id}`, "failure", {
-          message,
-          commandId: command.id,
-        });
-      }
+      this.store.recordResult(
+        command,
+        closing ? "cancelled" : sending ? "unknown" : "failed",
+        message,
+        closing
+          ? undefined
+          : { sourceId: `error:${command.id}`, kind: "failure", payload: { message, commandId: command.id } }
+      );
 
       log().error({ error, childId: child.id, commandId: command.id }, "side_pocket.failed");
     } finally {
@@ -117,9 +121,10 @@ export class DelegationWorker {
   }
   private launch(child: SidePocket, command: DelegationCommand) {
     const policy = this.store.parent(child.parentId).policy;
+    const { sessionStarted } = object(JSON.parse(child.metadata));
     const adapter = createAdapter(child.harness, {
       config: this.config,
-      child: { ...child, policy },
+      child: { ...child, policy, ...(typeof sessionStarted === "boolean" && { sessionStarted }) },
       parentTools: parentToolServer(child.id, command.id),
       callbacks: {
         request: (request) => this.request(child, request),
@@ -142,6 +147,7 @@ export class DelegationWorker {
 
     await running?.done;
     this.store.setStatus(child.parentId, child.id, "closed");
+    log().info({ childId: child.id, sessionId: child.sessionId }, "side_pocket.closed");
   }
   private async forward() {
     for (const mail of this.store.mail.pending(this.config.threadId)) {

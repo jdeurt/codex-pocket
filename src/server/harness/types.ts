@@ -15,6 +15,7 @@ export interface ChildContext {
   title: string;
   cwd: string;
   sessionId?: string | null;
+  sessionStarted?: boolean;
   model?: string | null;
   effort?: string | null;
   policy: ParentPolicy;

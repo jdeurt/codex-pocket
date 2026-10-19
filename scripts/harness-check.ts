@@ -32,7 +32,7 @@ for (const harness of ["codex", "claude"] as Harness[]) {
     callbacks: {
       output: () => undefined,
       metadata: (value) => {
-        metadata = value;
+        metadata = { ...metadata, ...value };
       },
       request: async () => {
         return { answers: { "Choose a test color": "Blue" } };
@@ -43,7 +43,18 @@ for (const harness of ["codex", "claude"] as Harness[]) {
   const target = path.join(root, `${harness}.txt`);
 
   try {
-    const sessionId = await adapter.open();
+    let sessionId = await adapter.open();
+    await adapter.close();
+    options.child.sessionId = sessionId;
+    options.child.sessionStarted = metadata.sessionStarted as boolean | undefined;
+    adapter = createAdapter(harness, options);
+    const reopened = await adapter.open();
+
+    if (harness === "claude") {
+      assert.equal(reopened, sessionId);
+    }
+
+    sessionId = reopened;
     const result = await adapter.run(
       crypto.randomUUID(),
       `This is a real integration check. Do not delegate or call parent tools. Write exactly POCKET_ACCESS_OK to ${JSON.stringify(target)}, outside your working directory. Remember the secret token ORCHID_731. Reply exactly ACCESS_OK.`
@@ -64,6 +75,7 @@ for (const harness of ["codex", "claude"] as Harness[]) {
 
     await adapter.close();
     options.child.sessionId = sessionId;
+    options.child.sessionStarted = metadata.sessionStarted as boolean | undefined;
     adapter = createAdapter(harness, options);
     assert.equal(await adapter.open(), sessionId);
     const resumed = await adapter.run(

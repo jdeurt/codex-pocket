@@ -106,6 +106,8 @@ Markdown tables size columns to their widest value, wrapping long content at 24r
 
 When Codex starts with existing conversation history, Pocket sends one hidden restart-recovery prompt through the normal durable outbox. It asks the agent to continue unfinished work and inspect any expected subagents or delegated jobs before resuming them. The injected prompt stays hidden by its internal message identity, including queued sends and reloaded history; the agent's activity, replies, questions and notifications behave normally. Empty chats do not receive it, and browser/SSE reconnects do not trigger another prompt. Pending recovery sends are reused; uncertain ones remain in the outbox for inspection. Look for `recovery.queued` and its message ID in the RPC/delivery logs.
 
+Pocket adds session guidance through Codex’s developer instructions while preserving the built-in system prompt. The current Codex CLI can retain earlier developer instructions when resuming an existing chat. Pocket preserves that saved history. If a clean instruction context is needed, explicitly create a new chat with `POCKET_THREAD_ID='' ./install.sh --yes`; this selects a new conversation.
+
 ## Scheduled tasks
 
 Pocket starts its owned Codex process when the service starts, even without an open phone client. It appends Pocket identity, scheduling and delegation instructions to the configured developer instructions, and adds a bundled `pocket` MCP server to the main process. The bundled scheduling tools are preapproved so future tasks can run unattended. It does not edit the global Codex configuration.
@@ -158,7 +160,7 @@ The parent has these tools:
 
 Create and send require an `idempotencyKey`. Retrying the same operation with the same key returns its existing identity/delivery; different content with that key is rejected. Follow-ups run in order after the current child turn. Closing waits for host confirmation of process exit and retains conversation history. Resume makes the child ready for the next send; the harness process starts when work arrives and exits after its turn.
 
-Each child's Pocket tool is `message_parent`, which accepts `{ "message": "..." }` and routes it to the recorded parent. Children use it for questions, progress and completion reports. A question ends the child's current turn; the parent answers with `side_pocket_send` in the same saved session. Pocket scheduling and Side Pocket management tools belong to the main session. The host also handles native Codex questions/approvals and sends a completion fallback when a child has not messaged its parent.
+Each child's Pocket tool is `message_parent`, which accepts `{ "message": "..." }` and routes it to the recorded parent. Identical messages within one child turn reuse the same delivery. Children use it for questions, progress and completion reports. A question ends the child's current turn; the parent answers with `side_pocket_send` in the same saved session. Pocket scheduling and Side Pocket management tools belong to the main session. The host also handles native Codex questions/approvals and sends a completion fallback when a child has not messaged its parent.
 
 Delegate reports reach the parent through its durable outbox, waking it when idle. Those injected inputs stay internal; the parent's ordinary replies appear on the phone. Children default to the parent's folder. Coordinate file ownership or provide separate worktrees for concurrent changes. Pocket runs up to four child turns concurrently.
 
