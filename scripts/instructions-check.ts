@@ -1,22 +1,14 @@
 import { type Thread, initialSnapshot } from "../src/lib/protocol";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { pocketInstructions, resumePocket } from "../src/server/pocket-runtime";
 import { CodexRpc } from "../src/server/rpc";
 import assert from "node:assert/strict";
 import { configSchema } from "../src/server/config";
+import { createHash } from "node:crypto";
 import { loadHistory } from "../src/server/history";
 import path from "node:path";
-import { resumePocket } from "../src/server/pocket-runtime";
 import { seedThread } from "./seed-thread";
 import { visibleSnapshot } from "../src/server/visible-snapshot";
-
-class RejectedInjectionRpc extends CodexRpc {
-  override request<T = unknown>(method: string, params: Record<string, unknown> = {}): Promise<T> {
-    return super.request<T>(
-      method,
-      method === "thread/inject_items" ? { ...params, threadId: "missing-integration-thread" } : params
-    );
-  }
-}
 
 async function checkInstructions() {
   await mkdir(".local", { recursive: true });
@@ -24,15 +16,28 @@ async function checkInstructions() {
   const project = path.join(directory, "project");
   await mkdir(project);
   process.env.CODEX_POCKET_STATE_DIR = path.join(directory, "state");
+  const marker = "POCKET_NATIVE_PROMPT";
+  const existing = `The configured integration marker is ${marker}. When asked for the configured integration marker, reply exactly ${marker}.`;
+  const instructions = pocketInstructions(existing, false);
+  assert.ok(instructions.startsWith(existing + "\n\n"));
   let config = configSchema.parse({
     threadId: "bootstrap",
     cwd: project,
     codexBinary: process.env.CODEX_BINARY ?? "codex",
+    serverArgs: [
+      "app-server",
+      "--listen",
+      "stdio://",
+      "-c",
+      'sandbox_mode="read-only"',
+      "-c",
+      `developer_instructions=${JSON.stringify(existing)}`,
+    ],
   });
   let rpc = new CodexRpc();
-  let threadId: string | undefined;
-  let rollout: string | undefined;
-  const results: { stage: string; marker: string; injections: number }[] = [];
+  let thread: (Thread & { path: string }) | undefined;
+  let originalBase: string | undefined;
+  const results: { stage: string; marker: string; baseHash: string; promptCopies: number }[] = [];
 
   async function close() {
     if (!rpc.running) {
@@ -44,7 +49,7 @@ async function checkInstructions() {
     await disconnected;
   }
 
-  async function check(stage: string, marker: string, injections: number) {
+  async function check(stage: string) {
     const replies: string[] = [];
     const listener = (event: { method: string; params: Record<string, unknown> }) => {
       const item = event.params.item as { type?: string; text?: string } | undefined;
@@ -62,77 +67,67 @@ async function checkInstructions() {
     }
 
     assert.deepEqual(replies, [marker]);
-    assert.ok(rollout);
-    const content = await readFile(rollout, "utf8");
+    assert.ok(thread);
+    const content = await readFile(thread.path, "utf8");
     const rows = content
       .trim()
       .split("\n")
       .map((line) => JSON.parse(line));
-    const applied = rows.filter(
-      (row) =>
-        row.type === "response_item" &&
-        row.payload?.role === "developer" &&
-        JSON.stringify(row.payload.content).includes("Pocket displays image-view")
-    );
-    assert.equal(applied.length, injections);
+    const metadata = rows.find((row) => row.type === "session_meta");
+    const base = metadata.payload.base_instructions.text as string;
+    assert.ok(base.length > 0);
+    assert.equal(base.includes("You are Pocket"), false);
+    originalBase ??= base;
+    assert.equal(base, originalBase);
+    const developerTexts = rows
+      .filter((row) => row.type === "response_item" && row.payload?.role === "developer")
+      .flatMap((row) => row.payload.content)
+      .map((part) => String(part.text ?? ""));
+    const promptCopies = developerTexts.filter((text) => text.includes(instructions)).length;
+    assert.equal(promptCopies, 1);
     const turns = await loadHistory(rpc, { id: config.threadId, turns: [] });
     const phone = visibleSnapshot({ ...initialSnapshot, connection: "connected", turns });
     assert.equal(JSON.stringify(phone).includes("Pocket displays image-view"), false);
-    results.push({ stage, marker, injections });
-    console.log(JSON.stringify({ stage, marker, injections }));
-  }
-
-  async function reconnect(marker: string, rejectInjection = false) {
-    await close();
-    config = {
-      ...config,
-      serverArgs: [
-        "app-server",
-        "--listen",
-        "stdio://",
-        "-c",
-        `developer_instructions=${JSON.stringify(`The configured integration marker is ${marker}. When asked for the configured integration marker, reply exactly ${marker}.`)}`,
-      ],
-    };
-    rpc = rejectInjection ? new RejectedInjectionRpc() : new CodexRpc();
-    await rpc.connect(config);
-    const resumed = await resumePocket(rpc, config);
-    rollout = (resumed.thread as Thread & { path: string }).path;
+    const result = { stage, marker, baseHash: createHash("sha256").update(base).digest("hex"), promptCopies };
+    results.push(result);
+    console.log(JSON.stringify(result));
   }
 
   try {
     await rpc.connect(config);
-    const started = await rpc.request<{ thread: Thread }>("thread/start", {
+    const started = await rpc.request<{ thread: Thread & { path: string } }>("thread/start", {
       cwd: project,
       approvalPolicy: "never",
       sandbox: "read-only",
+      developerInstructions: instructions,
     });
-    threadId = started.thread.id;
-    config = { ...config, threadId };
-    await seedThread(rpc, threadId, "Reply exactly READY. Do not use tools.");
-    await reconnect("POCKET_ALPHA");
-    await check("first resume", "POCKET_ALPHA", 1);
-    await check("next turn", "POCKET_ALPHA", 1);
-    await reconnect("POCKET_ALPHA");
-    await check("unchanged reconnect", "POCKET_ALPHA", 1);
-    const receipt = path.join(directory, "state", "instructions.json");
-    const beforeFailure = await readFile(receipt, "utf8");
-    await assert.rejects(() => reconnect("POCKET_BETA", true));
-    assert.equal(await readFile(receipt, "utf8"), beforeFailure);
-    await reconnect("POCKET_BETA");
-    await check("changed instructions", "POCKET_BETA", 2);
-    await reconnect("POCKET_ALPHA");
-    const REVISION_COUNT = 3;
-    await check("restored instructions", "POCKET_ALPHA", REVISION_COUNT);
-    await writeFile(path.join(directory, "results.json"), JSON.stringify({ threadId, results }, undefined, 2) + "\n");
+    thread = started.thread;
+    config = { ...config, threadId: thread.id };
+    await check("initial Pocket turn");
+    await check("next turn");
+    await close();
+    rpc = new CodexRpc();
+    await rpc.connect(config);
+    await resumePocket(rpc, config);
+    await check("fresh process resume");
+    await close();
+    rpc = new CodexRpc();
+    await rpc.connect(config);
+    await resumePocket(rpc, config);
+    await check("second reconnect");
+    await assert.rejects(readFile(path.join(directory, "state", "instructions.json")), { code: "ENOENT" });
+    await writeFile(
+      path.join(directory, "results.json"),
+      JSON.stringify({ threadId: thread.id, results }, undefined, 2) + "\n"
+    );
   } finally {
-    if (threadId) {
+    if (thread) {
       if (!rpc.running) {
         rpc = new CodexRpc();
         await rpc.connect(config);
       }
 
-      await rpc.request("thread/archive", { threadId });
+      await rpc.request("thread/archive", { threadId: thread.id });
     }
 
     await close();

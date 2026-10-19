@@ -1,10 +1,11 @@
+import { type Thread, string } from "../src/lib/protocol";
 import { saveSetupEnvironment, setupOrigin } from "./setup-env";
 import { CodexRpc } from "../src/server/rpc";
-import type { Thread } from "../src/lib/protocol";
 import { configSchema } from "../src/server/config";
 import { homedir } from "node:os";
 import nextEnv from "@next/env";
 import path from "node:path";
+import { pocketInstructions } from "../src/server/pocket-runtime";
 import { seedThread } from "./seed-thread";
 
 // Codex injects its own thread ID into agent shells. Pocket selects its thread explicitly.
@@ -53,13 +54,24 @@ try {
     await saveEnvironment(threadId);
     console.info(`Reused thread ${threadId}. Saved ${envPath}.`);
   } else {
+    const { config: effective } = await rpc.request<{ config: Record<string, unknown> }>("config/read", {
+      includeLayers: false,
+      cwd: config.cwd,
+    });
     const started = await rpc.request<{
       thread: Thread;
       model: string;
       reasoningEffort: string;
       sandbox: unknown;
       approvalPolicy: unknown;
-    }>("thread/start", { cwd: config.cwd, ephemeral: false });
+    }>("thread/start", {
+      cwd: config.cwd,
+      ephemeral: false,
+      developerInstructions: pocketInstructions(
+        string(effective.developer_instructions),
+        effective.sandbox_mode === "danger-full-access"
+      ),
+    });
     const { thread } = started;
     console.info(
       JSON.stringify({

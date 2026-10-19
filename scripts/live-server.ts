@@ -1,9 +1,10 @@
+import { type Thread, string } from "../src/lib/protocol";
 import { CodexRpc } from "../src/server/rpc";
-import type { Thread } from "../src/lib/protocol";
 import { configSchema } from "../src/server/config";
 import { mkdir } from "node:fs/promises";
 import nextEnv from "@next/env";
 import path from "node:path";
+import { pocketInstructions } from "../src/server/pocket-runtime";
 import { seedThread } from "./seed-thread";
 import { spawn } from "node:child_process";
 
@@ -16,14 +17,20 @@ const config = configSchema.parse({
   threadId: "bootstrap",
   cwd: project,
   codexBinary: process.env.CODEX_BINARY ?? "codex",
+  serverArgs: ["app-server", "--listen", "stdio://", "-c", 'sandbox_mode="read-only"'],
 });
 const rpc = new CodexRpc();
 await rpc.connect(config);
+const { config: effective } = await rpc.request<{ config: Record<string, unknown> }>("config/read", {
+  includeLayers: false,
+  cwd: config.cwd,
+});
 const started = await rpc.request<{ thread: Thread; model: string; reasoningEffort: string | null }>("thread/start", {
   cwd: project,
   approvalPolicy: "on-request",
   sandbox: "read-only",
   ephemeral: false,
+  developerInstructions: pocketInstructions(string(effective.developer_instructions), false),
 });
 const threadId = started.thread.id;
 await rpc.request("thread/name/set", { threadId, name: "Pocket live integration check" });
@@ -50,7 +57,7 @@ const host = spawn(
       CODEX_POCKET_STATE_DIR: path.join(directory, "bridge"),
       CODEX_ALLOWED_ORIGINS: "http://127.0.0.1:3101",
       CODEX_ACTIVE_MESSAGE_MODE: process.env.CODEX_TEST_ACTIVE_MODE ?? "steer",
-      CODEX_SERVER_ARGS: '["app-server","--listen","stdio://"]',
+      CODEX_SERVER_ARGS: JSON.stringify(config.serverArgs),
     },
   }
 );

@@ -1,8 +1,7 @@
 import { type Thread, string } from "../lib/protocol";
-import { localDirectory, readLocal, writeLocal } from "./local-state";
 import type { CodexRpc } from "./rpc";
 import type { Config } from "./config";
-import { createHash } from "node:crypto";
+import { localDirectory } from "./local-state";
 import path from "node:path";
 
 export function pocketServerArgs(config: Config) {
@@ -52,28 +51,10 @@ export async function resumePocket(rpc: CodexRpc, config: Config) {
     effective.sandbox_mode === "danger-full-access"
   );
 
-  const resumed = await rpc.request<{ thread: Thread; model: string; reasoningEffort: string | null }>(
-    "thread/resume",
-    {
-      threadId: config.threadId,
-      excludeTurns: true,
-      ...(effort && { config: { model_reasoning_effort: effort } }),
-      developerInstructions: instructions,
-    }
-  );
-
-  // CLI 0.163 can ignore developerInstructions when resuming existing history.
-  // After an external thread rollback, remove instructions.json to reapply guidance.
-  const revisions = await readLocal<Record<string, string>>("instructions.json", {});
-  const revision = createHash("sha256").update(instructions).digest("hex");
-
-  if (revisions[config.threadId] !== revision) {
-    await rpc.request("thread/inject_items", {
-      threadId: config.threadId,
-      items: [{ type: "message", role: "developer", content: [{ type: "input_text", text: instructions }] }],
-    });
-    await writeLocal("instructions.json", { ...revisions, [config.threadId]: revision });
-  }
-
-  return resumed;
+  return rpc.request<{ thread: Thread; model: string; reasoningEffort: string | null }>("thread/resume", {
+    threadId: config.threadId,
+    excludeTurns: true,
+    ...(effort && { config: { model_reasoning_effort: effort } }),
+    developerInstructions: instructions,
+  });
 }
