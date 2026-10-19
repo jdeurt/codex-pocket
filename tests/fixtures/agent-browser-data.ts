@@ -1,7 +1,14 @@
 // OFFLINE REPLAY ONLY. These are synthetic harness wire records, not live results.
-import type { Turn } from "../../src/lib/protocol";
+import type { RestartEvent, Turn } from "../../src/lib/protocol";
 
 export const replayParent = "replay-parent";
+const PARENT_TURNS = 25;
+// The real Bridge records a typed restart after hydrating this saved parent.
+// Assert its boundary rather than seeding a second display event into history.
+export const replayRestartBoundary: RestartEvent["after"] = {
+  turnId: `parent-${PARENT_TURNS - 1}`,
+  itemId: `parent-a-${PARENT_TURNS - 1}`,
+};
 export const claudeSession = "11111111-1111-4111-8111-111111111111";
 const NAME_REPETITIONS = 3;
 const PREVIEW_REPETITIONS = 8;
@@ -70,7 +77,7 @@ export function replayThreads(settled = false, revision = 1) {
 }
 export function replayTurns(id: string, stage = "initial"): Turn[] {
   if (id === replayParent) {
-    return Array.from({ length: 25 }, (_, index) => ({
+    return Array.from({ length: PARENT_TURNS }, (_, index) => ({
       id: `parent-${index}`,
       status: "completed",
       items: [
