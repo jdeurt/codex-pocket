@@ -1,6 +1,7 @@
 import { type Snapshot, initialSnapshot } from "../../src/lib/protocol";
 import { expect, test } from "@playwright/test";
 import { execFile } from "node:child_process";
+import { existsSync } from "node:fs";
 import { promisify } from "node:util";
 import { readFile } from "node:fs/promises";
 
@@ -96,7 +97,8 @@ for (const length of ["short", "long"]) {
       }
 
       const activity = getComputedStyle(indicator);
-      const preceding = element.previousElementSibling;
+      const row = element.closest("[data-transcript-row]");
+      const preceding = row?.previousElementSibling?.firstElementChild ?? element.previousElementSibling;
 
       return {
         font: style.fontSize,
@@ -160,4 +162,55 @@ test("historical recovery instructions do not create a display event", async ({ 
   await page.goto("/");
   await expect(page.getByText("Previous work")).toBeVisible();
   await expect(page.getByRole("note")).toHaveCount(0);
+});
+
+test("read-only agent viewer excludes a parent restart event and retains ordinary messages", async ({ page }) => {
+  test.skip(!existsSync("src/components/agent-browser.tsx"), "Requires the integrated agent viewer");
+
+  if (!artifacts.snapshotFile) {
+    throw new Error("Missing persisted restart fixture");
+  }
+
+  const saved = JSON.parse(await readFile(artifacts.snapshotFile, "utf8")) as Snapshot;
+  const agent = {
+    id: "codex:restart-exclusion",
+    parentId: saved.threadId,
+    name: "Restart exclusion child",
+    source: "native",
+    harness: "codex",
+    status: "running",
+    preview: "Read-only exclusion replay",
+  };
+  // Deliberately include the parent's typed item in a child response: readOnly must exclude it.
+  const child = { ...saved, threadId: "restart-exclusion-child", activeTurnId: undefined };
+  expect(child.turns.flatMap((turn) => turn.items).filter((item) => item.type === "pocketRestart")).toHaveLength(1);
+  await page.route("**/api/events", (route) =>
+    route.fulfill({
+      contentType: "text/event-stream",
+      body: `data: ${JSON.stringify(saved)}\n\n`,
+    })
+  );
+  await page.route("**/api/agents**", (route) =>
+    route.fulfill({
+      json: new URL(route.request().url()).searchParams.has("agent")
+        ? { agent, state: child, history: "available", updatedAt: 1 }
+        : { agents: [agent], warnings: [], updatedAt: 1 },
+    })
+  );
+  await page.goto("/");
+  const parent = page.locator("main");
+  await expect(parent.getByRole("note")).toHaveCount(1);
+  await expect(parent.getByRole("note")).toHaveText("Pocket restarted");
+  await page.getByRole("button", { name: "1 agent", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "Agents", exact: true });
+  await dialog.getByRole("button", { name: /Restart exclusion child/ }).click();
+  await expect(dialog.getByText("Original user content must remain unchanged.", { exact: true })).toBeVisible();
+  await expect(dialog.getByRole("note")).toHaveCount(0);
+  await expect(dialog.locator("[data-system-event]")).toHaveCount(0);
+  await expect(dialog.getByRole("textbox")).toHaveCount(0);
+  await dialog.getByRole("button", { name: "Back to agents", exact: true }).click();
+  await dialog.getByRole("button", { name: "Back to Pocket", exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(parent.getByRole("note")).toHaveCount(1);
+  await expect(parent.getByRole("note")).toHaveText("Pocket restarted");
 });
