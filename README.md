@@ -22,7 +22,7 @@ For agent-driven installation with saved settings or defaults:
 ./install.sh --yes
 ```
 
-Unattended setup requires Codex to be signed in already. The installer preserves `.env.local` and `.local/`, including the outbox, schedules, push subscriptions and logs. It stops the installed service before replacing dependencies or build assets. An unrelated application using port 3000, or a Pocket service owned by another checkout, must be resolved before installation continues.
+Unattended setup requires Codex to be signed in already. The installer preserves `.env.local` and `.local/`, including the outbox, schedules, Side Pockets, push subscriptions and logs. It stops the installed service before replacing dependencies or build assets. An unrelated application using port 3000, or a Pocket service owned by another checkout, must be resolved before installation continues.
 
 Optional setup inputs:
 
@@ -108,7 +108,7 @@ When Codex starts with existing conversation history, Pocket sends one hidden re
 
 ## Scheduled tasks
 
-Pocket starts its owned Codex process when the service starts, even without an open phone client. It appends Pocket identity and scheduling instructions to the configured developer instructions, and adds a bundled `pocket` MCP server to that process only. The bundled scheduling tools are preapproved so future tasks can run unattended. It does not edit the global Codex configuration.
+Pocket starts its owned Codex process when the service starts, even without an open phone client. It appends Pocket identity, scheduling and delegation instructions to the configured developer instructions, and adds a bundled `pocket` MCP server to the main process. The bundled scheduling tools are preapproved so future tasks can run unattended. It does not edit the global Codex configuration.
 
 Ask Pocket in chat to schedule something, or use its MCP tools from the Codex session: `schedule_create`, `schedule_list`, `schedule_get`, `schedule_update` and `schedule_delete`. A schedule has a `title`, a `body` containing the instructions to send later, a `calendar` string and an optional `active` boolean. Update accepts `changes` and an optional `expectedRevision`; read the latest revision before editing.
 
@@ -135,6 +135,35 @@ Schedules and immutable delivery history live in owner-private `.local/schedules
 
 Tasks run only while this Mac is awake and Pocket is running. After downtime, Pocket sends one overdue occurrence per task and advances a repeated task to its next future occurrence; it does not flood the chat with every missed repetition. After a restart, scheduled deliveries reuse each run's durable message ID. An uncertain Codex acknowledgment is retained for inspection rather than automatically replayed. Diagnose `schedule.*` events alongside the matching outbox receipt before retrying anything.
 
+## Side Pockets
+
+Main Pocket runs Codex. It can delegate work to independent **Side Pockets** using either Codex or Claude Code. Each child has a title, ID, working folder and saved harness session. Ask Pocket to delegate a task and name the desired harness when it matters.
+
+Claude delegation requires Claude Code installed and signed in on this Mac. Pocket discovers the executable on PATH or in standard install locations; set `POCKET_CLAUDE_BINARY` in `.env.local` for another location. The adapter uses the official Claude Agent SDK with the local executable and authentication. `POCKET_CLAUDE_MODEL` sets its default model; a creation-time model overrides that default. Codex children inherit the parent's model by default. Children inherit reasoning effort; Claude maps Codex `minimal` to `low`.
+
+Access follows the main Codex parent's effective policy. A parent with `danger-full-access` and approval policy `never` maps to Claude `bypassPermissions`, permission skipping enabled and sandbox disabled. Claude rejects other parent permission profiles because their filesystem/network/approval rules cannot be mapped exactly. Codex children use the native sandbox and approval settings. Pocket reports these capabilities to the parent. Native harness tools, skills and subagents remain available.
+
+The parent has these tools:
+
+| Tool                       | Purpose                                                                        |
+| -------------------------- | ------------------------------------------------------------------------------ |
+| `side_pocket_capabilities` | Check harness availability and supported behavior                              |
+| `side_pocket_create`       | Choose a harness, title and body; optionally choose a folder, model and effort |
+| `side_pocket_list`         | Look up titles, IDs, saved sessions and lifecycle states                       |
+| `side_pocket_get`          | Inspect a child's messages, delivery results and pending harness requests      |
+| `side_pocket_send`         | Send follow-up work or an answer by child ID                                   |
+| `side_pocket_answer`       | Answer a harness request using its child ID and request ID                     |
+| `side_pocket_close`        | Stop the actual harness process and cancel queued work                         |
+| `side_pocket_resume`       | Reopen the same saved child identity for later messages                        |
+
+Create and send require an `idempotencyKey`. Retrying the same operation with the same key returns its existing identity/delivery; different content with that key is rejected. Follow-ups run in order after the current child turn. Closing waits for host confirmation of process exit and retains conversation history. Resume makes the child ready for the next send; the harness process starts when work arrives and exits after its turn.
+
+Each child's Pocket tool is `message_parent`, which accepts `{ "message": "..." }` and routes it to the recorded parent. Children use it for questions, progress and completion reports. A question ends the child's current turn; the parent answers with `side_pocket_send` in the same saved session. Pocket scheduling and Side Pocket management tools belong to the main session. The host also handles native Codex questions/approvals and sends a completion fallback when a child has not messaged its parent.
+
+Delegate reports reach the parent through its durable outbox, waking it when idle. Those injected inputs stay internal; the parent's ordinary replies appear on the phone. Children default to the parent's folder. Coordinate file ownership or provide separate worktrees for concurrent changes. Pocket runs up to four child turns concurrently.
+
+State and delivery history live in owner-private `.local/delegations.sqlite` with SQLite WAL. Keep it and its `-wal`/`-shm` files across deployments, along with the harnesses' native saved-session storage. If Pocket stops during a child send, that outcome becomes unknown and the parent receives a recovery report. Inspect the saved history before resuming and sending continuation instructions; uncertain work is not replayed automatically. Pending parent reports retain stable delivery IDs across restarts. Logs use `side_pocket.*` events alongside normal RPC and outbox diagnostics.
+
 ## Images
 
 Pocket displays generated images, image-view output, MCP/tool image content and image attachments already in the conversation. Assistant Markdown images can reference absolute computer paths, `file:` URLs, paths relative to `CODEX_CWD`, HTTPS URLs or inline raster images.
@@ -145,15 +174,17 @@ Local and tool images go through Pocket's guarded image endpoint. It validates r
 
 ## Environment variables
 
-| Variable                    | Purpose                                                   | Default                                |
-| --------------------------- | --------------------------------------------------------- | -------------------------------------- |
-| `CODEX_THREAD_ID`           | The one saved thread to resume                            | Required                               |
-| `CODEX_CWD`                 | Absolute working directory of the host process            | Repository directory                   |
-| `CODEX_BINARY`              | Local Codex executable                                    | `codex`                                |
-| `CODEX_ACTIVE_MESSAGE_MODE` | Send during a turn: `steer` or `queue`                    | `steer`                                |
-| `CODEX_ALLOWED_ORIGINS`     | Comma-separated allowed origins, without trailing slashes | Localhost and loopback on port 3000    |
-| `CODEX_SERVER_ARGS`         | JSON array of arguments passed directly to Codex          | `["app-server","--listen","stdio://"]` |
-| `CODEX_POCKET_STATE_DIR`    | Local receipts, requests, push keys, schedules and logs   | `.local`                               |
+| Variable                    | Purpose                                                            | Default                                |
+| --------------------------- | ------------------------------------------------------------------ | -------------------------------------- |
+| `CODEX_THREAD_ID`           | The one saved thread to resume                                     | Required                               |
+| `CODEX_CWD`                 | Absolute working directory of the host process                     | Repository directory                   |
+| `CODEX_BINARY`              | Local Codex executable                                             | `codex`                                |
+| `CODEX_ACTIVE_MESSAGE_MODE` | Send during a turn: `steer` or `queue`                             | `steer`                                |
+| `CODEX_ALLOWED_ORIGINS`     | Comma-separated allowed origins, without trailing slashes          | Localhost and loopback on port 3000    |
+| `CODEX_SERVER_ARGS`         | JSON array of arguments passed directly to Codex                   | `["app-server","--listen","stdio://"]` |
+| `CODEX_POCKET_STATE_DIR`    | Local receipts, requests, push keys, schedules, delegates and logs | `.local`                               |
+| `POCKET_CLAUDE_BINARY`      | Claude Code executable for Side Pockets                            | Auto-detected                          |
+| `POCKET_CLAUDE_MODEL`       | Default Claude child model                                         | Claude configuration                   |
 
 Codex uses its local login and configuration. The bridge sends no per-turn model, sandbox, permission or approval-policy overrides. Configure process-wide overrides with `CODEX_SERVER_ARGS` on the computer. Pocket applies the computer's effective reasoning effort explicitly when resuming a saved thread and starting each new turn, so a saved thread's older effort does not override the selected setting. The header displays the effective model and reasoning effort returned by Codex.
 
@@ -208,6 +239,8 @@ npm run test:e2e:schedules
 npm run test:e2e:images
 npm run test:e2e:activity
 npm run test:recovery
+npm run test:harnesses
+npm run test:delegation
 ```
 
 `npm run lint` runs ESLint with **`--max-warnings=0`**. ESLint and Prettier use the configs and pinned dependencies bundled with `jdeurt-engineering` 1.2.0. Their source lives in `tooling/engineering/`; the `.mjs` ESLint file is compiled from the bundled TypeScript source. Generated shadcn components and bundled tooling are excluded from application lint; Prettier checks the component source. The application uses the shared non-type-aware ESLint rules together with a separate strict TypeScript check. The two overrides preserve Node's event API and protocol/storage/React `null` values.
@@ -216,4 +249,6 @@ Build first with `npm run build`. Browser tests use the real installed Codex pro
 
 `npm run test:recovery` uses a separate real Codex chat to check an empty start, resumed history, hidden recovery inputs, visible replies, connection deduplication and recovery after stopping an in-progress command. It archives the test chat afterward. Push completed work with normal Git pushes; do not force-push or rewrite remote history.
 
-References: [Codex app-server](https://learn.chatgpt.com/docs/app-server), [shadcn chat components](https://ui.shadcn.com/docs/components/base/message-scroller), [Next.js PWA guide](https://nextjs.org/docs/app/guides/progressive-web-apps).
+`npm run test:harnesses` makes real Codex and Claude calls to check unrestricted access, saved-session resume, history and native tool availability. `npm run test:delegation` uses a real Codex parent to create both harnesses, exchange child questions and parent answers, close actual processes and resume the same saved sessions. Both use separate ignored state and require local sign-in.
+
+References: [Codex app-server](https://developers.openai.com/codex/app-server/), [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk/overview), [shadcn chat components](https://ui.shadcn.com/docs/components/base/message-scroller), [Next.js PWA guide](https://nextjs.org/docs/app/guides/progressive-web-apps).

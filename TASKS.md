@@ -65,7 +65,7 @@ The working backlog is the [Pocket project in Linear](https://linear.app/juan-de
 - [x] Provide create, read, update and delete tools through a bundled MCP server available to Pocket's Codex process.
 - [x] Inject due bodies as user input, using the configured steering/queueing behavior and durable message IDs.
 - [x] Run scheduled tasks silently: hide their queued/confirmed triggers, titles and injected bodies while showing the agent's responses, questions and approvals (JUA-37 supersedes the marker UI from JUA-28).
-- [x] Start Pocket's Codex process automatically and add scoped Pocket identity/scheduling instructions. Do not add delegation instructions.
+- [x] Start Pocket's Codex process automatically and add scoped Pocket identity, scheduling and delegation instructions.
 - [x] Document setup, tools, recurrence, restart recovery and diagnosis for an agent.
 - [x] Test with real Codex, require zero ESLint warnings, push the completed changes and restart the service.
 
@@ -108,10 +108,10 @@ These later requests are tracked separately in Linear. Keep their existing owner
 ## Installer and Side Pockets
 
 - [ ] [JUA-45](https://linear.app/juan-de-urtubey/issue/JUA-45): Add a Claude harness adapter for delegated Side Pockets. Main Pocket always stays Codex.
-- [ ] [JUA-46](https://linear.app/juan-de-urtubey/issue/JUA-46): Implement independent Codex/Claude Side Pockets, with host-relayed parent communication and no child Pocket tools or further delegation.
+- [ ] [JUA-46](https://linear.app/juan-de-urtubey/issue/JUA-46): Implement independent Codex/Claude Side Pockets with message_parent, parent lifecycle controls and saved-session resume. Native harness skills and subagents remain available.
 - [x] [JUA-47](https://linear.app/juan-de-urtubey/issue/JUA-47): Provide a one-click Mac installer and make setup independent of tunnel providers.
 
-The operator authorized implementing all three, pushing normal commits to main as they finish. Children receive only the scoped Pocket role prompt; do not expose scheduling, delegation or custom parent-communication tooling to them. Describe actual harness capabilities in the parent’s appended instructions.
+The operator authorized implementing all three, pushing normal commits to main as they finish. Children receive a scoped role prompt and a message_parent tool that takes message content and routes it to their recorded parent. Pocket scheduling and Side Pocket management tools belong to the main Codex session. Children keep native harness tools, skills and subagents. The parent can list titles/IDs, inspect, send, close actual processes and resume saved sessions. Both harnesses inherit parent access through explicit permission mappings. Describe actual harness capabilities in the parent’s appended instructions.
 
 ## Delivery cadence
 

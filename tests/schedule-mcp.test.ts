@@ -7,7 +7,7 @@ import path from "node:path";
 import test from "node:test";
 
 const DAY_MS = 86_400_000;
-const TOOL_COUNT = 5;
+const TOOL_COUNT = 13;
 
 test("the bundled MCP process validates input and performs schedule CRUD over real stdio", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "pocket-mcp-"));

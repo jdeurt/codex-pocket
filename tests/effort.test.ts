@@ -14,7 +14,14 @@ test("resume and new turns apply the computer's effective effort without overrid
     calls.push({ method, params });
 
     if (method === "config/read") {
-      return { config: { model_reasoning_effort: "medium", developer_instructions: "Existing instructions" } };
+      return {
+        config: {
+          model_reasoning_effort: "medium",
+          developer_instructions: "Existing instructions",
+          sandbox_mode: "read-only",
+          approval_policy: "on-request",
+        },
+      };
     }
 
     return method === "thread/resume"

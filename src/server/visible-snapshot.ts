@@ -1,7 +1,10 @@
 import { type Item, type Snapshot, string } from "../lib/protocol";
 import { itemImageSources, itemImageUrl } from "../lib/images";
 import { currentActivity } from "./activity";
+import { delegationMessagePrefix } from "./delegation-mail";
 import { isRecoveryMessageId } from "./recovery";
+
+const internal = (id: unknown) => isRecoveryMessageId(id) || string(id).startsWith(delegationMessagePrefix);
 
 // Only messages and explicitly projected display items leave the computer.
 export function visibleSnapshot(state: Snapshot): Snapshot {
@@ -12,14 +15,11 @@ export function visibleSnapshot(state: Snapshot): Snapshot {
     activity: currentActivity(state),
     notices: [],
     scheduled: {},
-    queue: state.queue.filter((message) => !scheduled.has(message.id) && !isRecoveryMessageId(message.id)),
+    queue: state.queue.filter((message) => !scheduled.has(message.id) && !internal(message.id)),
     turns: state.turns.map((turn) => ({
       ...turn,
       items: turn.items.flatMap<Item>((item) => {
-        if (
-          item.type === "userMessage" &&
-          (scheduled.has(string(item.clientId)) || isRecoveryMessageId(item.clientId))
-        ) {
+        if (item.type === "userMessage" && (scheduled.has(string(item.clientId)) || internal(item.clientId))) {
           return [];
         }
 

@@ -1,6 +1,8 @@
 import { scheduleInput, schedulePatch, schedules } from "../src/server/schedules";
 import { McpServer } from "@modelcontextprotocol/server";
 import { log } from "../src/server/logging";
+import { registerDelegationTools } from "./delegation-tools";
+import { toolResult as result } from "../src/server/mcp-result";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { z } from "zod";
 
@@ -12,20 +14,6 @@ if (!threadId) {
 
 const owner = threadId;
 const idSchema = z.object({ id: z.string().uuid() }).strict();
-const result = async (operation: () => unknown | Promise<unknown>) => {
-  try {
-    const value = await operation();
-
-    return { content: [{ type: "text" as const, text: JSON.stringify(value) }] };
-  } catch (error) {
-    log().error({ error }, "schedule.tool_failed");
-
-    return {
-      isError: true,
-      content: [{ type: "text" as const, text: error instanceof Error ? error.message : String(error) }],
-    };
-  }
-};
 
 serveStdio(
   () => {
@@ -33,7 +21,7 @@ serveStdio(
       { name: "pocket", version: "1.0.0" },
       {
         instructions:
-          "Manage schedules for this Pocket chat. Calendar is RFC 5545 DTSTART plus optional RRULE/RDATE/EXDATE, or a single VEVENT/VCALENDAR. Use UTC Z or IANA TZID. A title is shown in chat; the body is delivered to the agent when due. Active values in stored records are SQLite booleans (0/1), and dates are Unix milliseconds.",
+          "Manage schedules and Side Pockets for this main Pocket chat. Calendar is RFC 5545 DTSTART plus optional RRULE/RDATE/EXDATE, or a single VEVENT/VCALENDAR. Use UTC Z or IANA TZID. The schedule body is delivered to the agent when due; triggers are hidden from the phone chat. Active values in stored records are SQLite booleans (0/1), and dates are Unix milliseconds.",
       }
     );
     server.registerTool(
@@ -71,11 +59,13 @@ serveStdio(
       "schedule_delete",
       {
         description:
-          "Delete future occurrences and pending deliveries. Already in-flight/accepted messages cannot be recalled. Chat history markers are retained.",
+          "Delete future occurrences and pending deliveries. Already in-flight/accepted messages cannot be recalled. Accepted delivery history is retained.",
         inputSchema: idSchema,
       },
       ({ id }) => result(() => schedules().delete(owner, id))
     );
+
+    registerDelegationTools(server, owner);
 
     return server;
   },

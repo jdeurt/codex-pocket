@@ -6,7 +6,7 @@ const nextConfig: NextConfig = {
   */
   cacheComponents: false,
   partialPrefetching: false,
-  serverExternalPackages: ["better-sqlite3"],
+  serverExternalPackages: ["better-sqlite3", "@anthropic-ai/claude-agent-sdk"],
   turbopack: {
     rules: {
       "*.css": {

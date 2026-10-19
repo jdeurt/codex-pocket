@@ -1,5 +1,5 @@
 import { type PendingRequest, object } from "../lib/protocol";
-import { MAX_MESSAGE_LENGTH } from "@/lib/constants";
+import { MAX_MESSAGE_LENGTH } from "../lib/constants";
 import { z } from "zod";
 
 const approval = z.object({ decision: z.enum(["accept", "decline", "cancel"]) }).strict();

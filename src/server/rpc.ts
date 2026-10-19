@@ -5,6 +5,7 @@ import { EventEmitter } from "node:events";
 import { createInterface } from "node:readline";
 import { log } from "./logging";
 import { pocketServerArgs } from "./pocket-runtime";
+import { waitForProcessExit } from "./harness/process";
 
 const ACKNOWLEDGEMENT_TIMEOUT_MS = 90_000;
 
@@ -38,9 +39,12 @@ export class CodexRpc extends EventEmitter {
   get running() {
     return !!this.child && this.child.exitCode === null && !this.child.killed;
   }
+  get pid() {
+    return this.child?.pid;
+  }
 
-  async connect(config: Config) {
-    const args = pocketServerArgs(config);
+  async connect(config: Config, profile: "pocket" | "bare" = "pocket") {
+    const args = profile === "pocket" ? pocketServerArgs(config) : config.serverArgs;
     log().info({ binary: config.codexBinary, args, cwd: config.cwd, threadId: config.threadId }, "codex.spawn");
     this.child = spawn(config.codexBinary, args, { cwd: config.cwd, shell: false });
     const child = this.child;
@@ -141,5 +145,10 @@ export class CodexRpc extends EventEmitter {
   }
   close() {
     this.child?.kill("SIGTERM");
+  }
+  async shutdown() {
+    const child = this.child;
+    this.close();
+    await waitForProcessExit(child);
   }
 }
