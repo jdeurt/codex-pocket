@@ -1,18 +1,49 @@
 "use client";
 import { CodeBlock, CodeBlockContent } from "@/components/ui/code-block";
-import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
+import { type ComponentProps, memo } from "react";
+import ReactMarkdown, { type ExtraProps, defaultUrlTransform } from "react-markdown";
 import { AttachmentGroup } from "@/components/ui/attachment";
 import { ChatImage } from "./chat-image";
+import { CopyAction } from "./copy-action";
 import { Table } from "@/components/ui/table";
 import { imageUrl } from "@/lib/images";
-import { memo } from "react";
+import { remarkCopyAction } from "@/lib/remark-copy-action";
 import remarkGfm from "remark-gfm";
 
-export const Markdown = memo(function MarkdownContent({ children: source }: { children: string }) {
+function MarkdownPre({ children }: ComponentProps<"pre">) {
+  return <>{children}</>;
+}
+
+function MarkdownCode({ children, className, node }: ComponentProps<"code"> & ExtraProps) {
+  const copyText = node?.properties["data-pocket-copy-text"];
+
+  // This property is set only by the opt-in assistant marker plugin.
+  if (typeof copyText === "string") {
+    return <CopyAction key={copyText} text={copyText} />;
+  }
+
+  const text = String(children).replace(/\n$/, "");
+
+  return className || text.includes("\n") ? (
+    <CodeBlock>
+      <CodeBlockContent>{text}</CodeBlockContent>
+    </CodeBlock>
+  ) : (
+    <code>{children}</code>
+  );
+}
+
+export const Markdown = memo(function MarkdownContent({
+  children: source,
+  allowCopyActions = false,
+}: {
+  children: string;
+  allowCopyActions?: boolean;
+}) {
   return (
     <div className="markdown">
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
+        remarkPlugins={allowCopyActions ? [remarkGfm, remarkCopyAction] : [remarkGfm]}
         urlTransform={(url, key) => (key === "src" ? imageUrl(url) : defaultUrlTransform(url))}
         components={{
           table: ({ children }) => (
@@ -42,18 +73,8 @@ export const Markdown = memo(function MarkdownContent({ children: source }: { ch
               {children}
             </a>
           ),
-          pre: ({ children }) => <>{children}</>,
-          code: ({ children, className }) => {
-            const text = String(children).replace(/\n$/, "");
-
-            return className || text.includes("\n") ? (
-              <CodeBlock>
-                <CodeBlockContent>{text}</CodeBlockContent>
-              </CodeBlock>
-            ) : (
-              <code>{children}</code>
-            );
-          },
+          pre: MarkdownPre,
+          code: MarkdownCode,
         }}
       >
         {source}

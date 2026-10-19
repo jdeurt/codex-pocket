@@ -44,7 +44,7 @@ export function ChatMessage({ item }: { item: Item }) {
             {item.type === "userMessage" ? (
               <p className="whitespace-pre-wrap">{messageText(item)}</p>
             ) : (
-              <Markdown>{messageText(item)}</Markdown>
+              <Markdown allowCopyActions={item.type === "agentMessage"}>{messageText(item)}</Markdown>
             )}
           </BubbleContent>
         </Bubble>
