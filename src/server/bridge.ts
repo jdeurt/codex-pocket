@@ -88,7 +88,6 @@ export class Bridge extends EventEmitter {
       throw error;
     }
   }
-
   private async openConnection() {
     const config = await readConfig();
 
@@ -172,7 +171,6 @@ export class Bridge extends EventEmitter {
     // Drain after hydration so a saved queued message cannot race turn restoration.
     void this.exclusive(() => this.drain()).catch((error) => this.fail(error));
   }
-
   private event(event: RpcEvent) {
     if (event.params.threadId && event.params.threadId !== this.config?.threadId) {
       return;

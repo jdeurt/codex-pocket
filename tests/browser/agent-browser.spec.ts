@@ -5,6 +5,7 @@ import { expect, test } from "@playwright/test";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import Database from "better-sqlite3";
 import { checkAgentCache } from "./agent-cache";
+import { checkAgentUploads } from "./agent-uploads";
 
 // OFFLINE whole-flow replay: real Next routes, SQLite, JSON-RPC transport, Claude
 // SDK saved-history reader and shared browser renderers; no live inference/auth.
@@ -46,6 +47,10 @@ test("offline replay: discovery stays light, unchanged history is cached, change
   request,
 }) => {
   await checkAgentCache(request, control);
+});
+
+test("offline replay: parent uploads and centered header survive read-only child navigation", async ({ page }) => {
+  await checkAgentUploads(page);
 });
 
 test("offline replay: scoped discovery, complete normalized histories and GET-only routes", async ({
@@ -182,6 +187,7 @@ test("offline replay: mobile/desktop read-only navigation, ellipsis, focus and p
   await expect(dialog.getByRole("img", { name: "Scoped child image" })).toBeVisible();
   await dialog.getByRole("button", { name: /Command/ }).click();
   await expect(dialog.getByText("REPLAY_TOOL_OUTPUT", { exact: true })).toBeVisible();
+  await expect(dialog.getByText("REPLAY_TOOL_OUTPUT", { exact: true })).toBeInViewport();
   await page.screenshot({ animations: "disabled", path: ".local/agent-browser-screenshots/mobile-chat.png" });
   await page.keyboard.press("Escape");
   await expect(row).toBeFocused();
