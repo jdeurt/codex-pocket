@@ -8,6 +8,7 @@ async function startTurn(rpc: CodexRpc, config: Config, state: Snapshot, input: 
     threadId: config.threadId,
     input,
     clientUserMessageId: id,
+    ...(state.reasoningEffort && { effort: state.reasoningEffort }),
   });
 
   if (

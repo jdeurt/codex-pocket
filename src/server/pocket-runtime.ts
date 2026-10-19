@@ -39,11 +39,15 @@ Pocket injects the body as a user message when due, obeying its configured steer
 export async function resumePocket(rpc: CodexRpc, config: Config) {
   const { config: effective } = await rpc.request<{ config: Record<string, unknown> }>("config/read", {
     includeLayers: false,
+    cwd: config.cwd,
   });
+
+  const effort = string(effective.model_reasoning_effort);
 
   return rpc.request<{ thread: Thread; model: string; reasoningEffort: string | null }>("thread/resume", {
     threadId: config.threadId,
     excludeTurns: true,
+    ...(effort && { config: { model_reasoning_effort: effort } }),
     developerInstructions: pocketInstructions(
       string(effective.developer_instructions),
       effective.sandbox_mode === "danger-full-access"
