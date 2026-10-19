@@ -310,6 +310,16 @@
   width: 1rem;
   height: 1rem;
 }
+@keyframes spinner-dashoffset {
+  to {
+    stroke-dashoffset: -100;
+  }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .spinner-arc {
+    animation: spinner-dashoffset 1s linear infinite;
+  }
+}
 .composer-wrap {
   position: relative;
   flex-shrink: 0;
