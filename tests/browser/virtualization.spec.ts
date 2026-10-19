@@ -1,0 +1,297 @@
+/* eslint-disable @typescript-eslint/no-magic-numbers -- Varied fixture sizes and scroll positions exercise whole flows. */
+import { type Page, expect, test } from "@playwright/test";
+import { type Snapshot, initialSnapshot } from "../../src/lib/protocol";
+import { mount, publish } from "./virtualization-fixture";
+import { readFile, writeFile } from "node:fs/promises";
+
+const LONG_HISTORY = 1200;
+const MAX_MOUNTED_ROWS = 400;
+const viewport = '[data-slot="message-scroller-viewport"]';
+const row = "[data-transcript-row]";
+const pixelTolerance = 3;
+
+function history(count = LONG_HISTORY, start = 0): Snapshot {
+  return {
+    ...initialSnapshot,
+    connection: "connected",
+    threadId: "synthetic-virtualization",
+    turns: [
+      {
+        id: "long-turn",
+        status: "interrupted",
+        items: Array.from({ length: count }, (_, offset) => {
+          const index = start + offset;
+
+          return {
+            id: `message-${index}`,
+            type: index % 4 === 0 ? "userMessage" : "agentMessage",
+            content: [{ type: "text", text: `Fixture ${index}\n${"User line.\n".repeat(Math.abs(index % 5))}` }],
+            text: `Fixture ${index}\n\n${"Variable height paragraph with **markdown**.\n\n".repeat(Math.abs(index % 9))}${
+              index % 20 === 0 ? "\n```ts\nconst fixture = true;\n```" : ""
+            }`,
+            ...(index % 97 === 0 && {
+              images: [{ source: `/api/images?item=history-${index}`, alt: `History image ${index}` }],
+            }),
+          };
+        }),
+      },
+    ],
+  };
+}
+
+async function visibleCoverage(page: Page) {
+  return page.locator(viewport).evaluate((element) => {
+    const bounds = element.getBoundingClientRect();
+    const visible = [...element.querySelectorAll<HTMLElement>("[data-transcript-row]")]
+      .map((item) => item.getBoundingClientRect())
+      .filter((item) => item.bottom > bounds.top && item.top < bounds.bottom);
+
+    return (
+      visible.length > 0 && visible[0].top <= bounds.top + 32 && (visible.at(-1)?.bottom ?? 0) >= bounds.bottom - 64
+    );
+  });
+}
+
+async function scrollToFraction(page: Page, fraction: number) {
+  await page.locator(viewport).evaluate((element, part) => {
+    element.scrollTop = (element.scrollHeight - element.clientHeight) * part;
+  }, fraction);
+  await expect.poll(() => visibleCoverage(page)).toBe(true);
+}
+
+async function visibleAnchor(page: Page) {
+  return page.locator(viewport).evaluate((element) => {
+    const top = element.getBoundingClientRect().top;
+    const item = [...element.querySelectorAll<HTMLElement>("[data-transcript-row]")].find(
+      (candidate) => candidate.getBoundingClientRect().bottom > top
+    );
+
+    if (!item?.dataset.transcriptRow) {
+      throw new Error("No visible transcript anchor");
+    }
+
+    return { id: item.dataset.transcriptRow, top: item.getBoundingClientRect().top - top };
+  });
+}
+
+async function settledAnchor(page: Page) {
+  await page.locator(viewport).evaluate(
+    (element) =>
+      new Promise<void>((resolve) => {
+        let last = element.scrollTop;
+        let stableFrames = 0;
+        const sample = () => {
+          stableFrames = Math.abs(element.scrollTop - last) < 1 ? stableFrames + 1 : 0;
+          last = element.scrollTop;
+
+          if (stableFrames >= 8) {
+            resolve();
+          } else {
+            globalThis.requestAnimationFrame(sample);
+          }
+        };
+        globalThis.requestAnimationFrame(sample);
+      })
+  );
+
+  return visibleAnchor(page);
+}
+
+async function expectAnchor(page: Page, anchor: { id: string; top: number }) {
+  await expect
+    .poll(async () => {
+      return page.locator(viewport).evaluate((element, saved) => {
+        const message = [...element.querySelectorAll<HTMLElement>("[data-transcript-row]")].find(
+          (candidate) => candidate.dataset.transcriptRow === saved.id
+        );
+
+        return message
+          ? Math.abs(message.getBoundingClientRect().top - element.getBoundingClientRect().top - saved.top)
+          : Infinity;
+      }, anchor);
+    })
+    .toBeLessThan(pixelTolerance);
+}
+
+test("large single-turn history stays bounded through rapid scrollbar, wheel and keyboard scrolling", async ({
+  page,
+}, info) => {
+  const writes = await mount(page, history());
+  await expect(page.locator('[data-message-id="message-1199"]')).toBeVisible();
+  expect(await page.locator(row).count()).toBeGreaterThanOrEqual(250);
+  expect(await page.locator(row).count()).toBeLessThan(MAX_MOUNTED_ROWS);
+  await page.getByRole("textbox", { name: "Message Pocket" }).fill("Unsent parent draft");
+  const mounted: number[] = [];
+
+  for (const fraction of [0.5, 0.02, 0.95, 0.25, 0.75, 0, 1, 0.4]) {
+    await scrollToFraction(page, fraction);
+    mounted.push(await page.locator(row).count());
+    expect(mounted.at(-1)).toBeLessThan(MAX_MOUNTED_ROWS);
+  }
+
+  await page.locator(viewport).hover();
+
+  if (info.project.use.browserName === "webkit" && info.project.use.isMobile) {
+    await page.locator(viewport).evaluate((element) => element.scrollBy({ top: -5000, behavior: "auto" }));
+  } else {
+    await page.mouse.wheel(0, -5000);
+  }
+
+  await expect.poll(() => visibleCoverage(page)).toBe(true);
+  await page.locator(viewport).focus();
+  await page.keyboard.press("PageUp");
+  await expect.poll(() => visibleCoverage(page)).toBe(true);
+  // Consecutive scrollbar teleports without waiting for layout between jumps.
+  await page.locator(viewport).evaluate(async (element) => {
+    for (const part of [0.1, 0.8, 0.05, 0.9, 0.3, 0.6]) {
+      element.scrollTop = (element.scrollHeight - element.clientHeight) * part;
+      await new Promise(globalThis.requestAnimationFrame);
+    }
+  });
+  await expect.poll(() => visibleCoverage(page)).toBe(true);
+  await page.screenshot({ path: `.local/virtualization-${info.project.name}-history.png` });
+  await page.getByRole("button", { name: "Jump to latest message" }).click();
+  await expect(page.locator('[data-message-id="message-1199"]')).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Message Pocket" })).toHaveValue("Unsent parent draft");
+  expect(writes).toEqual([]);
+  await info.attach("mounted-row-counts", { body: JSON.stringify(mounted), contentType: "application/json" });
+  await writeFile(`.local/virtualization-${info.project.name}-counts.json`, JSON.stringify(mounted));
+});
+
+test("prepend, streaming, append and steering preserve the reader anchor and follow only at bottom", async ({
+  page,
+}, info) => {
+  const state = history();
+  await mount(page, state);
+  await scrollToFraction(page, 0.55);
+  let anchor = await settledAnchor(page);
+  state.turns[0].items.unshift(...history(100, -100).turns[0].items);
+  await publish(page, state);
+  await expectAnchor(page, anchor);
+  const { promise: imageReady, resolve: releaseImage } = Promise.withResolvers<boolean>();
+  const delayedImage = await readFile("public/icon-192.png");
+  await page.route("**/api/images?item=anchor-growth*", async (route) => {
+    await imageReady;
+    await route.fulfill({ contentType: "image/png", body: delayedImage });
+  });
+  const anchorIndex = state.turns[0].items.findIndex((item) => anchor.id.endsWith(`/${item.id}`));
+  state.turns[0].items[anchorIndex - 2].images = [
+    { source: "/api/images?item=anchor-growth", alt: "Image above reader" },
+  ];
+  await publish(page, state);
+  await expectAnchor(page, anchor);
+  // Let the size tree and initial scroll correction settle before pixels arrive.
+  await settledAnchor(page);
+  await settledAnchor(page);
+  await page.locator(viewport).evaluate((element) => element.scrollBy({ top: 200, behavior: "auto" }));
+  anchor = await settledAnchor(page);
+  releaseImage(true);
+  await expect(page.getByRole("img", { name: "Image above reader", exact: true })).toHaveJSProperty("complete", true);
+  await expectAnchor(page, anchor);
+  const stream = { id: "stream", type: "agentMessage", text: "Streaming start" };
+  state.turns[0].items.push(stream);
+  state.activeTurnId = state.turns[0].id;
+  await publish(page, state);
+  await expectAnchor(page, anchor);
+
+  for (let index = 0; index < 8; index++) {
+    stream.text += "\n\nMore streaming text with **markdown**. ".repeat(5);
+    await publish(page, state);
+  }
+
+  await expectAnchor(page, anchor);
+  state.turns[0].items.push({ id: "steer", type: "userMessage", content: [{ text: "Steer fixture" }] });
+  await publish(page, state);
+  await expectAnchor(page, anchor);
+  await page.getByRole("button", { name: "Jump to latest message" }).click();
+  await expect(page.locator('[data-message-id="steer"]')).toBeVisible();
+  const afterSteer = { id: "after-steer", type: "agentMessage", text: "After steering" };
+  state.turns[0].items.push(afterSteer);
+  await publish(page, state);
+  await expect(page.locator('[data-message-id="after-steer"]')).toBeVisible();
+  afterSteer.text += "\n\nFollow this growing response. ".repeat(30);
+  await publish(page, state);
+  await expect
+    .poll(() =>
+      page.locator(viewport).evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)
+    )
+    .toBeLessThan(40);
+  await page.screenshot({ path: `.local/virtualization-${info.project.name}-streaming.png` });
+});
+
+test("empty and short chats preserve drafts, activity, images, selection and reduced motion", async ({
+  page,
+}, info) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  const state: Snapshot = { ...history(), turns: [] };
+  await mount(page, state);
+  await page.getByRole("textbox", { name: "Message Pocket" }).fill("Preserved first draft");
+  state.queue = [{ id: "first-queued", text: "Queued first message.\n".repeat(100), status: "sending" }];
+  await publish(page, state);
+  await expect(page.locator('[data-message-id="first-queued"]')).toBeVisible();
+  await expect
+    .poll(() =>
+      page.locator(viewport).evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)
+    )
+    .toBeLessThan(3);
+  state.queue = [];
+  state.turns = history(240).turns;
+  await publish(page, state);
+  await expect(page.getByRole("textbox", { name: "Message Pocket" })).toHaveValue("Preserved first draft");
+  await expect(page.locator(row)).toHaveCount(240);
+  await scrollToFraction(page, 0.4);
+  const anchor = await settledAnchor(page);
+  state.turns[0].items.push(...history(30, 240).turns[0].items);
+  await publish(page, state);
+  await expectAnchor(page, anchor);
+  state.turns.push({
+    id: "activity-turn",
+    status: "completed",
+    items: [
+      { id: "activity-user", type: "userMessage", content: [{ text: "Activity fixture" }] },
+      ...Array.from({ length: 700 }, (_, index) => ({
+        id: `activity-${index}`,
+        type: "agentMessage",
+        phase: "commentary",
+        text: `Activity detail ${index}\n\n${"Activity paragraph.\n\n".repeat(index % 5)}`,
+      })),
+      {
+        id: "activity-final",
+        type: "agentMessage",
+        phase: "final_answer",
+        text: "Final image\n\n![Virtualized image](/icon-192.png)\n\n```ts\nconst copyFixture = true;\n```",
+      },
+    ],
+  });
+  await publish(page, state);
+  await page.getByRole("button", { name: "Jump to latest message" }).click();
+  await page.getByRole("button", { name: "Show activity" }).click();
+  await expect(page.getByRole("button", { name: "Hide activity" })).toHaveAttribute("aria-expanded", "true");
+  expect(await page.locator(row).count()).toBeLessThan(MAX_MOUNTED_ROWS);
+  await page.getByRole("button", { name: "Jump to latest message" }).click();
+  const preview = page.getByRole("button", { name: "Preview image: Virtualized image" });
+
+  if (info.project.use.hasTouch) {
+    await preview.tap();
+  } else {
+    await preview.click();
+  }
+
+  await expect(page.getByRole("button", { name: "Close image preview" })).toBeVisible();
+  await page.getByRole("button", { name: "Close image preview" }).click();
+  const code = page.locator('[data-message-id="activity-final"] [data-slot="code-block-content"]');
+  await code.focus();
+  await expect(code).toBeFocused();
+  await code.evaluate((element) => {
+    const range = globalThis.document.createRange();
+    range.selectNodeContents(element);
+    globalThis.getSelection()?.removeAllRanges();
+    globalThis.getSelection()?.addRange(range);
+  });
+  expect(await page.evaluate(() => globalThis.getSelection()?.toString())).toContain("copyFixture");
+  await page.screenshot({ path: `.local/virtualization-${info.project.name}-image.png` });
+  await scrollToFraction(page, 0);
+  await scrollToFraction(page, 1);
+  await expect(page.locator('[data-transcript-row="activity-turn/activity-699"]')).toBeVisible();
+  expect(await page.locator(row).count()).toBeLessThan(MAX_MOUNTED_ROWS);
+});
