@@ -1,9 +1,8 @@
 "use client";
-import { FileIcon, RotateCcwIcon, XIcon } from "lucide-react";
-import { attachmentUrl, fileSize } from "@/lib/attachments";
+import { RotateCcwIcon, XIcon } from "lucide-react";
 import { Button } from "./ui/button";
-import { ChatImage } from "./chat-image";
 import type { DraftAttachment } from "@/hooks/use-attachments";
+import { fileSize } from "@/lib/attachments";
 
 export function ComposerAttachments({
   files,
@@ -23,22 +22,49 @@ export function ComposerAttachments({
   return (
     <ul className="mb-2 flex max-h-52 gap-2 overflow-auto py-1" aria-label="Selected attachments">
       {files.map((entry) => (
-        <li key={entry.id} className="w-60 shrink-0 rounded-xl border border-input bg-background p-2">
+        <li key={entry.id} className="w-60 shrink-0 rounded-xl border border-input bg-background py-2 pr-2 pl-3">
           <div className="flex items-start gap-2">
-            {entry.uploaded?.kind === "image" ? (
-              <div className="w-14 shrink-0 overflow-hidden">
-                <ChatImage source={attachmentUrl(entry.id, true)} alt={entry.file.name} />
-              </div>
-            ) : (
-              <FileIcon className="mt-2 size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
-            )}
             <div className="min-w-0 flex-1 py-1">
               <p className="truncate text-sm" title={entry.file.name}>
                 {entry.file.name}
               </p>
-              <p className="truncate text-xs text-muted-foreground" title={entry.file.type}>
-                {entry.file.type || "File"} · {fileSize(entry.file.size)}
+              <p className="flex gap-1 text-xs text-muted-foreground">
+                <span className="min-w-0 truncate" title={entry.file.type}>
+                  {entry.file.type || "File"}
+                </span>
+                <span className="shrink-0">· {fileSize(entry.file.size)}</span>
               </p>
+              <div className="mt-1 text-xs [overflow-wrap:anywhere]" role="status">
+                {entry.error ? (
+                  <div>
+                    <p className="text-destructive">{entry.error}</p>
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="min-h-11"
+                      variant="ghost"
+                      disabled={disabled}
+                      onClick={() => void retry(entry)}
+                      aria-label={`Retry ${entry.file.name}`}
+                    >
+                      <RotateCcwIcon />
+                      Retry
+                    </Button>
+                  </div>
+                ) : entry.uploaded ? (
+                  <span className="text-muted-foreground">Ready to send</span>
+                ) : (
+                  <>
+                    <span className="text-muted-foreground">Uploading {entry.progress}%</span>
+                    <progress
+                      className="mt-1 block h-1 w-full"
+                      value={entry.progress}
+                      max={100}
+                      aria-label={`Uploading ${entry.file.name}`}
+                    />
+                  </>
+                )}
+              </div>
             </div>
             <Button
               type="button"
@@ -51,37 +77,6 @@ export function ComposerAttachments({
             >
               <XIcon />
             </Button>
-          </div>
-          <div className="text-xs" role="status">
-            {entry.error ? (
-              <div>
-                <p className="text-destructive">{entry.error}</p>
-                <Button
-                  type="button"
-                  size="sm"
-                  className="min-h-11"
-                  variant="ghost"
-                  disabled={disabled}
-                  onClick={() => void retry(entry)}
-                  aria-label={`Retry ${entry.file.name}`}
-                >
-                  <RotateCcwIcon />
-                  Retry
-                </Button>
-              </div>
-            ) : entry.uploaded ? (
-              <span className="text-muted-foreground">Ready to send</span>
-            ) : (
-              <>
-                <span className="text-muted-foreground">Uploading {entry.progress}%</span>
-                <progress
-                  className="mt-1 block h-1 w-full"
-                  value={entry.progress}
-                  max={100}
-                  aria-label={`Uploading ${entry.file.name}`}
-                />
-              </>
-            )}
           </div>
         </li>
       ))}
