@@ -3,6 +3,7 @@
 /* eslint-disable @typescript-eslint/no-magic-numbers -- Flow assertions use explicit fixture dimensions, timings and HTTP statuses. */
 import { type ChildProcess, spawn } from "node:child_process";
 import { type Page, expect, test } from "@playwright/test";
+import { checkLegacyTone, checkSpinnerTone } from "./spinner-tone-check";
 import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createSpinnerSite } from "../fixtures/spinner-site";
 import { once } from "node:events";
@@ -147,14 +148,11 @@ async function captureSlot(page: Page) {
 }
 
 async function animatedGrayscale(page: Page) {
-  expect(
-    await page.evaluate(() => {
-      const img = globalThis.document.querySelector("[data-activity-spinner] img");
-
-      return img ? globalThis.getComputedStyle(img).filter : "missing";
-    })
-  ).toBe("grayscale(1)");
+  expect(await page.locator("[data-activity-spinner] img").getAttribute("style")).toContain("url(");
   const frames = new Set<string>();
+  const transfer = page.locator("[data-activity-spinner] feFuncR");
+  const readTone = () => Promise.all([transfer.getAttribute("slope"), transfer.getAttribute("intercept")]);
+  const transform = await readTone();
 
   for (let index = 0; index < 7; index++) {
     const bytes = await captureSlot(page);
@@ -173,6 +171,7 @@ async function animatedGrayscale(page: Page) {
     expect(brightest).toBeGreaterThan(50);
     expect(brightest).toBeLessThan(230);
     frames.add(data.toString("base64"));
+    expect(await readTone()).toEqual(transform);
     await new Promise((resolve) => setTimeout(resolve, 70));
   }
 
@@ -193,7 +192,7 @@ test("tool-managed GIF animates in grayscale across desktop/mobile, persists thr
 
   const id = chosen.current.id;
   const url = `${origin}/api/spinner/${id}`;
-  const response = await fetch(url);
+  const response = await checkLegacyTone(main, directory, id, url);
   const etag = response.headers.get("etag");
 
   if (!etag) {
@@ -249,7 +248,7 @@ test("tool-managed GIF animates in grayscale across desktop/mobile, persists thr
 
       await page.emulateMedia({ reducedMotion: "reduce" });
       await expect(slot.locator("img")).toHaveCount(0);
-      await expect(slot.locator("svg")).toBeVisible();
+      await expect(slot.locator('svg[data-slot="spinner"]')).toBeVisible();
       expect(
         await page.evaluate(() => {
           const arc = globalThis.document.querySelector("[data-activity-spinner] .spinner-arc");
@@ -266,7 +265,7 @@ test("tool-managed GIF animates in grayscale across desktop/mobile, persists thr
 
       await main.call("spinner_reset");
       await expect(slot.locator("img")).toHaveCount(0);
-      await expect(slot.locator("svg")).toBeVisible();
+      await expect(slot.locator('svg[data-slot="spinner"]')).toBeVisible();
       expect(await alignment(page)).toEqual(customPosition);
       expect(
         await page.evaluate(() => {
@@ -310,6 +309,10 @@ test("tool-managed GIF animates in grayscale across desktop/mobile, persists thr
       );
       expect(rows.filter((value) => Math.abs(value - background) > 3).length).toBeGreaterThanOrEqual(7);
       expect(rows.filter((value) => Math.abs(value - background) > 3).length).toBeLessThanOrEqual(9);
+      await checkSpinnerTone(page, main, directory, `${browserName}-${mobile ? "phone" : "desktop"}`, () =>
+        captureSlot(page)
+      );
+      expect(await alignment(page)).toEqual(customPosition);
       await main.call("spinner_set", { path: uploaded });
       await expect(slot.locator("img")).toHaveAttribute("src", `/api/spinner/${id}`);
     } finally {
@@ -330,12 +333,12 @@ test("tool-managed GIF animates in grayscale across desktop/mobile, persists thr
     const position = await alignment(page);
     await rm(path.join(directory, "spinner-assets", id));
     await page.reload({ waitUntil: "domcontentloaded" });
-    await expect(slot.locator("svg")).toBeVisible();
+    await expect(slot.locator('svg[data-slot="spinner"]')).toBeVisible();
     await expect(slot.locator("img")).toHaveCount(0);
     expect(await alignment(page)).toEqual(position);
     await main.call("spinner_delete", { id });
     await expect(slot.locator("img")).toHaveCount(0);
-    await expect(slot.locator("svg")).toBeVisible();
+    await expect(slot.locator('svg[data-slot="spinner"]')).toBeVisible();
     expect(await alignment(page)).toEqual(position);
     expect((await fetch(url, { headers: { "if-none-match": etag } })).status).toBe(404);
     expect(await readFile(uploaded)).toEqual(await readFile(path.resolve("tests/fixtures/spinners/kirbyjam.gif")));

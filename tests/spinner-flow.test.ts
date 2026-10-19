@@ -4,6 +4,7 @@ import { copyFile, mkdtemp, open, readFile, rm, stat, symlink, writeFile } from 
 import { DelegationStore } from "../src/server/delegations";
 import assert from "node:assert/strict";
 import { codexParentTools } from "../src/server/harness/mcp-config";
+import { createTonalFixtures } from "./fixtures/spinner-tonal-images";
 import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
@@ -171,6 +172,43 @@ test("child MCP calls and forced main-server invocation reject spinner capabilit
       nativeChild.client.close(),
     ]);
     store.close();
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+test("set derives one bounded persisted tone per image from visible pixels, leaving original alpha and bytes intact", async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "spinner-tone-"));
+  let main = await spinnerClient(directory);
+
+  try {
+    const fixtures = await createTonalFixtures(directory);
+    const tones = new Map<string, unknown>();
+
+    for (const name of ["dark", "bright", "subtle", "hidden", "weighted"]) {
+      const result = await main.call("spinner_set", { path: fixtures[name] });
+      assert.ok(result.current?.tone);
+      const { tone, id } = result.current;
+      assert.equal(tone.version, 1);
+      assert.ok(tone.contrast >= 0.5);
+      assert.ok(tone.contrast <= 2);
+      assert.ok(Number.isFinite(tone.brightness));
+      tones.set(name, tone);
+      assert.deepEqual(await readFile(path.join(directory, "spinner-assets", id)), await readFile(fixtures[name]));
+    }
+
+    assert.deepEqual(tones.get("dark"), tones.get("hidden"));
+    assert.notDeepEqual(tones.get("dark"), tones.get("weighted"));
+    assert.notDeepEqual(tones.get("dark"), tones.get("bright"));
+    assert.notDeepEqual(tones.get("bright"), tones.get("subtle"));
+    const before = await main.call("spinner_status");
+    await main.client.close();
+    main = await spinnerClient(directory);
+    assert.deepEqual(await main.call("spinner_status"), before);
+    const gif = await main.call("spinner_set", { path: fixture });
+    assert.equal(gif.current?.frames, 15);
+    assert.ok(gif.current?.tone);
+  } finally {
+    await main.client.close();
     await rm(directory, { recursive: true, force: true });
   }
 });
