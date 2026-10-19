@@ -1,6 +1,6 @@
 /* eslint-disable unicorn/no-await-expression-member -- Flow assertions inspect sequential tool and filesystem results inline. */
 /* eslint-disable @typescript-eslint/no-magic-numbers -- Flow assertions use explicit fixture dimensions, timings and HTTP statuses. */
-import { copyFile, mkdtemp, open, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, mkdtemp, open, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { DelegationStore } from "../src/server/delegations";
 import assert from "node:assert/strict";
 import { codexParentTools } from "../src/server/harness/mcp-config";
@@ -19,15 +19,25 @@ test("spinner tools copy local/upload paths, persist across MCP restarts, reset 
 
   try {
     assert.equal((await main.call("spinner_status")).current, null);
-    const uploaded = path.join(directory, "an-upload-with-sensitive-name.gif");
+    const uploaded = path.join(
+      directory,
+      "uploads",
+      "a".repeat(64),
+      "00000000-0000-4000-8000-000000000001",
+      "original"
+    );
+    await mkdir(path.dirname(uploaded), { recursive: true });
     await copyFile(fixture, uploaded);
     const bytes = await readFile(uploaded);
+    const normalized = path.join(path.dirname(uploaded), "image.png");
+    await sharp(bytes).png().toFile(normalized);
+    const normalizedBytes = await readFile(normalized);
     const selected = await main.call("spinner_set", { path: uploaded });
     assert.ok(selected.current);
     assert.equal(selected.current.frames, 15);
     assert.equal(selected.current.mime, "image/gif");
     assert.equal(JSON.stringify(selected).includes(directory), false);
-    assert.equal(JSON.stringify(selected).includes("sensitive"), false);
+    assert.equal(JSON.stringify(selected).includes("original"), false);
     const id = selected.current.id;
     const managed = path.join(directory, "spinner-assets", id);
     assert.deepEqual(await readFile(managed), bytes);
@@ -42,12 +52,16 @@ test("spinner tools copy local/upload paths, persist across MCP restarts, reset 
     await main.call("spinner_delete", { id });
     await assert.rejects(stat(managed));
     assert.deepEqual(await readFile(uploaded), bytes);
-    const second = await main.call("spinner_set", { path: uploaded });
+    assert.deepEqual(await readFile(normalized), normalizedBytes);
+    const local = path.join(directory, "mutable-local.gif");
+    await copyFile(uploaded, local);
+    const second = await main.call("spinner_set", { path: local });
     assert.ok(second.current);
-    await writeFile(uploaded, "source may change after copying");
+    await writeFile(local, "source may change after copying");
     assert.deepEqual(await readFile(path.join(directory, "spinner-assets", second.current.id)), bytes);
     assert.equal((await main.call("spinner_delete", { id: second.current.id })).current, null);
-    assert.equal(await readFile(uploaded, "utf8"), "source may change after copying");
+    assert.equal(await readFile(local, "utf8"), "source may change after copying");
+    assert.deepEqual(await readFile(uploaded), bytes);
     assert.deepEqual((await main.call("spinner_status")).saved, []);
 
     for (const format of ["png", "jpeg", "webp"] as const) {
