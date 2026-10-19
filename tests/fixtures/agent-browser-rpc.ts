@@ -17,6 +17,7 @@ const HISTORY_DELAY_MS = 30;
 const PAGE_LIMIT = 20;
 const APPEND_POLL_MS = 50;
 const APPEND_REPETITIONS = 12;
+const APPEND_STREAM_MS = 200;
 const appended = new Set<string>();
 
 // Inject real parent notifications through JSON-RPC/SSE while a child overlay is
@@ -32,20 +33,25 @@ watchFile(`${directory}/control.json`, { interval: APPEND_POLL_MS, persistent: f
   const id = `parent-incoming-${current.split(":", 2)[1]}`;
   const turn = { id, status: "inProgress", items: [] };
   emit({ method: "turn/started", params: { threadId: replayParent, turn } });
+  const text = `${id}. Parent streamed start. `;
+  const item = { id, type: "agentMessage", phase: "final_answer", text };
   emit({
-    method: "item/completed",
+    method: "item/started",
     params: {
       threadId: replayParent,
       turnId: id,
-      item: {
-        id,
-        type: "agentMessage",
-        phase: "final_answer",
-        text: `${id}. ${"Parent output arriving while reading a child. ".repeat(APPEND_REPETITIONS)}`,
-      },
+      item,
     },
   });
-  emit({ method: "turn/completed", params: { threadId: replayParent, turn: { ...turn, status: "completed" } } });
+  setTimeout(() => {
+    const delta = `${"Parent output arriving while reading a child. ".repeat(APPEND_REPETITIONS)} STREAM_FINISHED`;
+    emit({ method: "item/agentMessage/delta", params: { threadId: replayParent, turnId: id, itemId: id, delta } });
+    emit({
+      method: "item/completed",
+      params: { threadId: replayParent, turnId: id, item: { ...item, text: text + delta } },
+    });
+    emit({ method: "turn/completed", params: { threadId: replayParent, turn: { ...turn, status: "completed" } } });
+  }, APPEND_STREAM_MS).unref();
 });
 
 function turnPage(params: Record<string, unknown>, state: string) {
