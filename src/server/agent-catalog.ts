@@ -4,9 +4,9 @@ import {
   claudeChildren,
   codexParent,
   codexThreads,
-  hydrateAgent,
-  hydrateClaudeChild,
   informationalRequest,
+  observeClaudeChild,
+  observeCodex,
   observedMetadata,
 } from "./agent-sources";
 import { type AgentStatus, activeAgent } from "../lib/agents";
@@ -16,13 +16,12 @@ import { readConfig } from "./config";
 
 function pocketRecord(child: SidePocket, id: string, parentId: string): AgentRecord {
   const metadata = object(JSON.parse(child.metadata));
-  const commands = delegations().commands(child.parentId, child.id);
-  const last = commands.findLast(() => true);
+  const lastStatus = delegations().lastCommandStatus(child.parentId, child.id);
   let status: AgentStatus = ["running", "waiting", "idle", "closed"].includes(child.status)
     ? (child.status as AgentStatus)
     : "unknown";
 
-  if (status === "idle" && last?.status === "failed") {
+  if (status === "idle" && lastStatus === "failed") {
     status = "failed";
   }
 
@@ -41,8 +40,7 @@ function pocketRecord(child: SidePocket, id: string, parentId: string): AgentRec
     cwd: child.cwd,
     sessionId: child.sessionId ?? undefined,
     requests: delegations()
-      .mail.requests(child.parentId, child.id)
-      .filter((request) => request.status === "pending")
+      .mail.requests(child.parentId, child.id, true)
       .map((request) => informationalRequest(request)),
   };
 }
@@ -84,7 +82,7 @@ function attachPocket(tree: DiscoveryTree, child: SidePocket, parent: string) {
   return true;
 }
 
-export async function discoverAgents(owner: string) {
+export async function discoverAgents(owner: string, previous = new Map<string, AgentRecord>()) {
   const config = await readConfig();
 
   if (!config || config.threadId !== owner) {
@@ -156,17 +154,19 @@ export async function discoverAgents(owner: string) {
   const roots = records.values().toArray();
 
   for (const record of roots) {
-    await hydrateAgent(record);
+    if (record.agent.harness === "codex") {
+      observeCodex(record);
+    }
 
     if (record.agent.harness !== "claude") {
       continue;
     }
 
     try {
-      const children = await claudeChildren(record);
+      const children = await claudeChildren(record, previous);
 
       for (const child of children) {
-        await hydrateClaudeChild(record, child);
+        observeClaudeChild(record, child);
         records.set(child.agent.id, child);
       }
     } catch {

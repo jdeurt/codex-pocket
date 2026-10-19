@@ -47,7 +47,9 @@ async function agentResponse(request: Request) {
   }
 
   return Response.json(
-    id ? await agentBrowser().transcript(config.threadId, id) : await agentBrowser().catalog(config.threadId),
+    id
+      ? await agentBrowser().transcript(config.threadId, id)
+      : await agentBrowser().catalog(config.threadId, url.searchParams.get("view") === "list"),
     { headers: noStore }
   );
 }

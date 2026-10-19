@@ -2,9 +2,10 @@ import { type AgentEntry, type AgentStatus, activeAgent } from "../lib/agents";
 import { type ClaudeMessage, claudeTranscript } from "./harness/transcript";
 import { type Data, type PendingRequest, type Thread, type Turn, object, string } from "../lib/protocol";
 import { getSessionInfo, getSessionMessages, getSubagentMessages, listSubagents } from "@anthropic-ai/claude-agent-sdk";
+import { refreshCodexHistory, visiblePreview } from "./agent-history";
 import type { SidePocket } from "./delegations";
+import { agentRead } from "./agent-read-pool";
 import { bridge } from "./bridge";
-import { loadHistory } from "./history";
 
 export interface CodexThread extends Thread, Data {}
 export interface AgentRecord {
@@ -19,7 +20,11 @@ export interface AgentRecord {
   turns?: Turn[];
   requests?: PendingRequest[];
   historyError?: boolean;
+  discoveryError?: boolean;
   observedStatus?: AgentStatus;
+  ancestryKnown?: boolean;
+  claudeParent?: string | null;
+  fileRevision?: string;
 }
 
 export function codexParent(thread: CodexThread) {
@@ -36,25 +41,7 @@ export function observedMetadata(data: Data) {
   };
 }
 
-function preview(turns: Turn[]) {
-  for (const item of turns.flatMap((turn) => turn.items).toReversed()) {
-    if (!["agentMessage", "userMessage"].includes(item.type)) {
-      continue;
-    }
-
-    const text =
-      string(item.text) ||
-      (Array.isArray(item.content) ? item.content.map((part) => string(object(part).text)).join(" ") : "");
-
-    if (text.trim()) {
-      return text.replaceAll(/\s+/g, " ").trim();
-    }
-  }
-
-  return "";
-}
-
-function nativeStatus(thread: CodexThread, turns: Turn[]): AgentStatus {
+export function nativeStatus(thread: CodexThread, turns: Turn[]): AgentStatus {
   const status = object(thread.status);
 
   if (status.type === "active") {
@@ -117,6 +104,28 @@ export async function codexThreads(): Promise<CodexThread[]> {
   return threads;
 }
 
+export function observeCodex(record: AgentRecord) {
+  if (record.pocket) {
+    return;
+  }
+
+  record.agent.status = nativeStatus(record.thread ?? { id: record.sessionId ?? "", turns: [] }, record.turns ?? []);
+
+  if (!record.runtimeOwner || !["running", "waiting"].includes(record.runtimeOwner.status)) {
+    return;
+  }
+
+  const runtime = object(object(JSON.parse(record.runtimeOwner.metadata)).nativeAgents);
+  const observed = string(object(runtime[record.sessionId ?? ""]).status);
+
+  if (!["running", "waiting", "idle", "completed", "failed", "closed"].includes(observed)) {
+    return;
+  }
+
+  record.agent.status = observed as AgentStatus;
+  record.observedStatus = observed as AgentStatus;
+}
+
 async function readCodex(record: AgentRecord, sessionId: string) {
   const rpc = bridge.agentReader();
   const { thread } = await rpc.request<{ thread: CodexThread }>("thread/read", {
@@ -124,25 +133,10 @@ async function readCodex(record: AgentRecord, sessionId: string) {
     includeTurns: false,
   });
   record.thread = thread;
-  record.turns = await loadHistory(rpc, thread);
+  record.turns = await refreshCodexHistory(rpc, thread, record.turns);
   Object.assign(record.agent, observedMetadata({ model: thread.model, effort: thread.reasoningEffort }));
 
-  if (record.pocket) {
-    return;
-  }
-
-  record.agent.status = nativeStatus(thread, record.turns);
-
-  if (!record.runtimeOwner || !["running", "waiting"].includes(record.runtimeOwner.status)) {
-    return;
-  }
-
-  const runtime = object(object(JSON.parse(record.runtimeOwner.metadata)).nativeAgents);
-  const observed = string(object(runtime[sessionId]).status);
-
-  if (["running", "waiting", "idle", "completed", "failed", "closed"].includes(observed)) {
-    record.agent.status = observed as AgentStatus;
-  }
+  observeCodex(record);
 }
 
 async function readClaude(record: AgentRecord, sessionId: string) {
@@ -185,7 +179,7 @@ export async function hydrateAgent(record: AgentRecord) {
       record.turns = [];
     }
 
-    record.agent.preview = preview(record.turns ?? []);
+    record.agent.preview = visiblePreview((record.turns ?? []).flatMap((turn) => turn.items).toReversed());
     record.historyError = false;
   } catch {
     record.historyError = true;
@@ -195,7 +189,10 @@ export async function hydrateAgent(record: AgentRecord) {
     }
   }
 }
-export async function claudeChildren(parent: AgentRecord): Promise<AgentRecord[]> {
+export async function claudeChildren(
+  parent: AgentRecord,
+  previous = new Map<string, AgentRecord>()
+): Promise<AgentRecord[]> {
   if (!parent.sessionId) {
     return [];
   }
@@ -204,8 +201,25 @@ export async function claudeChildren(parent: AgentRecord): Promise<AgentRecord[]
   const ids = [...new Set([...(await listSubagents(parent.sessionId, { dir: parent.cwd })), ...Object.keys(runtime)])];
   const messages = new Map<string, ClaudeMessage[]>();
 
+  await Promise.all(
+    ids.map(async (id) => {
+      const saved = previous.get(`claude:${parent.sessionId}:${id}`);
+
+      if (Object.hasOwn(runtime, id) || saved?.ancestryKnown) {
+        return;
+      }
+
+      messages.set(
+        id,
+        await agentRead(() => getSubagentMessages(parent.sessionId ?? "", id, { dir: parent.cwd, limit: 1 }), 1)
+      );
+    })
+  );
+
   for (const id of ids) {
-    messages.set(id, await getSubagentMessages(parent.sessionId, id, { dir: parent.cwd }));
+    if (!messages.has(id)) {
+      messages.set(id, []);
+    }
   }
 
   const result: AgentRecord[] = [];
@@ -221,8 +235,11 @@ export async function claudeChildren(parent: AgentRecord): Promise<AgentRecord[]
       }
 
       const observed = object(runtime[id]);
+      const saved = previous.get(`claude:${parent.sessionId}:${id}`);
       const ancestor =
-        transcript.find((message) => message.parent_agent_id)?.parent_agent_id || string(observed.parentId);
+        transcript.find((message) => message.parent_agent_id)?.parent_agent_id ||
+        string(observed.parentId) ||
+        saved?.claudeParent;
 
       if (ancestor && !known.has(ancestor)) {
         continue;
@@ -231,7 +248,6 @@ export async function claudeChildren(parent: AgentRecord): Promise<AgentRecord[]
       const agentId = `claude:${parent.sessionId}:${id}`;
       known.set(id, agentId);
       progress = true;
-      const turns = claudeTranscript(transcript);
       const invocation = transcript.find((message) => message.parent_tool_use_id)?.parent_tool_use_id;
       const parentTurns = ancestor ? claudeTranscript(messages.get(ancestor) ?? []) : (parent.turns ?? []);
       // SDK subagent IDs and parent_agent_id establish ancestry, never prompt text.
@@ -244,13 +260,14 @@ export async function claudeChildren(parent: AgentRecord): Promise<AgentRecord[]
           source: "native",
           harness: "claude",
           status: "unknown",
-          preview: preview(turns),
+          preview: "",
         },
         cwd: parent.cwd,
         sessionId: parent.sessionId,
         claudeRoot: parent.sessionId,
         claudeAgent: id,
-        turns,
+        ancestryKnown: transcript.length > 0 || Object.hasOwn(runtime, id) || saved?.ancestryKnown,
+        claudeParent: ancestor || null,
       });
     }
   }
@@ -258,8 +275,7 @@ export async function claudeChildren(parent: AgentRecord): Promise<AgentRecord[]
   return result;
 }
 
-export async function hydrateClaudeChild(parent: AgentRecord, child: AgentRecord) {
-  await hydrateAgent(child);
+export function observeClaudeChild(parent: AgentRecord, child: AgentRecord) {
   const runtime = object(object(parent.pocket ? JSON.parse(parent.pocket.metadata) : {}).nativeAgents);
   const status = string(object(runtime[child.claudeAgent ?? ""]).status);
 

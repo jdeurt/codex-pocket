@@ -5,13 +5,14 @@ export const replayParent = "replay-parent";
 export const claudeSession = "11111111-1111-4111-8111-111111111111";
 const NAME_REPETITIONS = 3;
 const PREVIEW_REPETITIONS = 8;
+const ARCHIVE_TEXT_REPETITIONS = 200;
 export const longName =
   "Researching an exceptionally long task name on a narrow phone with no horizontal scrolling ".repeat(
     NAME_REPETITIONS
   );
 export const replayImage =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAPAAAACgCAIAAAC9uXYyAAAACXBIWXMAAAPoAAAD6AG1e1JrAAADQUlEQVR4nO3WgQnAAAwCwa76g3SHjtwxAnLgAEEf49P7EQdaweA5v4A4EKBBwIE0NAhaf4kmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAjmHTA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6Q/gBTZKAi/7jQtEAAAAASUVORK5CYII=";
-export function replayThreads(settled = false) {
+export function replayThreads(settled = false, revision = 1) {
   return [
     {
       id: "native-codex",
@@ -64,7 +65,7 @@ export function replayThreads(settled = false) {
     model: "gpt-replay",
     reasoningEffort: "high",
     source: { subAgent: { thread_spawn: { parent_thread_id: thread.parentThreadId } } },
-    updatedAt: 1,
+    updatedAt: revision,
   }));
 }
 export function replayTurns(id: string, stage = "initial"): Turn[] {
@@ -91,7 +92,7 @@ export function replayTurns(id: string, stage = "initial"): Turn[] {
   const active =
     ["native-codex", "native-grandchild", "side-native", "stale-codex"].includes(id) && stage !== "settled";
 
-  return [
+  const current: Turn[] = [
     {
       id: `${id}-turn`,
       status: active ? "inProgress" : "completed",
@@ -133,5 +134,38 @@ export function replayTurns(id: string, stage = "initial"): Turn[] {
           : []),
       ],
     },
+  ];
+
+  if (id !== "done-codex") {
+    return current;
+  }
+
+  const archived = Array.from({ length: 40 }, (_, index) => ({
+    id: `archived-${index}`,
+    status: "completed",
+    items: [
+      {
+        id: `archived-item-${index}`,
+        type: "agentMessage",
+        text: `Archived research ${index}. ${"Saved history. ".repeat(ARCHIVE_TEXT_REPETITIONS)}`,
+        phase: "final_answer",
+      },
+    ],
+  }));
+
+  return [
+    ...archived,
+    ...current,
+    ...(stage === "history-changed"
+      ? [
+          {
+            id: "changed-turn",
+            status: "completed",
+            items: [
+              { id: "changed-message", type: "agentMessage", text: "CHANGED_TERMINAL_HISTORY", phase: "final_answer" },
+            ],
+          },
+        ]
+      : []),
   ];
 }

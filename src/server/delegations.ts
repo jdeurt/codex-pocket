@@ -190,6 +190,15 @@ export class DelegationStore {
       .prepare("SELECT * FROM delegation_commands WHERE parentId=? AND childId=? ORDER BY createdAt,rowid")
       .all(parentId, childId) as DelegationCommand[];
   }
+  lastCommandStatus(parentId: string, childId: string) {
+    const row = this.db
+      .prepare(
+        "SELECT status FROM delegation_commands WHERE parentId=? AND childId=? ORDER BY createdAt DESC,rowid DESC LIMIT 1"
+      )
+      .get(parentId, childId) as { status: DelegationCommand["status"] } | undefined;
+
+    return row?.status;
+  }
   claim(parentId: string, childId: string) {
     return this.db
       .transaction(() => {

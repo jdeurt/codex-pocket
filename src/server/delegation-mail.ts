@@ -99,10 +99,12 @@ export class DelegationMailbox {
 
     return id;
   }
-  requests(parentId: string, childId: string) {
+  requests(parentId: string, childId: string, pendingOnly = false) {
     return this.db
-      .prepare("SELECT * FROM delegation_requests WHERE parentId=? AND childId=? ORDER BY createdAt")
-      .all(parentId, childId) as DelegationRequest[];
+      .prepare(
+        "SELECT * FROM delegation_requests WHERE parentId=? AND childId=? AND (?=0 OR status='pending') ORDER BY createdAt"
+      )
+      .all(parentId, childId, Number(pendingOnly)) as DelegationRequest[];
   }
   answer(parentId: string, childId: string, id: string, answer: unknown) {
     return this.db

@@ -60,7 +60,14 @@ export function AgentList({
                 <span className="agent-status">{agentStatus(agent.status)}</span>
               </span>
               <span className="agent-source">{agentSource(agent)}</span>
-              <span className="agent-preview">{agent.preview || "No visible messages saved yet."}</span>
+              <span className="agent-preview">
+                {agent.preview ||
+                  (agent.previewState === "loading"
+                    ? "Loading preview…"
+                    : agent.previewState === "unavailable"
+                      ? "Preview unavailable."
+                      : "No visible messages saved yet.")}
+              </span>
             </span>
             <ChevronRightIcon aria-hidden="true" />
           </button>

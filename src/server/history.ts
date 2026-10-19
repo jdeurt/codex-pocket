@@ -2,7 +2,7 @@ const METHOD_NOT_FOUND = -32_601;
 import { type CodexRpc, RpcError } from "./rpc";
 import type { Item, Thread, Turn } from "../lib/protocol";
 
-async function loadItems(rpc: CodexRpc, threadId: string, turnId: string) {
+export async function loadItems(rpc: CodexRpc, threadId: string, turnId: string) {
   const items: Item[] = [];
   let cursor: string | null = null;
 

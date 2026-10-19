@@ -4,6 +4,7 @@ import { claudeSession, longName } from "../fixtures/agent-browser-data";
 import { expect, test } from "@playwright/test";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import Database from "better-sqlite3";
+import { checkAgentCache } from "./agent-cache";
 
 // OFFLINE whole-flow replay: real Next routes, SQLite, JSON-RPC transport, Claude
 // SDK saved-history reader and shared browser renderers; no live inference/auth.
@@ -39,6 +40,12 @@ async function lifecycle(settled = false) {
 test.beforeEach(async () => {
   await control("initial");
   await lifecycle();
+});
+
+test("offline replay: discovery stays light, unchanged history is cached, changed history refreshes its tail", async ({
+  request,
+}) => {
+  await checkAgentCache(request, control);
 });
 
 test("offline replay: scoped discovery, complete normalized histories and GET-only routes", async ({

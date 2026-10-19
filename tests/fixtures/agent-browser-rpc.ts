@@ -1,5 +1,5 @@
 // OFFLINE JSON-RPC replay. Refuses every mutation directed at a child session.
-import { appendFileSync, readFileSync } from "node:fs";
+import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { replayParent, replayThreads, replayTurns } from "./agent-browser-data";
 import { createInterface } from "node:readline";
 
@@ -12,7 +12,49 @@ if (!directory) {
 const APPROVAL_DELAY_MS = 750;
 const emit = (value: unknown) => process.stdout.write(JSON.stringify(value) + "\n");
 const stage = () => JSON.parse(readFileSync(`${directory}/control.json`, "utf8")).stage as string;
-const replay = { promptSent: false };
+const replay = { promptSent: false, activeReads: 0, maxReads: 0 };
+const HISTORY_DELAY_MS = 30;
+const PAGE_LIMIT = 20;
+
+function turnPage(params: Record<string, unknown>, state: string) {
+  const turns = replayTurns(String(params.threadId), state);
+  const ordered = params.sortDirection === "desc" ? turns.toReversed() : turns;
+  const offset = Number(params.cursor ?? 0);
+  const limit = Math.min(Number(params.limit ?? PAGE_LIMIT), PAGE_LIMIT);
+  const page = {
+    data: ordered
+      .slice(offset, offset + limit)
+      .map((turn, index) =>
+        params.itemsView === "notLoaded"
+          ? { ...turn, items: [], itemsView: "notLoaded" }
+          : params.sortDirection !== "desc" && index === 0
+            ? { ...turn, items: [], itemsView: "summary" }
+            : turn
+      ),
+    nextCursor: offset + limit < ordered.length ? String(offset + limit) : null,
+  };
+
+  if (params.threadId === replayParent && !replay.promptSent) {
+    replay.promptSent = true;
+    setTimeout(
+      () =>
+        emit({
+          id: "parent-approval",
+          method: "item/commandExecution/requestApproval",
+          params: {
+            threadId: replayParent,
+            turnId: "parent-approval-turn",
+            reason: "Replay parent approval remains writable.",
+            command: "echo replay",
+            availableDecisions: ["accept", "decline"],
+          },
+        }),
+      APPROVAL_DELAY_MS
+    );
+  }
+
+  return page;
+}
 
 function response(request: { method: string }, params: Record<string, unknown>, state: string): unknown {
   switch (request.method) {
@@ -40,7 +82,7 @@ function response(request: { method: string }, params: Record<string, unknown>, 
     }
 
     case "thread/list": {
-      const threads = replayThreads(state === "settled");
+      const threads = replayThreads(state === "settled", state === "history-changed" ? 2 : 1);
 
       return params.archived
         ? { data: [], nextCursor: null }
@@ -54,7 +96,9 @@ function response(request: { method: string }, params: Record<string, unknown>, 
         throw new Error("Synthetic auth failure");
       }
 
-      const thread = replayThreads(state === "settled").find((entry) => entry.id === params.threadId) ?? {
+      const thread = replayThreads(state === "settled", state === "history-changed" ? 2 : 1).find(
+        (entry) => entry.id === params.threadId
+      ) ?? {
         id: params.threadId,
         name: "Saved Side Pocket",
         model: "gpt-replay",
@@ -69,49 +113,27 @@ function response(request: { method: string }, params: Record<string, unknown>, 
     }
 
     case "thread/turns/list": {
-      const turns = replayTurns(String(params.threadId), state);
-      const page = params.cursor
-        ? { data: turns.slice(1), nextCursor: null }
-        : {
-            data: turns.slice(0, 1).map((turn) => ({ ...turn, items: [], itemsView: "summary" })),
-            nextCursor: turns.length > 1 ? "more-turns" : null,
-          };
-
-      if (params.threadId === replayParent && !replay.promptSent) {
-        replay.promptSent = true;
-        setTimeout(
-          () =>
-            emit({
-              id: "parent-approval",
-              method: "item/commandExecution/requestApproval",
-              params: {
-                threadId: replayParent,
-                turnId: "parent-approval-turn",
-                reason: "Replay parent approval remains writable.",
-                command: "echo replay",
-                availableDecisions: ["accept", "decline"],
-              },
-            }),
-          APPROVAL_DELAY_MS
-        );
-      }
-
-      return page;
+      return turnPage(params, state);
     }
 
     case "thread/items/list": {
-      const turn = replayTurns(String(params.threadId), state).find((entry) => entry.id === params.turnId);
+      const turns = replayTurns(String(params.threadId), state);
+      const items = params.turnId
+        ? turns.find((turn) => turn.id === params.turnId)?.items
+        : turns.flatMap((turn) => turn.items);
 
-      if (!turn) {
+      if (!items) {
         throw new Error("Replay turn not found.");
       }
 
-      return params.cursor
-        ? { data: turn.items.slice(2).map((item) => ({ item })), nextCursor: null }
-        : {
-            data: turn.items.slice(0, 2).map((item) => ({ item })),
-            nextCursor: turn.items.length > 2 ? "more-items" : null,
-          };
+      const ordered = params.sortDirection === "desc" ? items.toReversed() : items;
+      const offset = Number(params.cursor ?? 0);
+      const limit = Math.min(Number(params.limit ?? 2), 2);
+
+      return {
+        data: ordered.slice(offset, offset + limit).map((item) => ({ item })),
+        nextCursor: offset + limit < ordered.length ? String(offset + limit) : null,
+      };
     }
 
     case "turn/start":
@@ -133,7 +155,15 @@ createInterface({ input: process.stdin }).on("line", (line) => {
   const request = JSON.parse(line);
   appendFileSync(
     `${directory}/rpc.jsonl`,
-    JSON.stringify({ method: request.method ?? "response", threadId: request.params?.threadId, id: request.id }) + "\n"
+    JSON.stringify({
+      method: request.method ?? "response",
+      threadId: request.params?.threadId,
+      id: request.id,
+      itemsView: request.params?.itemsView,
+      sortDirection: request.params?.sortDirection,
+      limit: request.params?.limit,
+      cursor: request.params?.cursor,
+    }) + "\n"
   );
 
   if (!request.method || request.id === undefined) {
@@ -145,7 +175,22 @@ createInterface({ input: process.stdin }).on("line", (line) => {
 
   try {
     const result = response(request, params, state);
-    emit({ id: request.id, result });
+    const history =
+      request.params?.threadId !== replayParent && ["thread/turns/list", "thread/items/list"].includes(request.method);
+
+    if (!history) {
+      emit({ id: request.id, result });
+
+      return;
+    }
+
+    replay.activeReads++;
+    replay.maxReads = Math.max(replay.maxReads, replay.activeReads);
+    writeFileSync(`${directory}/rpc-metrics.json`, JSON.stringify({ maxReads: replay.maxReads }));
+    setTimeout(() => {
+      replay.activeReads--;
+      emit({ id: request.id, result });
+    }, HISTORY_DELAY_MS);
   } catch (error) {
     emit({ id: request.id, error: { code: -32_600, message: String(error) } });
   }

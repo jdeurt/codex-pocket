@@ -37,6 +37,8 @@ export function delegationDatabase(directory: string) {
       nativeId TEXT NOT NULL, method TEXT NOT NULL, input TEXT NOT NULL,
       answer TEXT, status TEXT NOT NULL, createdAt INTEGER NOT NULL
     );
+    CREATE INDEX IF NOT EXISTS delegation_command_recency ON delegation_commands(childId,createdAt DESC);
+    CREATE INDEX IF NOT EXISTS delegation_request_status ON delegation_requests(childId,status);
   `);
 
   return db;

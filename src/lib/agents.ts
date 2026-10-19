@@ -9,6 +9,7 @@ export interface AgentEntry {
   harness: "codex" | "claude";
   status: AgentStatus;
   preview: string;
+  previewState?: "loading" | "empty" | "unavailable";
   model?: string;
   reasoningEffort?: string | null;
 }

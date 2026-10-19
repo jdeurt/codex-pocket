@@ -1,7 +1,7 @@
 import { type AgentTranscript, activeAgent } from "../lib/agents";
 import { initialSnapshot, object, string } from "../lib/protocol";
+import { AgentReadCache } from "./agent-read-cache";
 import { discoverAgents } from "./agent-catalog";
-import { hydrateAgent } from "./agent-sources";
 import { itemImageSources } from "../lib/images";
 import { markdownImageSource } from "./agent-images";
 import { visibleSnapshot } from "./visible-snapshot";
@@ -41,7 +41,7 @@ function preserveHistory(next: Discovery, saved?: Discovery) {
       ...previous.agent,
       status: activeAgent(previous.agent) ? ("unknown" as const) : previous.agent.status,
     };
-    next.records.set(id, { ...previous, agent, historyError: true });
+    next.records.set(id, { ...previous, agent, historyError: true, discoveryError: true });
     next.catalog.agents.push(agent);
   }
 
@@ -50,11 +50,15 @@ function preserveHistory(next: Discovery, saved?: Discovery) {
 
 // Read-only catalog/transcript cache, scoped to the server-configured parent.
 export class AgentBrowser {
+  private reads = new AgentReadCache();
   private cached?: Discovery;
   private refreshing?: Promise<void>;
   private async refresh(owner: string) {
     try {
-      this.cached = preserveHistory(await discoverAgents(owner), this.cached);
+      this.cached = preserveHistory(
+        await discoverAgents(owner, this.cached?.owner === owner ? this.cached.records : undefined),
+        this.cached
+      );
     } finally {
       this.refreshing = undefined;
     }
@@ -69,7 +73,7 @@ export class AgentBrowser {
 
     return record;
   }
-  async catalog(owner: string) {
+  async catalog(owner: string, previews = false) {
     if (!this.cached || this.cached.owner !== owner || Date.now() - this.cached.catalog.updatedAt >= REFRESH_MS) {
       this.refreshing ??= this.refresh(owner);
       await this.refreshing;
@@ -79,11 +83,20 @@ export class AgentBrowser {
       throw new Error("Parent chat is unavailable.");
     }
 
+    const records = this.cached.records.values().toArray();
+    await Promise.all(records.map((record) => this.reads.project(record)));
+
+    if (previews) {
+      for (const record of records) {
+        void this.reads.warm(record);
+      }
+    }
+
     return this.cached.catalog;
   }
   async transcript(owner: string, id: string): Promise<AgentTranscript> {
     const record = await this.owned(owner, id);
-    await hydrateAgent(record);
+    await this.reads.full(record);
     const raw = {
       ...structuredClone(initialSnapshot),
       connection: "connected" as const,
@@ -140,7 +153,7 @@ export class AgentBrowser {
   }
   async image(owner: string, id: string, itemId: string, index: number, markdownSource?: string) {
     const record = await this.owned(owner, id);
-    await hydrateAgent(record);
+    await this.reads.full(record, true);
     const item = record.turns?.flatMap((turn) => turn.items).find((entry) => entry.id === itemId);
     const source = item && (markdownSource ? markdownImageSource(item, markdownSource) : itemImageSources(item)[index]);
 
