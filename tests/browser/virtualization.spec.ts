@@ -5,7 +5,7 @@ import { mount, publish } from "./virtualization-fixture";
 import { readFile, writeFile } from "node:fs/promises";
 
 const LONG_HISTORY = 1200;
-const MAX_MOUNTED_ROWS = 400;
+const MAX_MOUNTED_ROWS = 250;
 const viewport = '[data-slot="message-scroller-viewport"]';
 const row = "[data-transcript-row]";
 const pixelTolerance = 3;
@@ -118,7 +118,7 @@ test("large single-turn history stays bounded through rapid scrollbar, wheel and
 }, info) => {
   const writes = await mount(page, history());
   await expect(page.locator('[data-message-id="message-1199"]')).toBeVisible();
-  expect(await page.locator(row).count()).toBeGreaterThanOrEqual(250);
+  expect(await page.locator(row).count()).toBeGreaterThanOrEqual(150);
   expect(await page.locator(row).count()).toBeLessThan(MAX_MOUNTED_ROWS);
   await page.getByRole("textbox", { name: "Message Pocket" }).fill("Unsent parent draft");
   const mounted: number[] = [];
@@ -235,13 +235,13 @@ test("empty and short chats preserve drafts, activity, images, selection and red
     )
     .toBeLessThan(3);
   state.queue = [];
-  state.turns = history(240).turns;
+  state.turns = history(140).turns;
   await publish(page, state);
   await expect(page.getByRole("textbox", { name: "Message Pocket" })).toHaveValue("Preserved first draft");
-  await expect(page.locator(row)).toHaveCount(240);
+  await expect(page.locator(row)).toHaveCount(140);
   await scrollToFraction(page, 0.4);
   const anchor = await settledAnchor(page);
-  state.turns[0].items.push(...history(30, 240).turns[0].items);
+  state.turns[0].items.push(...history(30, 140).turns[0].items);
   await publish(page, state);
   await expectAnchor(page, anchor);
   state.turns.push({
