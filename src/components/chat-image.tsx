@@ -1,13 +1,13 @@
 "use client";
 import { Attachment, AttachmentMedia, AttachmentTrigger } from "@/components/ui/attachment";
 import {
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog";
+  Drawer,
+  DrawerClose,
+  DrawerContent,
+  DrawerDescription,
+  DrawerTitle,
+  DrawerTrigger,
+} from "@/components/ui/drawer";
 import { imageUrl, thumbnailUrl } from "@/lib/images";
 import { Button } from "@/components/ui/button";
 import Image from "next/image";
@@ -29,46 +29,46 @@ export function ChatImage({ source, alt = "Image from Pocket" }: { source: strin
   }
 
   return (
-    <Dialog>
-      <Attachment className="chat-image" state={failed ? "error" : "done"}>
-        <AttachmentMedia className="chat-image-media" variant="image">
+    <Drawer swipeDirection="down">
+      <Attachment className="chat-image" variant="image" size="image" state={failed ? "error" : "done"}>
+        <AttachmentMedia className="chat-image-media" variant="preview">
           {!loaded && !failed && <Skeleton className="image-placeholder" />}
           {failed ? (
             <span className="image-error">Image unavailable</span>
           ) : (
-            <span className="image-fit-stage">
-              <Image
-                unoptimized
-                src={thumbnailUrl(src)}
-                alt={alt}
-                width={IMAGE_WIDTH}
-                height={IMAGE_HEIGHT}
-                loading="eager"
-                decoding="async"
-                referrerPolicy="no-referrer"
-                onLoad={() => setLoaded(true)}
-                onError={() => {
-                  setFailed(true);
-                  reportClient("image.failed", { source: src.startsWith("data:") ? "inline image" : src }, "error");
-                }}
-              />
-            </span>
+            <Image
+              unoptimized
+              draggable={false}
+              src={thumbnailUrl(src)}
+              alt={alt}
+              width={IMAGE_WIDTH}
+              height={IMAGE_HEIGHT}
+              loading="eager"
+              decoding="async"
+              referrerPolicy="no-referrer"
+              onLoad={() => setLoaded(true)}
+              onError={() => {
+                setFailed(true);
+                reportClient("image.failed", { source: src.startsWith("data:") ? "inline image" : src }, "error");
+              }}
+            />
           )}
         </AttachmentMedia>
-        {!failed && <DialogTrigger render={<AttachmentTrigger aria-label={`Preview image: ${alt}`} />} />}
+        {!failed && <DrawerTrigger render={<AttachmentTrigger aria-label={`Preview image: ${alt}`} />} />}
       </Attachment>
-      <DialogContent className="image-preview" showCloseButton={false}>
-        <DialogTitle className="sr-only">{alt}</DialogTitle>
-        <DialogDescription className="sr-only">Full image preview, scaled to fit your screen.</DialogDescription>
-        <div className="image-preview-toolbar">
-          <DialogClose render={<Button variant="ghost" size="icon-xl" aria-label="Close image preview" />}>
+      <DrawerContent className="image-preview" variant="image">
+        <DrawerTitle className="sr-only">{alt}</DrawerTitle>
+        <DrawerDescription className="sr-only">Full image preview, scaled to fit your screen.</DrawerDescription>
+        <div className="image-preview-toolbar" data-base-ui-swipe-ignore>
+          <DrawerClose render={<Button variant="ghost" size="icon-xl" aria-label="Close image preview" />}>
             <XIcon />
-          </DialogClose>
+          </DrawerClose>
         </div>
         <div className="image-preview-stage">
           <div className="image-fit-stage">
             <Image
               unoptimized
+              draggable={false}
               src={src}
               alt={alt}
               width={IMAGE_WIDTH}
@@ -77,7 +77,7 @@ export function ChatImage({ source, alt = "Image from Pocket" }: { source: strin
             />
           </div>
         </div>
-      </DialogContent>
-    </Dialog>
+      </DrawerContent>
+    </Drawer>
   );
 }

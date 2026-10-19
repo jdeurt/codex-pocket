@@ -181,7 +181,7 @@ Tasks run only while this Mac is awake and Pocket is running. After downtime, Po
 
 Pocket displays generated images, image-view output, MCP/tool image content and image attachments already in the conversation. Assistant Markdown images can reference absolute computer paths, `file:` URLs, paths relative to `CODEX_CWD`, HTTPS URLs or inline raster images.
 
-Chat thumbnails fit the complete image without cropping, with rounded corners and reserved layout space to keep history scrolling stable. Tap an image for a larger screen-fitted preview; use the close control, tap outside it or press Escape to return to chat.
+Chat thumbnails keep the image’s proportions without cropping, with rounded corners and no decorative frame. Previews align with message text; image attachments and Markdown images in the same paragraph share a row when they fit and wrap with consistent spacing. Tap an image for the existing screen-fitted preview. Swipe down to dismiss it, use the touch-size close control, tap outside it or press Escape. The viewer follows the swipe and slides down on dismissal; reduced motion disables its transitions.
 
 Local and tool images go through Pocket's guarded image endpoint. It validates raster content, limits input to 25 MiB and 40 million pixels, and serves WebP thumbnails/previews. SVG is unsupported by that endpoint. Remote HTTP(S) images load directly in the browser. Tool image bytes are omitted from live snapshots and summarized by size in diagnostics. Removed or inaccessible local files show an unavailable state.
 

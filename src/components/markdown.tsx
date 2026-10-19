@@ -1,6 +1,7 @@
 "use client";
 import { CodeBlock, CodeBlockContent } from "@/components/ui/code-block";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
+import { AttachmentGroup } from "@/components/ui/attachment";
 import { ChatImage } from "./chat-image";
 import { imageUrl } from "@/lib/images";
 import { memo } from "react";
@@ -17,7 +18,16 @@ export const Markdown = memo(function MarkdownContent({ children: source }: { ch
             <ChatImage key={typeof src === "string" ? src : ""} source={typeof src === "string" ? src : ""} alt={alt} />
           ),
           // Markdown permits images inside paragraphs; use a block container for attachment/dialog composition.
-          p: ({ children }) => <div className="markdown-paragraph">{children}</div>,
+          p: ({ children, node }) =>
+            node?.children.every((child) =>
+              child.type === "text" ? !child.value.trim() : child.type === "element" && child.tagName === "img"
+            ) ? (
+              <AttachmentGroup layout="wrap" className="chat-images">
+                {children}
+              </AttachmentGroup>
+            ) : (
+              <div className="markdown-paragraph">{children}</div>
+            ),
           a: ({ children, ...props }) => (
             <a {...props} target="_blank" rel="noopener noreferrer">
               {children}

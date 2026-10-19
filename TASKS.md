@@ -88,6 +88,8 @@ These later requests are tracked separately in Linear. Keep their existing owner
 - [x] [JUA-39](https://linear.app/juan-de-urtubey/issue/JUA-39): Restore fresh-open CSS/JavaScript and use the normal stop/build/start sequence. The operator accepted restarting the full service; keep the existing build layout.
 - [ ] [JUA-40](https://linear.app/juan-de-urtubey/issue/JUA-40): Keep spinner rotation centered and stable. Preserve the concurrent implementation of this ticket.
 - [x] [JUA-41](https://linear.app/juan-de-urtubey/issue/JUA-41): Send a hidden restart/recovery prompt when resuming an existing chat. Show the agent's normal replies; no completion marker.
+- [x] [JUA-42](https://linear.app/juan-de-urtubey/issue/JUA-42): Simplify image previews and add downward swipe dismissal while preserving the expanded viewer.
+- [ ] [JUA-43](https://linear.app/juan-de-urtubey/issue/JUA-43): Size Markdown table columns to content and scroll overflow within the table.
 
 ## Notification content and foreground behavior
 

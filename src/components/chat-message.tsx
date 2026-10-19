@@ -1,6 +1,7 @@
 import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { type Item, object, string } from "@/lib/protocol";
 import { Message, MessageContent } from "@/components/ui/message";
+import { AttachmentGroup } from "@/components/ui/attachment";
 import { ChatImage } from "./chat-image";
 import { Markdown } from "./markdown";
 
@@ -29,14 +30,17 @@ export function ChatMessage({ item }: { item: Item }) {
           align={item.type === "userMessage" ? "end" : "start"}
         >
           <BubbleContent>
-            {Array.isArray(item.images) &&
-              item.images.map((image) => (
-                <ChatImage
-                  key={string(object(image).source)}
-                  source={string(object(image).source)}
-                  alt={string(object(image).alt) || "Image from Pocket"}
-                />
-              ))}
+            {Array.isArray(item.images) && item.images.length > 0 && (
+              <AttachmentGroup layout="wrap" className="chat-images">
+                {item.images.map((image) => (
+                  <ChatImage
+                    key={string(object(image).source)}
+                    source={string(object(image).source)}
+                    alt={string(object(image).alt) || "Image from Pocket"}
+                  />
+                ))}
+              </AttachmentGroup>
+            )}
             {item.type === "userMessage" ? (
               <p className="whitespace-pre-wrap">{messageText(item)}</p>
             ) : (
