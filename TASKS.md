@@ -107,11 +107,11 @@ These later requests are tracked separately in Linear. Keep their existing owner
 
 ## Installer and Side Pockets
 
-- [ ] [JUA-45](https://linear.app/juan-de-urtubey/issue/JUA-45): Add a Claude harness adapter for delegated Side Pockets. Main Pocket always stays Codex.
-- [ ] [JUA-46](https://linear.app/juan-de-urtubey/issue/JUA-46): Implement independent Codex/Claude Side Pockets with message_parent, parent lifecycle controls and saved-session resume. Native harness skills and subagents remain available.
+- [x] [JUA-45](https://linear.app/juan-de-urtubey/issue/JUA-45): Add a Claude harness adapter for delegated Side Pockets. Main Pocket always stays Codex.
+- [x] [JUA-46](https://linear.app/juan-de-urtubey/issue/JUA-46): Implement independent Codex/Claude Side Pockets with message_parent, parent lifecycle controls and saved-session resume. Native harness skills and subagents remain available.
 - [x] [JUA-47](https://linear.app/juan-de-urtubey/issue/JUA-47): Provide a one-click Mac installer and make setup independent of tunnel providers.
 
-The operator authorized implementing all three, pushing normal commits to main as they finish. Children receive a scoped role prompt and a message_parent tool that takes message content and routes it to their recorded parent. Pocket scheduling and Side Pocket management tools belong to the main Codex session. Children keep native harness tools, skills and subagents. The parent can list titles/IDs, inspect, send, close actual processes and resume saved sessions. Both harnesses inherit parent access through explicit permission mappings. Describe actual harness capabilities in the parent’s appended instructions.
+Side Pockets receive a scoped role prompt and a message_parent tool that takes message content and routes it to their recorded parent. Pocket scheduling and Side Pocket management tools belong to the main Codex session. Children keep native harness tools, skills and subagents. The parent can list titles/IDs, inspect, send, close actual processes and resume saved sessions. Both harnesses inherit parent access through explicit permission mappings. Describe actual harness capabilities in the parent’s appended instructions.
 
 ## Delivery cadence
 

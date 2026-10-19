@@ -5,16 +5,21 @@ import path from "node:path";
 export function findClaudeBinary() {
   const configured = process.env.POCKET_CLAUDE_BINARY;
   const name = configured ?? "claude";
+  // Executables are resolved on the operator's machine at runtime, outside the app's bundled files.
   const candidates = name.includes("/")
-    ? [path.resolve(name)]
+    ? [path.resolve(/* turbopackIgnore: true */ name)]
     : [
         ...(process.env.PATH ?? "")
           .split(path.delimiter)
           .filter(Boolean)
-          .map((directory) => path.join(directory, name)),
+          .map((directory) => path.join(/* turbopackIgnore: true */ directory, name)),
         ...(configured
           ? []
-          : [path.join(os.homedir(), ".local/bin/claude"), "/opt/homebrew/bin/claude", "/usr/local/bin/claude"]),
+          : [
+              path.join(/* turbopackIgnore: true */ os.homedir(), ".local/bin/claude"),
+              "/opt/homebrew/bin/claude",
+              "/usr/local/bin/claude",
+            ]),
       ];
 
   return candidates.find((candidate) => {
