@@ -80,8 +80,8 @@ The working backlog is the [Pocket project in Linear](https://linear.app/juan-de
 
 These later requests are tracked separately in Linear. Keep their existing owners and work in progress intact.
 
-- [ ] [JUA-34](https://linear.app/juan-de-urtubey/issue/JUA-34): Use reply text as the push notification body.
-- [ ] [JUA-35](https://linear.app/juan-de-urtubey/issue/JUA-35): Suppress completion notifications while Pocket is visible.
+- [x] [JUA-34](https://linear.app/juan-de-urtubey/issue/JUA-34): Use reply text as the push notification body.
+- [x] [JUA-35](https://linear.app/juan-de-urtubey/issue/JUA-35): Suppress completion notifications while Pocket is visible.
 - [ ] [JUA-36](https://linear.app/juan-de-urtubey/issue/JUA-36): Collapse completed-turn activity under animated “Show activity” / “Hide activity” controls and match message spacing to Markdown.
 - [x] [JUA-37](https://linear.app/juan-de-urtubey/issue/JUA-37): Run scheduled tasks silently without chat markers.
 - [x] [JUA-38](https://linear.app/juan-de-urtubey/issue/JUA-38): Show concise, plural activity labels beside the spinner, using “Calling tools” for all tool calls.
@@ -91,7 +91,7 @@ These later requests are tracked separately in Linear. Keep their existing owner
 
 - [x] Send the final reply text, retaining full text within the Web Push transport limit and a fallback without final text.
 - [x] Suppress a push only after a fresh foreground acknowledgement from the receiving subscription; retain delivery for background, locked, closed and stale connections.
-- [ ] Verify the updated reply preview, foreground suppression, background delivery, reconnects and tap-to-open on the installed iPhone PWA after deployment.
+- [x] Verify the updated reply preview, foreground suppression, background delivery, reconnects and tap-to-open on the installed iPhone PWA after deployment. The operator confirmed all iPhone checks pass.
 
 ## Delivery cadence
 
