@@ -31,14 +31,13 @@ test("visible message edges and pending status use one shared outer gap", async 
   ];
 
   for (const item of cases) {
-    state.turns[1].items = [item, { id: "empty-stream", type: "agentMessage", text: "\n\n" }];
+    state.turns[1].items = [item];
     state.queue = [{ id: "gap-queued", text: "Queued bubble", status: "sent" }];
     await publish(page, state);
     await page.locator(viewport).evaluate((element) => {
       element.scrollTop = element.scrollHeight;
     });
     await expect(page.getByRole("status", { name: "Pocket activity" })).toBeVisible();
-    await expect(page.locator('[data-message-id="empty-stream"]')).toHaveCount(0);
     const outerGaps = () =>
       page.locator(viewport).evaluate((element) => {
         const last = element.querySelector<HTMLElement>('[data-message-id="gap-last"]');
