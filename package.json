@@ -21,6 +21,7 @@
     "test:e2e:schedules": "env -u NO_COLOR CODEX_TEST_SCHEDULES=1 playwright test",
     "test:e2e:images": "env -u NO_COLOR CODEX_TEST_IMAGES=1 playwright test",
     "test:e2e:activity": "env -u NO_COLOR CODEX_TEST_ACTIVITY=1 playwright test",
+    "test:recovery": "tsx scripts/recovery-check.ts",
     "setup": "tsx scripts/configure.ts",
     "service:install": "tsx scripts/install-service.ts"
   },

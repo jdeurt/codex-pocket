@@ -10,22 +10,24 @@ if (process.env.CODEX_TEST_ACTIVITY === "1") {
   test("real Codex activity stays live, collapses at completion and preserves its final reply", async ({ page }) => {
     await page.goto("/");
     await expect(page.getByText("Connected", { exact: true })).toBeVisible();
-    await send(
-      page,
-      "First send a commentary update with exactly two paragraphs: ACTIVITY_ONE_FIRST and ACTIVITY_ONE_SECOND. Then run the read-only shell command sleep 4. Send another commentary message exactly ACTIVITY_TWO, then run sleep 4. Finally send a final answer exactly ACTIVITY_FINAL. Do not modify files."
-    );
+    const prompt =
+      "First send a commentary update with exactly two paragraphs: ACTIVITY_ONE_FIRST and ACTIVITY_ONE_SECOND. Then run the read-only shell command sleep 4. Send another commentary message exactly ACTIVITY_TWO, then run sleep 4. Finally send a final answer exactly ACTIVITY_FINAL. Do not modify files.";
+    await send(page, prompt);
     await expect(page.getByText("ACTIVITY_ONE_FIRST", { exact: true })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Show activity", exact: true })).toHaveCount(0);
+    const turn = page
+      .locator('[data-slot="message-scroller-item"]')
+      .filter({ has: page.getByText(prompt, { exact: true }) });
+    await expect(turn.getByRole("button", { name: "Show activity", exact: true })).toHaveCount(0);
     await expect(page.getByRole("status", { name: "Pocket activity" })).toContainText("Running commands");
     await expect(page.getByText("ACTIVITY_FINAL", { exact: true })).toBeVisible();
-    const show = page.getByRole("button", { name: "Show activity", exact: true });
+    const show = turn.getByRole("button", { name: "Show activity", exact: true });
     await expect(show).toBeVisible();
     await expect(page.getByText("ACTIVITY_ONE_FIRST", { exact: true })).toBeHidden();
     await show.click();
-    const hide = page.getByRole("button", { name: "Hide activity", exact: true });
+    const hide = turn.getByRole("button", { name: "Hide activity", exact: true });
     await expect(hide).toHaveAttribute("aria-expanded", "true");
     await expect(page.getByText("ACTIVITY_TWO", { exact: true })).toBeVisible();
-    const panel = page.locator('[data-slot="trace-collapsible-content"]');
+    const panel = turn.locator('[data-slot="trace-collapsible-content"]');
     await expect(panel.getByText("ACTIVITY_FINAL", { exact: true })).toHaveCount(0);
     const first = await page.getByText("ACTIVITY_ONE_FIRST", { exact: true }).boundingBox();
     const second = await page.getByText("ACTIVITY_ONE_SECOND", { exact: true }).boundingBox();

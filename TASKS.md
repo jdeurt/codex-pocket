@@ -87,7 +87,7 @@ These later requests are tracked separately in Linear. Keep their existing owner
 - [x] [JUA-38](https://linear.app/juan-de-urtubey/issue/JUA-38): Show concise, plural activity labels beside the spinner, using “Calling tools” for all tool calls.
 - [x] [JUA-39](https://linear.app/juan-de-urtubey/issue/JUA-39): Restore fresh-open CSS/JavaScript and use the normal stop/build/start sequence. The operator accepted restarting the full service; keep the existing build layout.
 - [ ] [JUA-40](https://linear.app/juan-de-urtubey/issue/JUA-40): Keep spinner rotation centered and stable. Preserve the concurrent implementation of this ticket.
-- [ ] [JUA-41](https://linear.app/juan-de-urtubey/issue/JUA-41): Send a hidden restart/recovery prompt when resuming an existing chat. Show the agent's normal replies; no completion marker.
+- [x] [JUA-41](https://linear.app/juan-de-urtubey/issue/JUA-41): Send a hidden restart/recovery prompt when resuming an existing chat. Show the agent's normal replies; no completion marker.
 
 ## Notification content and foreground behavior
 
@@ -105,3 +105,5 @@ These later requests are tracked separately in Linear. Keep their existing owner
 ## Delivery cadence
 
 Push each finished batch and rebuild/restart the Next.js service so changes are visible on the phone. Wait for active turns to finish before restarting. Keep local configuration, credentials, database state and logs out of Git.
+
+Use normal Git pushes. Do not force-push or rewrite remote history. Leave the spinner wobble implementation and JUA-40 status to its separate agent.

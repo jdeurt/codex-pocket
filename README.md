@@ -144,6 +144,10 @@ After setup or an update, reopen the installed iPhone PWA to load the current cl
 
 Progress messages stream normally while a turn runs. When it finishes, those messages collapse under **Show activity**; the final reply stays visible. Tap to expand or collapse the activity, or use the keyboard. The panel and chevron animate unless reduced motion is enabled. Completed history reloads with activity collapsed. Split assistant messages use the same spacing as Markdown paragraphs. Images and phone messages remain visible.
 
+## Restart recovery
+
+When Codex starts with existing conversation history, Pocket sends one hidden restart-recovery prompt through the normal durable outbox. It asks the agent to continue unfinished work and inspect any expected subagents or delegated jobs before resuming them. The injected prompt stays hidden by its internal message identity, including queued sends and reloaded history; the agent's activity, replies, questions and notifications behave normally. Empty chats do not receive it, and browser/SSE reconnects do not trigger another prompt. Pending recovery sends are reused; uncertain ones remain in the outbox for inspection. Look for `recovery.queued` and its message ID in the RPC/delivery logs.
+
 ## Scheduled tasks
 
 Pocket starts its owned Codex process when the service starts, even without an open phone client. It appends Pocket identity and scheduling instructions to the configured developer instructions, and adds a bundled `pocket` MCP server to that process only. The bundled scheduling tools are preapproved so future tasks can run unattended. It does not edit the global Codex configuration.
@@ -171,7 +175,7 @@ When due, Pocket silently injects the body into the real Codex chat using the sa
 
 Schedules and immutable delivery history live in owner-private `.local/schedules.sqlite` with SQLite WAL. Keep the database and its `-wal`/`-shm` files across updates; use SQLite backup facilities for a consistent live backup. Deleting a task cancels future occurrences and pending deliveries, while retaining delivery history so previous triggers remain hidden. Messages already accepted or in flight cannot be recalled.
 
-Tasks run only while this Mac is awake and Pocket is running. After downtime, Pocket sends one overdue occurrence per task and advances a repeated task to its next future occurrence; it does not flood the chat with every missed repetition. Restart recovery reuses each run's durable message ID. An uncertain Codex acknowledgment is retained for inspection rather than automatically replayed. Diagnose `schedule.*` events alongside the matching outbox receipt before retrying anything.
+Tasks run only while this Mac is awake and Pocket is running. After downtime, Pocket sends one overdue occurrence per task and advances a repeated task to its next future occurrence; it does not flood the chat with every missed repetition. After a restart, scheduled deliveries reuse each run's durable message ID. An uncertain Codex acknowledgment is retained for inspection rather than automatically replayed. Diagnose `schedule.*` events alongside the matching outbox receipt before retrying anything.
 
 ## Images
 
@@ -245,10 +249,13 @@ npm run test:e2e:questions
 npm run test:e2e:schedules
 npm run test:e2e:images
 npm run test:e2e:activity
+npm run test:recovery
 ```
 
 `npm run lint` runs ESLint with **`--max-warnings=0`**. ESLint and Prettier use the configs and pinned dependencies bundled with `jdeurt-engineering` 1.2.0. Their source lives in `tooling/engineering/`; the `.mjs` ESLint file is compiled from the bundled TypeScript source. Generated shadcn components and bundled tooling are excluded from application lint; Prettier checks the component source. The application uses the shared non-type-aware ESLint rules together with a separate strict TypeScript check. The two overrides preserve Node's event API and protocol/storage/React `null` values.
 
 Build first with `npm run build`. Browser tests use the real installed Codex process, make model calls in a new integration-test thread, and archive that thread afterward. They use port 3101 and a separate ignored state directory. Install Playwright's Chromium once with `npx playwright install chromium` if it is unavailable.
+
+`npm run test:recovery` uses a separate real Codex chat to check an empty start, resumed history, hidden recovery inputs, visible replies, connection deduplication and recovery after stopping an in-progress command. It archives the test chat afterward. Push completed work with normal Git pushes; do not force-push or rewrite remote history.
 
 References: [Codex app-server](https://learn.chatgpt.com/docs/app-server), [shadcn chat components](https://ui.shadcn.com/docs/components/base/message-scroller), [Next.js PWA guide](https://nextjs.org/docs/app/guides/progressive-web-apps), [Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve).
