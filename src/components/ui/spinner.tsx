@@ -12,14 +12,18 @@ function Spinner({ className, ...props }: React.ComponentProps<"svg">) {
       data-slot="spinner"
       role="status"
       aria-label="Loading"
-      className={cn(
-        "block size-4 shrink-0 origin-center animate-spin [transform-box:view-box] motion-reduce:animate-none",
-        className
-      )}
+      className={cn("block size-4 shrink-0", className)}
       {...props}
     >
-      <circle cx="12" cy="12" r="9" opacity="0.25" />
-      <path d="M12 3a9 9 0 1 1-8.56 6.219" />
+      <circle
+        className="spinner-arc"
+        cx="12"
+        cy="12"
+        r="9"
+        pathLength="100"
+        strokeDasharray="80 20"
+        strokeDashoffset="0"
+      />
     </svg>
   );
 }
