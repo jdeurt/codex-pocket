@@ -1,7 +1,7 @@
 "use client";
 import "./focused-composer.css";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { ArrowUpIcon, PaperclipIcon, TerminalIcon } from "lucide-react";
+import { ArrowUpIcon, PaperclipIcon } from "lucide-react";
 import { type DraftAttachment, useAttachments } from "@/hooks/use-attachments";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } from "@/components/ui/input-group";
@@ -101,10 +101,7 @@ export function Chat() {
   return (
     <main className="chat-shell">
       <header className="chat-header">
-        <div className="brand">
-          <TerminalIcon aria-hidden="true" />
-          <span>Pocket</span>
-        </div>
+        <span className="header-balance" aria-hidden="true" />
         <div className="thread-heading">
           <h1>Pocket</h1>
           <p>
