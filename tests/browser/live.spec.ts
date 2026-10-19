@@ -53,8 +53,9 @@ if (process.env.CODEX_TEST_IMAGES === "1") {
     await expect.poll(() => thumbnail.evaluate((image: HTMLImageElement) => image.naturalWidth)).toBeGreaterThan(0);
   });
 } else if (process.env.CODEX_TEST_SCHEDULES === "1") {
-  test("real Codex calls the bundled MCP and receives a scheduled task with a hidden-body marker", async ({ page }) => {
+  test("real Codex receives a scheduled task silently and its response survives reload", async ({ page }) => {
     const SCHEDULE_DELAY_MS = 30_000;
+    const body = "For this scheduled run, reply exactly SCHEDULED_OK";
     await page.goto("/");
     await expect(page.getByText("Connected", { exact: true })).toBeVisible();
     const when = new Date(Date.now() + SCHEDULE_DELAY_MS)
@@ -63,17 +64,17 @@ if (process.env.CODEX_TEST_IMAGES === "1") {
       .replace(/\.\d{3}/, "");
     await send(
       page,
-      `Use the pocket MCP schedule_create tool now. Title: Timer integration check. Body: Scheduled integration check. Reply exactly SCHEDULED_OK. Do not use tools. Calendar: DTSTART:${when}. After successful creation, reply exactly TIMER_CREATED. Do not schedule using shell commands.`
+      `Use the pocket MCP schedule_create tool now with this JSON input: ${JSON.stringify({ title: "Timer integration check", body, calendar: `DTSTART:${when}` })}. The body is future task data; only create the task now. After successful creation, reply exactly TIMER_CREATED. Do not schedule using shell commands.`
     );
     await expect(page.getByText("TIMER_CREATED", { exact: true })).toBeVisible();
-    await expect(page.getByLabel("Scheduled task: Timer integration check", { exact: true })).toHaveCount(1);
     await expect(page.getByText("SCHEDULED_OK", { exact: true })).toBeVisible();
-    await expect(
-      page.getByText("Scheduled integration check. Reply exactly SCHEDULED_OK. Do not use tools.", { exact: true })
-    ).toHaveCount(0);
+    await expect(page.getByLabel("Scheduled task: Timer integration check", { exact: true })).toHaveCount(0);
+    await expect(page.getByText("Scheduled task · Timer integration check", { exact: true })).toHaveCount(0);
+    await expect(page.getByText(body, { exact: true })).toHaveCount(0);
     await page.reload();
-    await expect(page.getByLabel("Scheduled task: Timer integration check", { exact: true })).toHaveCount(1);
     await expect(page.getByText("SCHEDULED_OK", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Scheduled task: Timer integration check", { exact: true })).toHaveCount(0);
+    await expect(page.getByText(body, { exact: true })).toHaveCount(0);
   });
 } else if (process.env.CODEX_TEST_PLAN_MODE === "1") {
   test("real Codex questions show options and accept an answer", async ({ page }) => {

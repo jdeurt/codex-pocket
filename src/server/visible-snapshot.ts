@@ -3,23 +3,18 @@ import { itemImageSources, itemImageUrl } from "../lib/images";
 
 // Only messages and explicitly projected display items leave the computer.
 export function visibleSnapshot(state: Snapshot): Snapshot {
-  const scheduled = new Map(Object.entries(state.scheduled ?? {}));
+  const scheduled = new Set(Object.keys(state.scheduled ?? {}));
 
   return {
     ...state,
     notices: [],
-    queue: state.queue.map((message) => {
-      const marker = scheduled.get(message.id);
-
-      return marker ? { ...message, text: "", scheduled: marker } : message;
-    }),
+    scheduled: {},
+    queue: state.queue.filter((message) => !scheduled.has(message.id)),
     turns: state.turns.map((turn) => ({
       ...turn,
       items: turn.items.flatMap<Item>((item) => {
-        const marker = item.type === "userMessage" ? scheduled.get(string(item.clientId)) : undefined;
-
-        if (marker) {
-          return { id: item.id, clientId: item.clientId, type: "scheduledTask", ...marker };
+        if (item.type === "userMessage" && scheduled.has(string(item.clientId))) {
+          return [];
         }
 
         const images = itemImageSources(item).map((source, index) => ({

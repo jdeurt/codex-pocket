@@ -93,11 +93,14 @@ test("schedule CRUD is scoped, revision checked, durable and owner private", asy
   }
 });
 
-test("scheduled bodies are removed from both queued and confirmed client snapshots", () => {
+test("scheduled triggers stay hidden while ordinary messages, replies and prompts remain visible", () => {
   const state = structuredClone(initialSnapshot);
-  const marker = { title: "Morning check", scheduledAt: FIRST };
-  state.scheduled["run-id"] = marker;
-  state.queue = [{ id: "run-id", text: "private injected instructions", status: "queued" }];
+  state.scheduled["run-id"] = { title: "Morning check", scheduledAt: FIRST };
+  state.queue = [
+    { id: "run-id", text: "private injected instructions", status: "queued" },
+    { id: "phone-id", text: "Phone follow-up", status: "sending" },
+  ];
+  state.requests = [{ id: "question", method: "item/tool/requestUserInput", params: { questions: [] } }];
   state.turns = [
     {
       id: "turn",
@@ -109,12 +112,25 @@ test("scheduled bodies are removed from both queued and confirmed client snapsho
           clientId: "run-id",
           content: [{ type: "text", text: "private injected instructions" }],
         },
+        { id: "reply", type: "agentMessage", text: "Task complete." },
+        { id: "phone", type: "userMessage", clientId: "ordinary-id", content: [{ type: "text", text: "Hello" }] },
       ],
     },
   ];
+  const original = structuredClone(state);
   const visible = visibleSnapshot(state);
   assert.equal(JSON.stringify(visible).includes("private injected instructions"), false);
-  assert.equal(visible.turns[0].items[0].type, "scheduledTask");
-  assert.equal(visible.queue[0].scheduled?.title, marker.title);
-  assert.equal(state.queue[0].text, "private injected instructions");
+  assert.equal(JSON.stringify(visible).includes("Morning check"), false);
+  assert.deepEqual(visible.turns[0].items, state.turns[0].items.slice(1));
+  assert.deepEqual(visible.queue, [state.queue[1]]);
+  assert.deepEqual(visible.requests, state.requests);
+  assert.deepEqual(visible.scheduled, {});
+  assert.deepEqual(state, original);
+
+  for (const status of ["sending", "unknown", "sent"] as const) {
+    state.queue[0].status = status;
+    assert.deepEqual(visibleSnapshot(state).queue, [state.queue[1]]);
+  }
+
+  assert.deepEqual(visibleSnapshot(visible), visible);
 });

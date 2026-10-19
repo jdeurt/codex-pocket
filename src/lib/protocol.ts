@@ -25,7 +25,6 @@ export interface QueuedMessage {
   id: string;
   text: string;
   status: "queued" | "sending" | "unknown" | "sent";
-  scheduled?: { title: string; scheduledAt: number };
 }
 export interface Snapshot {
   connection: "unconfigured" | "connecting" | "connected" | "disconnected";

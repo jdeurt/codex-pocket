@@ -3,9 +3,7 @@ import { type QueuedMessage, type Snapshot, string } from "./protocol";
 export function reconcileDeliveries(state: Snapshot, pending: QueuedMessage[]) {
   const confirmed = new Set(
     state.turns.flatMap((turn) =>
-      turn.items
-        .filter((item) => ["userMessage", "scheduledTask"].includes(item.type))
-        .map((item) => string(item.clientId))
+      turn.items.filter((item) => item.type === "userMessage").map((item) => string(item.clientId))
     )
   );
   const remaining = pending.filter((message) => !confirmed.has(message.id));

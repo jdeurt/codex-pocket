@@ -64,7 +64,7 @@ The working backlog is the [Pocket project in Linear](https://linear.app/juan-de
 - [x] Persist schedules and delivery state in SQLite. Schedules have a title and body; one-time schedules become inactive after firing.
 - [x] Provide create, read, update and delete tools through a bundled MCP server available to Pocket's Codex process.
 - [x] Inject due bodies as user input, using the configured steering/queueing behavior and durable message IDs.
-- [x] Display a muted clock/scheduled-task marker with the schedule title in chat, without showing its injected body as a user bubble.
+- [x] Run scheduled tasks silently: hide their queued/confirmed triggers, titles and injected bodies while showing the agent's responses, questions and approvals (JUA-37 supersedes the marker UI from JUA-28).
 - [x] Start Pocket's Codex process automatically and add scoped Pocket identity/scheduling instructions. Do not add delegation instructions.
 - [x] Document setup, tools, recurrence, restart recovery and diagnosis for an agent.
 - [x] Test with real Codex, require zero ESLint warnings, push the completed changes and restart the service.
@@ -83,6 +83,8 @@ These later requests are tracked separately in Linear. Keep their existing owner
 - [ ] [JUA-34](https://linear.app/juan-de-urtubey/issue/JUA-34): Use reply text as the push notification body.
 - [ ] [JUA-35](https://linear.app/juan-de-urtubey/issue/JUA-35): Suppress completion notifications while Pocket is visible.
 - [ ] [JUA-36](https://linear.app/juan-de-urtubey/issue/JUA-36): Collapse completed-turn activity under animated “Show activity” / “Hide activity” controls and match message spacing to Markdown.
+- [x] [JUA-37](https://linear.app/juan-de-urtubey/issue/JUA-37): Run scheduled tasks silently without chat markers.
+- [ ] [JUA-38](https://linear.app/juan-de-urtubey/issue/JUA-38): Show concise, plural activity labels beside the spinner, using “Calling tools” for all tool calls.
 
 ## Delivery cadence
 
