@@ -19,7 +19,7 @@ function Spinner({ className, ...props }: React.ComponentProps<"svg">) {
       {...props}
     >
       <circle cx="12" cy="12" r="9" opacity="0.25" />
-      <path d="M12 3a9 9 0 1 1-9 9" />
+      <path d="M12 3a9 9 0 1 1-8.56 6.219" />
     </svg>
   );
 }
