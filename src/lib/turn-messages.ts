@@ -1,9 +1,24 @@
-import type { Item, Turn } from "./protocol";
+import { type Item, type Turn, object, string } from "./protocol";
 
 export type TurnEntry = { kind: "message"; item: Item } | { kind: "activity"; id: string; items: Item[] };
 
 export function turnMessages(turn: Turn, active: boolean): TurnEntry[] {
-  const messages = turn.items.filter((item) => ["userMessage", "agentMessage", "imageOutput"].includes(item.type));
+  const messages = turn.items.filter((item) => {
+    if (!["userMessage", "agentMessage", "imageOutput"].includes(item.type)) {
+      return false;
+    }
+
+    if (
+      (Array.isArray(item.images) && item.images.length > 0) ||
+      (Array.isArray(item.attachments) && item.attachments.length > 0)
+    ) {
+      return true;
+    }
+
+    return item.type === "agentMessage"
+      ? !!string(item.text).trim()
+      : Array.isArray(item.content) && item.content.some((part) => !!string(object(part).text).trim());
+  });
 
   if (active || turn.status === "interrupted") {
     return messages.map((item) => ({ kind: "message", item }));
