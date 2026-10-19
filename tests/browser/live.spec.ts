@@ -6,7 +6,30 @@ async function send(page: Page, text: string) {
   await page.getByRole("button", { name: "Send message", exact: true }).click();
 }
 
-if (process.env.CODEX_TEST_PLAN_MODE === "1") {
+if (process.env.CODEX_TEST_SCHEDULES === "1") {
+  test("real Codex calls the bundled MCP and receives a scheduled task with a hidden-body marker", async ({ page }) => {
+    const SCHEDULE_DELAY_MS = 30_000;
+    await page.goto("/");
+    await expect(page.getByText("Connected", { exact: true })).toBeVisible();
+    const when = new Date(Date.now() + SCHEDULE_DELAY_MS)
+      .toISOString()
+      .replaceAll(/[-:]/g, "")
+      .replace(/\.\d{3}/, "");
+    await send(
+      page,
+      `Use the pocket MCP schedule_create tool now. Title: Timer integration check. Body: Scheduled integration check. Reply exactly SCHEDULED_OK. Do not use tools. Calendar: DTSTART:${when}. After successful creation, reply exactly TIMER_CREATED. Do not schedule using shell commands.`
+    );
+    await expect(page.getByText("TIMER_CREATED", { exact: true })).toBeVisible();
+    await expect(page.getByLabel("Scheduled task: Timer integration check", { exact: true })).toHaveCount(1);
+    await expect(page.getByText("SCHEDULED_OK", { exact: true })).toBeVisible();
+    await expect(
+      page.getByText("Scheduled integration check. Reply exactly SCHEDULED_OK. Do not use tools.", { exact: true })
+    ).toHaveCount(0);
+    await page.reload();
+    await expect(page.getByLabel("Scheduled task: Timer integration check", { exact: true })).toHaveCount(1);
+    await expect(page.getByText("SCHEDULED_OK", { exact: true })).toBeVisible();
+  });
+} else if (process.env.CODEX_TEST_PLAN_MODE === "1") {
   test("real Codex questions show options and accept an answer", async ({ page }) => {
     await page.goto("/");
     await expect(page.getByText("Connected", { exact: true })).toBeVisible();

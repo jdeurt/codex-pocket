@@ -58,16 +58,16 @@ The working backlog is the [Pocket project in Linear](https://linear.app/juan-de
 - [x] Retain client diagnostics through temporary disconnections and make restart/non-JSON errors understandable.
 - [x] Verify failed-send text preservation with real Codex, log rotation/redaction with unit tests, and notification geometry in Chrome; push and restart the deployed server. Visible iPhone notification delivery remains JUA-23.
 
-## Scheduling batch
+## Scheduling batch (shipped)
 
-- [ ] Validate iCalendar/RFC 5545 event text for one-time and recurring schedules, including timezone behavior.
-- [ ] Persist schedules and delivery state in SQLite. Schedules have a title and body; one-time schedules become inactive after firing.
-- [ ] Provide create, read, update and delete tools through a bundled MCP server available to Pocket's Codex process.
-- [ ] Inject due bodies as user input, using the configured steering/queueing behavior and durable message IDs.
-- [ ] Display a muted clock/scheduled-task marker with the schedule title in chat, without showing its injected body as a user bubble.
-- [ ] Start Pocket's Codex process automatically and add scoped Pocket identity/scheduling instructions. Do not add delegation instructions.
-- [ ] Document setup, tools, recurrence, restart recovery and diagnosis for an agent.
-- [ ] Test with real Codex, require zero ESLint warnings, push the completed changes and restart the service.
+- [x] Validate iCalendar/RFC 5545 event text for one-time and recurring schedules, including timezone behavior.
+- [x] Persist schedules and delivery state in SQLite. Schedules have a title and body; one-time schedules become inactive after firing.
+- [x] Provide create, read, update and delete tools through a bundled MCP server available to Pocket's Codex process.
+- [x] Inject due bodies as user input, using the configured steering/queueing behavior and durable message IDs.
+- [x] Display a muted clock/scheduled-task marker with the schedule title in chat, without showing its injected body as a user bubble.
+- [x] Start Pocket's Codex process automatically and add scoped Pocket identity/scheduling instructions. Do not add delegation instructions.
+- [x] Document setup, tools, recurrence, restart recovery and diagnosis for an agent.
+- [x] Test with real Codex, require zero ESLint warnings, push the completed changes and restart the service.
 
 ## Images batch
 

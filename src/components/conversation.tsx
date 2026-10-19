@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/message-scroller";
 import { Markdown } from "./markdown";
 import { Prompt } from "./prompt";
+import { ScheduledMarker } from "./scheduled-marker";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Spinner } from "@/components/ui/spinner";
 import { post } from "@/lib/client-api";
@@ -33,7 +34,7 @@ function messageText(item: Item) {
 export function Conversation({ state }: { state: Snapshot }) {
   const messages = state.turns
     .flatMap((turn) => turn.items)
-    .filter((item) => ["userMessage", "agentMessage"].includes(item.type));
+    .filter((item) => ["userMessage", "agentMessage", "scheduledTask"].includes(item.type));
   const thinking = !!state.activeTurnId && state.requests.length === 0;
 
   return (
@@ -73,46 +74,54 @@ export function Conversation({ state }: { state: Snapshot }) {
               ) : null}
               {messages.map((item) => (
                 <MessageScrollerItem messageId={item.id} key={item.id}>
-                  <Message align={item.type === "userMessage" ? "end" : "start"}>
-                    <MessageContent>
-                      <Bubble
-                        data-message-id={string(item.clientId) || item.id}
-                        data-delivery={item.type === "userMessage" ? "sent" : undefined}
-                        variant={item.type === "userMessage" ? "secondary" : "ghost"}
-                        align={item.type === "userMessage" ? "end" : "start"}
-                      >
-                        <BubbleContent>
-                          {item.type === "userMessage" ? (
-                            <p className="whitespace-pre-wrap">{messageText(item)}</p>
-                          ) : (
-                            <Markdown>{messageText(item)}</Markdown>
-                          )}
-                        </BubbleContent>
-                      </Bubble>
-                    </MessageContent>
-                  </Message>
+                  {item.type === "scheduledTask" ? (
+                    <ScheduledMarker title={string(item.title)} />
+                  ) : (
+                    <Message align={item.type === "userMessage" ? "end" : "start"}>
+                      <MessageContent>
+                        <Bubble
+                          data-message-id={string(item.clientId) || item.id}
+                          data-delivery={item.type === "userMessage" ? "sent" : undefined}
+                          variant={item.type === "userMessage" ? "secondary" : "ghost"}
+                          align={item.type === "userMessage" ? "end" : "start"}
+                        >
+                          <BubbleContent>
+                            {item.type === "userMessage" ? (
+                              <p className="whitespace-pre-wrap">{messageText(item)}</p>
+                            ) : (
+                              <Markdown>{messageText(item)}</Markdown>
+                            )}
+                          </BubbleContent>
+                        </Bubble>
+                      </MessageContent>
+                    </Message>
+                  )}
                 </MessageScrollerItem>
               ))}
               {state.queue.map((item) => (
                 <MessageScrollerItem messageId={`queue-${item.id}`} key={item.id}>
-                  <Message align="end">
-                    <MessageContent>
-                      <Bubble variant="secondary" align="end" data-message-id={item.id} data-delivery={item.status}>
-                        <BubbleContent>
-                          <p className="whitespace-pre-wrap">{item.text}</p>
-                        </BubbleContent>
-                      </Bubble>
-                      {item.status !== "sent" && (
-                        <p className="delivery-status">
-                          {item.status === "unknown"
-                            ? "Delivery uncertain. Check on your computer."
-                            : item.status === "sending"
-                              ? "Sending…"
-                              : "Queued"}
-                        </p>
-                      )}
-                    </MessageContent>
-                  </Message>
+                  {item.scheduled ? (
+                    <ScheduledMarker title={item.scheduled.title} />
+                  ) : (
+                    <Message align="end">
+                      <MessageContent>
+                        <Bubble variant="secondary" align="end" data-message-id={item.id} data-delivery={item.status}>
+                          <BubbleContent>
+                            <p className="whitespace-pre-wrap">{item.text}</p>
+                          </BubbleContent>
+                        </Bubble>
+                        {item.status !== "sent" && (
+                          <p className="delivery-status">
+                            {item.status === "unknown"
+                              ? "Delivery uncertain. Check on your computer."
+                              : item.status === "sending"
+                                ? "Sending…"
+                                : "Queued"}
+                          </p>
+                        )}
+                      </MessageContent>
+                    </Message>
+                  )}
                 </MessageScrollerItem>
               ))}
               {state.requests.map((request) => (

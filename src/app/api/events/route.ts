@@ -3,6 +3,7 @@ import { HTTP_FORBIDDEN } from "@/lib/constants";
 import type { Snapshot } from "@/lib/protocol";
 import { bridge } from "@/server/bridge";
 import { log } from "@/server/logging";
+import { visibleSnapshot } from "@/server/visible-snapshot";
 
 const HEARTBEAT_MS = 15_000;
 
@@ -29,15 +30,7 @@ export async function GET(request: Request) {
           return;
         }
 
-        // Tool activity is represented only by Thinking. Do not transmit tool logs.
-        const visible = {
-          ...state,
-          notices: [],
-          turns: state.turns.map((turn) => ({
-            ...turn,
-            items: turn.items.filter((item) => ["userMessage", "agentMessage"].includes(item.type)),
-          })),
-        };
+        const visible = visibleSnapshot(state);
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(visible)}\n\n`));
       };
       const heartbeat = setInterval(() => {

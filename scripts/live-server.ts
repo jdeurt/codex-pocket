@@ -10,6 +10,7 @@ import { spawn } from "node:child_process";
 nextEnv.loadEnvConfig(process.cwd());
 const directory = path.resolve(".local", "live-check", crypto.randomUUID());
 const project = path.join(directory, "project");
+process.env.CODEX_POCKET_STATE_DIR = path.join(directory, "bridge");
 await mkdir(project, { recursive: true });
 const config = configSchema.parse({
   threadId: "bootstrap",

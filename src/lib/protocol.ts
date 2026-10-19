@@ -25,6 +25,7 @@ export interface QueuedMessage {
   id: string;
   text: string;
   status: "queued" | "sending" | "unknown" | "sent";
+  scheduled?: { title: string; scheduledAt: number };
 }
 export interface Snapshot {
   connection: "unconfigured" | "connecting" | "connected" | "disconnected";
@@ -37,6 +38,7 @@ export interface Snapshot {
   queue: QueuedMessage[];
   requests: PendingRequest[];
   notices: { id: string; title: string; detail: string }[];
+  scheduled: Record<string, { title: string; scheduledAt: number }>;
   error?: string;
 }
 export const initialSnapshot: Snapshot = {
@@ -46,6 +48,7 @@ export const initialSnapshot: Snapshot = {
   queue: [],
   requests: [],
   notices: [],
+  scheduled: {},
 };
 export function object(value: unknown): Data {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? (value as Data) : {};

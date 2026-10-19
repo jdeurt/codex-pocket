@@ -138,6 +138,35 @@ VAPID keys, device subscriptions and notification receipts are generated automat
 
 After setup, enable notifications on the actual phone, send a harmless message, close the PWA and verify that a notification arrives when Codex finishes. This device permission and delivery check must happen on the phone; a desktop browser emulator does not verify iOS notification delivery.
 
+## Scheduled tasks
+
+Pocket starts its owned Codex process when the service starts, even without an open phone client. It appends Pocket identity and scheduling instructions to the configured developer instructions, and adds a bundled `pocket` MCP server to that process only. The bundled scheduling tools are preapproved so future tasks can run unattended. It does not edit the global Codex configuration.
+
+Ask Pocket in chat to schedule something, or use its MCP tools from the Codex session: `schedule_create`, `schedule_list`, `schedule_get`, `schedule_update` and `schedule_delete`. A schedule has a `title`, a `body` containing the instructions to send later, a `calendar` string and an optional `active` boolean. Update accepts `changes` and an optional `expectedRevision`; read the latest revision before editing.
+
+Calendar text is iCalendar/RFC 5545: a single VEVENT or VCALENDAR containing one VEVENT, or just DTSTART and recurrence properties. Use seconds and either UTC `Z` or an IANA `TZID`. Floating times, all-day dates, custom timezones, nested alarms, multiple events and unsupported properties are rejected. Recurrence evaluation has a two-second limit.
+
+One-time example (replace the date with a future instant):
+
+```text
+DTSTART:20261020T160000Z
+```
+
+Weekday example in the computer operator's chosen timezone:
+
+```text
+DTSTART;TZID=America/Los_Angeles:20261020T090000
+RRULE:FREQ=WEEKLY;BYDAY=MO,TU,WE,TH,FR
+```
+
+RRULE supports recurrence fields such as COUNT or UTC UNTIL, and RDATE/EXDATE add or exclude occurrences. Ask the agent to read the computer's current date and confirm the intended timezone before creating an event. An active schedule must have a future occurrence. Enable/disable uses `active: true` or `false`.
+
+When due, Pocket injects the body into the real Codex chat using the same steering/queueing mode as phone messages. The phone shows a muted clock marker, **Scheduled task · title**, instead of the injected user-message body. The agent can still mention the task's details in its response. A one-time event becomes inactive after it fires.
+
+Schedules and immutable delivery history live in owner-private `.local/schedules.sqlite` with SQLite WAL. Keep the database and its `-wal`/`-shm` files across updates; use SQLite backup facilities for a consistent live backup. Deleting a task cancels future occurrences and pending deliveries, while preserving historical markers. Messages already accepted or in flight cannot be recalled.
+
+Tasks run only while this Mac is awake and Pocket is running. After downtime, Pocket sends one overdue occurrence per task and advances a repeated task to its next future occurrence; it does not flood the chat with every missed repetition. Restart recovery reuses each run's durable message ID. An uncertain Codex acknowledgment is retained for inspection rather than automatically replayed. Diagnose `schedule.*` events alongside the matching outbox receipt before retrying anything.
+
 ## Environment variables
 
 | Variable                    | Purpose                                                   | Default                                |
@@ -148,11 +177,11 @@ After setup, enable notifications on the actual phone, send a harmless message, 
 | `CODEX_ACTIVE_MESSAGE_MODE` | Send during a turn: `steer` or `queue`                    | `steer`                                |
 | `CODEX_ALLOWED_ORIGINS`     | Comma-separated allowed origins, without trailing slashes | Localhost and loopback on port 3000    |
 | `CODEX_SERVER_ARGS`         | JSON array of arguments passed directly to Codex          | `["app-server","--listen","stdio://"]` |
-| `CODEX_POCKET_STATE_DIR`    | Local delivery receipts and pending desktop requests      | `.local`                               |
+| `CODEX_POCKET_STATE_DIR`    | Local receipts, requests, push keys, schedules and logs   | `.local`                               |
 
 Codex uses its local login and configuration. The bridge sends no per-turn model, sandbox, permission or approval-policy overrides. Configure process-wide overrides with `CODEX_SERVER_ARGS` on the computer. The header displays the effective model and reasoning effort returned by Codex.
 
-The default transport owns a local `codex app-server` process. It resumes the saved thread when connecting and restarts that process after a disconnect. It cannot steer an unrelated CLI process already running elsewhere. Use this bridge as the thread's active owner. Codex builds that provide a shared daemon can use `CODEX_SERVER_ARGS='["app-server","proxy"]'`; that requires a daemon started separately, and only rejoins threads hosted by that daemon.
+The default transport owns a local `codex app-server` process. It resumes the saved thread at service startup and restarts that process after a disconnect. It cannot steer an unrelated CLI process already running elsewhere. Use this bridge as the thread's active owner. Codex builds that provide a shared daemon can use `CODEX_SERVER_ARGS='["app-server","proxy"]'`; that requires a daemon started separately, and only rejoins threads hosted by that daemon.
 
 Pending sends appear locally before the network round trip. Codex client message IDs reconcile them with confirmed history, including steering messages, without duplicating identical text. Failed or uncertain sends stay visible.
 

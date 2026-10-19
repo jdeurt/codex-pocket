@@ -4,6 +4,7 @@ import type { Config } from "./config";
 import { EventEmitter } from "node:events";
 import { createInterface } from "node:readline";
 import { log } from "./logging";
+import { pocketServerArgs } from "./pocket-runtime";
 
 const ACKNOWLEDGEMENT_TIMEOUT_MS = 90_000;
 
@@ -39,11 +40,9 @@ export class CodexRpc extends EventEmitter {
   }
 
   async connect(config: Config) {
-    log().info(
-      { binary: config.codexBinary, args: config.serverArgs, cwd: config.cwd, threadId: config.threadId },
-      "codex.spawn"
-    );
-    this.child = spawn(config.codexBinary, config.serverArgs, { cwd: config.cwd, shell: false });
+    const args = pocketServerArgs(config);
+    log().info({ binary: config.codexBinary, args, cwd: config.cwd, threadId: config.threadId }, "codex.spawn");
+    this.child = spawn(config.codexBinary, args, { cwd: config.cwd, shell: false });
     const child = this.child;
     const lines = createInterface({ input: child.stdout });
     lines.on("line", (line) => {

@@ -22,8 +22,8 @@ export default defineConfig([
     rules: { "unicorn/prefer-event-target": "off" },
   },
   {
-    files: ["src/**"],
-    // JSON-RPC and React APIs both use null as a meaningful wire or UI value.
+    files: ["src/**", "tests/**"],
+    // JSON-RPC, SQLite and React use null as a meaningful wire, storage or UI value.
     rules: { "unicorn/no-null": "off" },
   },
 ]);

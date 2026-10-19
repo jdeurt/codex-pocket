@@ -1,12 +1,5 @@
 import { type Config, readConfig } from "./config";
-import {
-  type QueuedMessage,
-  type RpcEvent,
-  type Snapshot,
-  type Thread,
-  type Turn,
-  initialSnapshot,
-} from "../lib/protocol";
+import { type QueuedMessage, type RpcEvent, type Snapshot, type Turn, initialSnapshot } from "../lib/protocol";
 import { type Receipt, persistReceipts, restoreReceipts } from "./outbox";
 import { CodexRpc } from "./rpc";
 import { EventEmitter } from "node:events";
@@ -16,6 +9,8 @@ import { log } from "./logging";
 import { notifyTurnComplete } from "./push";
 import { reduceEvent } from "./reducer";
 import { resolveDesktopReplies } from "./desktop";
+import { resumePocket } from "./pocket-runtime";
+import { schedules } from "./schedules";
 import { validateAnswer } from "./answers";
 import { writeLocal } from "./local-state";
 
@@ -104,6 +99,7 @@ export class Bridge extends EventEmitter {
     }
 
     this.config = config;
+    this.refreshScheduled();
     this.snapshot.connection = "connecting";
     this.snapshot.threadId = config.threadId;
     this.snapshot.error = undefined;
@@ -140,13 +136,7 @@ export class Bridge extends EventEmitter {
     // Diagnostics stay in the host terminal; they can contain local account details.
     rpc.on("diagnostic", (text: string) => log().debug({ text }, "codex.stderr"));
     await rpc.connect(config);
-    const resumed = await rpc.request<{ thread: Thread; model: string; reasoningEffort: string | null }>(
-      "thread/resume",
-      {
-        threadId: config.threadId,
-        excludeTurns: true,
-      }
-    );
+    const resumed = await resumePocket(rpc, config);
     const { thread } = resumed;
     this.snapshot.model = resumed.model;
     this.snapshot.reasoningEffort = resumed.reasoningEffort;
@@ -268,6 +258,16 @@ export class Bridge extends EventEmitter {
       await this.connecting;
     } finally {
       this.connecting = undefined;
+    }
+  }
+  refreshScheduled() {
+    if (this.config) {
+      this.snapshot.scheduled = Object.fromEntries(
+        schedules()
+          .runs(this.config.threadId)
+          .filter((run) => run.status !== "cancelled")
+          .map((run) => [run.id, { title: run.title, scheduledAt: run.scheduledAt }])
+      );
     }
   }
   async send(id: string, text: string) {
