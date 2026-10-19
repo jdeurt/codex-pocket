@@ -1,4 +1,5 @@
 "use client";
+import "./focused-composer.css";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { ArrowUpIcon, PaperclipIcon, TerminalIcon } from "lucide-react";
 import { type DraftAttachment, useAttachments } from "@/hooks/use-attachments";
@@ -13,6 +14,7 @@ import { NotificationPrompt } from "./notification-prompt";
 import { connectionStatus } from "@/lib/connection-status";
 import { modelDescription } from "@/lib/model-description";
 import { post } from "@/lib/client-api";
+import { useComposerViewport } from "@/hooks/use-composer-viewport";
 import { useDraft } from "@/hooks/use-draft";
 
 function hasMessage(text: string, files: DraftAttachment[]) {
@@ -26,6 +28,7 @@ export function Chat() {
   const [error, setError] = useState("");
   const messageId = useRef<string | null>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
+  useComposerViewport(textarea);
   const filePicker = useRef<HTMLInputElement>(null);
   const recoveredMessage = useRef<string | undefined>(undefined);
   const attachments = useAttachments(state.threadId);
