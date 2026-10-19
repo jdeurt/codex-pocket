@@ -136,7 +136,16 @@ export function Conversation({ state }: { state: Snapshot }) {
               ))}
               {thinking && (
                 <MessageScrollerItem messageId="thinking">
-                  <Spinner className="activity-spinner" aria-label="Thinking" />
+                  <div
+                    className="activity-indicator"
+                    role="status"
+                    aria-label="Pocket activity"
+                    aria-live="polite"
+                    aria-atomic="true"
+                  >
+                    <Spinner className="activity-spinner" aria-hidden="true" role={undefined} />
+                    <span>{state.activity || "Considering options"}</span>
+                  </div>
                 </MessageScrollerItem>
               )}
             </MessageScrollerContent>

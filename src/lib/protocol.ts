@@ -33,6 +33,7 @@ export interface Snapshot {
   reasoningEffort?: string | null;
   threadId?: string;
   activeTurnId?: string;
+  activity?: string;
   turns: Turn[];
   queue: QueuedMessage[];
   requests: PendingRequest[];

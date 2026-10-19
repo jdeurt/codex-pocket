@@ -101,6 +101,7 @@ export class Bridge extends EventEmitter {
     this.config = config;
     this.refreshScheduled();
     this.snapshot.connection = "connecting";
+    this.snapshot.activity = undefined;
     this.snapshot.threadId = config.threadId;
     this.snapshot.error = undefined;
     this.snapshot.requests = [];

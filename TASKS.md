@@ -84,7 +84,8 @@ These later requests are tracked separately in Linear. Keep their existing owner
 - [ ] [JUA-35](https://linear.app/juan-de-urtubey/issue/JUA-35): Suppress completion notifications while Pocket is visible.
 - [ ] [JUA-36](https://linear.app/juan-de-urtubey/issue/JUA-36): Collapse completed-turn activity under animated “Show activity” / “Hide activity” controls and match message spacing to Markdown.
 - [x] [JUA-37](https://linear.app/juan-de-urtubey/issue/JUA-37): Run scheduled tasks silently without chat markers.
-- [ ] [JUA-38](https://linear.app/juan-de-urtubey/issue/JUA-38): Show concise, plural activity labels beside the spinner, using “Calling tools” for all tool calls.
+- [x] [JUA-38](https://linear.app/juan-de-urtubey/issue/JUA-38): Show concise, plural activity labels beside the spinner, using “Calling tools” for all tool calls.
+- [x] [JUA-39](https://linear.app/juan-de-urtubey/issue/JUA-39): Restore fresh-open CSS/JavaScript and use the normal stop/build/start sequence. The operator accepted restarting the full service; keep the existing build layout.
 
 ## Notification content and foreground behavior
 

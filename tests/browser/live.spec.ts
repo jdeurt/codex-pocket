@@ -183,7 +183,7 @@ if (process.env.CODEX_TEST_IMAGES === "1") {
     await expect(observer.getByText(/STREAM_START[\s\S]*STREAM_END/).last()).toBeVisible();
     await observer.close();
     await send(page, "Run the read-only shell command sleep 5, then reply BEFORE_STEER. Do not change any files.");
-    await expect(page.getByRole("status", { name: "Thinking" })).toBeVisible();
+    await expect(page.getByRole("status", { name: "Pocket activity" })).toContainText("Running commands");
     await send(page, "Steering update: reply exactly STEER_OK instead.");
 
     if (process.env.CODEX_TEST_ACTIVE_MODE === "queue") {

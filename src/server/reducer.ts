@@ -1,4 +1,5 @@
 import { type Item, type RpcEvent, type Snapshot, type Turn, object, pretty, string } from "../lib/protocol";
+import { updateActivity } from "./activity";
 
 const MISSING_INDEX = -1;
 
@@ -31,6 +32,7 @@ export function reduceEvent(state: Snapshot, event: RpcEvent) {
 
       turn.status = "inProgress";
       state.activeTurnId = turn.id;
+      state.activity = "Considering options";
       state.error = undefined;
       break;
     }
@@ -45,6 +47,7 @@ export function reduceEvent(state: Snapshot, event: RpcEvent) {
 
       if (state.activeTurnId === incoming.id) {
         state.activeTurnId = undefined;
+        state.activity = undefined;
       }
 
       if (incoming.error) {
@@ -112,4 +115,6 @@ export function reduceEvent(state: Snapshot, event: RpcEvent) {
       break;
     }
   }
+
+  updateActivity(state, event, turn);
 }

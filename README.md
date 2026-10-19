@@ -92,7 +92,7 @@ Connect the phone to the same tailnet, open `POCKET_ORIGIN` and add it to the ho
 
 ### 5. Verify the running deployment
 
-Open the HTTPS URL in a mobile browser or a mobile browser emulator. Confirm the title is Pocket, the model/effort match the requested profile and the connection is live. Send a harmless message through the UI and confirm a real reply. The outgoing bubble should appear immediately, become solid after acknowledgment and appear on a second connected client without a refresh. Replies and the activity spinner update through server-sent events.
+Open the HTTPS URL in a mobile browser or a mobile browser emulator. Confirm the title is Pocket, the model/effort match the requested profile and the connection is live. Send a harmless message through the UI and confirm a real reply. The outgoing bubble should appear immediately, become solid after acknowledgment and appear on a second connected client without a refresh. Replies and the activity spinner update through server-sent events. A small muted label beside the spinner summarizes the latest action, such as Reading files, Editing files or Calling tools, without exposing paths, arguments or private reasoning. Labels use plural targets with no trailing punctuation; MCP and other tool calls share Calling tools.
 
 Check the effective permission settings printed during setup and the actual service process arguments. Verify history returns after a page reload and an idle service restart. Do not interrupt an active Codex turn to deploy an update. Report the HTTPS URL, chosen working directory, model/effort, access policy and checks performed to the operator. Do not commit `.env.local`, `.local/`, local thread IDs or machine-specific URLs.
 
@@ -106,7 +106,7 @@ launchctl kickstart -k "gui/$(id -u)/dev.pocket.web"
 
 Logs are in `.local/logs/pocket.log` and `.local/logs/pocket.err.log`. To inspect service state, use `launchctl print "gui/$(id -u)/dev.pocket.web"`.
 
-Before updating dependencies or rebuilding an installed deployment, wait for Codex to finish its active turn, then stop Pocket's service. This prevents the running server from serving a partially replaced build:
+Before updating dependencies or rebuilding an installed deployment, wait for Codex to finish its active turn, then stop Pocket's service. Building replaces `.next` assets; leaving the old server running can make even a fresh browser open request missing CSS and JavaScript. Use the complete stop/build/start sequence below. No browser cache clearing is needed:
 
 ```sh
 launchctl bootout "gui/$(id -u)/dev.pocket.web"

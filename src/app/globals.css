@@ -256,12 +256,20 @@
 [data-delivery="unknown"] {
   opacity: 0.55;
 }
-.activity-spinner {
-  display: block;
-  width: 1em;
-  height: 1em;
+.activity-indicator {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   color: var(--muted-foreground);
   opacity: 0.7;
+  font-size: 13px;
+  line-height: 20px;
+}
+.activity-spinner {
+  display: block;
+  flex-shrink: 0;
+  width: 1rem;
+  height: 1rem;
 }
 .composer-wrap {
   position: relative;
