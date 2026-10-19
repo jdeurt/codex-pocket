@@ -48,18 +48,34 @@ function measureRow(element: HTMLElement, entry: ResizeObserverEntry | undefined
   return entry?.borderBoxSize[0]?.blockSize ?? element.getBoundingClientRect().height;
 }
 
-function hasVisibleContent(item: Item) {
-  // Empty streaming placeholders must not create an invisible row before status.
-  if (
+function hasMedia(item: Item) {
+  return (
     (Array.isArray(item.attachments) && item.attachments.length > 0) ||
     (Array.isArray(item.images) && item.images.length > 0)
-  ) {
+  );
+}
+
+function hasVisibleContent(item: Item, id: string, emptyContent: Map<string, string>) {
+  // Empty streaming placeholders must not create an invisible row before status.
+  if (hasMedia(item)) {
     return true;
   }
 
   return item.type === "agentMessage"
-    ? string(item.text).trim().length > 0
+    ? string(item.text).trim().length > 0 && emptyContent.get(id) !== string(item.text)
     : Array.isArray(item.content) && item.content.some((part) => string(object(part).text).trim().length > 0);
+}
+
+function isEmptyMarkdown(element: HTMLElement) {
+  // Use the shared renderer's result: definitions/headings can have source but
+  // no visible box. Media and interactive/custom blocks remain eligible.
+  return (
+    element.querySelector(".markdown") !== null &&
+    !element.querySelector(
+      "button, img, video, audio, canvas, svg, input, select, textarea, pre, code, hr, table, iframe, [role=button], [role=status]"
+    ) &&
+    element.firstElementChild?.getBoundingClientRect().height === 0
+  );
 }
 
 function EmptyTranscript({ children }: { children: ReactNode }) {
@@ -84,16 +100,18 @@ function EmptyTranscript({ children }: { children: ReactNode }) {
   );
 }
 
-function rowsForTurns(turns: TranscriptTurn[], expanded: Set<string>): Row[] {
+function rowsForTurns(turns: TranscriptTurn[], expanded: Set<string>, emptyContent: Map<string, string>): Row[] {
   return turns.flatMap((turn) =>
     turn.entries.flatMap<Row>((entry) => {
       if (entry.kind === "message") {
-        return hasVisibleContent(entry.item)
-          ? { id: `${turn.id}/${string(entry.item.clientId) || entry.item.id}`, entry }
-          : [];
+        const id = `${turn.id}/${string(entry.item.clientId) || entry.item.id}`;
+
+        return hasVisibleContent(entry.item, id, emptyContent) ? { id, entry } : [];
       }
 
-      const items = entry.items.filter((item) => hasVisibleContent(item));
+      const items = entry.items.filter((item) =>
+        hasVisibleContent(item, `${turn.id}/${string(item.clientId) || item.id}`, emptyContent)
+      );
 
       if (items.length === 0) {
         return [];
@@ -119,11 +137,13 @@ function MeasuredTranscript({
   footer,
   expanded,
   toggle,
+  onEmpty,
 }: {
   rows: Row[];
   footer: ReactNode[];
   expanded: Set<string>;
   toggle: (id: string) => void;
+  onEmpty: (id: string, source: string) => void;
 }) {
   // TanStack exposes a mutable controller that React Compiler must not memoize.
   "use no memo";
@@ -151,7 +171,21 @@ function MeasuredTranscript({
     paddingStart: PADDING_START,
     paddingEnd: PADDING_END,
     rangeExtractor: messageRange,
-    measureElement: measureRow,
+    measureElement: (element, entry) => {
+      const row = rows[Number(element.dataset.index)];
+
+      if (
+        row?.entry.kind === "message" &&
+        row.entry.item.type === "agentMessage" &&
+        !hasMedia(row.entry.item) &&
+        viewport.current?.clientWidth &&
+        isEmptyMarkdown(element)
+      ) {
+        onEmpty(row.id, string(row.entry.item.text));
+      }
+
+      return measureRow(element, entry);
+    },
     onChange: (instance, sync) => {
       const end = instance.isAtEnd();
       setAtEnd(end);
@@ -240,7 +274,8 @@ function MeasuredTranscript({
                   ref={(element) => virtualizer.measureElement(element)}
                   data-index={rows.length}
                   data-slot="transcript-footer"
-                  className="absolute top-0 left-0 flex w-full min-w-0 flex-col [&:has(>:not(:empty))]:gap-(--message-block-gap) [&:has(>:not(:empty))]:pt-(--message-block-gap) [&>:empty]:hidden"
+                  data-has-messages={rows.length > 0 || undefined}
+                  className="absolute top-0 left-0 flex w-full min-w-0 flex-col [&:has(>:not(:empty))]:gap-(--message-block-gap) [&[data-has-messages]:has(>:not(:empty))]:pt-(--message-block-gap) [&>:empty]:hidden"
                   style={{
                     transform: `translateY(${footerRow?.start ?? 0}px)`,
                   }}
@@ -274,10 +309,14 @@ function MeasuredTranscript({
 // with the caller; virtualization limits DOM work, not the transcript payload.
 export function VirtualizedTranscript({ turns, children }: { turns: TranscriptTurn[]; children: ReactNode }) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
-  const rows = useMemo(() => rowsForTurns(turns, expanded), [turns, expanded]);
+  const [emptyContent, setEmptyContent] = useState<Map<string, string>>(() => new Map());
+  const onEmpty = useCallback((id: string, source: string) => {
+    setEmptyContent((previous) => (previous.get(id) === source ? previous : new Map(previous).set(id, source)));
+  }, []);
+  const rows = useMemo(() => rowsForTurns(turns, expanded, emptyContent), [turns, expanded, emptyContent]);
   const footer = Children.toArray(children);
 
-  if (rows.length === 0) {
+  if (turns.length === 0) {
     return <EmptyTranscript>{children}</EmptyTranscript>;
   }
 
@@ -286,6 +325,7 @@ export function VirtualizedTranscript({ turns, children }: { turns: TranscriptTu
       rows={rows}
       footer={footer}
       expanded={expanded}
+      onEmpty={onEmpty}
       toggle={(id) => {
         setExpanded((previous) => {
           const next = new Set(previous);
