@@ -27,17 +27,17 @@ test("a running turn keeps visible messages in order without an expander", () =>
   );
 });
 
-test("completed activity collapses per turn while final replies, user steering and images stay outside", () => {
+test("steering preserves earlier updates while subsequent activity collapses beside the final reply", () => {
   const entries = turnMessages(turn, false);
   const activity = entries.find((entry) => entry.kind === "activity");
   assert.ok(activity?.kind === "activity");
   assert.deepEqual(
     activity.items.map((item) => item.id),
-    ["first", "second"]
+    ["second"]
   );
   assert.deepEqual(
     entries.flatMap((entry) => (entry.kind === "message" ? [entry.item.id] : [])),
-    ["user", "steering", "image", "final"]
+    ["user", "first", "steering", "image", "final"]
   );
   assert.deepEqual(turnMessages(structuredClone(turn), false), entries);
   assert.notEqual(
@@ -46,7 +46,7 @@ test("completed activity collapses per turn while final replies, user steering a
   );
 });
 
-test("legacy phase-less history keeps its last reply, and commentary-only interrupted turns remain inspectable", () => {
+test("legacy phase-less history keeps its last reply, and commentary-only interrupted turns remain visible", () => {
   const legacy = {
     ...turn,
     items: items.filter((item) => item.type === "agentMessage").map((item) => ({ ...item, phase: null })),
@@ -63,5 +63,40 @@ test("legacy phase-less history keeps its last reply, and commentary-only interr
     false
   );
   const interrupted = turnMessages({ ...turn, status: "interrupted", items: [items[1]] }, false);
-  assert.equal(interrupted[0].kind, "activity");
+  assert.equal(interrupted[0].kind, "message");
+});
+
+test("uninterrupted activity still collapses with the final answer outside", () => {
+  const ordinary = { ...turn, items: items.filter((item) => item.id !== "steering") };
+  const entries = turnMessages(ordinary, false);
+  assert.deepEqual(
+    entries.map((entry) => entry.kind),
+    ["message", "activity", "message", "message"]
+  );
+  const activity = entries[1];
+  assert.ok(activity.kind === "activity");
+  assert.deepEqual(
+    activity.items.map((item) => item.id),
+    ["first", "second"]
+  );
+  assert.equal(entries.at(LAST_ITEM_INDEX)?.kind, "message");
+});
+
+test("each repeated interruption fixes all preceding updates in their chronological positions", () => {
+  const repeated: Turn = {
+    ...turn,
+    items: [
+      ...items.slice(0, LAST_ITEM_INDEX),
+      { id: "steering-again", type: "userMessage" },
+      { id: "third", type: "agentMessage", phase: "commentary", text: "Third update" },
+      items.at(LAST_ITEM_INDEX) as Item,
+    ],
+  };
+  const entries = turnMessages(repeated, false);
+  assert.deepEqual(
+    entries.flatMap((entry) => (entry.kind === "message" ? [entry.item.id] : [])),
+    ["user", "first", "steering", "second", "image", "steering-again", "final"]
+  );
+  assert.deepEqual(turnMessages(structuredClone(repeated), false), entries);
+  assert.equal(entries.filter((entry) => entry.kind === "activity").length, 1);
 });

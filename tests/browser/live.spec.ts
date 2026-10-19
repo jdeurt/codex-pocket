@@ -1,11 +1,8 @@
-import { type Page, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import type { Snapshot } from "../../src/lib/protocol";
+import { checkActivityInterruptions } from "./activity-interruptions";
 import { checkImagePreviews } from "./image-previews";
-
-async function send(page: Page, text: string) {
-  await page.getByRole("textbox", { name: "Message Pocket" }).fill(text);
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
-}
+import { send } from "./messages";
 
 if (process.env.CODEX_TEST_ACTIVITY === "1") {
   test("real Codex activity stays live, collapses at completion and preserves its final reply", async ({ page }) => {
@@ -20,13 +17,21 @@ if (process.env.CODEX_TEST_ACTIVITY === "1") {
       .filter({ has: page.getByText(prompt, { exact: true }) });
     await expect(turn.getByRole("button", { name: "Show activity", exact: true })).toHaveCount(0);
     await expect(page.getByRole("status", { name: "Pocket activity" })).toContainText("Running commands");
+    const muted = await page.getByRole("status", { name: "Pocket activity" }).evaluate((element) => ({
+      color: getComputedStyle(element).color,
+      opacity: getComputedStyle(element).opacity,
+    }));
     await expect(page.getByText("ACTIVITY_FINAL", { exact: true })).toBeVisible();
     const show = turn.getByRole("button", { name: "Show activity", exact: true });
     await expect(show).toBeVisible();
+    await expect(show).toHaveCSS("opacity", muted.opacity);
+    await expect(show.locator('[data-slot="trace-line"]')).toHaveCSS("color", muted.color);
+    await expect(show.locator("svg")).toHaveCSS("color", muted.color);
     await expect(page.getByText("ACTIVITY_ONE_FIRST", { exact: true })).toBeHidden();
     await show.click();
     const hide = turn.getByRole("button", { name: "Hide activity", exact: true });
     await expect(hide).toHaveAttribute("aria-expanded", "true");
+    await expect(hide.locator('[data-slot="trace-line"]')).toHaveCSS("color", muted.color);
     await expect(page.getByText("ACTIVITY_TWO", { exact: true })).toBeVisible();
     const panel = turn.locator('[data-slot="trace-collapsible-content"]');
     await expect(panel.getByText("ACTIVITY_FINAL", { exact: true })).toHaveCount(0);
@@ -65,6 +70,9 @@ if (process.env.CODEX_TEST_ACTIVITY === "1") {
     await expect(show).toBeVisible();
     await expect(page.getByText("ACTIVITY_ONE_FIRST", { exact: true })).toBeHidden();
     await expect(page.getByText("ACTIVITY_FINAL", { exact: true })).toBeVisible();
+  });
+  test("real Codex steering preserves earlier messages in order after completion and reload", async ({ page }) => {
+    await checkActivityInterruptions(page);
   });
 } else if (process.env.CODEX_TEST_IMAGES === "1") {
   test("real Codex images wrap naturally and support a fitted, swipe-dismissed viewer", async ({

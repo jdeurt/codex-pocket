@@ -94,7 +94,7 @@ Connect the phone to the same tailnet, open `POCKET_ORIGIN` and add it to the ho
 
 Open the HTTPS URL in a mobile browser or a mobile browser emulator. Confirm the title is Pocket, the model/effort match the requested profile and the connection is live. Send a harmless message through the UI and confirm a real reply. The outgoing bubble should appear immediately, become solid after acknowledgment and appear on a second connected client without a refresh. Replies and the activity spinner update through server-sent events. A small muted label beside the spinner summarizes the latest action, such as Reading files, Editing files or Calling tools, without exposing paths, arguments or private reasoning. Labels use plural targets with no trailing punctuation; MCP and other tool calls share Calling tools. While response text streams, show only the spinner, without a label.
 
-Check the effective permission settings printed during setup and the actual service process arguments. Verify history returns after a page reload and an idle service restart. Do not interrupt an active Codex turn to deploy an update. Report the HTTPS URL, chosen working directory, model/effort, access policy and checks performed to the operator. Do not commit `.env.local`, `.local/`, local thread IDs or machine-specific URLs.
+Check the effective permission settings printed during setup and the actual service process arguments. Verify history returns after a page reload and an idle service restart. Wait for active Codex turns before deploying unless the operator has requested a full service restart. Report the HTTPS URL, chosen working directory, model/effort, access policy and checks performed to the operator. Do not commit `.env.local`, `.local/`, local thread IDs or machine-specific URLs.
 
 ## Operate and update
 
@@ -106,7 +106,7 @@ launchctl kickstart -k "gui/$(id -u)/dev.pocket.web"
 
 Logs are in `.local/logs/pocket.log` and `.local/logs/pocket.err.log`. To inspect service state, use `launchctl print "gui/$(id -u)/dev.pocket.web"`.
 
-Before updating dependencies or rebuilding an installed deployment, wait for Codex to finish its active turn, then stop Pocket's service. Building replaces `.next` assets; leaving the old server running can make even a fresh browser open request missing CSS and JavaScript. Use the complete stop/build/start sequence below. No browser cache clearing is needed:
+Before updating dependencies or rebuilding an installed deployment, stop Pocket's service. Wait for active Codex turns unless the operator has requested a full restart. Building replaces `.next` assets; leaving the old server running can make even a fresh browser open request missing CSS and JavaScript. Use the complete stop/build/start sequence below. No browser cache clearing is needed:
 
 ```sh
 launchctl bootout "gui/$(id -u)/dev.pocket.web"
@@ -142,7 +142,7 @@ After setup or an update, reopen the installed iPhone PWA to load the current cl
 
 ## Conversation activity
 
-Progress messages stream normally while a turn runs. When it finishes, those messages collapse under **Show activity**; the final reply stays visible. Tap to expand or collapse the activity, or use the keyboard. The panel and chevron animate unless reduced motion is enabled. Completed history reloads with activity collapsed. Split assistant messages use the same spacing as Markdown paragraphs. Images and phone messages remain visible.
+Progress messages stream normally while a turn runs. When an uninterrupted turn finishes, its progress messages collapse under **Show activity**; the final reply stays visible. Tap to expand or collapse the activity, or use the keyboard. The panel and chevron animate unless reduced motion is enabled. The control uses the same muted color and opacity as the live activity indicator. When the user steers a running turn, all earlier updates remain visible before that user message. Each later steering message preserves the updates before it too; interrupted turns keep their visible messages. History reconstruction retains these boundaries, while ordinary completed activity starts collapsed. Split assistant messages use the same spacing as Markdown paragraphs. Images and phone messages remain visible.
 
 Markdown tables size columns to their widest value, wrapping long content at 24rem. Wider tables scroll horizontally inside their own focusable region, with touch and keyboard support. The chat itself keeps its normal width, and Markdown column alignment is preserved.
 

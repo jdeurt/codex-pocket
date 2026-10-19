@@ -1,6 +1,7 @@
 import { type Locator, type Page, expect } from "@playwright/test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import path from "node:path";
+import { send } from "./messages";
 import sharp from "sharp";
 
 const TOUCH_TARGET = 44;
@@ -71,10 +72,10 @@ async function checkImagePage(page: Page, browserName: string, portrait: string,
   const markdown = `IMAGES_BEFORE\n\n![Portrait one](${portrait}) ![Portrait two](${portrait})\n\n![Landscape](${landscape})\n\nIMAGES_AFTER`;
   await page.goto("/");
   await expect(page.getByText("Connected", { exact: true })).toBeVisible();
-  await page
-    .getByRole("textbox", { name: "Message Pocket" })
-    .fill(`Reply with exactly the following Markdown, no code fence or extra text. Do not use tools.\n\n${markdown}`);
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await send(
+    page,
+    `Reply with exactly the following Markdown, no code fence or extra text. Do not use tools.\n\n${markdown}`
+  );
   const first = page.getByRole("img", { name: "Portrait one", exact: true });
   const second = page.getByRole("img", { name: "Portrait two", exact: true });
   const wide = page.getByRole("img", { name: "Landscape", exact: true });

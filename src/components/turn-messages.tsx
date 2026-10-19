@@ -18,8 +18,8 @@ function CompletedActivity({ items }: { items: Item[] }) {
   return (
     <Trace>
       <TraceCollapsible open={open} onOpenChange={setOpen}>
-        <TraceCollapsibleTrigger className="min-h-11">
-          <TraceLine size="md">
+        <TraceCollapsibleTrigger className="min-h-11" variant="activity">
+          <TraceLine size="md" variant="activity">
             <TraceTitle>{open ? "Hide activity" : "Show activity"}</TraceTitle>
           </TraceLine>
         </TraceCollapsibleTrigger>
