@@ -431,6 +431,16 @@
 .markdown li > * + * {
   margin-top: var(--message-block-gap);
 }
+.copy-action {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.copy-action-status {
+  color: var(--muted-foreground);
+  font-size: 13px;
+}
 .markdown h1,
 .markdown h2,
 .markdown h3 {
