@@ -15,7 +15,7 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
     }
 
     const { id } = await context.params;
-    const { bytes, mime, etag } = spinners().asset(id);
+    const { bytes, mime, etag } = await spinners().asset(id);
     const headers = {
       "Content-Type": mime,
       "Cache-Control": "private, no-cache",

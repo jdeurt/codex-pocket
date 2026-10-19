@@ -20,3 +20,8 @@
 .custom-activity-spinner-fallback {
   grid-area: 1 / 1;
 }
+
+.custom-activity-spinner-filter {
+  position: absolute;
+  pointer-events: none;
+}

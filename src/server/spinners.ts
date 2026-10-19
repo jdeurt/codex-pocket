@@ -6,6 +6,7 @@ import type { SpinnerLibrary } from "../lib/spinner";
 import { localDirectory } from "./local-state";
 import path from "node:path";
 import sharp from "sharp";
+import { spinnerTone } from "./spinner-tone";
 import { z } from "zod";
 
 const PRIVATE_DIRECTORY_MODE = 0o700;
@@ -20,7 +21,7 @@ const MIME: Record<string, string> = { gif: "image/gif", png: "image/png", jpeg:
 const PNG_SIGNATURE_BYTES = 8;
 const PNG_CHUNK_OVERHEAD = 12;
 const PNG_CHUNK_LENGTH_BYTES = 4;
-const COLUMNS = "id,mime,width,height,frames,bytes,createdAt";
+const COLUMNS = "id,mime,width,height,frames,bytes,createdAt,tone";
 export const spinnerId = z.string().uuid();
 
 async function boundedRaster(file: FileHandle) {
@@ -94,9 +95,10 @@ async function validatedRaster(input: Buffer) {
   }
 
   // Decode all frames to validate truncation/corruption; save the original bytes to retain animation.
-  await image.raw().toBuffer();
+  const pixels = await image.toColourspace("srgb").ensureAlpha().raw().toBuffer();
+  const tone = spinnerTone(pixels);
 
-  return { input, mime, width, height, frames };
+  return { input, mime, width, height, frames, tone };
 }
 
 async function rasterFile(filename: string) {
@@ -152,16 +154,28 @@ export class SpinnerStore {
       CREATE TABLE IF NOT EXISTS spinner_preference (singleton INTEGER PRIMARY KEY CHECK(singleton=1), activeId TEXT);
       INSERT OR IGNORE INTO spinner_preference VALUES (1,NULL);
     `);
+    this.db
+      .transaction(() => {
+        const columns = this.db.prepare("PRAGMA table_info(spinner_assets)").all() as { name: string }[];
+
+        if (columns.every((column) => column.name !== "tone")) {
+          this.db.exec("ALTER TABLE spinner_assets ADD COLUMN tone TEXT");
+        }
+      })
+      .immediate();
   }
   status(): SpinnerLibrary {
-    const saved = this.db
-      .prepare(`SELECT ${COLUMNS} FROM spinner_assets ORDER BY createdAt,id`)
-      .all() as SpinnerLibrary["saved"];
+    const saved = this.db.prepare(`SELECT ${COLUMNS} FROM spinner_assets ORDER BY createdAt,id`).all() as (Omit<
+      SpinnerLibrary["saved"][number],
+      "tone"
+    > & { tone: string | null })[];
     const { activeId } = this.db.prepare("SELECT activeId FROM spinner_preference WHERE singleton=1").get() as {
       activeId: string | null;
     };
 
-    return { current: saved.find((asset) => asset.id === activeId) ?? null, saved };
+    const assets = saved.map((asset) => ({ ...asset, tone: asset.tone ? JSON.parse(asset.tone) : null }));
+
+    return { current: assets.find((asset) => asset.id === activeId) ?? null, saved: assets };
   }
   async set(filename: string) {
     const { input, ...metadata } = await rasterFile(filename);
@@ -178,6 +192,9 @@ export class SpinnerStore {
             { id: string } | undefined;
 
           if (existing) {
+            this.db
+              .prepare("UPDATE spinner_assets SET tone=? WHERE id=?")
+              .run(JSON.stringify(metadata.tone), existing.id);
             this.db.prepare("UPDATE spinner_preference SET activeId=? WHERE singleton=1").run(existing.id);
 
             return;
@@ -194,8 +211,20 @@ export class SpinnerStore {
           }
 
           this.db
-            .prepare("INSERT INTO spinner_assets VALUES (?,?,?,?,?,?,?,?)")
-            .run(id, digest, metadata.mime, metadata.width, metadata.height, metadata.frames, input.length, Date.now());
+            .prepare(
+              "INSERT INTO spinner_assets (id,digest,mime,width,height,frames,bytes,createdAt,tone) VALUES (?,?,?,?,?,?,?,?,?)"
+            )
+            .run(
+              id,
+              digest,
+              metadata.mime,
+              metadata.width,
+              metadata.height,
+              metadata.frames,
+              input.length,
+              Date.now(),
+              JSON.stringify(metadata.tone)
+            );
           this.db.prepare("UPDATE spinner_preference SET activeId=? WHERE singleton=1").run(id);
           used = true;
         })
@@ -239,10 +268,10 @@ export class SpinnerStore {
 
     return { deletedId: id, ...this.status() };
   }
-  asset(id: string) {
+  async asset(id: string) {
     spinnerId.parse(id);
-    const asset = this.db.prepare("SELECT mime,digest FROM spinner_assets WHERE id=?").get(id) as
-      { mime: string; digest: string } | undefined;
+    const asset = this.db.prepare("SELECT mime,digest,tone FROM spinner_assets WHERE id=?").get(id) as
+      { mime: string; digest: string; tone: string | null } | undefined;
 
     if (!asset) {
       throw new Error("Spinner unavailable.");
@@ -252,6 +281,12 @@ export class SpinnerStore {
 
     try {
       const bytes = readFileSync(file);
+
+      if (!asset.tone) {
+        // Upgrade legacy saved assets on first read, keeping original animation bytes and cache identity.
+        const { tone } = await validatedRaster(bytes);
+        this.db.prepare("UPDATE spinner_assets SET tone=? WHERE id=? AND tone IS NULL").run(JSON.stringify(tone), id);
+      }
 
       return { bytes, mime: asset.mime, etag: `"${asset.digest}"` };
     } finally {

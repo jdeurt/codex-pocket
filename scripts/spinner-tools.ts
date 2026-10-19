@@ -37,7 +37,7 @@ export function registerSpinnerTools(server: McpServer, owner: string) {
     "spinner_status",
     {
       description:
-        "Read the current thinking spinner and saved custom library metadata/managed IDs, for later deletion. current:null means the default SVG. Main Pocket only.",
+        "Read the current thinking spinner and saved library metadata/managed IDs. current:null means the default SVG. tone stores one animation-wide contrast multiplier and additive normalized sRGB brightness offset. Main Pocket only.",
       inputSchema: z.object({}).strict(),
     },
     () => mainOnly(() => spinners().status())
