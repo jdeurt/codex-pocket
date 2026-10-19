@@ -1,7 +1,6 @@
 import { type Locator, type Page, expect } from "@playwright/test";
-import { readFile, writeFile } from "node:fs/promises";
-import { replayParent, replayRestartBoundary } from "../fixtures/agent-browser-data";
-import type { RestartEvent } from "../../src/lib/protocol";
+import { checkAgentRestartNavigation } from "./agent-restart";
+import { writeFile } from "node:fs/promises";
 
 const SCROLLED_OFFSET = 280;
 const OFFSET_TOLERANCE = 2;
@@ -32,6 +31,8 @@ export async function checkAgentScroll(page: Page, control: (stage: string) => P
       mutations.push(request.url());
     }
   });
+  await checkAgentRestartNavigation(page);
+  // Restart visibility navigation must not change the scroll premise below.
   await page.goto("/");
   const trigger = page.getByRole("button", { name: "6 agents", exact: true });
   await expect(trigger).toBeVisible();
@@ -47,29 +48,6 @@ export async function checkAgentScroll(page: Page, control: (stage: string) => P
       })
   );
   await expect(parent).toHaveAttribute("data-scroll-motion", "idle");
-  const restarts = JSON.parse(
-    await readFile(".local/agent-browser-replay/state/restart-events.json", "utf8")
-  ) as RestartEvent[];
-  expect(restarts).toHaveLength(1);
-  expect(restarts[0]).toEqual({
-    id: expect.stringMatching(/^pocket-restart:/),
-    threadId: replayParent,
-    after: replayRestartBoundary,
-  });
-  // Positive first: the real RPC -> Bridge -> SSE parent projection must render
-  // the saved typed event, once and after its exact persisted message boundary.
-  const parentNotice = parent.getByRole("note");
-  await expect(parentNotice).toHaveCount(1);
-  await expect(parentNotice).toHaveText("Pocket restarted");
-  // Repeated replay runs retain earlier appends; read the older event before
-  // capturing the separate scrolled/bottom navigation positions below.
-  await parentNotice.scrollIntoViewIfNeeded();
-  await expect(parentNotice).toBeInViewport();
-  expect(
-    await parent
-      .locator(`[data-message-id="${replayRestartBoundary.itemId}"], [data-system-event="pocket-restarted"]`)
-      .evaluateAll((elements) => elements.map((element) => element.dataset.messageId ?? "restart"))
-  ).toEqual([replayRestartBoundary.itemId, "restart"]);
 
   for (const position of ["scrolled", "bottom"]) {
     if (position === "scrolled") {
@@ -91,7 +69,7 @@ export async function checkAgentScroll(page: Page, control: (stage: string) => P
     await row.click();
     await expect(dialog.getByRole("heading", { name: "Side Pocket", exact: true })).toBeFocused();
     await expect(dialog.getByText("Saved native-codex result", { exact: true })).toBeVisible();
-    await expect(dialog.getByText("Pocket restarted", { exact: true })).toHaveCount(0);
+    await expect(dialog.getByRole("note")).toHaveCount(0);
     const appendKey = `${position}:${crypto.randomUUID()}`;
     await control(`parent-append:${appendKey}`);
     // Parent remains mounted and consumes the actual RPC -> bridge -> SSE update.
