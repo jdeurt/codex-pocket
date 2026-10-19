@@ -53,6 +53,12 @@ test("the bundled MCP process validates input and performs schedule CRUD over re
     assert.equal(updated.title, "Updated MCP check");
     const fetched = await call("schedule_get", { id: created.id });
     assert.equal(fetched.active, 0);
+    const renamed = await call("schedule_update", {
+      id: created.id,
+      changes: { title: "Still paused" },
+      expectedRevision: fetched.revision,
+    });
+    assert.equal(renamed.active, 0);
     assert.equal(Array.isArray(await call("schedule_list", {})), true);
     const invalid = await client.callTool({
       name: "schedule_create",

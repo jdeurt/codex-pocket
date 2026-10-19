@@ -66,8 +66,10 @@ test("schedule CRUD is scoped, revision checked, durable and owner private", asy
     assert.deepEqual(store.list("thread-b"), []);
     const paused = await store.update("thread-a", job.id, { active: false, title: "Paused check" }, job.revision, NOW);
     assert.equal(paused.active, 0);
+    const renamed = await store.update("thread-a", job.id, { title: "Paused check" }, paused.revision, NOW);
+    assert.equal(renamed.active, 0);
     await assert.rejects(() => store.update("thread-a", job.id, { title: "Stale" }, job.revision, NOW), /changed/);
-    const resumed = await store.update("thread-a", job.id, { active: true }, paused.revision, NOW);
+    const resumed = await store.update("thread-a", job.id, { active: true }, renamed.revision, NOW);
     store.close();
     store = new ScheduleStore(directory);
     assert.equal(store.get("thread-a", job.id).revision, resumed.revision);

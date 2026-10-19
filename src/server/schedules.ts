@@ -21,7 +21,9 @@ export const scheduleInput = z
   })
   .strict();
 export const schedulePatch = scheduleInput
+  .omit({ active: true })
   .partial()
+  .extend({ active: z.boolean().optional() })
   .strict()
   .refine((value) => Object.keys(value).length > 0, "Provide at least one change.");
 export interface Schedule {
