@@ -292,6 +292,11 @@
 .transcript [data-slot="trace-collapsible-content-inner"]:has(> .activity-messages) {
   padding-top: var(--message-block-gap);
 }
+.transcript
+  [data-slot="trace-collapsible-content"]:has(> [data-slot="trace-collapsible-content-inner"] > .activity-messages) {
+  /* Partial panel heights expose blank padding between visible flow blocks. */
+  transition: none;
+}
 [data-variant="ghost"] > [data-slot="bubble-content"] {
   border: 0;
 }
