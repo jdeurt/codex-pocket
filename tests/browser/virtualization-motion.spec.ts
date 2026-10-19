@@ -13,6 +13,8 @@ interface Frame {
   gap: number;
   phase: string;
   covered: boolean;
+  panel: number;
+  outerGap: number;
 }
 
 function history(): Snapshot {
@@ -63,15 +65,35 @@ function record(page: Page, duration = ACTIVITY_MOTION.duration * 3) {
       const read = (marker?: string) => {
         const bounds = element.getBoundingClientRect();
         const blocks = [
-          ...element.querySelectorAll('[data-transcript-row], :scope [data-slot="transcript-footer"] > *'),
+          ...element.querySelectorAll(
+            ':scope [data-transcript-row]:not([data-activity-row]), :scope [data-activity-row] [data-slot="trace-collapsible-trigger"], :scope [data-slot="transcript-footer"] > *'
+          ),
         ]
           .map((item) => item.getBoundingClientRect())
           .filter((box) => box.bottom > bounds.top && box.top < bounds.bottom);
+        const control = element.querySelector('[data-slot="trace-collapsible-trigger"]')?.getBoundingClientRect();
+        const panel = element.querySelector('[data-slot="trace-collapsible-content"]')?.getBoundingClientRect();
+        const previous = element
+          .querySelector(':scope [data-message-id="user"] [data-slot="bubble-content"]')
+          ?.getBoundingClientRect();
+        const final = element
+          .querySelector(':scope [data-message-id="final"] .markdown > :last-child')
+          ?.getBoundingClientRect();
+        const status = element.querySelector('[role="status"]')?.getBoundingClientRect();
         frames.push({
           t: globalThis.performance.now() - start,
           top: element.scrollTop,
           gap: element.scrollHeight - element.scrollTop - element.clientHeight,
           phase: marker ?? (element as HTMLElement).dataset.scrollMotion ?? "idle",
+          panel: element.querySelector('[data-slot="trace-collapsible-content"]')?.getBoundingClientRect().height ?? 0,
+          outerGap:
+            control && previous && final && status
+              ? Math.max(
+                  Math.abs(control.top - previous.bottom - 16),
+                  Math.abs(final.top - (panel?.bottom ?? control.bottom) - 16),
+                  Math.abs(status.top - final.bottom - 16)
+                )
+              : 0,
           covered:
             blocks.length > 0 && blocks[0].top <= bounds.top + 32 && (blocks.at(-1)?.bottom ?? 0) >= bounds.bottom - 64,
         });
@@ -148,6 +170,14 @@ test("bottom disclosure settling is independent, smooth, interruptible and share
   await page.getByRole("button", { name: "Show activity", exact: true }).click();
   const expanded = await samples;
   expectAnimated(expanded);
+  expect(expanded.every((frame) => frame.outerGap < 1)).toBe(true);
+  const fullHeight = Math.max(...expanded.map((frame) => frame.panel));
+  expect(
+    expanded.filter((frame) => frame.panel > EPSILON && frame.panel < fullHeight - EPSILON).length
+  ).toBeGreaterThan(2);
+  const panel = page.locator('[data-slot="trace-collapsible-content"]');
+  await expect(panel).toHaveCSS("transition-property", "height");
+  await expect(panel).toHaveCSS("transition-duration", `${ACTIVITY_MOTION.duration / 1000}s`);
   const trigger = expanded.find((frame) => frame.phase === "disclosure");
   const smooth = expanded.filter((frame) => frame.phase === "smooth");
   expect(trigger).toBeDefined();
@@ -157,7 +187,9 @@ test("bottom disclosure settling is independent, smooth, interruptible and share
   await settled(page);
   samples = record(page);
   await page.getByRole("button", { name: "Hide activity", exact: true }).click();
-  expectAnimated(await samples);
+  const collapsed = await samples;
+  expectAnimated(collapsed);
+  expect(collapsed.every((frame) => frame.outerGap < 1)).toBe(true);
   await settled(page);
   const canvas = page.locator(".transcript > div");
   await expect(canvas).toHaveCSS("min-height", "0px");

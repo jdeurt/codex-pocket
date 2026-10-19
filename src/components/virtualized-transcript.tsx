@@ -1,9 +1,16 @@
 "use client";
 
+import { type ActivityMeasurements, VirtualizedActivity } from "./virtualized-activity";
 import { Children, type ReactNode, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  ESTIMATED_MESSAGE_HEIGHT,
+  FORWARD_MESSAGES,
+  INITIAL_MESSAGE_WINDOW,
+  bufferedMessages,
+  measureTranscriptRow,
+} from "@/lib/transcript-virtualization";
 import { MessageScroller, MessageScrollerProvider, MessageScrollerViewport } from "@/components/ui/message-scroller";
 import { type Range, useVirtualizer } from "@tanstack/react-virtual";
-import { Trace, TraceCollapsible, TraceCollapsibleTrigger, TraceLine, TraceTitle } from "@/components/ui/trace";
 import { ArrowDownIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ChatMessage } from "./chat-message";
@@ -11,13 +18,11 @@ import { TranscriptScrollMotion } from "@/lib/transcript-scroll-motion";
 import type { TurnEntry } from "@/lib/turn-messages";
 import { string } from "@/lib/protocol";
 
-const INITIAL_MESSAGE_WINDOW = 150;
-const FORWARD_MESSAGES = 50;
-const ESTIMATED_MESSAGE_HEIGHT = 180;
 const BOTTOM_THRESHOLD = 8;
 const PADDING_START = 24;
 const PADDING_END = 32;
 const LAST_ITEM = -1;
+const ACTIVITY_LOOKAHEAD_VIEWPORTS = 3;
 
 interface TranscriptTurn {
   id: string;
@@ -25,43 +30,24 @@ interface TranscriptTurn {
 }
 interface Row {
   id: string;
+  turnId: string;
   entry: TurnEntry;
 }
 
-function messageRange(range: Range) {
+function messageRange(range: Range, backwards: number) {
   const footerIndex = range.count - 1;
-  const start = Math.max(0, range.startIndex - INITIAL_MESSAGE_WINDOW);
-  const ahead = footerIndex <= INITIAL_MESSAGE_WINDOW ? INITIAL_MESSAGE_WINDOW : FORWARD_MESSAGES;
-  const end = Math.min(footerIndex - 1, range.endIndex + ahead);
 
   // Keep interactive pending requests mounted while message rows are recycled.
-  return [...Array.from({ length: end - start + 1 }, (_, index) => start + index), footerIndex];
+  return [...bufferedMessages({ ...range, count: footerIndex }, backwards), footerIndex];
 }
 
-function measureRow(element: HTMLElement, entry: ResizeObserverEntry | undefined) {
-  // Preserve fractional line heights instead of accumulating rounded row sizes.
-  return entry?.borderBoxSize[0]?.blockSize ?? element.getBoundingClientRect().height;
-}
-
-function rowsForTurns(turns: TranscriptTurn[], expanded: Set<string>): Row[] {
+function rowsForTurns(turns: TranscriptTurn[]): Row[] {
   return turns.flatMap((turn) =>
-    turn.entries.flatMap<Row>((entry) => {
-      if (entry.kind === "message") {
-        return { id: `${turn.id}/${string(entry.item.clientId) || entry.item.id}`, entry };
-      }
-
-      const header = { id: entry.id, entry };
-
-      return expanded.has(entry.id)
-        ? [
-            header,
-            ...entry.items.map((item) => ({
-              id: `${turn.id}/${string(item.clientId) || item.id}`,
-              entry: { kind: "message" as const, item },
-            })),
-          ]
-        : header;
-    })
+    turn.entries.map((entry) => ({
+      id: entry.kind === "message" ? `${turn.id}/${string(entry.item.clientId) || entry.item.id}` : entry.id,
+      turnId: turn.id,
+      entry,
+    }))
   );
 }
 
@@ -84,7 +70,22 @@ function MeasuredTranscript({
   const viewport = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLDivElement>(null);
   const [motion] = useState(() => new TranscriptScrollMotion());
+  const [activityMeasurements] = useState<ActivityMeasurements>(() => new Map());
   const [atEnd, setAtEnd] = useState(true);
+  const rangeExtractor = useCallback(
+    (range: Range) => {
+      const nested = rows
+        .slice(Math.max(range.startIndex - 1, 0), range.endIndex + 1)
+        .some(
+          (row) => row.entry.kind === "activity" && expanded.has(row.id) && row.entry.items.length > FORWARD_MESSAGES
+        );
+
+      // A large visible panel supplies its own message buffer. Avoid counting
+      // both its inner history window and a full outer history window.
+      return messageRange(range, nested ? FORWARD_MESSAGES : INITIAL_MESSAGE_WINDOW);
+    },
+    [rows, expanded]
+  );
   // Its virtual key identifies appended output; the footer DOM stays mounted
   // independently so pending answer fields retain their local draft state.
   const footerKey = `footer:${rows.at(LAST_ITEM)?.id ?? "empty"}`;
@@ -105,11 +106,11 @@ function MeasuredTranscript({
     scrollEndThreshold: -1,
     paddingStart: PADDING_START,
     paddingEnd: PADDING_END,
-    rangeExtractor: messageRange,
+    rangeExtractor,
     // The custom range owns the DOM budget. Keep every mounted row eligible
     // for core measurement while a smooth end command crosses older history.
     overscan: rows.length + 1,
-    measureElement: measureRow,
+    measureElement: measureTranscriptRow,
     scrollToFn: (offset, options, instance) => motion.scrollTo(offset, options, instance),
     onChange: (instance, sync) => {
       const end = instance.isAtEnd(BOTTOM_THRESHOLD);
@@ -145,6 +146,8 @@ function MeasuredTranscript({
   const items = virtualizer.getVirtualItems();
   const messages = items.filter((item) => item.index < rows.length);
   const footerRow = items.at(LAST_ITEM);
+  const blockStart = messages[0]?.start ?? footerRow?.start ?? 0;
+  const includesTail = rows.length === 0 || messages.at(LAST_ITEM)?.index === rows.length - 1;
 
   const pointerIntent = (event: { target: EventTarget | null }) => {
     const target = event.target;
@@ -191,61 +194,73 @@ function MeasuredTranscript({
                   position: "relative",
                 }}
               >
-                <ul
-                  aria-label="Conversation"
+                <div
                   className="absolute top-0 left-0 w-full min-w-0"
-                  style={{ transform: `translateY(${messages[0]?.start ?? 0}px)` }}
+                  style={{ transform: `translateY(${blockStart}px)` }}
                 >
-                  {messages.map((virtualRow) => {
-                    const row = rows[virtualRow.index];
-                    const next = rows[virtualRow.index + 1];
+                  <ul aria-label="Conversation" className="w-full min-w-0">
+                    {messages.map((virtualRow) => {
+                      const row = rows[virtualRow.index];
+                      const next = rows[virtualRow.index + 1];
 
-                    return (
-                      <li
-                        key={virtualRow.key}
-                        ref={virtualizer.measureElement}
-                        data-index={virtualRow.index}
-                        data-slot="message-scroller-item"
-                        data-transcript-row={row.id}
-                        aria-posinset={virtualRow.index + 1}
-                        aria-setsize={rows.length}
-                        className="min-w-0"
-                        style={{ paddingBottom: next ? "var(--message-block-gap)" : 0 }}
-                      >
-                        {row.entry.kind === "message" ? (
-                          <ChatMessage item={row.entry.item} />
-                        ) : (
-                          <Trace>
-                            <TraceCollapsible
+                      return (
+                        <li
+                          key={virtualRow.key}
+                          ref={virtualizer.measureElement}
+                          data-index={virtualRow.index}
+                          data-slot="message-scroller-item"
+                          data-transcript-row={row.id}
+                          data-activity-row={row.entry.kind === "activity" || undefined}
+                          aria-posinset={virtualRow.index + 1}
+                          aria-setsize={rows.length}
+                          className="message-flow min-w-0"
+                          style={{ paddingBottom: next ? "var(--message-block-gap)" : 0 }}
+                        >
+                          {row.entry.kind === "message" ? (
+                            <ChatMessage item={row.entry.item} />
+                          ) : (
+                            <VirtualizedActivity
+                              id={row.id}
+                              turnId={row.turnId}
+                              items={row.entry.items}
                               open={expanded.has(row.id)}
                               onOpenChange={() => {
                                 motion.disclose(virtualizer.isAtEnd(BOTTOM_THRESHOLD));
                                 toggle(row.id);
                               }}
-                            >
-                              <TraceCollapsibleTrigger className="min-h-11" variant="activity">
-                                <TraceLine size="md" variant="activity">
-                                  <TraceTitle>{expanded.has(row.id) ? "Hide activity" : "Show activity"}</TraceTitle>
-                                </TraceLine>
-                              </TraceCollapsibleTrigger>
-                            </TraceCollapsible>
-                          </Trace>
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
-                <div
-                  ref={(element) => virtualizer.measureElement(element)}
-                  data-index={rows.length}
-                  data-slot="transcript-footer"
-                  data-has-messages={rows.length > 0 || undefined}
-                  className="absolute top-0 left-0 flex w-full min-w-0 flex-col [&:has(>:not(:empty))]:gap-(--message-block-gap) [&[data-has-messages]:has(>:not(:empty))]:pt-(--message-block-gap) [&>:empty]:hidden"
-                  style={{
-                    transform: `translateY(${footerRow?.start ?? 0}px)`,
-                  }}
-                >
-                  {footer}
+                              onSettled={() => motion.disclosed()}
+                              viewport={viewport}
+                              origin={virtualRow.start}
+                              end={virtualRow.end}
+                              scrollOffset={virtualizer.scrollOffset ?? 0}
+                              nearby={
+                                virtualRow.end >=
+                                  (virtualizer.scrollOffset ?? 0) - (virtualizer.scrollRect?.height ?? 0) * 2 &&
+                                virtualRow.start <=
+                                  (virtualizer.scrollOffset ?? 0) +
+                                    (virtualizer.scrollRect?.height ?? 0) * ACTIVITY_LOOKAHEAD_VIEWPORTS
+                              }
+                              measurements={activityMeasurements}
+                            />
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  <div
+                    ref={(element) => virtualizer.measureElement(element)}
+                    data-index={rows.length}
+                    data-slot="transcript-footer"
+                    data-has-messages={rows.length > 0 || undefined}
+                    className="message-flow absolute top-0 left-0 w-full min-w-0 [&[data-has-messages]:has(>:not(:empty))]:pt-(--message-block-gap) [&>:empty]:hidden"
+                    style={{
+                      gap: footer.length === 0 ? 0 : undefined,
+                      position: includesTail ? "static" : "absolute",
+                      transform: includesTail ? undefined : `translateY(${(footerRow?.start ?? 0) - blockStart}px)`,
+                    }}
+                  >
+                    {footer}
+                  </div>
                 </div>
               </div>
             </div>
@@ -281,7 +296,7 @@ export function VirtualizedTranscript({
   suspended?: boolean;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
-  const rows = useMemo(() => rowsForTurns(turns, expanded), [turns, expanded]);
+  const rows = useMemo(() => rowsForTurns(turns), [turns]);
   const footer = Children.toArray(children);
 
   return (

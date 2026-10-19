@@ -42,7 +42,11 @@ function history(count = LONG_HISTORY, start = 0): Snapshot {
 async function visibleCoverage(page: Page) {
   return page.locator(viewport).evaluate((element) => {
     const bounds = element.getBoundingClientRect();
-    const visible = [...element.querySelectorAll<HTMLElement>("[data-transcript-row]")]
+    const visible = [
+      ...element.querySelectorAll<HTMLElement>(
+        ':scope [data-transcript-row]:not([data-activity-row]), :scope [data-activity-row] [data-slot="trace-collapsible-trigger"]'
+      ),
+    ]
       .map((item) => item.getBoundingClientRect())
       .filter((item) => item.bottom > bounds.top && item.top < bounds.bottom);
 
@@ -63,7 +67,7 @@ async function scrollToFraction(page: Page, fraction: number) {
 async function visibleAnchor(page: Page) {
   return page.locator(viewport).evaluate((element) => {
     const top = element.getBoundingClientRect().top;
-    const item = [...element.querySelectorAll<HTMLElement>("[data-transcript-row]")].find(
+    const item = [...element.querySelectorAll<HTMLElement>("[data-transcript-row]:not([data-activity-row])")].find(
       (candidate) => candidate.getBoundingClientRect().bottom > top
     );
 
