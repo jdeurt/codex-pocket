@@ -31,12 +31,19 @@ export interface DelegationRequest {
 }
 
 export class DelegationMailbox {
-  constructor(private db: Database.Database) {}
+  constructor(
+    private db: Database.Database,
+    private changed: () => void
+  ) {}
   record(parentId: string, childId: string, sourceId: string, kind: string, payload: unknown, notify = true) {
     const id = `${delegationMessagePrefix}${crypto.randomUUID()}`;
     this.db
       .prepare(`INSERT OR IGNORE INTO delegation_mail VALUES (?,?,?,?,?,?,?,?)`)
       .run(id, childId, parentId, sourceId, kind, JSON.stringify(payload), notify ? "pending" : "local", Date.now());
+
+    if (notify) {
+      this.changed();
+    }
 
     return this.db
       .prepare("SELECT * FROM delegation_mail WHERE childId=? AND sourceId=?")
@@ -98,37 +105,46 @@ export class DelegationMailbox {
       .all(parentId, childId) as DelegationRequest[];
   }
   answer(parentId: string, childId: string, id: string, answer: unknown) {
-    const request = this.db
-      .prepare("SELECT * FROM delegation_requests WHERE parentId=? AND childId=? AND id=?")
-      .get(parentId, childId, id) as DelegationRequest | undefined;
+    return this.db
+      .transaction(() => {
+        const request = this.db
+          .prepare("SELECT * FROM delegation_requests WHERE parentId=? AND childId=? AND id=?")
+          .get(parentId, childId, id) as DelegationRequest | undefined;
 
-    if (!request || request.status === "cancelled") {
-      throw new Error("This request is no longer waiting. Send a follow-up to the saved Side Pocket session.");
-    }
+        if (!request || request.status === "cancelled") {
+          throw new Error("This request is no longer waiting. Send a follow-up to the saved Side Pocket session.");
+        }
 
-    const validated =
-      request.method === "AskUserQuestion"
-        ? z
-            .object({ answers: z.record(z.string(), z.string()) })
-            .strict()
-            .parse(answer)
-        : validateAnswer(
-            { id: request.nativeId, method: request.method, params: object(JSON.parse(request.input)) },
-            answer
-          );
-    const serialized = JSON.stringify(validated);
+        const validated =
+          request.method === "AskUserQuestion"
+            ? z
+                .object({ answers: z.record(z.string(), z.string()) })
+                .strict()
+                .parse(answer)
+            : validateAnswer(
+                { id: request.nativeId, method: request.method, params: object(JSON.parse(request.input)) },
+                answer
+              );
+        const serialized = JSON.stringify(validated);
 
-    if (request.status === "answered" && request.answer !== serialized) {
-      throw new Error("This request already received a different answer.");
-    }
+        if (request.status === "answered" && request.answer !== serialized) {
+          throw new Error("This request already received a different answer.");
+        }
 
-    this.db.prepare("UPDATE delegation_requests SET answer=?,status='answered' WHERE id=?").run(serialized, id);
+        this.db.prepare("UPDATE delegation_requests SET answer=?,status='answered' WHERE id=?").run(serialized, id);
+        this.changed();
 
-    return { id, answered: true };
+        return { id, answered: true };
+      })
+      .immediate();
   }
   cancelRequests(childId: string) {
-    this.db
+    const result = this.db
       .prepare("UPDATE delegation_requests SET status='cancelled' WHERE childId=? AND status='pending'")
       .run(childId);
+
+    if (result.changes) {
+      this.changed();
+    }
   }
 }

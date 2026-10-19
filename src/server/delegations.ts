@@ -1,5 +1,6 @@
 import type { ChildContext, Harness, ParentPolicy } from "./harness/types";
 import { DelegationMailbox } from "./delegation-mail";
+import { DelegationNotifications } from "./delegation-notifications";
 import { claudePermissions } from "./harness/permissions";
 import { createHash } from "node:crypto";
 import { delegationDatabase } from "./delegation-db";
@@ -10,6 +11,7 @@ import { z } from "zod";
 
 const MAX_TITLE_LENGTH = 160;
 const MAX_BODY_LENGTH = 32_768;
+export const MAX_CONCURRENT_CHILDREN = 8;
 export const delegationKey = z.string().trim().min(1).max(MAX_TITLE_LENGTH);
 export const delegationBody = z.string().trim().min(1).max(MAX_BODY_LENGTH);
 export const delegationInput = z
@@ -53,10 +55,15 @@ function pocket(row: StoredPocket): SidePocket {
 
 export class DelegationStore {
   private db;
+  private notifications: DelegationNotifications;
   readonly mail: DelegationMailbox;
   constructor(directory: string) {
     this.db = delegationDatabase(directory);
-    this.mail = new DelegationMailbox(this.db);
+    this.notifications = new DelegationNotifications(directory);
+    this.mail = new DelegationMailbox(this.db, this.notifications.changed);
+  }
+  subscribe(listener: () => void) {
+    return this.notifications.subscribe(listener);
   }
   saveParent(id: string, context: ParentContext) {
     this.db
@@ -95,78 +102,88 @@ export class DelegationStore {
     const parent = this.parent(parentId);
     const fingerprint = createHash("sha256").update(JSON.stringify(value)).digest("hex");
 
-    return this.db.transaction(() => {
-      const existing = this.db
-        .prepare("SELECT * FROM side_pockets WHERE parentId=? AND createKey=?")
-        .get(parentId, value.idempotencyKey) as StoredPocket | undefined;
+    return this.db
+      .transaction(() => {
+        const existing = this.db
+          .prepare("SELECT * FROM side_pockets WHERE parentId=? AND createKey=?")
+          .get(parentId, value.idempotencyKey) as StoredPocket | undefined;
 
-      if (existing) {
-        if (existing.fingerprint !== fingerprint) {
-          throw new Error("This creation key already belongs to different work.");
+        if (existing) {
+          if (existing.fingerprint !== fingerprint) {
+            throw new Error("This creation key already belongs to different work.");
+          }
+
+          return pocket(existing);
         }
 
-        return pocket(existing);
-      }
+        if (value.harness === "claude") {
+          claudePermissions(parent.policy);
+          requireClaudeBinary();
+        }
 
-      if (value.harness === "claude") {
-        claudePermissions(parent.policy);
-        requireClaudeBinary();
-      }
-
-      const id = crypto.randomUUID();
-      const now = Date.now();
-      this.db
-        .prepare(
-          `INSERT INTO side_pockets
+        const id = crypto.randomUUID();
+        const now = Date.now();
+        this.db
+          .prepare(
+            `INSERT INTO side_pockets
         (id,parentId,title,harness,cwd,model,effort,policy,status,createdAt,updatedAt,createKey,fingerprint)
         VALUES (?,?,?,?,?,?,?,?,'idle',?,?,?,?)`
-        )
-        .run(
-          id,
-          parentId,
-          value.title,
-          value.harness,
-          value.cwd ?? parent.cwd,
-          value.model ?? null,
-          value.effort ?? null,
-          JSON.stringify(parent.policy),
-          now,
-          now,
-          value.idempotencyKey,
-          fingerprint
-        );
-      this.send(parentId, id, "initial", value.body);
-      log().info({ parentId, childId: id, input: value }, "side_pocket.created");
+          )
+          .run(
+            id,
+            parentId,
+            value.title,
+            value.harness,
+            value.cwd ?? parent.cwd,
+            value.model ?? null,
+            value.effort ?? null,
+            JSON.stringify(parent.policy),
+            now,
+            now,
+            value.idempotencyKey,
+            fingerprint
+          );
+        this.send(parentId, id, "initial", value.body);
+        log().info({ parentId, childId: id, input: value }, "side_pocket.created");
 
-      return this.get(parentId, id);
-    })();
+        return this.get(parentId, id);
+      })
+      .immediate();
   }
   send(parentId: string, childId: string, key: string, body: string) {
     delegationKey.parse(key);
     const text = delegationBody.parse(body);
-    const child = this.get(parentId, childId);
-    const existing = this.db
-      .prepare("SELECT * FROM delegation_commands WHERE childId=? AND key=?")
-      .get(childId, key) as DelegationCommand | undefined;
 
-    if (existing) {
-      if (existing.body !== text) {
-        throw new Error("This message key already belongs to different text.");
-      }
+    return this.db
+      .transaction(() => {
+        const child = this.get(parentId, childId);
+        const existing = this.db
+          .prepare("SELECT * FROM delegation_commands WHERE childId=? AND key=?")
+          .get(childId, key) as DelegationCommand | undefined;
 
-      return existing;
-    }
+        if (existing) {
+          if (existing.body !== text) {
+            throw new Error("This message key already belongs to different text.");
+          }
 
-    if (["closing", "closed", "unknown"].includes(child.status)) {
-      throw new Error("Resume this Side Pocket before sending more work. Inspect unknown outcomes before continuing.");
-    }
+          return existing;
+        }
 
-    const id = crypto.randomUUID();
-    this.db
-      .prepare("INSERT INTO delegation_commands VALUES (?,?,?,?,?,'queued',NULL,?)")
-      .run(id, childId, parentId, key, text, Date.now());
+        if (["closing", "closed", "unknown"].includes(child.status)) {
+          throw new Error(
+            "Resume this Side Pocket before sending more work. Inspect unknown outcomes before continuing."
+          );
+        }
 
-    return this.db.prepare("SELECT * FROM delegation_commands WHERE id=?").get(id) as DelegationCommand;
+        const id = crypto.randomUUID();
+        this.db
+          .prepare("INSERT INTO delegation_commands VALUES (?,?,?,?,?,'queued',NULL,?)")
+          .run(id, childId, parentId, key, text, Date.now());
+        this.notifications.changed();
+
+        return this.db.prepare("SELECT * FROM delegation_commands WHERE id=?").get(id) as DelegationCommand;
+      })
+      .immediate();
   }
   commands(parentId: string, childId: string) {
     return this.db
@@ -174,31 +191,58 @@ export class DelegationStore {
       .all(parentId, childId) as DelegationCommand[];
   }
   claim(parentId: string, childId: string) {
-    return this.db.transaction(() => {
-      const child = this.get(parentId, childId);
+    return this.db
+      .transaction(() => {
+        const child = this.get(parentId, childId);
+        const { count } = this.db
+          .prepare("SELECT count(*) AS count FROM delegation_commands WHERE status='running'")
+          .get() as { count: number };
 
-      if (child.status !== "idle") {
-        return;
-      }
+        if (child.status !== "idle" || count >= MAX_CONCURRENT_CHILDREN) {
+          return;
+        }
 
-      const command = this.commands(parentId, childId).find((entry) => entry.status === "queued");
+        const command = this.commands(parentId, childId).find((entry) => entry.status === "queued");
 
-      if (!command) {
-        return;
-      }
+        if (!command) {
+          return;
+        }
 
-      this.db.prepare("UPDATE delegation_commands SET status='running' WHERE id=?").run(command.id);
-      this.db
-        .prepare("UPDATE side_pockets SET status='running',policy=?,updatedAt=? WHERE parentId=? AND id=?")
-        .run(JSON.stringify(this.parent(parentId).policy), Date.now(), parentId, childId);
+        this.db.prepare("UPDATE delegation_commands SET status='running' WHERE id=?").run(command.id);
+        this.db
+          .prepare("UPDATE side_pockets SET status='running',policy=?,updatedAt=? WHERE parentId=? AND id=?")
+          .run(JSON.stringify(this.parent(parentId).policy), Date.now(), parentId, childId);
 
-      return command;
-    })();
+        return command;
+      })
+      .immediate();
+  }
+  queuedChildren(parentId: string) {
+    const rows = this.db
+      .prepare(
+        `SELECT p.* FROM delegation_commands c JOIN side_pockets p ON p.id=c.childId
+      WHERE c.parentId=? AND c.status='queued' AND p.status='idle'
+      ORDER BY c.createdAt,c.rowid`
+      )
+      .all(parentId) as StoredPocket[];
+
+    return rows.map((row) => pocket(row));
   }
   setStatus(parentId: string, id: string, status: SidePocket["status"]) {
     this.db
       .prepare("UPDATE side_pockets SET status=?,updatedAt=? WHERE parentId=? AND id=?")
       .run(status, Date.now(), parentId, id);
+    this.notifications.changed();
+  }
+  continueChild(parentId: string, id: string) {
+    // A concurrent answer must never undo a persisted close request.
+    return (
+      this.db
+        .prepare(
+          "UPDATE side_pockets SET status='running',updatedAt=? WHERE parentId=? AND id=? AND status IN ('waiting','running')"
+        )
+        .run(Date.now(), parentId, id).changes > 0
+    );
   }
   setSession(parentId: string, id: string, sessionId: string) {
     this.db
@@ -233,18 +277,22 @@ export class DelegationStore {
     })();
   }
   closeChild(parentId: string, id: string) {
-    return this.db.transaction(() => {
-      const child = this.get(parentId, id);
+    return this.db
+      .transaction(() => {
+        const child = this.get(parentId, id);
 
-      if (child.status !== "closed") {
-        this.setStatus(parentId, id, "closing");
-      }
+        if (child.status !== "closed") {
+          this.setStatus(parentId, id, "closing");
+        }
 
-      this.db.prepare("UPDATE delegation_commands SET status='cancelled' WHERE childId=? AND status='queued'").run(id);
-      this.mail.cancelRequests(id);
+        this.db
+          .prepare("UPDATE delegation_commands SET status='cancelled' WHERE childId=? AND status='queued'")
+          .run(id);
+        this.mail.cancelRequests(id);
 
-      return this.get(parentId, id);
-    })();
+        return this.get(parentId, id);
+      })
+      .immediate();
   }
   resume(parentId: string, id: string) {
     const child = this.get(parentId, id);
@@ -280,6 +328,7 @@ export class DelegationStore {
     }
   }
   close() {
+    this.notifications.close();
     this.db.close();
   }
 }
