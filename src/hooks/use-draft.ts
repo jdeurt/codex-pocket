@@ -36,6 +36,25 @@ function storedDraftText() {
 }
 
 /**
+Confirm the composer text is durable before an automatic release refresh.
+@param value - Current composer text, including restored drafts.
+@returns Whether reloading can recover the exact in-memory draft.
+*/
+export function isDraftSaved(value: string) {
+  const storageKey = selectedPocketId() === "main" ? key : `${key}:${selectedPocketId()}`;
+
+  let persisted: string | null;
+
+  try {
+    persisted = localStorage.getItem(storageKey);
+  } catch {
+    return value === "";
+  }
+
+  return (persisted ?? "") === value;
+}
+
+/**
 Normalize a missing storage key to the composer's empty-string value.
 @returns Current draft text without trimming or conversion.
 */

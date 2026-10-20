@@ -1,10 +1,12 @@
 import "./globals.css";
 import type { Metadata, Viewport } from "next";
+import { BUILD_VERSION } from "@/lib/build-version";
 
 export const metadata: Metadata = {
   title: "Pocket",
   description: "A conversation with Codex on your computer.",
   applicationName: "Pocket",
+  other: { "pocket-build": BUILD_VERSION },
   appleWebApp: { capable: true, statusBarStyle: "black-translucent", title: "Pocket" },
   icons: { icon: "/icon-192.png", apple: "/apple-touch-icon.png" },
 };

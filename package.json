@@ -40,7 +40,8 @@
     "review:dead-code": "jscpd --dead-code --dead-code-categories all --min-confidence 0 --include-tests --include-entry-exports",
     "test:simulators": "tsx scripts/test-simulators.ts",
     "test:simulators:native": "tsx scripts/calibrate-simulators.ts",
-    "simulators:extract": "tsx scripts/extract-simulator-contracts.ts"
+    "simulators:extract": "tsx scripts/extract-simulator-contracts.ts",
+    "test:e2e:updates": "env -u NO_COLOR playwright test --config=playwright.update.config.ts"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.303",

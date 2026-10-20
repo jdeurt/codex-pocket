@@ -68,6 +68,8 @@ pocket restart # Restart the saved release
 
 Wait for active Codex turns before an update or restart unless interruption is intended. A build failure leaves the existing server and its assets intact. The installer locks concurrent updates and refuses to overwrite edits in the managed source checkout. It never rewrites remote history. If an installer is forcibly terminated, confirm it has exited before removing a stale `~/.pocket/bootstrap.lock` or `~/.pocket/install.lock` directory and retrying.
 
+An open Pocket checks for new builds every 15 seconds and when it reconnects or returns to the foreground. It refreshes automatically after a successful version check, preserving saved composer text and attachments. Refresh waits for active sends, uploads, unsaved browser storage, and Pocket-name editing; an uncertain send stays visible for reconciliation. A same-build restart reconnects without reloading. Clients from before automatic updates need one final refresh to acquire this behavior.
+
 The login service is `gui/$(id -u)/dev.pocket.web`, installed at `~/Library/LaunchAgents/dev.pocket.web.plist`. It starts at login, restarts after a crash, and binds only to loopback. After editing `~/.pocket/.env.local`, use `pocket restart`. Inspect service state with `launchctl print "gui/$(id -u)/dev.pocket.web"`. Startup logs are `~/.pocket/logs/pocket.log` and `pocket.err.log`. Existing proxy and tunnel routes are outside the installer.
 
 For development, use Node.js 24 in a separate checkout, then run `npm ci` and `npm run dev`. Manual `npm run setup` writes that checkout's `.env.local`; set `CODEX_POCKET_STATE_DIR` to a disposable directory to keep development separate from the installed data. Do not edit or build inside an accepted release directory.
@@ -82,7 +84,7 @@ Pocket suppresses a completion push only after that subscription's visible page 
 
 VAPID keys, device subscriptions and notification receipts are generated automatically and saved privately in `~/.pocket/data/push.json`. Keep this file across restarts and deployments. Deleting it invalidates existing device subscriptions, which must then be enabled again. Expired subscriptions are removed when their push service rejects them. No API key or paid notification service is needed.
 
-After setup or an update, reopen the installed iPhone PWA to load the current client. Verify that a reply produces no notification while Pocket is visible, then background or lock the phone before a reply completes and confirm its text appears in a notification. Tap it to check that Pocket opens, and repeat after reconnecting. Keep Pocket open on a second device while the phone is backgrounded to verify device isolation. This visible delivery check must happen on the actual phone; a desktop browser emulator does not verify iOS notification delivery.
+After setup or an update, open the installed iPhone PWA and let it reconnect and load the current client. Verify that a reply produces no notification while Pocket is visible, then background or lock the phone before a reply completes and confirm its text appears in a notification. Tap it to check that Pocket opens, and repeat after reconnecting. Keep Pocket open on a second device while the phone is backgrounded to verify device isolation. This visible delivery check must happen on the actual phone; a desktop browser emulator does not verify iOS notification delivery.
 
 ## Conversation activity
 
