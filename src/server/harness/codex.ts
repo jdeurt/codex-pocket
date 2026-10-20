@@ -1,12 +1,12 @@
 import { type AdapterOptions, type HarnessAdapter, type HarnessMessage, type HarnessResult } from "./types";
 import { CodexRpc, RpcError } from "../rpc";
-import { type Item, type PendingRequest, type RpcEvent, object, string } from "../../lib/protocol";
+import { type Item, type PendingRequest, type RpcEvent, string } from "../../lib/protocol";
 import { RpcDiagnosticEvent, RpcDisconnectEvent, RpcNotificationEvent } from "../rpc-events";
+import { harnessMessages, nativeText } from "./transcript";
 import { CodexAgents } from "./codex-agents";
 import { type SessionResponse } from "../rpc-protocol";
 import { codexParentTools } from "./mcp-config";
 import { codexPermissions } from "./permissions";
-import { harnessMessages } from "./transcript";
 import { loadHistory } from "../history";
 import { log } from "../logging";
 import { sidePocketInstructions } from "./instructions";
@@ -29,15 +29,7 @@ Extract Codex assistant text while preserving its existing array-content fallbac
 @returns Assistant text from the dedicated field or text content parts.
 */
 function text(item: Item) {
-  return (
-    string(item.text) ||
-    (Array.isArray(item.content)
-      ? item.content
-          .map((part) => string(object(part).text))
-          .filter(Boolean)
-          .join("\n")
-      : "")
-  );
+  return string(item.text) || (Array.isArray(item.content) ? nativeText(item.content) : "");
 }
 
 /**

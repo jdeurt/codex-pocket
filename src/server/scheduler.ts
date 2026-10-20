@@ -58,7 +58,9 @@ Dispatch one persisted occurrence and retain the bridge's existing delivery stat
 Dispatch persisted pending occurrences serially through the parent's idempotent receipt boundary.
 */
   private async dispatch() {
-    const pending = this.store.occurrences.list(this.threadId).filter((entry) => ["pending", "queued"].includes(entry.status));
+    const pending = this.store.occurrences
+      .list(this.threadId)
+      .filter((entry) => ["pending", "queued"].includes(entry.status));
 
     for (const run of pending) {
       if (run.status === "pending" && !this.store.occurrences.begin(run.id)) {

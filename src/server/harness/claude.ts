@@ -1,111 +1,32 @@
 import { type AdapterOptions, type HarnessAdapter, type HarnessMessage, type HarnessResult } from "./types";
 import { type ChildProcess, spawn } from "node:child_process";
 import {
-  type Options,
   type Query,
+  type SDKAssistantMessage,
   type SDKMessage,
+  type SDKResultMessage,
   type SDKUserMessage,
   getSessionInfo,
   getSessionMessages,
   query,
 } from "@anthropic-ai/claude-agent-sdk";
-import { claudeTranscript, harnessMessages } from "./transcript";
-import { object, string } from "../../lib/protocol";
+import { claudeTranscript, harnessMessages, nativeText } from "./transcript";
+import { ClaudeAgents } from "./claude-agents";
+import { claudeOptions } from "./claude-options";
 import { claudePermissions } from "./permissions";
 import { log } from "../logging";
-import { requireClaudeBinary } from "./claude-binary";
-import { sidePocketInstructions } from "./instructions";
 import { waitForProcessExit } from "./process";
 import { z } from "zod";
 
-const HOOK_TIMEOUT_SECONDS = 3600;
-const questionsAnswer = z.object({ answers: z.record(z.string(), z.string()) }).strict();
+export { claudeOptions } from "./claude-options";
 
-export function claudeOptions(
-  options: AdapterOptions,
-  sessionId: string,
-  shouldResume: boolean,
-  nativeRequest?: (id: string, isWaiting: boolean) => void
-): Options {
-  const { child, callbacks, parentTools } = options;
-  const inheritedEffort = child.effort ?? child.policy.effort;
-  const effort = inheritedEffort === "minimal" ? "low" : inheritedEffort;
+const messageIdSchema: z.ZodType<NonNullable<SDKUserMessage["uuid"]>> = z
+  .uuid()
+  .pipe(z.templateLiteral([z.string(), "-", z.string(), "-", z.string(), "-", z.string(), "-", z.string()]));
 
-  return {
-    ...claudePermissions(child.policy),
-    cwd: child.cwd,
-    ...(shouldResume ? { resume: sessionId } : { sessionId }),
-    ...((child.model ?? process.env.POCKET_CLAUDE_MODEL) && { model: child.model ?? process.env.POCKET_CLAUDE_MODEL }),
-    ...(effort && { effort: z.enum(["low", "medium", "high", "xhigh", "max"]).parse(effort) }),
-    pathToClaudeCodeExecutable: requireClaudeBinary(),
-    systemPrompt: { type: "preset", preset: "claude_code", append: sidePocketInstructions(child) },
-    title: `Side Pocket: ${child.title}`,
-    tools: { type: "preset", preset: "claude_code" },
-    settingSources: ["user", "project", "local"],
-    strictMcpConfig: true,
-    mcpServers: parentTools ? { pocket_parent: { type: "stdio", ...parentTools } } : {},
-    persistSession: true,
-    stderr: (message) => {
-      log().debug({ message, childId: child.id }, "side_pocket.claude.stderr");
-    },
-    hooks: {
-      PermissionRequest: [
-        {
-          timeout: HOOK_TIMEOUT_SECONDS,
-          hooks: [
-            async (input) => {
-              if (input.hook_event_name !== "PermissionRequest") {
-                return {};
-              }
-
-              const data = object(input.tool_input);
-              const isQuestion = input.tool_name === "AskUserQuestion";
-
-              if (isQuestion && input.agent_id) {
-                nativeRequest?.(input.agent_id, true);
-              }
-
-              const updatedInput = isQuestion
-                ? {
-                    ...data,
-                    ...questionsAnswer.parse(
-                      await callbacks.request({
-                        id: crypto.randomUUID(),
-                        kind: "question",
-                        method: input.tool_name,
-                        input: data,
-                      })
-                    ),
-                  }
-                : data;
-
-              if (isQuestion && input.agent_id) {
-                nativeRequest?.(input.agent_id, false);
-              }
-
-              return {
-                hookSpecificOutput: {
-                  hookEventName: "PermissionRequest",
-                  decision: { behavior: "allow", updatedInput },
-                },
-              };
-            },
-          ],
-        },
-      ],
-    },
-  };
-}
-
-function messageText(content: unknown) {
-  return Array.isArray(content)
-    ? content
-        .map((part) => string(object(part).text))
-        .filter(Boolean)
-        .join("\n")
-    : string(content);
-}
-
+/**
+Own one delegated Claude SDK session and its native process and query lifetimes.
+*/
 export class ClaudeAdapter implements HarnessAdapter {
   private sessionId: string;
 
@@ -117,68 +38,25 @@ export class ClaudeAdapter implements HarnessAdapter {
 
   private interrupted = false;
 
-  private nativeAgents: Record<string, { name: string; status: string; parentId?: string; background?: boolean }> = {};
+  private nativeAgents = new ClaudeAgents();
 
+  /**
+Retain a saved native session or allocate a new child identity.
+@param options - Scoped child context, inherited policy and worker callbacks.
+*/
   constructor(private options: AdapterOptions) {
     this.sessionId = options.child.sessionId ?? crypto.randomUUID();
     this.resume = !!options.child.sessionId;
   }
 
+  /**
+Publish native display metadata before forwarding assistant text.
+@param message - Native SDK message from the owned query.
+*/
   private event(message: SDKMessage) {
     log().debug({ childId: this.options.child.id, message }, "side_pocket.claude.event");
 
-    // Persist only native lifecycle display metadata, never task prompts or inputs.
-    if (
-      message.type === "system" &&
-      ["task_started", "task_updated", "task_notification", "background_tasks_changed"].includes(message.subtype)
-    ) {
-      if (message.subtype === "task_started" && message.task_type === "local_agent" && !message.ambient) {
-        this.nativeAgents[message.task_id] = {
-          name: message.description,
-          status: "running",
-          parentId: message.parent_task_id,
-          background: message.is_backgrounded,
-        };
-      } else if (message.subtype === "task_updated" && Object.hasOwn(this.nativeAgents, message.task_id)) {
-        if (message.patch.is_backgrounded !== undefined) {
-          this.nativeAgents[message.task_id].background = message.patch.is_backgrounded;
-        }
-
-        const status = message.patch.status;
-
-        if (status) {
-          this.nativeAgents[message.task_id].status =
-            status === "paused"
-              ? "unknown"
-              : status === "killed"
-                ? "closed"
-                : status === "pending"
-                  ? "unknown"
-                  : status;
-        }
-      } else if (message.subtype === "task_notification" && Object.hasOwn(this.nativeAgents, message.task_id)) {
-        this.nativeAgents[message.task_id].status = message.status === "stopped" ? "closed" : message.status;
-      } else if (message.subtype === "background_tasks_changed") {
-        for (const task of Object.values(this.nativeAgents)) {
-          if (task.background && task.status === "running") {
-            task.status = "unknown";
-          }
-        }
-
-        for (const task of message.tasks) {
-          if (task.task_type === "local_agent" && !task.ambient) {
-            this.nativeAgents[task.task_id] = {
-              name: task.description,
-              status: "running",
-              parentId: task.parent_task_id,
-              background: true,
-            };
-          }
-        }
-      }
-
-      this.options.callbacks.metadata({ nativeAgents: this.nativeAgents });
-    }
+    this.publishNative(message);
 
     if (message.type === "system" && message.subtype === "init") {
       this.options.callbacks.metadata({
@@ -190,17 +68,54 @@ export class ClaudeAdapter implements HarnessAdapter {
       });
     }
 
-    if (message.type !== "assistant") {
-      return;
+    if (message.type === "assistant") {
+      this.output(message);
     }
+  }
 
-    const text = messageText(message.message.content);
+  /**
+Publish task lifecycle changes only when the SDK message concerns native agents.
+@param message - Native SDK message from the owned query.
+*/
+  private publishNative(message: SDKMessage) {
+    const nativeAgents = this.nativeAgents.observe(message);
+
+    if (nativeAgents) {
+      this.options.callbacks.metadata({ nativeAgents });
+    }
+  }
+
+  /**
+Forward nonempty native assistant text without changing its content.
+@param message - Native SDK assistant message.
+*/
+  private output(message: SDKAssistantMessage) {
+    const text = nativeText(message.message.content);
 
     if (text) {
       this.options.callbacks.output(text);
     }
   }
 
+  /**
+Normalize native terminal status while preserving an explicit interruption.
+@param message - Native SDK terminal result message.
+@returns The delegated harness result and native response text.
+*/
+  private result(message: SDKResultMessage): HarnessResult {
+    const status = message.is_error ? "failed" : "completed";
+
+    return {
+      status: this.interrupted ? "interrupted" : status,
+      text: message.subtype === "success" ? message.result : message.errors.join("\n"),
+    };
+  }
+
+  /**
+Consume the SDK query until a terminal result or an uncertain premature exit.
+@param run - Owned native SDK query.
+@returns The terminal delegated harness result.
+*/
   private async consume(run: Query): Promise<HarnessResult> {
     for await (const message of run) {
       this.event(message);
@@ -210,10 +125,7 @@ export class ClaudeAdapter implements HarnessAdapter {
       }
 
       if (message.type === "result") {
-        return {
-          status: this.interrupted ? "interrupted" : message.is_error ? "failed" : "completed",
-          text: message.subtype === "success" ? message.result : message.errors.join("\n"),
-        };
+        return this.result(message);
       }
     }
 
@@ -222,26 +134,19 @@ export class ClaudeAdapter implements HarnessAdapter {
     );
   }
 
-  async open() {
-    claudePermissions(this.options.child.policy);
-    this.resume = !!(await getSessionInfo(this.sessionId, { dir: this.options.child.cwd }));
-
-    return this.sessionId;
-  }
-
-  async run(id: string, text: string): Promise<HarnessResult> {
-    this.interrupted = false;
-    this.nativeAgents = {};
-    this.options.callbacks.metadata({ nativeAgents: null });
+  /**
+Hold the SDK input stream open until query consumption and process cleanup finish.
+@param id - Durable delegated command identity validated as the SDK UUID format.
+@param text - Delegated user input.
+@returns The terminal delegated harness result.
+*/
+  private async turn(id: string, text: string) {
     const finished = Promise.withResolvers<undefined>();
-    const messageIdSchema: z.ZodType<NonNullable<SDKUserMessage["uuid"]>> = z
-      .uuid()
-      .pipe(z.templateLiteral([z.string(), "-", z.string(), "-", z.string(), "-", z.string(), "-", z.string()]));
     const messageId = messageIdSchema.parse(id);
-    const input = async function* () {
+    const input = async function* (): AsyncGenerator<SDKUserMessage> {
       yield {
-        type: "user" as const,
-        message: { role: "user" as const, content: text },
+        type: "user",
+        message: { role: "user", content: text },
         parent_tool_use_id: null,
         uuid: messageId,
       };
@@ -251,12 +156,13 @@ export class ClaudeAdapter implements HarnessAdapter {
       prompt: input(),
       options: {
         ...claudeOptions(this.options, this.sessionId, this.resume, (nativeId, waiting) => {
-          if (!Object.hasOwn(this.nativeAgents, nativeId)) {
+          const nativeAgents = this.nativeAgents.waiting(nativeId, waiting);
+
+          if (!nativeAgents) {
             return;
           }
 
-          this.nativeAgents[nativeId].status = waiting ? "waiting" : "running";
-          this.options.callbacks.metadata({ nativeAgents: this.nativeAgents });
+          this.options.callbacks.metadata({ nativeAgents });
         }),
         spawnClaudeCodeProcess: (options) => {
           const child = spawn(options.command, options.args, {
@@ -287,22 +193,60 @@ export class ClaudeAdapter implements HarnessAdapter {
     }
   }
 
+  /**
+Validate inherited policy and discover whether the native saved session exists.
+@returns The stable native child session identity.
+*/
+  async open() {
+    claudePermissions(this.options.child.policy);
+    this.resume = !!(await getSessionInfo(this.sessionId, { dir: this.options.child.cwd }));
+
+    return this.sessionId;
+  }
+
+  /**
+Reset per-turn state before submitting the next native SDK input.
+@param id - Durable delegated command identity.
+@param text - Delegated user input.
+@returns The terminal delegated harness result.
+*/
+  async run(id: string, text: string): Promise<HarnessResult> {
+    this.interrupted = false;
+    this.nativeAgents.reset();
+    this.options.callbacks.metadata({ nativeAgents: null });
+
+    return this.turn(id, text);
+  }
+
+  /**
+Read SDK saved messages and project canonical delegated history.
+@returns Chronological delegated messages from native saved history.
+*/
   async history(): Promise<HarnessMessage[]> {
     const messages = await getSessionMessages(this.sessionId, { dir: this.options.child.cwd });
 
     return harnessMessages(claudeTranscript(messages));
   }
 
+  /**
+Mark the current turn interrupted before invoking the native SDK interrupt operation.
+*/
   async interrupt() {
     this.interrupted = true;
     await this.current?.interrupt();
   }
 
+  /**
+Interrupt the native query while Pocket retains the resumable saved session.
+*/
   async archive() {
     // Claude has no native archive operation. Pocket archives its own record and keeps resumable history.
     await this.interrupt();
   }
 
+  /**
+Close the owned SDK query and await its native process exit.
+*/
   async close() {
     this.current?.close();
     await waitForProcessExit(this.process);

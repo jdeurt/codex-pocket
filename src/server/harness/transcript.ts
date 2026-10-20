@@ -1,24 +1,58 @@
 import { type Data, type Item, type Turn, object, string } from "../../lib/protocol";
 import { type HarnessMessage } from "./types";
+import { type SessionMessage } from "@anthropic-ai/claude-agent-sdk";
 
-export interface ClaudeMessage {
-  type: string;
-  uuid: string;
-  message: unknown;
-  parent_tool_use_id?: string | null;
-  parent_agent_id?: string | null;
+export type ClaudeMessage = SessionMessage;
+
+/**
+Normalize string or native text-block content without including non-text payloads.
+@param content - Native SDK or protocol content at the transcript boundary.
+@returns Joined text blocks, a direct string, or an empty string.
+*/
+export function nativeText(content: unknown): string {
+  if (typeof content === "string") {
+    return content;
+  }
+
+  return Array.isArray(content)
+    ? content
+        .map((part) => string(object(part).text))
+        .filter(Boolean)
+        .join("\n")
+    : "";
 }
 
-const textContent = (content: unknown): string =>
-  typeof content === "string"
-    ? content
-    : Array.isArray(content)
-      ? content
-          .map((part) => string(object(part).text))
-          .filter(Boolean)
-          .join("\n")
-      : "";
+/**
+Normalize saved SDK message content once into canonical part objects.
+@param raw - Normalized saved SDK message object.
+@returns Ordered text or structured content parts.
+*/
+function messageParts(raw: Data): Data[] {
+  if (typeof raw.content === "string") {
+    return [{ type: "text", text: raw.content }];
+  }
 
+  return Array.isArray(raw.content) ? raw.content.map((part) => object(part)) : [];
+}
+
+/**
+Map canonical user and tool items to delegated history roles.
+@param item - Canonical Pocket transcript item.
+@returns The delegated user, tool or assistant role.
+*/
+function messageRole(item: Item): HarnessMessage["role"] {
+  if (item.type === "userMessage") {
+    return "user";
+  }
+
+  return item.type === "toolTrace" ? "tool" : "assistant";
+}
+
+/**
+Project a native image source without decoding or changing its encoded bytes.
+@param part - Normalized native image content part.
+@returns Canonical image content with its original URL or data URL.
+*/
 function imageContent(part: Data) {
   const source = object(part.source);
 
@@ -38,7 +72,14 @@ interface MessageContext {
   calls: Map<string, Item>;
 }
 
-function appendPart({ message, raw, parts, userContent, turn, calls }: MessageContext, part: Data, index: number) {
+/**
+Project one normalized SDK part into canonical message, tool or image items.
+@param context - Saved message, active turn and cross-message tool-call ownership.
+@param part - Normalized native content part.
+@param index - Part position within the saved message.
+*/
+function appendPart(context: MessageContext, part: Data, index: number) {
+  const { message, raw, parts, userContent, turn, calls } = context;
   const id = `${message.uuid}:${String(index)}`;
 
   switch (part.type) {
@@ -61,7 +102,7 @@ function appendPart({ message, raw, parts, userContent, turn, calls }: MessageCo
 
     case "tool_result": {
       const item = calls.get(string(part.tool_use_id));
-      const output = textContent(part.content);
+      const output = nativeText(part.content);
 
       if (item) {
         item.status = part.is_error ? "failed" : "completed";
@@ -77,7 +118,9 @@ function appendPart({ message, raw, parts, userContent, turn, calls }: MessageCo
       }
 
       if (Array.isArray(part.content)) {
-        for (const [imageIndex, image] of part.content.map((entry) => object(entry)).entries()) {
+        const images = part.content.map((entry) => object(entry));
+
+        for (const [imageIndex, image] of images.entries()) {
           if (image.type === "image") {
             turn.items.push({
               id: `${id}:image:${String(imageIndex)}`,
@@ -119,24 +162,24 @@ function appendPart({ message, raw, parts, userContent, turn, calls }: MessageCo
 
 // Both harnesses use Pocket's existing turns/items model. Tool calls are display data,
 // never executable requests, and tool-result-only user messages are not user bubbles.
+/**
+Project SDK saved history while keeping tool results out of user bubbles.
+@param messages - Native SDK saved-session messages in chronological order.
+@returns Canonical Pocket turns with native tool and image content.
+*/
 export function claudeTranscript(messages: ClaudeMessage[]): Turn[] {
   const turns: Turn[] = [];
 
-  let turn: Turn | undefined;
-
   const calls = new Map<string, Item>();
+
+  let turn: Turn | undefined;
 
   for (const message of messages) {
     const raw = object(message.message);
-    const parts =
-      typeof raw.content === "string"
-        ? [{ type: "text", text: raw.content }]
-        : Array.isArray(raw.content)
-          ? raw.content.map((part) => object(part))
-          : [];
+    const parts = messageParts(raw);
     const userContent = parts.filter((part) => ["text", "image"].includes(string(part.type)));
 
-    if ((message.type === "user" && userContent.length > 0) || !turn) {
+    if (!turn || (message.type === "user" && userContent.length > 0)) {
       turn = { id: message.uuid, status: "inProgress", items: [] };
       turns.push(turn);
     }
@@ -159,17 +202,17 @@ export function claudeTranscript(messages: ClaudeMessage[]): Turn[] {
   return turns;
 }
 
+/**
+Project canonical items into delegated history without exposing executable requests.
+@param turns - Canonical chronological Pocket turns.
+@returns Delegated messages retaining their original canonical items.
+*/
 export function harnessMessages(turns: Turn[]): HarnessMessage[] {
   return turns.flatMap((turn) =>
     turn.items.map((item) => ({
       id: string(item.clientId) || item.id,
-      role:
-        item.type === "userMessage"
-          ? ("user" as const)
-          : item.type === "toolTrace"
-            ? ("tool" as const)
-            : ("assistant" as const),
-      text: string(item.text) || textContent(item.content),
+      role: messageRole(item),
+      text: string(item.text) || nativeText(item.content),
       item,
     }))
   );
