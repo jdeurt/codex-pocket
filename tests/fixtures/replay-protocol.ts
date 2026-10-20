@@ -1,4 +1,5 @@
 import { dataSchema } from "../../src/lib/protocol";
+import { fileAttachmentSchema } from "../../src/lib/attachments";
 import { z } from "zod";
 
 export const fixtureRequestSchema = z.object({
@@ -14,24 +15,19 @@ export const replayLogSchema = z.object({
   sortDirection: z.string().optional(),
   limit: z.number().optional(),
 });
+const localImageInputSchema = z.looseObject({ type: z.literal("localImage"), path: z.string() });
+const textInputSchema = z.looseObject({ type: z.literal("text"), text: z.string() });
+export const fixtureUploadInputSchema = z.discriminatedUnion("type", [textInputSchema, localImageInputSchema]);
+export const fixtureFileReferenceSchema = fileAttachmentSchema
+  .pick({ name: true, size: true, mediaType: true })
+  .extend({ path: z.string() });
 const nativeImageReceipt = z.object({ type: z.literal("localImage"), path: z.string(), size: z.number() });
-const fileReceipt = z.object({
-  path: z.string(),
-  size: z.number(),
-  name: z.string(),
-  mediaType: z.string(),
-  base64: z.string(),
-});
+const fileReceipt = fixtureFileReferenceSchema.extend({ base64: z.string() });
 export const uploadRequestSchema = z
   .object({
     method: z.string(),
     clientUserMessageId: z.string(),
-    input: z.array(
-      z.discriminatedUnion("type", [
-        z.object({ type: z.literal("text"), text: z.string() }),
-        z.object({ type: z.literal("localImage"), path: z.string() }),
-      ])
-    ),
+    input: z.array(fixtureUploadInputSchema),
     bytes: z.array(z.union([nativeImageReceipt, fileReceipt])),
   })
   .transform((request) => ({ ...request, files: request.bytes.filter((file) => "name" in file) }));

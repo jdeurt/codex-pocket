@@ -39,7 +39,11 @@ export async function startSpinnerServer(server: SpinnerServer, origin: string) 
         CODEX_CWD: server.directory,
         CODEX_POCKET_STATE_DIR: server.directory,
         CODEX_BINARY: process.execPath,
-        CODEX_SERVER_ARGS: JSON.stringify([path.resolve("tests/fixtures/spinner-harness.mjs")]),
+        CODEX_SERVER_ARGS: JSON.stringify([
+          "--import",
+          path.resolve("node_modules/tsx/dist/loader.mjs"),
+          path.resolve("tests/fixtures/spinner-harness.ts"),
+        ]),
         CODEX_ALLOWED_ORIGINS: origin,
         POCKET_CHILD_ID: "",
         POCKET_COMMAND_ID: "",

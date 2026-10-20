@@ -1,7 +1,7 @@
 import { type Page, expect, test } from "@playwright/test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import path from "node:path";
-import { readSnapshot } from "../../scripts/read-snapshot.mjs";
+import { readSnapshot } from "../../scripts/read-snapshot";
 import { send } from "./messages";
 import sharp from "sharp";
 import { snapshotSchema } from "../../src/lib/protocol";

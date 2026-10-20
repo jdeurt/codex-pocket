@@ -9,9 +9,9 @@ import {
   turnSchema,
 } from "../../src/lib/protocol";
 import { appendFile, readFile, writeFile } from "node:fs/promises";
+import { fixtureFileReferenceSchema, fixtureRequestSchema, fixtureUploadInputSchema } from "./replay-protocol";
 import { setInterval, setTimeout } from "node:timers";
 import { createInterface } from "node:readline";
-import { fixtureRequestSchema } from "./replay-protocol";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -19,22 +19,17 @@ import { z } from "zod";
 const CONTROL_POLL_MS = 75;
 const RECOVERY_DURATION_MS = 100;
 const PNG_SIGNATURE_LENGTH = 8;
-const uploadInputSchema = z.discriminatedUnion("type", [
-  z.looseObject({ type: z.literal("localImage"), path: z.string() }),
-  z.looseObject({ type: z.literal("text"), text: z.string() }),
-]);
-const fileReferenceSchema = z.object({ path: z.string(), size: z.number(), name: z.string(), mediaType: z.string() });
 
-type UploadItem = Item & { content?: z.infer<typeof uploadInputSchema>[] };
+type UploadItem = Item & { content?: z.infer<typeof fixtureUploadInputSchema>[] };
 type UploadTurn = Omit<Turn, "items"> & { items: UploadItem[] };
 type UploadHistory = Omit<Thread, "turns"> & { turns: UploadTurn[] };
-const uploadItemSchema = itemSchema.and(z.object({ content: z.array(uploadInputSchema).optional() }));
+const uploadItemSchema = itemSchema.and(z.object({ content: z.array(fixtureUploadInputSchema).optional() }));
 const uploadTurnSchema: z.ZodType<UploadTurn> = turnSchema.and(z.object({ items: z.array(uploadItemSchema) }));
 const uploadHistorySchema: z.ZodType<UploadHistory> = threadSchema.and(z.object({ turns: z.array(uploadTurnSchema) }));
 const controlSchema = z.object({ id: z.string().optional(), action: z.string().optional() });
 const deliverySchema = z
   .object({
-    input: z.array(uploadInputSchema),
+    input: z.array(fixtureUploadInputSchema),
     clientUserMessageId: z.string(),
     expectedTurnId: z.string().optional(),
   })
@@ -173,7 +168,7 @@ Reads an attached file path and proves the original byte length at the replay bo
 @returns Validated file receipt with its original base64 bytes.
 */
 async function readableReference(text: string) {
-  const reference = fileReferenceSchema.parse(JSON.parse(text.split("\n", 2)[1] ?? ""));
+  const reference = fixtureFileReferenceSchema.parse(JSON.parse(text.split("\n", 2)[1] ?? ""));
   const file = await readFile(reference.path);
 
   if (file.length !== reference.size) {
@@ -188,7 +183,7 @@ Reads one normalized native upload input and checks native image signatures.
 @param input - Validated text or local-image protocol input.
 @returns Original-byte receipt, or undefined for ordinary user text.
 */
-async function readableInput(input: z.infer<typeof uploadInputSchema>) {
+async function readableInput(input: z.infer<typeof fixtureUploadInputSchema>) {
   if (input.type === "localImage") {
     const file = await readFile(input.path);
 

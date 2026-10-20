@@ -1,46 +1,65 @@
+import { activeThreadPage, pageItems, pageTurns, savedThread } from "./agent-browser-pages";
 import { appendFileSync, readFileSync, watchFile, writeFileSync } from "node:fs";
-import { replayParent, replayThreads, replayTurns } from "./agent-browser-data";
+import { replayParent, replayTurns } from "./agent-browser-data";
 import { createInterface } from "node:readline";
 import { fixtureRequestSchema } from "./replay-protocol";
 import { z } from "zod";
-
 // OFFLINE JSON-RPC replay. Refuses every mutation directed at a child session.
 
-const directory = process.env.POCKET_REPLAY_DIRECTORY;
+/**
+Requires the fake host's explicitly isolated replay directory before registering any I/O.
+@returns Private replay directory; missing configuration throws.
+*/
+function replayDirectory() {
+  const directory = process.env.POCKET_REPLAY_DIRECTORY;
 
-if (!directory) {
-  throw new Error("Missing isolated replay directory.");
+  if (!directory) {
+    throw new Error("Missing isolated replay directory.");
+  }
+
+  return directory;
 }
 
+const directory = replayDirectory();
 const APPROVAL_DELAY_MS = 750;
-const emit = (value: unknown) => process.stdout.write(JSON.stringify(value) + "\n");
-const stage = () =>
-  z.object({ stage: z.string() }).parse(JSON.parse(readFileSync(`${directory}/control.json`, "utf8"))).stage;
+
+/**
+Writes one synthetic native protocol record on the real child stdout pipe.
+@param value - Native result, notification or request produced by the offline replay.
+*/
+function emit(value: unknown) {
+  process.stdout.write(JSON.stringify(value) + "\n");
+}
+
+const stageSchema = z.object({ stage: z.string() });
+
+/**
+Validates the current fake-host control stage at the private file boundary.
+@returns Host-selected replay stage.
+*/
+function stage() {
+  return stageSchema.parse(JSON.parse(readFileSync(`${directory}/control.json`, "utf8"))).stage;
+}
+
 const replay = { promptSent: false, activeReads: 0, maxReads: 0 };
 const HISTORY_DELAY_MS = 30;
-const PAGE_LIMIT = 20;
 const APPEND_POLL_MS = 50;
 const APPEND_REPETITIONS = 12;
 const APPEND_STREAM_MS = 200;
 const appended = new Set<string>();
 
-// Inject real parent notifications through JSON-RPC/SSE while a child overlay is
-// open. This is synthetic output, never an action dispatched to a harness.
-watchFile(`${directory}/control.json`, { interval: APPEND_POLL_MS, persistent: false }, () => {
-  const current = stage();
-
-  if (!current.startsWith("parent-append:") || appended.has(current)) {
-    return;
-  }
-
-  appended.add(current);
+/**
+Publishes the synthetic parent turn, item, streamed delta and completion in native order.
+@param current - Validated append control identity, already reserved in the deduplication set.
+*/
+function streamParentAppend(current: string) {
   const id = `parent-incoming-${current.slice("parent-append:".length).replaceAll(":", "-")}`;
   const turn = { id, status: "inProgress", items: [] };
 
-  emit({ method: "turn/started", params: { threadId: replayParent, turn } });
   const text = `${id}. Parent streamed start. `;
   const item = { id, type: "agentMessage", phase: "final_answer", text };
 
+  emit({ method: "turn/started", params: { threadId: replayParent, turn } });
   emit({
     method: "item/started",
     params: {
@@ -59,50 +78,46 @@ watchFile(`${directory}/control.json`, { interval: APPEND_POLL_MS, persistent: f
     });
     emit({ method: "turn/completed", params: { threadId: replayParent, turn: { ...turn, status: "completed" } } });
   }, APPEND_STREAM_MS).unref();
-});
+}
 
+/**
+Returns a synthetic native turn page and schedules the parent's one-time approval request.
+@param params - Validated native parameter record.
+@param state - Host-selected replay stage.
+@returns Native turn page with original paging and summary behavior.
+*/
 function turnPage(params: Record<string, unknown>, state: string) {
-  const turns = replayTurns(String(params.threadId), state);
-  const ordered = params.sortDirection === "desc" ? turns.toReversed() : turns;
-  const offset = Number(params.cursor ?? 0);
-  const limit = Math.min(Number(params.limit ?? PAGE_LIMIT), PAGE_LIMIT);
-  const page = {
-    data: ordered
-      .slice(offset, offset + limit)
-      .map((turn, index) =>
-        params.itemsView === "notLoaded"
-          ? { ...turn, items: [], itemsView: "notLoaded" }
-          : params.sortDirection !== "desc" && index === 0
-            ? { ...turn, items: [], itemsView: "summary" }
-            : turn
-      ),
-    nextCursor: offset + limit < ordered.length ? String(offset + limit) : null,
-  };
+  const page = pageTurns(params, state);
 
   if (params.threadId === replayParent && !replay.promptSent) {
     replay.promptSent = true;
-    setTimeout(
-      () =>
-        emit({
-          id: "parent-approval",
-          method: "item/commandExecution/requestApproval",
-          params: {
-            threadId: replayParent,
-            turnId: "parent-approval-turn",
-            reason: "Replay parent approval remains writable.",
-            command: "echo replay",
-            availableDecisions: ["accept", "decline"],
-          },
-        }),
-      APPROVAL_DELAY_MS
-    );
+    setTimeout(() => {
+      emit({
+        id: "parent-approval",
+        method: "item/commandExecution/requestApproval",
+        params: {
+          threadId: replayParent,
+          turnId: "parent-approval-turn",
+          reason: "Replay parent approval remains writable.",
+          command: "echo replay",
+          availableDecisions: ["accept", "decline"],
+        },
+      });
+    }, APPROVAL_DELAY_MS);
   }
 
   return page;
 }
 
-function response(request: { method: string }, params: Record<string, unknown>, state: string): unknown {
-  switch (request.method) {
+/**
+Implements read-only native discovery/history and forbids every child mutation.
+@param method - Checked native method.
+@param params - Decoded native parameter record.
+@param state - Host-selected replay stage.
+@returns Synthetic native response; unsupported or forbidden operations throw.
+*/
+function response(method: string, params: Record<string, unknown>, state: string): unknown {
+  switch (method) {
     case "initialize": {
       return { userAgent: "offline-replay" };
     }
@@ -127,13 +142,7 @@ function response(request: { method: string }, params: Record<string, unknown>, 
     }
 
     case "thread/list": {
-      const threads = replayThreads(state === "settled", state === "history-changed" ? 2 : 1);
-
-      return params.archived
-        ? { data: [], nextCursor: null }
-        : params.cursor
-          ? { data: threads.slice(2), nextCursor: null }
-          : { data: threads.slice(0, 2), nextCursor: "second-page" };
+      return params.archived ? { data: [], nextCursor: null } : activeThreadPage(params, state);
     }
 
     case "thread/read": {
@@ -141,20 +150,7 @@ function response(request: { method: string }, params: Record<string, unknown>, 
         throw new Error("Synthetic auth failure");
       }
 
-      const thread = replayThreads(state === "settled", state === "history-changed" ? 2 : 1).find(
-        (entry) => entry.id === params.threadId
-      ) ?? {
-        id: params.threadId,
-        name: "Saved Side Pocket",
-        model: "gpt-replay",
-        reasoningEffort: "high",
-      };
-
-      if (params.threadId === "missing-session") {
-        throw new Error("Synthetic missing session");
-      }
-
-      return { thread: { ...thread, turns: params.includeTurns ? replayTurns(String(params.threadId), state) : [] } };
+      return { thread: savedThread(params, state) };
     }
 
     case "thread/turns/list": {
@@ -171,14 +167,7 @@ function response(request: { method: string }, params: Record<string, unknown>, 
         throw new Error("Replay turn not found.");
       }
 
-      const ordered = params.sortDirection === "desc" ? items.toReversed() : items;
-      const offset = Number(params.cursor ?? 0);
-      const limit = Math.min(Number(params.limit ?? 2), 2);
-
-      return {
-        data: ordered.slice(offset, offset + limit).map((item) => ({ item })),
-        nextCursor: offset + limit < ordered.length ? String(offset + limit) : null,
-      };
+      return pageItems(items, params);
     }
 
     case "turn/start":
@@ -191,10 +180,66 @@ function response(request: { method: string }, params: Record<string, unknown>, 
     }
 
     default: {
-      throw new Error(`Unsupported replay operation ${request.method}`);
+      throw new Error(`Unsupported replay operation ${method}`);
     }
   }
 }
+
+/**
+Tracks concurrent child-history reads and applies the fake native history latency.
+@param id - Validated native request identity.
+@param method - Checked native method.
+@param params - Decoded native parameter record.
+@param result - Completed native response to emit immediately or after history latency.
+*/
+function deliverResult(id: string | number, method: string, params: Record<string, unknown>, result: unknown) {
+  const isHistory = params.threadId !== replayParent && ["thread/turns/list", "thread/items/list"].includes(method);
+
+  if (!isHistory) {
+    emit({ id, result });
+
+    return;
+  }
+
+  replay.activeReads++;
+  replay.maxReads = Math.max(replay.maxReads, replay.activeReads);
+  writeFileSync(`${directory}/rpc-metrics.json`, JSON.stringify({ maxReads: replay.maxReads }));
+  setTimeout(() => {
+    replay.activeReads--;
+    emit({ id, result });
+  }, HISTORY_DELAY_MS);
+}
+
+/**
+Reads control state before responding and serializes native operation errors.
+@param id - Validated native request identity.
+@param method - Checked native method.
+@param params - Decoded native parameter record.
+*/
+function serveRequest(id: string | number, method: string, params: Record<string, unknown>) {
+  const state = stage();
+
+  try {
+    const result = response(method, params, state);
+
+    deliverResult(id, method, params, result);
+  } catch (error) {
+    emit({ id, error: { code: -32_600, message: String(error) } });
+  }
+}
+
+// Inject real parent notifications through JSON-RPC/SSE while a child overlay is
+// open. This is synthetic output, never an action dispatched to a harness.
+watchFile(`${directory}/control.json`, { interval: APPEND_POLL_MS, persistent: false }, () => {
+  const current = stage();
+
+  if (!current.startsWith("parent-append:") || appended.has(current)) {
+    return;
+  }
+
+  appended.add(current);
+  streamParentAppend(current);
+});
 
 createInterface({ input: process.stdin }).on("line", (line) => {
   const request = fixtureRequestSchema.parse(JSON.parse(line));
@@ -216,28 +261,5 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     return;
   }
 
-  const params = request.params;
-  const state = stage();
-
-  try {
-    const result = response({ method: request.method }, params, state);
-    const isHistory =
-      request.params.threadId !== replayParent && ["thread/turns/list", "thread/items/list"].includes(request.method);
-
-    if (!isHistory) {
-      emit({ id: request.id, result });
-
-      return;
-    }
-
-    replay.activeReads++;
-    replay.maxReads = Math.max(replay.maxReads, replay.activeReads);
-    writeFileSync(`${directory}/rpc-metrics.json`, JSON.stringify({ maxReads: replay.maxReads }));
-    setTimeout(() => {
-      replay.activeReads--;
-      emit({ id: request.id, result });
-    }, HISTORY_DELAY_MS);
-  } catch (error) {
-    emit({ id: request.id, error: { code: -32_600, message: String(error) } });
-  }
+  serveRequest(request.id, request.method, request.params);
 });

@@ -16,14 +16,52 @@ const HALF_ALPHA = 128;
 const EDGE = 8;
 const BAND_WIDTH = 4;
 
+/**
+Selects visible band luminance or the hidden-background fixture value.
+@param x - Horizontal pixel coordinate.
+@param name - Tonal fixture identity.
+@param levels - Ordered shadow-to-highlight luminance bands.
+@param isInside - Whether this pixel belongs to the visible center.
+@returns Unchanged grayscale byte value for this pixel.
+*/
+function pixelLuminance(x: number, name: string, levels: number[], isInside: boolean) {
+  if (isInside) {
+    return levels[Math.floor((x - EDGE) / BAND_WIDTH)];
+  }
+
+  return name === "hidden" ? OPAQUE : 0;
+}
+
+/**
+Selects opacity for visible, hidden-background and low-weight tonal samples.
+@param name - Tonal fixture identity.
+@param x - Horizontal pixel coordinate.
+@param y - Vertical pixel coordinate.
+@param isInside - Whether this pixel belongs to the visible center.
+@returns Original alpha byte for this sample.
+*/
+function pixelAlpha(name: string, x: number, y: number, isInside: boolean) {
+  if (!isInside) {
+    return 0;
+  }
+
+  if (name === "weighted" && x < SIZE / 2) {
+    return WEIGHTED_ALPHA;
+  }
+
+  return y < SIZE / 2 ? OPAQUE : HALF_ALPHA;
+}
+
+/**
+Writes real PNG fixtures containing known luminance bands and alpha-weighted regions.
+@param directory - Private integration directory receiving generated raster inputs.
+@returns Paths keyed by tonal fixture identity after all PNG writes complete.
+*/
 export async function createTonalFixtures(directory: string) {
   const images: Record<string, string> = {};
+  const samples = { ...TONAL_BANDS, hidden: TONAL_BANDS.dark, weighted: TONAL_BANDS.dark };
 
-  for (const [name, bands] of Object.entries({
-    ...TONAL_BANDS,
-    hidden: TONAL_BANDS.dark,
-    weighted: TONAL_BANDS.dark,
-  })) {
+  for (const [name, bands] of Object.entries(samples)) {
     const levels = Object.values(bands);
     const data = Buffer.alloc(SIZE * SIZE * CHANNELS);
 
@@ -31,18 +69,12 @@ export async function createTonalFixtures(directory: string) {
       for (let x = 0; x < SIZE; x++) {
         const offset = (y * SIZE + x) * CHANNELS;
         const isInside = x >= EDGE && x < SIZE - EDGE && y >= EDGE && y < SIZE - EDGE;
-        const luminance = isInside ? levels[Math.floor((x - EDGE) / BAND_WIDTH)] : name === "hidden" ? OPAQUE : 0;
+        const luminance = pixelLuminance(x, name, levels, isInside);
 
         data[offset] = luminance;
         data[offset + 1] = luminance;
         data[offset + 2] = luminance;
-        data[offset + ALPHA_CHANNEL] = isInside
-          ? name === "weighted" && x < SIZE / 2
-            ? WEIGHTED_ALPHA
-            : y < SIZE / 2
-              ? OPAQUE
-              : HALF_ALPHA
-          : 0;
+        data[offset + ALPHA_CHANNEL] = pixelAlpha(name, x, y, isInside);
       }
     }
 

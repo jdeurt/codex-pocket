@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readSnapshot } from "../scripts/read-snapshot.mjs";
+import { readSnapshot } from "../scripts/read-snapshot";
 import test from "node:test";
 
 function stream(chunks: Uint8Array[]) {

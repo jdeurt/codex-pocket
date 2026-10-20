@@ -4,6 +4,13 @@ import assert from "node:assert/strict";
 import { spinnerLibrarySchema } from "../../src/lib/spinner";
 import { toolJson } from "./tool-json";
 
+/**
+Connects a real MCP stdio client to private spinner state and normalizes its library responses.
+@param directory - Private managed spinner state root.
+@param overrides - Explicit fixture-only environment overrides.
+@param script - Main or child MCP entry point selected by the workflow.
+@returns Owned MCP client and typed spinner command operation; the caller closes the client.
+*/
 export async function spinnerClient(
   directory: string,
   overrides: Record<string, string> = {},

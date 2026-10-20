@@ -1,6 +1,5 @@
 import { type Turn } from "../../src/lib/protocol";
 import { replayToolOutputs } from "./agent-tool-output";
-
 // OFFLINE REPLAY ONLY. These are synthetic harness wire records, not live results.
 
 export const replayParent = "replay-parent";
@@ -15,6 +14,12 @@ export const longName =
 export const replayImage =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAPAAAACgCAIAAAC9uXYyAAAACXBIWXMAAAPoAAAD6AG1e1JrAAADQUlEQVR4nO3WgQnAAAwCwa76g3SHjtwxAnLgAEEf49P7EQdaweA5v4A4EKBBwIE0NAhaf4kmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAjmHTA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6Q/gBTZKAi/7jQtEAAAAASUVORK5CYII=";
 
+/**
+Builds synthetic native ancestry and status records without touching saved sessions.
+@param isSettled - Whether active synthetic descendants have completed.
+@param revision - Native modification marker used to exercise history refresh.
+@returns Offline thread discovery records, including deliberate scope exclusions.
+*/
 export function replayThreads(isSettled = false, revision = 1) {
   return [
     {
@@ -73,45 +78,50 @@ export function replayThreads(isSettled = false, revision = 1) {
   }));
 }
 
-export function replayTurns(id: string, stage = "initial"): Turn[] {
-  if (id === replayParent) {
-    return Array.from({ length: 25 }, (_, index) => ({
-      id: `parent-${String(index)}`,
-      status: "completed",
-      items: [
-        {
-          id: `parent-u-${String(index)}`,
-          type: "userMessage",
-          content: [{ type: "text", text: `Parent question ${String(index)}` }],
-        },
-        {
-          id: `parent-a-${String(index)}`,
-          type: "agentMessage",
-          text: `Parent answer ${String(index)}. The parent conversation stays in place while viewing agents.`,
-          phase: "final_answer",
-        },
-      ],
-    }));
-  }
-
-  if (id === "missing-session") {
-    throw new Error("Synthetic saved history unavailable");
-  }
-
-  if (id === "tool-codex") {
-    return [
+/**
+Prepends saved native archive pages and optionally appends a changed terminal turn.
+@param current - Current completed child transcript.
+@param stage - Host-selected history revision.
+@returns Full chronological saved history for paging and cache refresh assertions.
+*/
+function archivedHistory(current: Turn[], stage: string): Turn[] {
+  const archived = Array.from({ length: 40 }, (_, index) => ({
+    id: `archived-${String(index)}`,
+    status: "completed",
+    items: [
       {
-        id: `${id}-turn`,
-        status: "completed",
-        items: [
-          { id: `${id}-u`, type: "userMessage", content: [{ type: "text", text: "Read saved tool outputs." }] },
-          ...replayToolOutputs(id, replayImage),
-          { id: `${id}-a`, type: "agentMessage", phase: "final_answer", text: "Saved tool output transcript" },
-        ],
+        id: `archived-item-${String(index)}`,
+        type: "agentMessage",
+        text: `Archived research ${String(index)}. ${"Saved history. ".repeat(ARCHIVE_TEXT_REPETITIONS)}`,
+        phase: "final_answer",
       },
-    ];
-  }
+    ],
+  }));
 
+  return [
+    ...archived,
+    ...current,
+    ...(stage === "history-changed"
+      ? [
+          {
+            id: "changed-turn",
+            status: "completed",
+            items: [
+              { id: "changed-message", type: "agentMessage", text: "CHANGED_TERMINAL_HISTORY", phase: "final_answer" },
+            ],
+          },
+        ]
+      : []),
+  ];
+}
+
+/**
+Builds the native child transcript and its stage-dependent latest output.
+@param id - Synthetic child session identity.
+@param stage - Current host-selected replay stage.
+@returns Canonical child history, including archive pages for the completed fixture.
+*/
+function ordinaryTurns(id: string, stage: string): Turn[] {
   const isActive =
     ["native-codex", "native-grandchild", "side-native", "stale-codex"].includes(id) && stage !== "settled";
 
@@ -159,36 +169,53 @@ export function replayTurns(id: string, stage = "initial"): Turn[] {
     },
   ];
 
-  if (id !== "done-codex") {
-    return current;
+  return id === "done-codex" ? archivedHistory(current, stage) : current;
+}
+
+/**
+Selects synthetic parent, saved-tool or child history for one offline replay stage.
+@param id - Synthetic native session identity.
+@param stage - Current host-selected replay stage.
+@returns Chronological canonical turns; the missing-history fixture throws.
+*/
+export function replayTurns(id: string, stage = "initial"): Turn[] {
+  if (id === replayParent) {
+    return Array.from({ length: 25 }, (_, index) => ({
+      id: `parent-${String(index)}`,
+      status: "completed",
+      items: [
+        {
+          id: `parent-u-${String(index)}`,
+          type: "userMessage",
+          content: [{ type: "text", text: `Parent question ${String(index)}` }],
+        },
+        {
+          id: `parent-a-${String(index)}`,
+          type: "agentMessage",
+          text: `Parent answer ${String(index)}. The parent conversation stays in place while viewing agents.`,
+          phase: "final_answer",
+        },
+      ],
+    }));
   }
 
-  const archived = Array.from({ length: 40 }, (_, index) => ({
-    id: `archived-${String(index)}`,
-    status: "completed",
-    items: [
-      {
-        id: `archived-item-${String(index)}`,
-        type: "agentMessage",
-        text: `Archived research ${String(index)}. ${"Saved history. ".repeat(ARCHIVE_TEXT_REPETITIONS)}`,
-        phase: "final_answer",
-      },
-    ],
-  }));
+  if (id === "missing-session") {
+    throw new Error("Synthetic saved history unavailable");
+  }
 
-  return [
-    ...archived,
-    ...current,
-    ...(stage === "history-changed"
-      ? [
-          {
-            id: "changed-turn",
-            status: "completed",
-            items: [
-              { id: "changed-message", type: "agentMessage", text: "CHANGED_TERMINAL_HISTORY", phase: "final_answer" },
-            ],
-          },
-        ]
-      : []),
-  ];
+  if (id === "tool-codex") {
+    return [
+      {
+        id: `${id}-turn`,
+        status: "completed",
+        items: [
+          { id: `${id}-u`, type: "userMessage", content: [{ type: "text", text: "Read saved tool outputs." }] },
+          ...replayToolOutputs(id, replayImage),
+          { id: `${id}-a`, type: "agentMessage", phase: "final_answer", text: "Saved tool output transcript" },
+        ],
+      },
+    ];
+  }
+
+  return ordinaryTurns(id, stage);
 }

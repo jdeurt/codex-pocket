@@ -1,6 +1,12 @@
 // OFFLINE wire fixtures checked against Codex CLI 0.163 generated v2 ThreadItem,
 // McpToolCallResult/Error and DynamicToolCallOutputContentItem. MCP resource/text
 // blocks follow the installed MCP SDK ContentBlock schema. No live tool runs.
+/**
+Builds saved native MCP and dynamic text, resource, image and error records for the offline transcript.
+@param id - Synthetic session prefix giving every native item a stable identity.
+@param image - Inline synthetic image used by native tool output variants.
+@returns Synthetic native tool items with private argument and metadata sentinels.
+*/
 export function replayToolOutputs(id: string, image: string) {
   const mcp = {
     type: "mcpToolCall" as const,

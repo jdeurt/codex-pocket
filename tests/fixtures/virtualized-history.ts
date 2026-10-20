@@ -8,6 +8,12 @@ const IMAGE_CADENCE = 97;
 
 const LONG_HISTORY = 1200;
 
+/**
+Builds canonical synthetic history with varying text, code and image heights.
+@param count - Number of message items in the synthetic turn.
+@param start - Initial message index used for paging and prepend scenarios.
+@returns Canonical connected snapshot for offline transcript integration flows.
+*/
 export function history(count = LONG_HISTORY, start = 0): Snapshot {
   return {
     ...initialSnapshot,
