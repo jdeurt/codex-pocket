@@ -1,0 +1,147 @@
+.pocket-header {
+  gap: 8px;
+  padding-inline: 16px;
+}
+.pocket-header .thread-heading {
+  flex: 1;
+  min-width: 0;
+}
+.pocket-header h1 {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pocket-menu-trigger,
+.pocket-header-balance {
+  width: 44px;
+  height: 44px;
+  flex-shrink: 0;
+}
+.pocket-menu-trigger,
+.pockets-panel button {
+  display: inline-flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 44px;
+  min-width: 44px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.pocket-menu-trigger svg,
+.pockets-panel button svg {
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+}
+.pockets-panel {
+  position: fixed;
+  inset: 0 auto 0 0;
+  z-index: 51;
+  width: min(100%, 420px);
+  height: 100dvh;
+  background: var(--background);
+  color: var(--foreground);
+  display: flex;
+  flex-direction: column;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.pockets-heading {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+}
+.pockets-heading h2 {
+  font-size: 18px;
+  font-weight: 600;
+}
+.pockets-content {
+  overflow: auto;
+  padding: 0 16px 24px;
+}
+.pocket-create {
+  gap: 8px;
+  width: 100%;
+  background: var(--secondary);
+  margin-bottom: 12px;
+  padding: 8px 12px;
+}
+.pocket-entry {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 8px;
+  border-radius: 12px;
+}
+.pocket-entry[data-selected] {
+  background: var(--secondary);
+}
+.pocket-link {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+  gap: 4px;
+  padding: 6px 4px;
+  min-height: 44px;
+}
+.pocket-name {
+  overflow-wrap: anywhere;
+  font-weight: 500;
+  line-height: 22px;
+}
+.pocket-status,
+.pocket-preview {
+  font-size: 13px;
+  line-height: 20px;
+  color: var(--muted-foreground);
+}
+.pocket-preview {
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+}
+.pocket-actions {
+  display: flex;
+  flex-shrink: 0;
+}
+.pocket-editor label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.pocket-editor input {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--secondary);
+  padding: 8px 12px;
+  font-size: 16px;
+}
+.pocket-editor-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+}
+.pocket-editor-actions button {
+  padding-inline: 12px;
+  background: var(--secondary);
+}
+.pockets-panel [role="alert"] {
+  padding-block: 12px;
+}
+.pocket-menu-trigger:focus-visible,
+.pockets-panel :is(button, a, input):focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+.pockets-panel button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

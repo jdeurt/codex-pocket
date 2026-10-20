@@ -1,3 +1,5 @@
+const ownerBrowsers = new Map<string, AgentBrowser>();
+
 import { type AgentEntry, type AgentTranscript, isActiveAgent } from "../lib/agents";
 import { agentImageSource, projectAgentTranscript } from "./agent-projection";
 import { AgentReadCache } from "./agent-read-cache";
@@ -233,10 +235,24 @@ function createAgentBrowser() {
   return browser;
 }
 
+/** Reuse one independent cache for a verified parent.
+@param owner - Verified native parent.
+@returns Parent-specific catalog cache.
+*/
+function ownedBrowser(owner: string) {
+  const existing = ownerBrowsers.get(owner);
+  const browser = existing ?? new AgentBrowser();
+
+  ownerBrowsers.set(owner, browser);
+
+  return browser;
+}
+
 /**
 Reuse the process's existing parent-scoped agent browser or create it lazily.
+@param owner - Optional verified parent identity for an independent cache.
 @returns The process catalog and transcript owner.
 */
-export function agentBrowser() {
-  return globalThis.pocketAgentBrowser ?? createAgentBrowser();
+export function agentBrowser(owner?: string) {
+  return owner ? ownedBrowser(owner) : (globalThis.pocketAgentBrowser ?? createAgentBrowser());
 }

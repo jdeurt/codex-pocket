@@ -5,6 +5,7 @@ import {
   NARROW_WIDTH,
   PHONE,
   PHONE_HEIGHT,
+  POCKETS_ORIGIN,
   SAFARI_HEIGHT,
   SAFARI_WIDTH,
   SPINNER_ORIGIN,
@@ -71,6 +72,16 @@ const config: PlaywrightTestConfig = {
           name: "agents",
           testMatch: "**/browser/agent-browser.spec.ts",
           use: { viewport: PHONE.viewport, baseURL: AGENT_ORIGIN, browserName: "chromium" },
+        },
+        {
+          name: "pockets-chromium-phone",
+          testMatch: "**/browser/pockets.spec.ts",
+          use: { ...PHONE, baseURL: POCKETS_ORIGIN, browserName: "chromium" },
+        },
+        {
+          name: "pockets-webkit-phone",
+          testMatch: "**/browser/pockets.spec.ts",
+          use: { ...PHONE, baseURL: POCKETS_ORIGIN, browserName: "webkit" },
         },
         { name: "copy-chromium-phone", ...copyOptions, use: { ...PHONE, browserName: "chromium" } },
         { name: "copy-chromium-desktop", ...copyOptions, use: { ...DESKTOP, browserName: "chromium" } },
@@ -211,6 +222,15 @@ const config: PlaywrightTestConfig = {
         env: { POCKET_LIVE_TESTS: "1", CODEX_THREAD_ID: "" },
       }
     : [
+        {
+          name: "pockets-local",
+          command: "node --import tsx tests/fixtures/pockets-server.ts",
+          url: POCKETS_ORIGIN,
+          timeout: SERVER_TIMEOUT,
+          reuseExistingServer: false,
+          gracefulShutdown: shutdown,
+          env: { CODEX_THREAD_ID: "" },
+        },
         {
           name: "browser-local",
           command: "node --import tsx tests/fixtures/browser-server.ts",

@@ -2,9 +2,20 @@ import { errorResponse, guard } from "@/server/http";
 import { HTTP_FORBIDDEN } from "@/lib/constants";
 import { SnapshotStream } from "@/server/snapshot-stream";
 import { bridge } from "@/server/bridge";
+import { requestBridge } from "@/server/named-pockets";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+/** Subscribe before native hydration so transient failures remain visible and reconnectable.
+@param request - Authorized request with per-tab Pocket selection.
+@returns Private parent snapshot stream.
+*/
+async function stream(request: Request) {
+  const parent = process.env.CODEX_THREAD_ID ? await requestBridge(request, true) : bridge;
+
+  return new SnapshotStream(request, parent).response();
+}
 
 /**
 Subscribe an authorized browser to the existing parent's visible snapshots.
@@ -18,5 +29,9 @@ export async function GET(request: Request) {
     return errorResponse(error, HTTP_FORBIDDEN);
   }
 
-  return new SnapshotStream(request, bridge).response();
+  try {
+    return await stream(request);
+  } catch (error) {
+    return errorResponse(error);
+  }
 }

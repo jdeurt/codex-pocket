@@ -1,6 +1,5 @@
-import { type Data, type Thread, object, string, threadSchema } from "../../src/lib/protocol";
-import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
-import { array } from "./values";
+import { type Data, type Thread, object, string } from "../../src/lib/protocol";
+import { CodexPersistence } from "./codex-persistence";
 import { randomUUID } from "node:crypto";
 
 const MILLISECONDS_PER_SECOND = 1000;
@@ -9,6 +8,8 @@ const MILLISECONDS_PER_SECOND = 1000;
 Own durable simulator threads; a new transport can resume the same store without native installation.
 */
 export class CodexStore {
+  private persistence?: CodexPersistence;
+
   threads = new Map<string, Thread>();
   archived = new Set<string>();
   loaded = new Set<string>();
@@ -17,33 +18,23 @@ export class CodexStore {
 Load only the explicitly selected test state file.
 @param filename - Optional isolated state file, never a native Codex home.
 */
-  constructor(private filename?: string) {
-    const text = filename && existsSync(filename) ? readFileSync(filename, "utf8") : "{}";
-    const saved = object(JSON.parse(text));
-
-    for (const value of array(saved.threads)) {
-      const thread = threadSchema.parse(value);
-
-      this.threads.set(thread.id, thread);
-    }
-
-    this.archived = new Set(array(saved.archived).map((value) => string(value)));
+  constructor(filename?: string) {
+    this.persistence = filename ? new CodexPersistence(filename) : undefined;
+    this.refresh();
   }
 
   /**
-Persist test-owned threads atomically at the request boundary.
-*/
-  save() {
-    if (!this.filename) {
-      return;
-    }
+  Refresh sessions owned by other simulator processes before handling a request.
+  */
+  refresh() {
+    this.persistence?.read(this.threads, this.archived, this.loaded);
+  }
 
-    writeFileSync(
-      `${this.filename}.tmp`,
-      JSON.stringify({ threads: this.threads.values().toArray(), archived: [...this.archived] }),
-      { mode: 0o600 }
-    );
-    renameSync(`${this.filename}.tmp`, this.filename);
+  /**
+  Persist only changed sessions at each native request boundary.
+  */
+  save() {
+    this.persistence?.write(this.threads, this.archived);
   }
 
   /**

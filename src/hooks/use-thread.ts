@@ -4,6 +4,7 @@ import { clientError, reportClient } from "@/lib/client-logging";
 import { type FileAttachment } from "@/lib/attachments";
 import { ZodError } from "zod";
 import { markNewContent } from "@/lib/new-content";
+import { pocketUrl } from "@/lib/pockets";
 import { reconcileDeliveries } from "@/lib/deliveries";
 import { useSyncExternalStore } from "react";
 
@@ -112,7 +113,7 @@ function start() {
     reportClient("sse.connecting");
     source?.close();
     clearTimeout(retry);
-    source = new EventSource("/api/events");
+    source = new EventSource(pocketUrl("/api/events"));
     source.addEventListener("message", (event: MessageEvent<string>) => {
       const state = eventSnapshot(event.data);
 

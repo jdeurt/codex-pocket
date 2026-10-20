@@ -6,10 +6,17 @@ import { snapshotSchema } from "../../src/lib/protocol";
 import { z } from "zod";
 
 const PROCESS_TIMEOUT_MS = 15_000;
+const THREAD_ID = "isolated-restart-check";
 const replySchema = z.union([
   z.object({ raw: snapshotSchema, visible: snapshotSchema, error: z.undefined().optional() }),
   z.object({ error: z.string() }),
 ]);
+
+/** Locate restart evidence in this fixture parent's isolated namespace.
+@param directory - Private state root.
+@returns Parent-specific durable restart file.
+*/
+export const restartFile = (directory: string) => path.join(directory, "restarts", `${THREAD_ID}.json`);
 
 /**
 Starts one private bridge worker with the offline native replay executable.
@@ -20,7 +27,7 @@ function startWorker(directory: string) {
   const target = fork(path.resolve("tests/fixtures/restart-worker.ts"), [], {
     env: {
       ...process.env,
-      CODEX_THREAD_ID: "isolated-restart-check",
+      CODEX_THREAD_ID: THREAD_ID,
       CODEX_CWD: directory,
       CODEX_POCKET_STATE_DIR: directory,
       CODEX_BINARY: process.execPath,

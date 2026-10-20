@@ -1,4 +1,5 @@
 import { type FileAttachment, fileAttachmentSchema } from "./attachments";
+import { pocketUrl } from "@/lib/pockets";
 import { z } from "zod";
 
 const UPLOAD_TIMEOUT_MS = 180_000;
@@ -138,7 +139,7 @@ export function uploadFile(entry: DraftAttachment, progress: (value: number) => 
     const xhr = new XMLHttpRequest();
     const url = `/api/uploads?${new URLSearchParams({ id: entry.id, name: entry.file.name, type: entry.file.type || "application/octet-stream" })}`;
 
-    xhr.open("PUT", url);
+    xhr.open("PUT", pocketUrl(url));
     xhr.setRequestHeader("Content-Type", "application/octet-stream");
     xhr.timeout = UPLOAD_TIMEOUT_MS;
     xhr.upload.addEventListener("progress", (event) => {

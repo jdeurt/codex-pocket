@@ -26,6 +26,7 @@ export function pocketServerArgs(config: Config) {
     "mcp_servers.pocket.default_tools_approval_mode": "approve",
     "mcp_servers.pocket.env.CODEX_POCKET_STATE_DIR": localDirectory(),
     "mcp_servers.pocket.env.POCKET_THREAD_ID": config.threadId,
+    "mcp_servers.pocket.env.POCKET_ID": config.pocketId ?? "main",
     "mcp_servers.pocket.env.POCKET_MAIN_THREAD_ID": config.threadId,
     "mcp_servers.pocket.env.POCKET_SERVER_ORIGIN":
       config.allowedOrigins.find((origin) => ["127.0.0.1", "localhost"].includes(new URL(origin).hostname)) ??

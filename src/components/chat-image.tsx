@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import Image from "next/image";
 import { Skeleton } from "@/components/ui/skeleton";
 import { XIcon } from "lucide-react";
+import { pocketUrl } from "@/lib/pockets";
 import { reportClient } from "@/lib/client-logging";
 import { useState } from "react";
 
@@ -44,7 +45,7 @@ export function ChatImage({ source, alt = "Image from Pocket" }: { source: strin
             <Image
               unoptimized
               draggable={false}
-              src={thumbnailUrl(src)}
+              src={src.startsWith("/api/") ? pocketUrl(thumbnailUrl(src)) : thumbnailUrl(src)}
               alt={alt}
               width={IMAGE_WIDTH}
               height={IMAGE_HEIGHT}
@@ -76,7 +77,7 @@ export function ChatImage({ source, alt = "Image from Pocket" }: { source: strin
             <Image
               unoptimized
               draggable={false}
-              src={src}
+              src={src.startsWith("/api/") ? pocketUrl(src) : src}
               alt={alt}
               width={IMAGE_WIDTH}
               height={IMAGE_HEIGHT}

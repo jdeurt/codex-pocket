@@ -4,6 +4,7 @@ import { refreshCodexHistory, visiblePreview } from "./agent-history";
 import { type SidePocket } from "./delegations";
 import { bridge } from "./bridge";
 import { codexActivity } from "../lib/codex";
+import { parentReaders } from "./pocket-readers";
 import { readClaude } from "./agent-claude";
 
 export { codexParent } from "../lib/codex";
@@ -12,6 +13,7 @@ const LAST_MESSAGE = -1;
 
 export interface CodexThread extends Thread, Data {}
 export interface AgentRecord {
+  owner?: string;
   agent: AgentEntry;
   sessionId?: string;
   cwd: string;
@@ -98,10 +100,11 @@ export function informationalRequest(request: { id: string; method: string; inpu
 
 /**
 Read active and archived native subagent thread pages without hydrating transcripts.
+@param owner - Verified parent whose native reader owns this query.
 @returns All lightweight native subagent threads in native page order.
 */
-export async function codexThreads(): Promise<CodexThread[]> {
-  const rpc = bridge.agentReader();
+export async function codexThreads(owner = ""): Promise<CodexThread[]> {
+  const rpc = (parentReaders.get(owner) ?? bridge).agentReader();
   const threads: CodexThread[] = [];
 
   for (const isArchived of [false, true]) {
@@ -164,7 +167,7 @@ Read native thread metadata and refresh its full cached history without resuming
 @param sessionId - Native session identity already checked by the hydration owner.
 */
 async function readCodex(record: AgentRecord, sessionId: string) {
-  const rpc = bridge.agentReader();
+  const rpc = (parentReaders.get(record.owner ?? "") ?? bridge).agentReader();
   const { thread } = await rpc.request("thread/read", {
     threadId: sessionId,
     includeTurns: false,

@@ -284,6 +284,8 @@ Accept real newline-delimited protocol records, preserving IDs, errors, and even
     const method = string(message.method);
     const params = object(message.params);
 
+    this.store.refresh();
+
     if (!method) {
       this.turns.respond(message);
 

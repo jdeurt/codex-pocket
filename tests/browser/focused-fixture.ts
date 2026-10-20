@@ -3,6 +3,7 @@ import { type CDPSession, type Locator, type Page, expect } from "@playwright/te
 import { focusedSnapshot } from "../fixtures/focused-transcript";
 
 const MIN_TRANSCRIPT_HEIGHT = 1000;
+const WHEEL_TARGET_INSET = 16;
 const focusedAgent: AgentEntry = {
   id: "focused-agent",
   parentId: "focused-scroll-fixture",
@@ -102,7 +103,8 @@ export async function scrollWithWheel(page: Page, target: Locator, delta: number
       element.scrollBy(0, amount);
     }, delta);
   } else {
-    await target.hover();
+    // The jump-to-latest overlay can cover the center of a short transcript.
+    await target.hover({ position: { x: WHEEL_TARGET_INSET, y: WHEEL_TARGET_INSET } });
     await page.mouse.wheel(0, delta);
   }
 }

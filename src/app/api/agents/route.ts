@@ -1,8 +1,9 @@
-import { type Config, readConfig } from "@/server/config";
-import { HTTP_FORBIDDEN, HTTP_NOT_FOUND, HTTP_SERVICE_UNAVAILABLE } from "@/lib/constants";
+import { HTTP_FORBIDDEN, HTTP_NOT_FOUND } from "@/lib/constants";
 import { errorResponse, guard, noStore } from "@/server/http";
+import { type Config } from "@/server/config";
 import { agentBrowser } from "@/server/agents";
 import { renderImage } from "@/server/images";
+import { requestConfig } from "@/server/pocket-config";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -31,7 +32,7 @@ Renders a scoped native child image after the request's origin and parent were a
 @returns Original redirect or rendered private image response.
 */
 async function agentImage(config: Config, url: URL, id: string, item: string) {
-  const image = await agentBrowser().image(
+  const image = await agentBrowser(config.threadId).image(
     config.threadId,
     id,
     item,
@@ -65,8 +66,8 @@ async function configuredAgents(request: Request, config: Config) {
 
   return Response.json(
     id
-      ? await agentBrowser().transcript(config.threadId, id)
-      : await agentBrowser().catalog(config.threadId, url.searchParams.get("view") === "list"),
+      ? await agentBrowser(config.threadId).transcript(config.threadId, id)
+      : await agentBrowser(config.threadId).catalog(config.threadId, url.searchParams.get("view") === "list"),
     { headers: noStore }
   );
 }
@@ -77,14 +78,9 @@ Requires a configured parent before any native agent discovery or history access
 @returns Scoped response or the existing unconfigured-parent response.
 */
 async function agentResponse(request: Request) {
-  const config = await readConfig();
+  const config = await requestConfig(request);
 
-  return config
-    ? configuredAgents(request, config)
-    : Response.json(
-        { error: "Parent chat is not configured." },
-        { status: HTTP_SERVICE_UNAVAILABLE, headers: noStore }
-      );
+  return configuredAgents(request, config);
 }
 
 /**

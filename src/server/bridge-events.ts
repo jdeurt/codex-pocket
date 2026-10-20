@@ -3,6 +3,7 @@ import type { Config } from "./config";
 import { contextUsageSchema } from "../lib/usage";
 import { notifyTurnComplete } from "./push";
 import { reduceEvent } from "./reducer";
+import { requestFile } from "./request-files";
 import { schedules } from "./schedules";
 import { writeLocal } from "./local-state";
 
@@ -34,12 +35,12 @@ export function applyBridgeEvent(state: Snapshot, config: Config | undefined, ev
 
       case "turn/completed": {
         state.requests = state.requests.filter((r) => r.params.turnId !== event.params.turn?.id);
-        void writeLocal("requests.json", state.requests).catch(console.error);
+        void writeLocal(requestFile(state.threadId), state.requests).catch(console.error);
         break;
       }
 
       case "serverRequest/resolved": {
-        void writeLocal("requests.json", state.requests).catch(console.error);
+        void writeLocal(requestFile(state.threadId), state.requests).catch(console.error);
         break;
       }
     }
@@ -52,7 +53,7 @@ export function applyBridgeEvent(state: Snapshot, config: Config | undefined, ev
     }
   } else {
     state.requests.push({ ...event, id: event.id });
-    void writeLocal("requests.json", state.requests).catch(console.error);
+    void writeLocal(requestFile(state.threadId), state.requests).catch(console.error);
     console.info(`\nCodex needs input on this computer: ${event.method}\nRun: npm run desktop -- requests\n`);
   }
 }

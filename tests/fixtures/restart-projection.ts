@@ -1,4 +1,4 @@
-import { type ComponentProps, type ReactNode, createElement, isValidElement } from "react";
+import { Children, type ComponentProps, type ReactNode, createElement, isValidElement } from "react";
 import { type TurnEntry, turnMessages } from "../../src/lib/turn-messages";
 import { Conversation } from "../../src/components/conversation";
 import type { Snapshot } from "../../src/lib/protocol";
@@ -13,10 +13,15 @@ Reads the real transcript component's props without assuming virtual rows exist 
 @returns Canonical entries passed to the supported transcript component.
 */
 function projectedEntries(node: ReactNode): TurnEntry[] {
-  assert.ok(isValidElement<ComponentProps<typeof VirtualizedTranscript>>(node));
-  assert.equal(node.type, VirtualizedTranscript);
+  const transcript = isValidElement<{ children: ReactNode }>(node)
+    ? Children.toArray(node.props.children).find(
+        (child) => isValidElement(child) && child.type === VirtualizedTranscript
+      )
+    : undefined;
 
-  return node.props.turns.flatMap((turn) => turn.entries);
+  assert.ok(isValidElement<ComponentProps<typeof VirtualizedTranscript>>(transcript));
+
+  return transcript.props.turns.flatMap((turn) => turn.entries);
 }
 
 /**

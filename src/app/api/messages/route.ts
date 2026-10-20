@@ -1,7 +1,7 @@
 import { HTTP_FORBIDDEN, MAX_MESSAGE_LENGTH } from "@/lib/constants";
 import { errorResponse, guard, noStore, readBody } from "@/server/http";
 import { MAX_ATTACHMENTS } from "@/lib/attachments";
-import { bridge } from "@/server/bridge";
+import { requestBridge } from "@/server/named-pockets";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -19,6 +19,7 @@ export async function POST(request: Request) {
   }
 
   try {
+    const bridge = await requestBridge(request);
     const input = z
       .object({
         id: z.uuid(),
@@ -29,7 +30,9 @@ export async function POST(request: Request) {
       .refine((value) => value.text.length > 0 || value.attachments.length > 0, "Write a message or attach a file.")
       .parse(await readBody(request));
 
-    return Response.json(await bridge.send(input.id, input.text, input.attachments), { headers: noStore });
+    return Response.json(await bridge.send(input.id, input.text, input.attachments), {
+      headers: noStore,
+    });
   } catch (error) {
     return errorResponse(error);
   }

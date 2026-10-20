@@ -1,6 +1,6 @@
 import { errorResponse, guard, noStore, readBody } from "@/server/http";
 import { HTTP_FORBIDDEN } from "@/lib/constants";
-import { bridge } from "@/server/bridge";
+import { requestBridge } from "@/server/named-pockets";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -18,6 +18,7 @@ export async function POST(request: Request) {
   }
 
   try {
+    const bridge = await requestBridge(request);
     const input = z
       .object({ id: z.union([z.string(), z.number()]), result: z.unknown() })
       .strict()

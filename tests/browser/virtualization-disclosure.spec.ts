@@ -6,6 +6,7 @@ const MAX_MOUNTED_ROWS = 250;
 const MIN_HIT_TARGET = 44;
 const ANCHOR_TOLERANCE = 3;
 const ACTIVITY_MESSAGES = 3;
+const FINAL_PARAGRAPHS = 4;
 const MIN_READER_GAP = 90;
 const MISSING_GAP = -1;
 
@@ -79,7 +80,13 @@ test("activity disclosure keeps shared outer gaps and hit target through expansi
             phase: "commentary",
             text: `Visible activity detail ${String(index)}`,
           })),
-          { id: "after-control", type: "agentMessage", phase: "final_answer", text: "Final visible block" },
+          {
+            id: "after-control",
+            type: "agentMessage",
+            phase: "final_answer",
+            // Leave enough actual transcript below the control to activate it away from the end.
+            text: "Final visible block\n\n".repeat(FINAL_PARAGRAPHS).trim(),
+          },
         ],
       },
     ],
@@ -96,11 +103,10 @@ test("activity disclosure keeps shared outer gaps and hit target through expansi
           ':scope [data-message-id="before-control"] [data-slot="bubble-content"]'
         );
         const final = element.querySelector(':scope [data-message-id="after-control"] .markdown > :first-child');
-        const status = element.querySelector('[role="status"][aria-label="Pocket activity"]');
         const transcript = element.querySelector(".transcript");
         const details = [...element.querySelectorAll(':scope [data-message-id^="detail-"] .markdown > :first-child')];
 
-        if (!control || !previous || !final || !status || !transcript || (open && details.length !== count)) {
+        if (!control || !previous || !final || !transcript || (open && details.length !== count)) {
           return null;
         }
 
@@ -108,7 +114,7 @@ test("activity disclosure keeps shared outer gaps and hit target through expansi
           expected: Number(
             globalThis.getComputedStyle(transcript).getPropertyValue("--message-block-gap").trim().replace(/px$/, "")
           ),
-          boxes: [previous, control, ...(open ? details : []), final, status].map((item) => {
+          boxes: [previous, control, ...(open ? details : []), final].map((item) => {
             const box = item.getBoundingClientRect();
 
             return { top: box.top, bottom: box.bottom };

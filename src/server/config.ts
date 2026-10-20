@@ -3,6 +3,7 @@ import { z } from "zod";
 export const configSchema = z
   .object({
     threadId: z.string().min(1),
+    pocketId: z.uuid().optional(),
     cwd: z.string().refine((s) => s.startsWith("/"), "cwd must be an absolute path"),
     codexBinary: z.string().min(1).default("codex"),
     serverArgs: z.array(z.string()).default(["app-server", "--listen", "stdio://"]),

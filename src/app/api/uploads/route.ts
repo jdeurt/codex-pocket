@@ -1,8 +1,9 @@
-import { type Config, readConfig } from "@/server/config";
 import { downloadUpload, getUpload, saveUpload, uploadPath } from "@/server/uploads";
 import { errorResponse, guard, noStore } from "@/server/http";
+import { type Config } from "@/server/config";
 import { type FileAttachment } from "@/lib/attachments";
 import { renderImage } from "@/server/images";
+import { requestConfig } from "@/server/pocket-config";
 
 const fileHeaders = {
   ...noStore,
@@ -15,14 +16,11 @@ export const dynamic = "force-dynamic";
 
 /**
 Loads the native parent only after request authorization and same-site checks.
+@param request - Authorized request carrying a saved Pocket identity.
 @returns Configured parent identity and working directory.
 */
-async function requireParent() {
-  const config = await readConfig();
-
-  if (!config) {
-    throw new Error("Configure a thread on your computer first.");
-  }
+async function requireParent(request: Request) {
+  const config = await requestConfig(request);
 
   return config;
 }
@@ -40,7 +38,7 @@ async function parent(request: Request, isMutation = false) {
     throw new Error("Files are available only inside Pocket.");
   }
 
-  return requireParent();
+  return requireParent(request);
 }
 
 /**

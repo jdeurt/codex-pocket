@@ -16,8 +16,12 @@ export class BridgeOutbox {
   /**
   Bind durable receipt updates to the owning canonical snapshot.
   @param snapshots - Canonical state and publication owner.
+  @param pocketId - Optional saved main-Pocket namespace for durable receipts.
   */
-  constructor(private snapshots: BridgeSnapshots) {}
+  constructor(
+    private snapshots: BridgeSnapshots,
+    private pocketId?: string
+  ) {}
 
   /**
   Persist a new receipt before attempting native delivery.
@@ -49,7 +53,7 @@ export class BridgeOutbox {
       return;
     }
 
-    this.entries = await persistReceipts(threadId, this.entries);
+    this.entries = await persistReceipts(threadId, this.entries, this.pocketId);
     this.snapshots.state.queue = this.entries.filter((entry) => entry.status !== "sent");
     this.snapshots.publish(this.entries);
   }
@@ -59,7 +63,7 @@ export class BridgeOutbox {
   @param threadId - Parent conversation owning the private outbox.
   */
   async restore(threadId: string) {
-    this.entries = await restoreReceipts(threadId);
+    this.entries = await restoreReceipts(threadId, this.pocketId);
     await this.persist(threadId);
   }
 

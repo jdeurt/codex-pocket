@@ -13,8 +13,10 @@ import { AgentBrowser } from "./agent-browser";
 import { AgentNavigationContext } from "@/lib/agent-navigation-context";
 import { ComposerAttachments } from "./composer-attachments";
 import { Conversation } from "./conversation";
+import { ConversationActivity } from "./conversation-activity";
 import { type FileAttachment } from "@/lib/attachments";
 import { NotificationPrompt } from "./notification-prompt";
+import { PocketMenu } from "./pocket-menu";
 import { connectionStatus } from "@/lib/connection-status";
 import { modelDescription } from "@/lib/model-description";
 import { post } from "@/lib/client-api";
@@ -57,6 +59,7 @@ export function Chat() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [agentsOpen, setAgentsOpen] = useState(false);
+  const [pocketsOpen, setPocketsOpen] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
   const agentReturnFocus = useRef<HTMLElement | null>(null);
   const openAgent = useCallback((id: string, trigger: HTMLButtonElement) => {
@@ -148,22 +151,21 @@ export function Chat() {
   return (
     <AgentNavigationContext value={openAgent}>
       <main className="chat-shell">
-        <header className="chat-header">
-          <span className="header-balance" aria-hidden="true" />
-          <div className="thread-heading">
-            <h1>Pocket</h1>
-            <p>
-              <span aria-label="Model and reasoning effort">{modelDescription(state)}</span>
-              <span aria-hidden="true"> · </span>
-              <span role="status">{status}</span>
-            </p>
-          </div>
-          <span className="header-balance" aria-hidden="true" />
-        </header>
-        <Conversation state={state} suspended={agentsOpen || isViewingFile} activityControl={agentControl} />
+        <PocketMenu model={modelDescription(state)} status={status} onOpenChange={setPocketsOpen} />
+        <Conversation state={state} suspended={agentsOpen || pocketsOpen || isViewingFile} showActivity={false} />
         <footer className="composer-wrap">
           <NotificationPrompt />
           <ComposerError errors={[error, attachments.error, state.error]} />
+          <ComposerAttachments
+            files={attachments.files}
+            disabled={sending}
+            remove={async (id) => {
+              messageId.current = null;
+              await attachments.remove(id);
+            }}
+            retry={attachments.retry}
+          />
+          <ConversationActivity state={state} control={agentControl} />
           <form
             onSubmit={(event) => {
               event.preventDefault();
@@ -172,15 +174,6 @@ export function Chat() {
           >
             <FieldGroup>
               <Field>
-                <ComposerAttachments
-                  files={attachments.files}
-                  disabled={sending}
-                  remove={async (id) => {
-                    messageId.current = null;
-                    await attachments.remove(id);
-                  }}
-                  retry={attachments.retry}
-                />
                 <input
                   ref={filePicker}
                   type="file"

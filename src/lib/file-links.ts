@@ -1,3 +1,5 @@
+import { pocketUrl } from "@/lib/pockets";
+
 /**
 Resolve an already classified local source relative to the currently viewed file.
 @param href - Local source with remote schemes excluded.
@@ -39,4 +41,4 @@ Build a same-origin viewer route for a filesystem link.
 @param filename - Local path to resolve on the configured computer.
 @returns Escaped viewer route without browser navigation to a local filesystem URL.
 */
-export const fileViewerUrl = (filename: string) => `/files?path=${encodeURIComponent(filename)}`;
+export const fileViewerUrl = (filename: string) => pocketUrl(`/files?path=${encodeURIComponent(filename)}`);

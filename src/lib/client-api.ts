@@ -1,5 +1,6 @@
 import { clientError, reportClient } from "./client-logging";
 import { object, string } from "./protocol";
+import { pocketUrl } from "@/lib/pockets";
 
 /**
 Fetch one request with a correlation header and a recoverable network error.
@@ -14,7 +15,7 @@ async function fetchResponse(path: string, options: RequestInit, requestId: stri
   headers.set("X-Pocket-Request-Id", requestId);
 
   try {
-    return await fetch(path, { ...options, headers });
+    return await fetch(pocketUrl(path), { ...options, headers });
   } catch (error) {
     reportClient("http.network_error", { path, requestId, ...clientError(error) }, "error");
     throw new Error("Pocket is restarting or unreachable. Your message is saved here.", { cause: error });

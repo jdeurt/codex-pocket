@@ -3,9 +3,14 @@ import { readFile, readdir, rm } from "node:fs/promises";
 import { type CodexRpc } from "./rpc";
 import { type Snapshot } from "../lib/protocol";
 import path from "node:path";
+import { requestFile } from "./request-files";
 import { z } from "zod";
 
-const replySchema = z.object({ id: z.union([z.string(), z.number()]), result: z.unknown() });
+const replySchema = z.object({
+  threadId: z.string().optional(),
+  id: z.union([z.string(), z.number()]),
+  result: z.unknown(),
+});
 
 /**
 Apply one validated desktop answer to its still-pending native request, then remove the reply file.
@@ -16,16 +21,21 @@ Apply one validated desktop answer to its still-pending native request, then rem
 */
 async function resolveReply(file: string, snapshot: Snapshot, rpc: CodexRpc | undefined, publish: () => void) {
   const reply = replySchema.parse(JSON.parse(await readFile(file, "utf8")));
-  const request = snapshot.requests.find((r) => r.id === reply.id);
+  const request =
+    (reply.threadId ?? process.env.CODEX_THREAD_ID) === snapshot.threadId
+      ? snapshot.requests.find((r) => r.id === reply.id)
+      : undefined;
 
   if (request && rpc?.running) {
     rpc.respond(request.id, reply.result);
     snapshot.requests = snapshot.requests.filter((r) => r.id !== request.id);
-    await writeLocal("requests.json", snapshot.requests);
+    await writeLocal(requestFile(snapshot.threadId), snapshot.requests);
     publish();
   }
 
-  await rm(file);
+  if (request) {
+    await rm(file);
+  }
 }
 
 /**
@@ -48,6 +58,12 @@ export async function resolveDesktopReplies(snapshot: Snapshot, rpc: CodexRpc | 
       continue;
     }
 
-    await resolveReply(path.resolve(localDirectory(), name), snapshot, rpc, publish);
+    try {
+      await resolveReply(path.resolve(localDirectory(), name), snapshot, rpc, publish);
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+        throw error;
+      }
+    }
   }
 }

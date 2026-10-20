@@ -5,6 +5,7 @@ import {
   type ReactNode,
   type RefObject,
   useCallback,
+  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -22,10 +23,16 @@ import {
 } from "@/lib/transcript-virtualization";
 import { MessageScroller, MessageScrollerProvider, MessageScrollerViewport } from "@/components/ui/message-scroller";
 import { type Range, type VirtualItem, elementScroll } from "@tanstack/react-virtual";
+import {
+  type TranscriptBookmark,
+  readTranscriptBookmark,
+  subscribeTranscriptBookmark,
+} from "@/lib/transcript-bookmark";
 import { type TranscriptLayout, useTranscriptVirtualizer } from "@/hooks/use-transcript-virtualizer";
 import { ArrowDownIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ChatMessage } from "./chat-message";
+import { TranscriptFooter } from "./transcript-footer";
 
 const PADDING_START = 24;
 const PADDING_END = 32;
@@ -97,55 +104,21 @@ function transcriptRange(rows: Row[], expanded: Set<string>, range: Range) {
 }
 
 /**
-Keep interactive pending controls mounted at the standard transcript tail.
-@param props - Message count, native visible rows, footer measurement and existing controls.
-@returns The existing measured footer container.
-*/
-function TranscriptFooter({
-  count,
-  messages,
-  footerRow,
-  blockStart,
-  measure,
-  children,
-}: {
-  count: number;
-  messages: VirtualItem[];
-  footerRow?: VirtualItem;
-  blockStart: number;
-  measure: (element: HTMLElement | null) => void;
-  children: ReactNode;
-}) {
-  const hasTail = count === 0 || messages.at(LAST_ITEM)?.index === count - 1;
-
-  return (
-    <div
-      ref={measure}
-      data-index={count}
-      data-slot="transcript-footer"
-      className={`message-flow w-full min-w-0 ${count > 0 ? "[&:not(:empty)]:pt-(--message-block-gap)" : ""}`}
-      style={{
-        position: hasTail ? "static" : "absolute",
-        transform: hasTail ? undefined : `translateY(${String((footerRow?.start ?? 0) - blockStart)}px)`,
-      }}
-    >
-      {children}
-    </div>
-  );
-}
-
-/**
 Delegate transcript measurement, anchoring and append following to TanStack.
 @param props - Canonical rows, pending controls and covered-parent suspension state.
 @returns The existing measured rows and jump-to-latest control.
 */
 function MeasuredTranscript({
+  bookmark,
+  storageKey,
   rows,
   footer,
   expanded,
   toggle,
   suspended,
 }: {
+  bookmark?: TranscriptBookmark;
+  storageKey?: string;
   rows: Row[];
   footer: ReactNode[];
   expanded: Set<string>;
@@ -154,7 +127,7 @@ function MeasuredTranscript({
 }) {
   const viewport = useRef<HTMLDivElement>(null);
   const savedOffset = useRef<number | undefined>(undefined);
-  const [follow, setFollow] = useState(true);
+  const [follow, setFollow] = useState(bookmark?.atEnd ?? true);
 
   const [activityMeasurements] = useState<ActivityMeasurements>(() => new Map());
   const rangeExtractor = useCallback((range: Range) => transcriptRange(rows, expanded, range), [rows, expanded]);
@@ -170,7 +143,8 @@ function MeasuredTranscript({
     getScrollElement: () => viewport.current,
     getItemKey,
     estimateSize: (index) => (index === rows.length ? 0 : ESTIMATED_MESSAGE_HEIGHT),
-    initialOffset: () => rows.length * ESTIMATED_MESSAGE_HEIGHT,
+    initialOffset: () => bookmark?.offset ?? rows.length * ESTIMATED_MESSAGE_HEIGHT,
+    initialMeasurementsCache: bookmark?.measurements,
     anchorTo: suspended || !follow ? "start" : "end",
     followOnAppend: !suspended && follow,
     scrollEndThreshold: END_THRESHOLD,
@@ -209,8 +183,14 @@ function MeasuredTranscript({
   }
 
   useLayoutEffect(() => {
-    virtualizer.scrollToEnd();
-  }, [virtualizer]);
+    if (!bookmark || bookmark.atEnd) {
+      virtualizer.scrollToEnd();
+    }
+  }, [bookmark, virtualizer]);
+  useEffect(
+    () => (storageKey ? subscribeTranscriptBookmark(storageKey, virtualizer, expanded) : undefined),
+    [storageKey, virtualizer, expanded]
+  );
   useLayoutEffect(() => {
     if (suspended) {
       savedOffset.current = viewport.current?.scrollTop;
@@ -314,19 +294,24 @@ Own the standard message-scroller viewport for canonical virtualized turn rows.
 @returns The existing transcript provider and viewport.
 */
 export function VirtualizedTranscript({
+  storageKey,
   turns,
   children,
   suspended = false,
 }: {
+  storageKey?: string;
   turns: TranscriptTurn[];
   children: ReactNode;
   suspended?: boolean;
 }) {
-  const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const [bookmark] = useState(() => readTranscriptBookmark(storageKey));
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set(bookmark?.expanded));
   const rows = useMemo(() => rowsForTurns(turns), [turns]);
 
   return (
     <MeasuredTranscript
+      bookmark={bookmark}
+      storageKey={storageKey}
       rows={rows}
       footer={Children.toArray(children)}
       expanded={expanded}

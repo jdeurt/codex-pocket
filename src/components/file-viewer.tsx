@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { ArrowLeftIcon } from "lucide-react";
 import { Button } from "./ui/button";
 import { Markdown } from "./markdown";
+import { pocketUrl } from "@/lib/pockets";
 import { useRouter } from "next/navigation";
 import { z } from "zod";
 
@@ -66,10 +67,10 @@ export function FileViewer({ filename, overlay = false }: { filename: string; ov
     if (overlay) {
       router.back();
     } else {
-      router.push("/");
+      router.push(pocketUrl("/"));
     }
   };
-  const url = `/api/files?path=${encodeURIComponent(filename)}`;
+  const url = pocketUrl(`/api/files?path=${encodeURIComponent(filename)}`);
 
   function movePointer(event: React.PointerEvent<HTMLDialogElement>, start: { x: number; y: number }) {
     const x = event.clientX - start.x;
