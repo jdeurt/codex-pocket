@@ -19,7 +19,14 @@ const mediaTail = [
 
 async function expectSharedProjection(page: Page) {
   await expect(page.locator('[data-transcript-row^="visibility/empty-"]')).toHaveCount(0);
-  await expect(page.getByRole("link", { name: "Download fixture.txt, 7 B", exact: true })).toBeVisible();
+  const fileRow = page.locator('[data-transcript-row="visibility/file-only"]');
+  await expect(fileRow).toBeVisible();
+  const files = fileRow.getByRole("list", { name: "Attachments", exact: true });
+  await expect(files.getByRole("listitem")).toHaveCount(1);
+  await expect(files.getByText("fixture.txt", { exact: true })).toBeVisible();
+  await expect(files.getByText("text/plain", { exact: true })).toBeVisible();
+  await expect(files.getByText("· 7 B", { exact: true })).toBeVisible();
+  await expect(fileRow.locator("a, button, img, [download]")).toHaveCount(0);
   await expect(
     page.locator('[data-transcript-row="visibility/restart"] [data-system-event="pocket-restarted"]')
   ).toBeVisible();
