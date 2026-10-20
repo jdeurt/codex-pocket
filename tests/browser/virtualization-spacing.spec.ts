@@ -33,8 +33,8 @@ test("visible message edges and pending status use one shared outer gap", async 
   await mount(page, state);
 
   for (const item of cases) {
-    const outerGaps = () =>
-      page.locator(viewport).evaluate((element) => {
+    const outerGaps = async () => {
+      const measurement = await page.locator(viewport).evaluate((element) => {
         const last = element.querySelector<HTMLElement>('[data-message-id="gap-last"]');
         const previous = element.querySelector(':scope [data-message-id="message-999"] .markdown > :last-child');
         const visible = last?.querySelector(
@@ -48,25 +48,27 @@ test("visible message edges and pending status use one shared outer gap", async 
         const transcript = element.querySelector(".transcript");
 
         if (!previous || !firstVisible || !visible || !status || !transcript) {
-          return [Infinity];
+          return { expected: 0, gaps: [Infinity] };
         }
 
-        const expected = Number(
-          globalThis.getComputedStyle(transcript).getPropertyValue("--message-block-gap").trim().replace(/px$/, "")
-        );
-        const gaps = [firstVisible.getBoundingClientRect().top - previous.getBoundingClientRect().bottom];
-
-        if (queued) {
-          gaps.push(
-            queued.getBoundingClientRect().top - visible.getBoundingClientRect().bottom,
-            status.getBoundingClientRect().top - queued.getBoundingClientRect().bottom
-          );
-        } else {
-          gaps.push(status.getBoundingClientRect().top - visible.getBoundingClientRect().bottom);
-        }
-
-        return gaps.map((gap) => Math.abs(gap - expected));
+        return {
+          expected: Number(
+            globalThis.getComputedStyle(transcript).getPropertyValue("--message-block-gap").trim().replace(/px$/, "")
+          ),
+          gaps: [
+            firstVisible.getBoundingClientRect().top - previous.getBoundingClientRect().bottom,
+            ...(queued
+              ? [
+                  queued.getBoundingClientRect().top - visible.getBoundingClientRect().bottom,
+                  status.getBoundingClientRect().top - queued.getBoundingClientRect().bottom,
+                ]
+              : [status.getBoundingClientRect().top - visible.getBoundingClientRect().bottom]),
+          ],
+        };
       });
+
+      return measurement.gaps.map((gap) => Math.abs(gap - measurement.expected));
+    };
 
     state.turns[1].items = [
       item,
@@ -114,15 +116,19 @@ test("visible message edges and pending status use one shared outer gap", async 
         const status = globalThis.document.querySelector('[role="status"][aria-label="Pocket activity"]');
         const transcript = queued.closest(".transcript");
 
-        if (!status || !transcript) {
-          return Infinity;
-        }
-
-        const expected = Number(
-          globalThis.getComputedStyle(transcript).getPropertyValue("--message-block-gap").trim().replace(/px$/, "")
-        );
-
-        return Math.abs(status.getBoundingClientRect().top - queued.getBoundingClientRect().bottom - expected);
+        return status && transcript
+          ? Math.abs(
+              status.getBoundingClientRect().top -
+                queued.getBoundingClientRect().bottom -
+                Number(
+                  globalThis
+                    .getComputedStyle(transcript)
+                    .getPropertyValue("--message-block-gap")
+                    .trim()
+                    .replace(/px$/, "")
+                )
+            )
+          : Infinity;
       })
     )
     .toBeLessThan(1);

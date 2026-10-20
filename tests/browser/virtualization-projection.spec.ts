@@ -17,14 +17,18 @@ const mediaTail: Item[] = [
   { id: "output-only", type: "imageOutput", images: [{ source: "/icon-192.png", alt: "Output image" }] },
 ];
 
+/**
+Checks that the shared transcript projection hides silent items and retains visible attachment rows.
+@param page - Browser rendering the canonical visibility fixture.
+@returns Completion of shared row visibility and attachment assertions.
+*/
 async function expectSharedProjection(page: Page) {
   const fileRow = page.locator('[data-transcript-row="visibility/file-only"]');
+  const files = fileRow.getByRole("list", { name: "Attachments", exact: true });
 
   await expect(page.locator('[data-transcript-row^="visibility/empty-"]')).toHaveCount(0);
 
   await expect(fileRow).toBeVisible();
-  const files = fileRow.getByRole("list", { name: "Attachments", exact: true });
-
   await expect(files.getByRole("listitem")).toHaveCount(1);
   await expect(files.getByText("fixture.txt", { exact: true })).toBeVisible();
   await expect(files.getByText("text/plain", { exact: true })).toBeVisible();
@@ -89,35 +93,37 @@ test("shared projected history preserves one scroller, media, pending drafts and
   const answer = page.getByRole("textbox", { name: "Your answer", exact: true });
   const queued = page.locator('[data-message-id="queued-files"]');
 
-  await answer.fill("Preserved pending draft");
+  const viewport = await test.step("Preserve pending draft through each queued delivery state", async () => {
+    await answer.fill("Preserved pending draft");
 
-  await expect(queued.getByText("queued.txt", { exact: true })).toBeVisible();
-  await expect(queued.locator('[data-slot="bubble-content"] > p')).toHaveCount(0);
-  await expect(queued).toHaveAttribute("data-delivery", "queued");
-  await expect(queued.locator("..").locator(".delivery-status")).toHaveText("Queued");
-
-  for (const status of ["sending", "unknown", "sent"] as const) {
-    const delivery = queued.locator("..").locator(".delivery-status");
-
-    state.queue[0].status = status;
-    state.queue[0].text = status === "unknown" ? "Queued plain text" : "";
-    await publish(page, state);
-    await expect(queued).toHaveAttribute("data-delivery", status);
     await expect(queued.getByText("queued.txt", { exact: true })).toBeVisible();
-    await expect(queued.locator('[data-slot="bubble-content"] > p')).toHaveCount(status === "unknown" ? 1 : 0);
+    await expect(queued.locator('[data-slot="bubble-content"] > p')).toHaveCount(0);
+    await expect(queued).toHaveAttribute("data-delivery", "queued");
+    await expect(queued.locator("..").locator(".delivery-status")).toHaveText("Queued");
 
-    if (status === "sent") {
-      await expect(delivery).toHaveCount(0);
-    } else {
-      await expect(delivery).toHaveText(
-        status === "sending" ? "Sending…" : "Delivery uncertain. Check on your computer."
-      );
+    for (const status of ["sending", "unknown", "sent"] as const) {
+      const delivery = queued.locator("..").locator(".delivery-status");
+
+      state.queue[0].status = status;
+      state.queue[0].text = status === "unknown" ? "Queued plain text" : "";
+      await publish(page, state);
+      await expect(queued).toHaveAttribute("data-delivery", status);
+      await expect(queued.getByText("queued.txt", { exact: true })).toBeVisible();
+      await expect(queued.locator('[data-slot="bubble-content"] > p')).toHaveCount(status === "unknown" ? 1 : 0);
+
+      if (status === "sent") {
+        await expect(delivery).toHaveCount(0);
+      } else {
+        await expect(delivery).toHaveText(
+          status === "sending" ? "Sending…" : "Delivery uncertain. Check on your computer."
+        );
+      }
+
+      await expect(answer).toHaveValue("Preserved pending draft");
     }
 
-    await expect(answer).toHaveValue("Preserved pending draft");
-  }
-
-  const viewport = await page.locator('[data-slot="message-scroller-viewport"]').elementHandle();
+    return await page.locator('[data-slot="message-scroller-viewport"]').elementHandle();
+  });
 
   await expect(page.locator('[data-message-id="literal"]')).toContainText("literal HTML remains visible");
   await expect(page.getByRole("img", { name: "Kept image", exact: true })).toHaveJSProperty("complete", true);
