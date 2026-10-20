@@ -1,7 +1,7 @@
 "use client";
 
 import "../../../src/components/focused-composer.css";
-import { useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { Dialog } from "@base-ui/react/dialog";
 import { Prompt } from "../../../src/components/prompt";
 import type { Snapshot } from "../../../src/lib/protocol";
@@ -11,6 +11,18 @@ import { turnMessages } from "../../../src/lib/turn-messages";
 import { useComposerViewport } from "../../../src/hooks/use-composer-viewport";
 
 const BANNER_HEIGHT = 134;
+const ActivityContext = createContext(false);
+
+function ActivitySlot() {
+  const active = useContext(ActivityContext);
+
+  return active ? (
+    <div className="activity-row">
+      <span role="status">Parent working</span>
+      <Dialog.Trigger id="fixture-agents">Open child overlay</Dialog.Trigger>
+    </div>
+  ) : null;
+}
 
 export function SuspensionDialogFixture() {
   const [state, setState] = useState<Snapshot>(() => ({ ...suspensionHistory(), activeTurnId: "parent" }));
@@ -43,12 +55,9 @@ export function SuspensionDialogFixture() {
               answer={() => Promise.reject(new Error("Fixture is read-only"))}
             />
           ))}
-          {state.activeTurnId && (
-            <div className="activity-row">
-              <span role="status">Parent working</span>
-              <Dialog.Trigger id="fixture-agents">Open child overlay</Dialog.Trigger>
-            </div>
-          )}
+          <ActivityContext.Provider value={!!state.activeTurnId}>
+            <ActivitySlot />
+          </ActivityContext.Provider>
         </VirtualizedTranscript>
         <footer className="composer-wrap">
           {state.error && (
