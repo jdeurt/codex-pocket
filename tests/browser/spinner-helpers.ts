@@ -50,9 +50,10 @@ export async function captureSlot(page: Page) {
 }
 
 export async function animatedGrayscale(page: Page) {
+  const transfer = page.locator("[data-activity-spinner] feFuncR");
+
   expect(await page.locator("[data-activity-spinner] img").getAttribute("style")).toContain("url(");
   const frames = new Set<string>();
-  const transfer = page.locator("[data-activity-spinner] feFuncR");
   const readTone = () => Promise.all([transfer.getAttribute("slope"), transfer.getAttribute("intercept")]);
   const transform = await readTone();
 

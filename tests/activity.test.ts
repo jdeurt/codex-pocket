@@ -77,17 +77,17 @@ await test("activity labels use plural targets and no punctuation across Codex i
 
 await test("live activity follows the latest event in this turn, survives reload and clears at completion", () => {
   const state = { ...structuredClone(initialSnapshot), threadId: "thread" };
-
-  reduceEvent(state, {
-    method: "turn/started",
-    params: { threadId: "thread", turn: { id: "turn", status: "inProgress", items: [] } },
-  });
   const item: Item = {
     id: "read",
     type: "commandExecution",
     command: "private command",
     commandActions: [{ type: "read", path: "/private/file" }],
   };
+
+  reduceEvent(state, {
+    method: "turn/started",
+    params: { threadId: "thread", turn: { id: "turn", status: "inProgress", items: [] } },
+  });
 
   reduceEvent(state, { method: "item/started", params: { threadId: "thread", turnId: "turn", item } });
   assert.equal(currentActivity(state), "Reading files");

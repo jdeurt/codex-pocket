@@ -66,6 +66,7 @@ test("real uploads fill the original bubble interior with static file rows and e
   const png = await sharp({ create: { width: 80, height: 60, channels: 3, background: "#e38c39" } })
     .png()
     .toBuffer();
+  const selected = page.getByRole("list", { name: "Selected attachments" });
 
   await page.goto("/");
   await expect(page.getByRole("button", { name: "Attach images or files", exact: true })).toBeEnabled();
@@ -82,7 +83,6 @@ test("real uploads fill the original bubble interior with static file rows and e
       buffer: Buffer.from("original file bytes"),
     },
   ]);
-  const selected = page.getByRole("list", { name: "Selected attachments" });
 
   await expect(selected.getByText("Ready to send", { exact: true })).toHaveCount(2);
   await expect(selected.locator("img")).toHaveCount(0);
@@ -232,6 +232,7 @@ test("read-only child cards stay noninteractive while unrelated assistant images
     { id: crypto.randomUUID(), name: "saved-image.png", size: png.length, mediaType: "image/png", kind: "image" },
     { id: crypto.randomUUID(), name: "saved-file.txt", size: 7, mediaType: "text/plain", kind: "file" },
   ];
+  const dialog = page.getByRole("dialog", { name: "Agents", exact: true });
 
   await page.route("**/api/agents**", async (route) => {
     const isChild = new URL(route.request().url()).searchParams.has("agent");
@@ -272,7 +273,6 @@ test("read-only child cards stay noninteractive while unrelated assistant images
   });
   await page.goto("/");
   await page.getByRole("button", { name: "1 agent", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "Agents", exact: true });
 
   await dialog.getByRole("button", { name: /Read-only files/ }).click();
   const group = dialog.getByRole("list", { name: "Attachments", exact: true });

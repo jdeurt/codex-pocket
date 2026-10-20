@@ -116,6 +116,8 @@ async function check() {
   }
 
   async function failedAndPendingChecks() {
+    const failedAttempts = 2;
+
     await stop();
     const failureDirectory = path.join(directory, "failed-resume");
 
@@ -147,7 +149,6 @@ async function check() {
 
     assert.equal(events(successful.visible).length, 1);
     const processes = await readFile(path.join(failureDirectory, "fake-processes.jsonl"), "utf8");
-    const failedAttempts = 2;
 
     assert.equal(processes.trim().split("\n").length, failedAttempts + 1);
     const retried = await snapshot();
@@ -177,6 +178,23 @@ async function check() {
 
   async function scenarios() {
     const empty = await snapshot();
+    const interrupted: Turn = {
+      id: "interrupted-work",
+      status: "inProgress",
+      items: [
+        { id: "unfinished-user", type: "userMessage", content: [{ type: "text", text: "Continue the original task" }] },
+        { id: "before-restart", type: "agentMessage", phase: "commentary", text: "Work before restart" },
+        { id: "old-command", type: "commandExecution", command: "fixture-only" },
+      ],
+    };
+    const legacy: Turn = {
+      id: "legacy",
+      status: "completed",
+      items: [
+        { id: "old-recovery", type: "userMessage", clientId: "pocket-recovery:historical" },
+        { id: "old-answer", type: "agentMessage", text: "An old recovery reply" },
+      ],
+    };
 
     assert.equal(events(empty.visible).length, 0);
     assert.equal(empty.raw.turns.length, 0);
@@ -244,15 +262,6 @@ async function check() {
 
     // An interrupted turn can resume in place. The event must remain outside collapsed activity.
     await stop();
-    const interrupted: Turn = {
-      id: "interrupted-work",
-      status: "inProgress",
-      items: [
-        { id: "unfinished-user", type: "userMessage", content: [{ type: "text", text: "Continue the original task" }] },
-        { id: "before-restart", type: "agentMessage", phase: "commentary", text: "Work before restart" },
-        { id: "old-command", type: "commandExecution", command: "fixture-only" },
-      ],
-    };
 
     await writeFile(path.join(directory, "fake-history.json"), JSON.stringify([...second.raw.turns, interrupted]));
     child = start();
@@ -295,14 +304,6 @@ async function check() {
     const mismatched = visibleSnapshot({ ...second.raw, threadId: "other-thread" });
 
     assert.equal(events(mismatched).length, 0);
-    const legacy: Turn = {
-      id: "legacy",
-      status: "completed",
-      items: [
-        { id: "old-recovery", type: "userMessage", clientId: "pocket-recovery:historical" },
-        { id: "old-answer", type: "agentMessage", text: "An old recovery reply" },
-      ],
-    };
 
     assert.equal(events(visibleSnapshot({ ...initialSnapshot, turns: [legacy] })).length, 0);
     const emptyAroundEvent: Snapshot = {

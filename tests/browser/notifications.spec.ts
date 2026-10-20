@@ -9,6 +9,8 @@ test("notification presence follows foreground visibility, page restoration and 
 }) => {
   const { publicKey } = webpush.generateVAPIDKeys();
   const acknowledgements: unknown[] = [];
+  const count = () => page.evaluate(() => Number(Reflect.get(globalThis, "pocketPresenceCount")));
+  const probe = () => page.evaluate(() => globalThis.dispatchEvent(new Event("pocket-probe")));
 
   await page.route("**/api/notifications", (route) =>
     route.fulfill({ json: route.request().method() === "GET" ? { publicKey } : { subscribed: true } })
@@ -25,6 +27,7 @@ test("notification presence follows foreground visibility, page restoration and 
         toJSON: () => ({ endpoint }),
       };
       const registration = { pushManager: { getSubscription: () => Promise.resolve(subscription) } };
+      const sources: (EventTarget & { closed: boolean; close: () => void })[] = [];
 
       Object.defineProperty(navigator, "serviceWorker", {
         value: { register: () => Promise.resolve(registration), ready: Promise.resolve(registration) },
@@ -34,7 +37,6 @@ test("notification presence follows foreground visibility, page restoration and 
         PushManager: { value: {} },
       });
       const NativeSource = EventSource;
-      const sources: (EventTarget & { closed: boolean; close: () => void })[] = [];
 
       Object.defineProperty(globalThis, "EventSource", {
         value: function PresenceSource(url: string) {
@@ -73,8 +75,6 @@ test("notification presence follows foreground visibility, page restoration and 
     { endpoint: ENDPOINT, key: [...Buffer.from(publicKey, "base64url")], challengeId: CHALLENGE_ID }
   );
   await page.goto("/");
-  const count = () => page.evaluate(() => Number(Reflect.get(globalThis, "pocketPresenceCount")));
-  const probe = () => page.evaluate(() => globalThis.dispatchEvent(new Event("pocket-probe")));
 
   await expect.poll(count).toBe(1);
   await probe();

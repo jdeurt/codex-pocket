@@ -80,6 +80,7 @@ await test("the live presence route carries probes, accepts same-origin acknowle
       })
     );
     const HTTP_OK = 200;
+    const HTTP_FORBIDDEN = 403;
 
     assert.equal(response.status, HTTP_OK);
     assert.match(response.headers.get("content-type") ?? "", /text\/event-stream/);
@@ -112,7 +113,6 @@ await test("the live presence route carries probes, accepts same-origin acknowle
         body: JSON.stringify({ deviceId, challengeId }),
       })
     );
-    const HTTP_FORBIDDEN = 403;
 
     assert.equal(rejected.status, HTTP_FORBIDDEN);
   } finally {

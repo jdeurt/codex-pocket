@@ -35,6 +35,8 @@ async function geometry(viewport: Locator) {
 
 // OFFLINE whole-flow replay through Chat/Conversation and the real measured list.
 test("repeated silent turns create no message containers or accumulated scroll extent", async ({ page }, info) => {
+  const viewport = page.locator('[data-slot="message-scroller-viewport"]');
+
   await page.emulateMedia({ reducedMotion: "reduce" });
   const visible = {
     id: "visible",
@@ -59,7 +61,6 @@ test("repeated silent turns create no message containers or accumulated scroll e
     turns: [visible],
   };
   const writes = await mount(page, state);
-  const viewport = page.locator('[data-slot="message-scroller-viewport"]');
   const baseline = await geometry(viewport);
 
   expect(baseline.rows).toEqual(["visible/prompt", "visible/answer"]);

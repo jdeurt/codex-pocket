@@ -18,9 +18,9 @@ import webpush from "web-push";
 
 function subscription(endpoint: string) {
   const key = createECDH("prime256v1");
+  const AUTH_BYTES = 16;
 
   key.generateKeys();
-  const AUTH_BYTES = 16;
 
   return {
     endpoint,
@@ -36,6 +36,8 @@ await test("push keys stay stable and concurrent subscription saves preserve bot
 
   try {
     const keys = await Promise.all([pushPublicKey(), pushPublicKey()]);
+    const PERMISSION_MASK = 0o777;
+    const PRIVATE_FILE_MODE = 0o600;
 
     assert.equal(keys[0], keys[1]);
     const phone = subscription("https://push.example/phone");
@@ -48,8 +50,6 @@ await test("push keys stay stable and concurrent subscription saves preserve bot
 
     assert.deepEqual(state.subscriptions, [tablet, phone]);
     assert.equal(object(state.keys).publicKey, keys[0]);
-    const PERMISSION_MASK = 0o777;
-    const PRIVATE_FILE_MODE = 0o600;
     const info = await stat(file);
 
     assert.equal(info.mode & PERMISSION_MASK, PRIVATE_FILE_MODE);
@@ -132,6 +132,7 @@ await test("delivery skips only the acknowledged foreground device, keeps backgr
   const previousState = process.env.CODEX_POCKET_STATE_DIR;
   const previousThread = process.env.CODEX_THREAD_ID;
   const previousOrigins = process.env.CODEX_ALLOWED_ORIGINS;
+  const sent: { endpoint: string; body: unknown }[] = [];
 
   process.env.CODEX_POCKET_STATE_DIR = directory;
   process.env.CODEX_THREAD_ID = "push-test";
@@ -141,7 +142,6 @@ await test("delivery skips only the acknowledged foreground device, keeps backgr
   const disconnect = notificationPresence.connect(notificationDeviceId(phone.endpoint), (challengeId) => {
     notificationPresence.acknowledge(notificationDeviceId(phone.endpoint), challengeId);
   });
-  const sent: { endpoint: string; body: unknown }[] = [];
 
   t.mock.method(webpush, "sendNotification", (...[device, payload]: Parameters<typeof webpush.sendNotification>) => {
     sent.push({ endpoint: device.endpoint, body: object(JSON.parse(String(payload))).body });
@@ -150,13 +150,14 @@ await test("delivery skips only the acknowledged foreground device, keeps backgr
   });
 
   try {
-    await saveSubscription(phone);
-    await saveSubscription(tablet);
     const turn: Turn = {
       id: "turn",
       status: "completed",
       items: [{ id: "reply", type: "agentMessage", text: "Done" }],
     };
+
+    await saveSubscription(phone);
+    await saveSubscription(tablet);
 
     await notifyTurnComplete("thread", turn);
     await notifyTurnComplete("thread", turn);

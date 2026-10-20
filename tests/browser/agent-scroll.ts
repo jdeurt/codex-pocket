@@ -25,6 +25,11 @@ async function anchor(parent: Locator, id?: string) {
 export async function checkAgentScroll(page: Page, control: (stage: string) => Promise<void>) {
   const mutations: string[] = [];
   const measurements = [];
+  const trigger = page.getByRole("button", { name: "6 agents", exact: true });
+  const draft = "Keep my parent draft while output streams";
+  const composer = page.getByRole("textbox", { name: "Message Pocket" });
+  const parent = page.locator('main > [class] [data-slot="message-scroller-viewport"]').first();
+  const dialog = page.getByRole("dialog", { name: "Agents", exact: true });
 
   page.on("request", (request) => {
     if (!["GET", "HEAD"].includes(request.method()) && !request.url().includes("/api/logs")) {
@@ -32,15 +37,10 @@ export async function checkAgentScroll(page: Page, control: (stage: string) => P
     }
   });
   await page.goto("/");
-  const trigger = page.getByRole("button", { name: "6 agents", exact: true });
 
   await expect(trigger).toBeVisible();
-  const draft = "Keep my parent draft while output streams";
-  const composer = page.getByRole("textbox", { name: "Message Pocket" });
 
   await composer.fill(draft);
-  const parent = page.locator('main > [class] [data-slot="message-scroller-viewport"]').first();
-  const dialog = page.getByRole("dialog", { name: "Agents", exact: true });
 
   await page.evaluate(
     () =>
@@ -54,6 +54,8 @@ export async function checkAgentScroll(page: Page, control: (stage: string) => P
   );
 
   for (const position of ["scrolled", "bottom"]) {
+    const row = dialog.getByRole("button", { name: /Researching an exceptionally long/ });
+
     if (position === "scrolled") {
       await parent.dispatchEvent("wheel", { deltaY: -SCROLLED_OFFSET });
     }
@@ -73,7 +75,6 @@ export async function checkAgentScroll(page: Page, control: (stage: string) => P
     await trigger.evaluate((button: HTMLButtonElement) => {
       button.click();
     });
-    const row = dialog.getByRole("button", { name: /Researching an exceptionally long/ });
 
     await row.click();
     await expect(dialog.getByRole("heading", { name: "Side Pocket", exact: true })).toBeFocused();

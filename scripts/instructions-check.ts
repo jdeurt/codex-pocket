@@ -21,13 +21,15 @@ const rolloutRowSchema = z.object({
 });
 
 async function checkInstructions() {
+  const marker = "POCKET_NATIVE_PROMPT";
+  const results: { stage: string; marker: string; baseHash: string; promptCopies: number }[] = [];
+
   await mkdir(".local", { recursive: true });
   const directory = await mkdtemp(path.resolve(".local", "instructions-check-"));
   const project = path.join(directory, "project");
 
   await mkdir(project);
   process.env.CODEX_POCKET_STATE_DIR = path.join(directory, "state");
-  const marker = "POCKET_NATIVE_PROMPT";
   const existing = `The configured integration marker is ${marker}. When asked for the configured integration marker, reply exactly ${marker}.`;
   const instructions = pocketInstructions(existing, false);
 
@@ -49,8 +51,6 @@ async function checkInstructions() {
   let rpc = new CodexRpc();
   let thread: Thread | undefined;
   let originalBase: string | undefined;
-
-  const results: { stage: string; marker: string; baseHash: string; promptCopies: number }[] = [];
 
   async function close() {
     if (!rpc.running) {

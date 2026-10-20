@@ -7,10 +7,11 @@ import sharp from "sharp";
 import { snapshotSchema } from "../../src/lib/protocol";
 
 async function completedTurn(page: Page, prompt: string) {
-  await send(page, prompt);
   const turn = page
     .locator('[data-slot="message-scroller-item"]')
     .filter({ has: page.getByText(prompt, { exact: true }) });
+
+  await send(page, prompt);
 
   await expect(turn.locator('[data-delivery="sent"]')).toBeVisible();
   await expect
@@ -39,11 +40,12 @@ async function completedTurn(page: Page, prompt: string) {
 }
 
 test("real Codex shares each requested image once and preserves deliberate repeats", async ({ page }) => {
+  const WIDTH = 240;
+  const HEIGHT = 120;
+
   await mkdir(".local", { recursive: true });
   const directory = await mkdtemp(path.resolve(".local", "image-delivery-"));
   const file = path.join(directory, "logo.png");
-  const WIDTH = 240;
-  const HEIGHT = 120;
 
   try {
     await sharp({ create: { width: WIDTH, height: HEIGHT, channels: 3, background: "#db761c" } })

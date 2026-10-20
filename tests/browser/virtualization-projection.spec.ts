@@ -18,8 +18,9 @@ const mediaTail: Item[] = [
 ];
 
 async function expectSharedProjection(page: Page) {
-  await expect(page.locator('[data-transcript-row^="visibility/empty-"]')).toHaveCount(0);
   const fileRow = page.locator('[data-transcript-row="visibility/file-only"]');
+
+  await expect(page.locator('[data-transcript-row^="visibility/empty-"]')).toHaveCount(0);
 
   await expect(fileRow).toBeVisible();
   const files = fileRow.getByRole("list", { name: "Attachments", exact: true });
@@ -86,9 +87,9 @@ test("shared projected history preserves one scroller, media, pending drafts and
   };
   const writes = await mount(page, state);
   const answer = page.getByRole("textbox", { name: "Your answer", exact: true });
+  const queued = page.locator('[data-message-id="queued-files"]');
 
   await answer.fill("Preserved pending draft");
-  const queued = page.locator('[data-message-id="queued-files"]');
 
   await expect(queued.getByText("queued.txt", { exact: true })).toBeVisible();
   await expect(queued.locator('[data-slot="bubble-content"] > p')).toHaveCount(0);
@@ -96,13 +97,14 @@ test("shared projected history preserves one scroller, media, pending drafts and
   await expect(queued.locator("..").locator(".delivery-status")).toHaveText("Queued");
 
   for (const status of ["sending", "unknown", "sent"] as const) {
+    const delivery = queued.locator("..").locator(".delivery-status");
+
     state.queue[0].status = status;
     state.queue[0].text = status === "unknown" ? "Queued plain text" : "";
     await publish(page, state);
     await expect(queued).toHaveAttribute("data-delivery", status);
     await expect(queued.getByText("queued.txt", { exact: true })).toBeVisible();
     await expect(queued.locator('[data-slot="bubble-content"] > p')).toHaveCount(status === "unknown" ? 1 : 0);
-    const delivery = queued.locator("..").locator(".delivery-status");
 
     if (status === "sent") {
       await expect(delivery).toHaveCount(0);

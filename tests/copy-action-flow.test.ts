@@ -20,6 +20,7 @@ const STAGES = ["initial", "restart", "reconnect"];
 await test("canonical main prompt retains copy guidance and existing instructions across fresh process reconnects without user-message injection", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "pocket-copy-prompt-flow-"));
   const oldState = process.env.CODEX_POCKET_STATE_DIR;
+  const existing = "Keep all existing configured instructions. ORIGINAL_PROMPT_SENTINEL";
 
   process.env.CODEX_POCKET_STATE_DIR = directory;
   const log = path.join(directory, "rpc.jsonl");
@@ -29,7 +30,6 @@ await test("canonical main prompt retains copy guidance and existing instruction
     codexBinary: process.execPath,
     serverArgs: [path.resolve("tests/fixtures/copy-action-codex.mjs"), log],
   });
-  const existing = "Keep all existing configured instructions. ORIGINAL_PROMPT_SENTINEL";
   const instructions = pocketInstructions(existing, false);
 
   assert.ok(instructions.startsWith(existing + "\n\n"));

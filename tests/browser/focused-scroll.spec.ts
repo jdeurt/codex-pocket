@@ -82,6 +82,7 @@ test("focused composer contains page scrolling and preserves transcript and text
   isMobile,
 }, info) => {
   const isMobileWebkit = browserName === "webkit" && isMobile;
+  const attach = page.getByRole("button", { name: "Attach images or files", exact: true });
 
   if (isMobileWebkit) {
     info.annotations.push({
@@ -153,7 +154,6 @@ test("focused composer contains page scrolling and preserves transcript and text
     await input(page).evaluate((element: HTMLTextAreaElement) => element.selectionEnd - element.selectionStart)
   ).toBe(1);
   await page.keyboard.press("Tab");
-  const attach = page.getByRole("button", { name: "Attach images or files", exact: true });
   const nextControl =
     (await attach.count()) > 0 ? attach : page.getByRole("button", { name: "Send message", exact: true });
 
@@ -187,22 +187,6 @@ test("focused shell follows keyboard-like visual viewport changes and releases t
   browserName,
   isMobile,
 }, info) => {
-  // Emulation does not open an OS keyboard. Emit its visual-only resize/pan
-  // sequence independently of layout viewport resizing (Safari's behavior).
-  await page.addInitScript(() => {
-    const viewport = new EventTarget();
-
-    Object.defineProperties(viewport, {
-      height: { configurable: true, get: () => globalThis.innerHeight },
-      offsetTop: { configurable: true, value: 0 },
-      scale: { configurable: true, value: 1 },
-    });
-    Object.defineProperty(globalThis, "visualViewport", { configurable: true, value: viewport });
-  });
-  await page.reload();
-  await expect(input(page)).toBeEnabled();
-  await input(page).fill("Keyboard viewport draft");
-  const originalHeight = await page.locator(".chat-shell").evaluate((element) => element.clientHeight);
   const setViewport = (height: number, offsetTop = 0, scale = 1) =>
     page.evaluate(
       (values) => {
@@ -221,6 +205,23 @@ test("focused shell follows keyboard-like visual viewport changes and releases t
       },
       { height, offsetTop, scale }
     );
+
+  // Emulation does not open an OS keyboard. Emit its visual-only resize/pan
+  // sequence independently of layout viewport resizing (Safari's behavior).
+  await page.addInitScript(() => {
+    const viewport = new EventTarget();
+
+    Object.defineProperties(viewport, {
+      height: { configurable: true, get: () => globalThis.innerHeight },
+      offsetTop: { configurable: true, value: 0 },
+      scale: { configurable: true, value: 1 },
+    });
+    Object.defineProperty(globalThis, "visualViewport", { configurable: true, value: viewport });
+  });
+  await page.reload();
+  await expect(input(page)).toBeEnabled();
+  await input(page).fill("Keyboard viewport draft");
+  const originalHeight = await page.locator(".chat-shell").evaluate((element) => element.clientHeight);
 
   await setViewport(FOCUSED_VIEWPORT_HEIGHT, FOCUSED_VIEWPORT_TOP);
   await expect(page.locator(".chat-shell")).toHaveCSS("height", "380px");

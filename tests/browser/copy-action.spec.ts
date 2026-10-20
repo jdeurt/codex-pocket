@@ -25,6 +25,7 @@ async function showChat(page: Page, text: string, items: Snapshot["turns"][numbe
     ],
   };
   const writes: string[] = [];
+  const markdown = page.locator('[data-message-id="assistant-copy"] .markdown');
 
   // Keep unrelated notification setup local and dismiss it before inspecting chat.
   await page.addInitScript(() => Reflect.deleteProperty(globalThis, "Notification"));
@@ -43,7 +44,6 @@ async function showChat(page: Page, text: string, items: Snapshot["turns"][numbe
   });
   await page.goto("/");
   await page.getByRole("button", { name: "Dismiss notification prompt", exact: true }).click();
-  const markdown = page.locator('[data-message-id="assistant-copy"] .markdown');
 
   await expect(markdown).toBeVisible();
 
@@ -97,9 +97,10 @@ test("explicit assistant marker copies exact arbitrary text only on gesture and 
   page,
   isMobile,
 }, testInfo) => {
-  await spyClipboard(page);
   const text =
     '  first\r\nsecond\n"quoted" \\ café 👋 e\u{0301} 雪\t\0\n<script>globalThis.copyExecuted=1</script>\n<img src=x onerror="globalThis.copyExecuted=1">\n```pocket-copy\n"nested"\n```\n  ';
+
+  await spyClipboard(page);
   const { markdown, writes } = await showChat(page, `Before\n\n${marker(text)}\n\nAfter`);
   const button = markdown.getByRole("button", { name: "Copy text", exact: true });
 

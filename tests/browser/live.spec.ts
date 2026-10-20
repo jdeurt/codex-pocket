@@ -10,10 +10,11 @@ declare global {
 
 if (process.env.CODEX_TEST_ACTIVITY === "1") {
   test("real Codex activity stays live, collapses at completion and preserves its final reply", async ({ page }) => {
-    await page.goto("/");
-    await expect(page.getByText("Connected", { exact: true })).toBeVisible();
     const prompt =
       "First send a commentary update with exactly two paragraphs: ACTIVITY_ONE_FIRST and ACTIVITY_ONE_SECOND. Then run the read-only shell command sleep 4. Send another commentary message exactly ACTIVITY_TWO, then run sleep 4. Finally send a final answer exactly ACTIVITY_FINAL. Do not modify files.";
+
+    await page.goto("/");
+    await expect(page.getByText("Connected", { exact: true })).toBeVisible();
 
     await send(page, prompt);
     await expect(page.getByText("ACTIVITY_ONE_FIRST", { exact: true })).toBeVisible();
@@ -138,6 +139,7 @@ if (process.env.CODEX_TEST_ACTIVITY === "1") {
 } else {
   test("real Codex streams, accepts follow-ups, resumes history and handles approvals on a phone", async ({ page }) => {
     const errors: string[] = [];
+    const retryText = "Reply exactly RETRY_OK. Do not use tools.";
 
     page.on("pageerror", (error) => {
       errors.push(error.message);
@@ -174,7 +176,6 @@ if (process.env.CODEX_TEST_ACTIVITY === "1") {
       (route) => route.fulfill({ status: 503, contentType: "text/html", body: "<html>Restarting</html>" }),
       { times: 1 }
     );
-    const retryText = "Reply exactly RETRY_OK. Do not use tools.";
 
     await send(page, retryText);
     await expect(page.getByRole("textbox", { name: "Message Pocket" })).toHaveValue(retryText);

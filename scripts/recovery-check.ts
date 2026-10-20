@@ -105,6 +105,8 @@ async function restart(target: Bridge) {
 }
 
 try {
+  const EXPECTED_RECOVERY_STARTS = 2;
+
   await bridge.ensureConnected();
   assert.equal(bridge.snapshot.turns.length, 0);
   assert.equal(bridge.snapshot.queue.length, 0);
@@ -138,7 +140,6 @@ try {
     "in-progress command"
   );
   const previousSleeps = sleepCommands(bridge.snapshot);
-  const EXPECTED_RECOVERY_STARTS = 2;
 
   bridge = await restart(bridge);
   await waitFor(

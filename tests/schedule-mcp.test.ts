@@ -29,10 +29,6 @@ await test("the bundled MCP process validates input and performs schedule CRUD o
   });
 
   try {
-    await client.connect(transport);
-    const { tools } = await client.listTools();
-
-    assert.equal(tools.length, TOOL_COUNT);
     const call = async (name: string, arguments_: Record<string, unknown>) => {
       const result = await client.callTool({ name, arguments: arguments_ });
 
@@ -40,6 +36,11 @@ await test("the bundled MCP process validates input and performs schedule CRUD o
 
       return toolJson(result);
     };
+
+    await client.connect(transport);
+    const { tools } = await client.listTools();
+
+    assert.equal(tools.length, TOOL_COUNT);
     const future = new Date(Date.now() + DAY_MS)
       .toISOString()
       .replaceAll(/[-:]/g, "")

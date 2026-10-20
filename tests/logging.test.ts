@@ -37,11 +37,12 @@ await test("size rotation preserves whole JSON records in private files named wi
   const directory = await mkdtemp(path.join(tmpdir(), "pocket-logs-"));
 
   try {
+    const records: Record<string, unknown>[] = [];
+
     await writeRecords(directory, KEEP_ALL);
     const names = await readdir(directory);
 
     assert.ok(names.length > 1);
-    const records: Record<string, unknown>[] = [];
 
     for (const name of names) {
       assert.match(name, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\.jsonl$/);

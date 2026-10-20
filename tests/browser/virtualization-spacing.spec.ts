@@ -23,28 +23,16 @@ test("visible message edges and pending status use one shared outer gap", async 
       { id: "gap-turn", status: "inProgress", items: [] },
     ],
   };
-
-  await mount(page, state);
   const cases = [
     { id: "gap-last", type: "userMessage", content: [{ text: "Last user bubble" }] },
     { id: "gap-last", type: "agentMessage", text: "Last assistant paragraph\n\n" },
     { id: "gap-last", type: "agentMessage", text: "Last assistant block\n\n```ts\nconst gap = true;\n```\n\n" },
   ];
+  const emptyFooter = page.locator('[data-slot="transcript-footer"]');
+
+  await mount(page, state);
 
   for (const item of cases) {
-    state.turns[1].items = [
-      item,
-      { id: "empty-stream", type: "agentMessage", text: "\n\n" },
-      { id: "empty-user", type: "userMessage", content: [{ text: " \n" }] },
-      { id: "empty-image-output", type: "imageOutput", images: [] },
-    ];
-    state.queue = [{ id: "gap-queued", text: "Queued bubble", status: "sent" }];
-    await publish(page, state);
-    await page.locator(viewport).evaluate((element) => {
-      element.scrollTop = element.scrollHeight;
-    });
-    await expect(page.getByRole("status", { name: "Pocket activity" })).toBeVisible();
-    await expect(page.locator('[data-transcript-row^="gap-turn/empty-"]')).toHaveCount(0);
     const outerGaps = () =>
       page.locator(viewport).evaluate((element) => {
         const last = element.querySelector<HTMLElement>('[data-message-id="gap-last"]');
@@ -80,6 +68,20 @@ test("visible message edges and pending status use one shared outer gap", async 
         return gaps.map((gap) => Math.abs(gap - expected));
       });
 
+    state.turns[1].items = [
+      item,
+      { id: "empty-stream", type: "agentMessage", text: "\n\n" },
+      { id: "empty-user", type: "userMessage", content: [{ text: " \n" }] },
+      { id: "empty-image-output", type: "imageOutput", images: [] },
+    ];
+    state.queue = [{ id: "gap-queued", text: "Queued bubble", status: "sent" }];
+    await publish(page, state);
+    await page.locator(viewport).evaluate((element) => {
+      element.scrollTop = element.scrollHeight;
+    });
+    await expect(page.getByRole("status", { name: "Pocket activity" })).toBeVisible();
+    await expect(page.locator('[data-transcript-row^="gap-turn/empty-"]')).toHaveCount(0);
+
     await expect.poll(async () => Math.max(...(await outerGaps()))).toBeLessThan(1);
     state.queue = [];
     await publish(page, state);
@@ -97,7 +99,6 @@ test("visible message edges and pending status use one shared outer gap", async 
   await expect(page.locator('[data-transcript-row="gap-turn/attachment-only"]')).toBeAttached();
   state.activeTurnId = undefined;
   await publish(page, state);
-  const emptyFooter = page.locator('[data-slot="transcript-footer"]');
 
   await expect(emptyFooter).toBeEmpty();
   await expect(emptyFooter).toHaveCSS("padding-top", "0px");

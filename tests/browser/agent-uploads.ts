@@ -14,8 +14,9 @@ async function headers(page: Page) {
   await mkdir(directory, { recursive: true });
 
   for (const width of [NARROW_WIDTH, MOBILE_WIDTH, DESKTOP_WIDTH]) {
-    await page.setViewportSize({ width, height: 1000 });
     const header = page.locator("main > .chat-header");
+
+    await page.setViewportSize({ width, height: 1000 });
 
     await expect(header.locator("svg, .brand")).toHaveCount(0);
     await expect(header.getByRole("heading", { name: "Pocket", exact: true })).toBeVisible();
@@ -39,6 +40,12 @@ async function headers(page: Page) {
 }
 
 export async function checkAgentUploads(page: Page) {
+  const draft = "Keep this parent draft and selected image";
+  const name = "parent-navigation.png";
+  const selected = page.getByRole("list", { name: "Selected attachments" });
+  const actions: string[] = [];
+  const dialog = page.getByRole("dialog", { name: "Agents", exact: true });
+
   await page.addInitScript((key) => {
     const open = globalThis.indexedDB.open.bind(globalThis.indexedDB);
 
@@ -52,24 +59,20 @@ export async function checkAgentUploads(page: Page) {
   }, storageKey);
   await page.goto("/");
   await expect(page.getByRole("button", { name: "Attach images or files", exact: true })).toBeEnabled();
-  const draft = "Keep this parent draft and selected image";
 
   await page.getByRole("textbox", { name: "Message Pocket" }).fill(draft);
-  const name = "parent-navigation.png";
 
   await page.locator('input[type="file"]').setInputFiles({
     name,
     mimeType: "image/png",
     buffer: Buffer.from(replayImage.split(",", 2)[1], "base64"),
   });
-  const selected = page.getByRole("list", { name: "Selected attachments" });
 
   await expect(selected.getByText("Ready to send", { exact: true })).toBeVisible();
   await expect(selected.getByText(name, { exact: true })).toBeVisible();
   await expect(selected.getByRole("img")).toHaveCount(0);
   await headers(page);
   const opens = await page.evaluate((key) => globalThis.sessionStorage.getItem(key), storageKey);
-  const actions: string[] = [];
 
   page.on("request", (request) => {
     if (!["GET", "HEAD"].includes(request.method()) && !request.url().includes("/api/logs")) {
@@ -77,7 +80,6 @@ export async function checkAgentUploads(page: Page) {
     }
   });
   await page.getByRole("button", { name: "6 agents", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "Agents", exact: true });
 
   await dialog.getByRole("button", { name: /Codex Side Pocket/ }).click();
   await expect(dialog.getByText("Replay child wants approval. This is informative only.")).toBeVisible();

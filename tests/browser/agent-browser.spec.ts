@@ -175,6 +175,8 @@ test("offline replay: mobile/desktop read-only navigation, ellipsis, focus and p
   page,
 }) => {
   const actions: string[] = [];
+  const viewport = page.locator('[data-slot="message-scroller-viewport"]').first();
+  const dialog = page.getByRole("dialog", { name: "Agents", exact: true });
 
   page.on("request", (request) => {
     if (request.method() === "POST" && !request.url().includes("/api/logs")) {
@@ -184,7 +186,6 @@ test("offline replay: mobile/desktop read-only navigation, ellipsis, focus and p
   await page.goto("/");
   await expect(page.getByRole("button", { name: "6 agents", exact: true })).toBeVisible();
   await page.getByRole("textbox", { name: "Message Pocket" }).fill("Preserved parent draft");
-  const viewport = page.locator('[data-slot="message-scroller-viewport"]').first();
 
   await viewport.evaluate((element) => {
     element.scrollTop = 240;
@@ -194,7 +195,6 @@ test("offline replay: mobile/desktop read-only navigation, ellipsis, focus and p
   await page.getByRole("button", { name: "6 agents", exact: true }).evaluate((button: HTMLButtonElement) => {
     button.click();
   });
-  const dialog = page.getByRole("dialog", { name: "Agents", exact: true });
 
   await expect(dialog).toBeVisible();
   await expect(dialog.locator(".agents-list-header").getByRole("button")).toHaveCount(1);
@@ -256,11 +256,13 @@ test("offline replay: mobile/desktop read-only navigation, ellipsis, focus and p
 });
 
 test("offline replay: live updates, retained terminal history, errors and zero active agents", async ({ page }) => {
-  await page.goto("/");
   const trigger = page.getByRole("button", { name: "6 agents", exact: true });
+  const parentViewport = page.locator('[data-slot="message-scroller-viewport"]').first();
+  const dialog = page.getByRole("dialog", { name: "Agents", exact: true });
+
+  await page.goto("/");
 
   await expect(trigger).toBeVisible();
-  const parentViewport = page.locator('[data-slot="message-scroller-viewport"]').first();
 
   await parentViewport.dispatchEvent("wheel", { deltaY: -180 });
   await parentViewport.evaluate((element) => {
@@ -271,7 +273,6 @@ test("offline replay: live updates, retained terminal history, errors and zero a
   await trigger.evaluate((button: HTMLButtonElement) => {
     button.click();
   });
-  const dialog = page.getByRole("dialog", { name: "Agents", exact: true });
 
   await dialog.getByRole("button", { name: /Researching an exceptionally long/ }).click();
   await control("updated");
@@ -305,6 +306,7 @@ test("offline replay: denied access, network reconnect, native Claude chat and n
   page,
 }) => {
   const connection = { mode: "healthy" };
+  const dialog = page.getByRole("dialog", { name: "Agents", exact: true });
 
   await page.route("**/api/agents?agent=codex%3Anative-codex", async (route) => {
     if (connection.mode === "denied") {
@@ -318,7 +320,6 @@ test("offline replay: denied access, network reconnect, native Claude chat and n
   await page.setViewportSize({ width: 320, height: 740 });
   await page.goto("/");
   await page.getByRole("button", { name: "6 agents", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "Agents", exact: true });
 
   await expect(dialog).toHaveCSS("transform", "matrix(1, 0, 0, 1, 0, 0)");
   expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBeTruthy();

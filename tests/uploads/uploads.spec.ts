@@ -41,15 +41,16 @@ async function deliveredCount(id: string) {
 }
 
 test("pick, retry, remove, file-only send, reload, queued recovery and real stored bytes", async ({ page }, info) => {
-  await page.goto("/");
   const attach = page.getByRole("button", { name: "Attach images or files", exact: true });
+  const picker = page.locator('input[type="file"]');
+  const send = page.getByRole("button", { name: "Send message", exact: true });
+  const selected = page.getByRole("list", { name: "Selected attachments" });
+
+  await page.goto("/");
 
   await expect(attach).toBeEnabled();
   await control("complete");
   await expect(page.locator("header [role=status]")).toHaveText("Connected");
-  const picker = page.locator('input[type="file"]');
-  const send = page.getByRole("button", { name: "Send message", exact: true });
-  const selected = page.getByRole("list", { name: "Selected attachments" });
   const png = await sharp({ create: { width: 100, height: 70, channels: 3, background: "#e38c39" } })
     .png()
     .toBuffer();
@@ -244,14 +245,16 @@ test("API confines IDs, origins, filenames, content and retries", async ({ reque
 });
 
 test("keyboard picker, upload progress, parent draft and IME sending", async ({ page, isMobile }, info) => {
-  await page.goto("/");
   const attach = page.getByRole("button", { name: "Attach images or files", exact: true });
+  const textarea = page.getByRole("textbox", { name: "Message Pocket" });
+  const send = page.getByRole("button", { name: "Send message", exact: true });
+  const selected = page.getByRole("list", { name: "Selected attachments" });
+
+  await page.goto("/");
 
   await expect(attach).toBeEnabled();
   await control("complete");
   await expect(page.locator("header [role=status]")).toHaveText("Connected");
-  const textarea = page.getByRole("textbox", { name: "Message Pocket" });
-  const send = page.getByRole("button", { name: "Send message", exact: true });
   const draft = `${info.project.name} keyboard draft`;
 
   await textarea.fill(draft);
@@ -275,7 +278,6 @@ test("keyboard picker, upload progress, parent draft and IME sending", async ({ 
   const name = `${info.project.name}-keyboard.txt`;
 
   await nativeChooser.setFiles({ name, mimeType: "text/plain", buffer: Buffer.from("Keyboard upload") });
-  const selected = page.getByRole("list", { name: "Selected attachments" });
 
   await expect(selected.getByRole("progressbar", { name: `Uploading ${name}` })).toBeVisible();
   await expect(send).toBeDisabled();

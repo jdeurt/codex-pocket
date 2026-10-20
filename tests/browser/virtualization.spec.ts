@@ -126,12 +126,12 @@ test("large single-turn history stays bounded through rapid scrollbar, wheel and
   page,
 }, info) => {
   const writes = await mount(page, history());
+  const mounted: number[] = [];
 
   await expect(page.locator('[data-message-id="message-1199"]')).toBeVisible();
   expect(await page.locator(row).count()).toBeGreaterThanOrEqual(MIN_MOUNTED_ROWS);
   expect(await page.locator(row).count()).toBeLessThan(MAX_MOUNTED_ROWS);
   await page.getByRole("textbox", { name: "Message Pocket" }).fill("Unsent parent draft");
-  const mounted: number[] = [];
 
   for (const fraction of Object.values(SCROLL_STOPS)) {
     await scrollToFraction(page, fraction);
@@ -174,6 +174,8 @@ test("prepend, streaming, append and steering preserve the reader anchor and fol
   page,
 }, info) => {
   const state = history();
+  const stream = { id: "stream", type: "agentMessage", text: "Streaming start" };
+  const afterSteer = { id: "after-steer", type: "agentMessage", text: "After steering" };
 
   await mount(page, state);
   await scrollToFraction(page, PREPEND_FRACTION);
@@ -206,7 +208,6 @@ test("prepend, streaming, append and steering preserve the reader anchor and fol
   releaseImage(true);
   await expect(page.getByRole("img", { name: "Image above reader", exact: true })).toHaveJSProperty("complete", true);
   await expectAnchor(page, anchor);
-  const stream = { id: "stream", type: "agentMessage", text: "Streaming start" };
 
   state.turns[0].items.push(stream);
   state.activeTurnId = state.turns[0].id;
@@ -226,7 +227,6 @@ test("prepend, streaming, append and steering preserve the reader anchor and fol
   await expectAnchor(page, anchor);
   await page.getByRole("button", { name: "Jump to latest message" }).click();
   await expect(page.locator('[data-message-id="steer"]')).toBeVisible();
-  const afterSteer = { id: "after-steer", type: "agentMessage", text: "After steering" };
 
   state.turns[0].items.push(afterSteer);
   await publish(page, state);
@@ -244,6 +244,9 @@ test("prepend, streaming, append and steering preserve the reader anchor and fol
 test("empty and short chats preserve drafts, activity, images, selection and reduced motion", async ({
   page,
 }, info) => {
+  const preview = page.getByRole("button", { name: "Preview image: Virtualized image" });
+  const code = page.locator('[data-message-id="activity-final"] [data-slot="code-block-content"]');
+
   await page.emulateMedia({ reducedMotion: "reduce" });
   const state: Snapshot = { ...history(), turns: [] };
 
@@ -309,7 +312,6 @@ test("empty and short chats preserve drafts, activity, images, selection and red
   await expect(page.getByRole("button", { name: "Hide activity" })).toHaveAttribute("aria-expanded", "true");
   expect(await page.locator(row).count()).toBeLessThan(MAX_MOUNTED_ROWS);
   await expect(page.locator('[data-message-id="activity-final"]')).toBeVisible();
-  const preview = page.getByRole("button", { name: "Preview image: Virtualized image" });
 
   if (info.project.use.hasTouch) {
     await preview.tap();
@@ -319,7 +321,6 @@ test("empty and short chats preserve drafts, activity, images, selection and red
 
   await expect(page.getByRole("button", { name: "Close image preview" })).toBeVisible();
   await page.getByRole("button", { name: "Close image preview" }).click();
-  const code = page.locator('[data-message-id="activity-final"] [data-slot="code-block-content"]');
 
   await code.focus();
   await expect(code).toBeFocused();

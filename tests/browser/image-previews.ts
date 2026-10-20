@@ -75,6 +75,12 @@ async function swipeDown(page: Page) {
 
 async function checkImagePage(page: Page, browserName: string, portrait: string, landscape: string) {
   const markdown = `IMAGES_BEFORE\n\n![Portrait one](${portrait}) ![Portrait two](${portrait})\n\n![Landscape](${landscape})\n\nIMAGES_AFTER`;
+  const first = page.getByRole("img", { name: "Portrait one", exact: true });
+  const second = page.getByRole("img", { name: "Portrait two", exact: true });
+  const wide = page.getByRole("img", { name: "Landscape", exact: true });
+  const paragraph = page.getByText("IMAGES_BEFORE", { exact: true });
+  const preview = page.getByRole("dialog", { name: "Portrait one", exact: true });
+  const close = page.getByRole("button", { name: "Close image preview", exact: true });
 
   await page.goto("/");
   await expect(page.getByText("Connected", { exact: true })).toBeVisible();
@@ -82,9 +88,6 @@ async function checkImagePage(page: Page, browserName: string, portrait: string,
     page,
     `Reply with exactly the following Markdown, no code fence or extra text. Do not use tools.\n\n${markdown}`
   );
-  const first = page.getByRole("img", { name: "Portrait one", exact: true });
-  const second = page.getByRole("img", { name: "Portrait two", exact: true });
-  const wide = page.getByRole("img", { name: "Landscape", exact: true });
 
   await expect(page.getByText("IMAGES_AFTER", { exact: true })).toBeVisible();
   const a = await bounds(first);
@@ -103,7 +106,6 @@ async function checkImagePage(page: Page, browserName: string, portrait: string,
 
   expect(frameBox?.width).toBe(a.width);
   expect(frameBox?.height).toBe(a.height);
-  const paragraph = page.getByText("IMAGES_BEFORE", { exact: true });
   const before = await paragraph.boundingBox();
 
   expect(before?.x).toBe(a.x);
@@ -117,7 +119,6 @@ async function checkImagePage(page: Page, browserName: string, portrait: string,
   await page.setViewportSize({ width: PHONE_WIDTH, height: PHONE_HEIGHT });
   await page.screenshot({ path: ".local/image-previews-mobile.png" });
   await page.getByRole("button", { name: "Preview image: Portrait one", exact: true }).click();
-  const preview = page.getByRole("dialog", { name: "Portrait one", exact: true });
 
   await expect(preview).toBeVisible();
   await expect
@@ -130,7 +131,6 @@ async function checkImagePage(page: Page, browserName: string, portrait: string,
   expect(full.y).toBeGreaterThanOrEqual(0);
   expect(full.x + full.width).toBeLessThanOrEqual(PHONE_WIDTH);
   expect(full.y + full.height).toBeLessThanOrEqual(PHONE_HEIGHT);
-  const close = page.getByRole("button", { name: "Close image preview", exact: true });
   const closeBox = await close.boundingBox();
 
   expect(closeBox?.width).toBeGreaterThanOrEqual(TOUCH_TARGET);
@@ -155,10 +155,11 @@ async function checkImagePage(page: Page, browserName: string, portrait: string,
 }
 
 export async function checkImagePreviews(page: Page, browserName: string) {
-  await mkdir(".local", { recursive: true });
-  const directory = await mkdtemp(path.resolve(".local", "image-fixtures-"));
   const PORTRAIT_WIDTH = 600;
   const LONG_EDGE = 1200;
+
+  await mkdir(".local", { recursive: true });
+  const directory = await mkdtemp(path.resolve(".local", "image-fixtures-"));
   const portrait = path.join(directory, "portrait.png");
   const landscape = path.join(directory, "landscape.png");
 

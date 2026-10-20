@@ -31,10 +31,10 @@ test("ordinary activity expansion retains CSS animation and bounded rows", async
     ],
   });
   const composer = page.getByRole("textbox", { name: "Message Pocket" });
+  const hide = page.getByRole("button", { name: "Hide activity", exact: true });
 
   await composer.fill("Keep my activity draft");
   await page.getByRole("button", { name: "Show activity", exact: true }).click();
-  const hide = page.getByRole("button", { name: "Hide activity", exact: true });
 
   await expect(hide).toHaveAttribute("aria-expanded", "true");
   await expect(page.locator('[data-slot="trace-collapsible-content"]')).toHaveCSS("transition-duration", "0.2s");
@@ -88,11 +88,6 @@ test("activity disclosure keeps shared outer gaps and hit target through expansi
   const scroller = page.locator('[data-slot="message-scroller-viewport"]');
   const show = page.getByRole("button", { name: "Show activity", exact: true });
   const hide = page.getByRole("button", { name: "Hide activity", exact: true });
-
-  await scroller.evaluate((element) => {
-    element.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
-    element.scrollBy({ top: -100, behavior: "instant" });
-  });
   const gapErrors = (isExpanded: boolean) =>
     scroller.evaluate(
       (element, { open, count }) => {
@@ -120,6 +115,11 @@ test("activity disclosure keeps shared outer gaps and hit target through expansi
       },
       { open: isExpanded, count: ACTIVITY_MESSAGES }
     );
+
+  await scroller.evaluate((element) => {
+    element.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    element.scrollBy({ top: -100, behavior: "instant" });
+  });
 
   await expect(show).toHaveAttribute("aria-expanded", "false");
   await expect.poll(async () => Math.max(...(await gapErrors(false)))).toBeLessThan(1);

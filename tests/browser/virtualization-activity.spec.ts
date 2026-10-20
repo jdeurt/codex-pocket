@@ -80,6 +80,8 @@ async function scroll(page: Page, fraction: number) {
 test("a thousand activity messages stay virtualized through scrolling, media growth, prepend and reopen", async ({
   page,
 }, info) => {
+  const counts: number[] = [];
+
   await page.emulateMedia({ reducedMotion: "reduce" });
   const details: Item[] = Array.from({ length: 1200 }, (_, index) => ({
     id: `detail-${String(index)}`,
@@ -109,7 +111,6 @@ test("a thousand activity messages stay virtualized through scrolling, media gro
     "aria-expanded",
     "true"
   );
-  const counts: number[] = [];
 
   for (const fraction of Object.values(SCROLL_STOPS)) {
     await scroll(page, fraction);

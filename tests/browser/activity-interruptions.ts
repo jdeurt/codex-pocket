@@ -2,14 +2,15 @@ import { type Page, expect } from "@playwright/test";
 import { send } from "./messages";
 
 export async function checkActivityInterruptions(page: Page) {
-  await page.goto("/");
-  await expect(page.getByText("Connected", { exact: true })).toBeVisible();
   const prompt =
     "Send commentary exactly INTERRUPT_ONE, run sleep 1, send a second commentary exactly INTERRUPT_TWO, then run sleep 12. Finish with final answer INTERRUPT_FINAL. Do not modify files.";
   const firstSteer =
     "Steering update one: after the current command, send commentary exactly INTERRUPT_THREE, run sleep 12, then finish with final answer INTERRUPT_FINAL.";
   const secondSteer =
     "Steering update two: after the current command, finish with final answer exactly INTERRUPT_FINAL.";
+
+  await page.goto("/");
+  await expect(page.getByText("Connected", { exact: true })).toBeVisible();
 
   await send(page, prompt);
   await expect(page.getByText("INTERRUPT_TWO", { exact: true })).toBeVisible();

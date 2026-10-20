@@ -30,6 +30,7 @@ const session = "tool-codex";
 
 export async function checkAgentTools(page: Page, request: APIRequestContext) {
   const mutations: string[] = [];
+  const draft = page.getByRole("textbox", { name: "Message Pocket" });
 
   page.on("request", (call) => {
     if (!["GET", "HEAD"].includes(call.method()) && !call.url().includes("/api/logs")) {
@@ -37,7 +38,6 @@ export async function checkAgentTools(page: Page, request: APIRequestContext) {
     }
   });
   await page.goto("/");
-  const draft = page.getByRole("textbox", { name: "Message Pocket" });
 
   await draft.fill("Keep the parent tool replay draft");
   const response = await request.get(`/api/agents?agent=codex:${session}`);

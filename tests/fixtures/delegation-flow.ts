@@ -111,10 +111,10 @@ class Peer {
 export async function fixture(t: { after: (callback: () => Promise<void>) => void }) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "pocket-worker-flow-"));
   const store = new DelegationStore(directory);
-
-  store.saveParent(owner, { cwd: directory, policy: { sandbox: "danger-full-access", approval: "never" } });
   const peers: Peer[] = [];
   const clients: Client[] = [];
+
+  store.saveParent(owner, { cwd: directory, policy: { sandbox: "danger-full-access", approval: "never" } });
   const env = {
     ...Object.fromEntries(
       Object.entries(process.env).filter(

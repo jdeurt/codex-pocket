@@ -115,8 +115,9 @@ test("tool-managed GIF animates in grayscale across desktop/mobile, persists thr
     await page.bringToFront();
 
     try {
-      await ready(page);
       const slot = page.locator("[data-activity-spinner]");
+
+      await ready(page);
       const img = slot.locator("img");
 
       await expect(img).toBeVisible();
@@ -231,8 +232,9 @@ test("tool-managed GIF animates in grayscale across desktop/mobile, persists thr
   const page = await browser.newPage({ reducedMotion: "no-preference" });
 
   try {
-    await ready(page);
     const slot = page.locator("[data-activity-spinner]");
+
+    await ready(page);
 
     await expect(slot.locator("img")).toHaveAttribute("src", `/api/spinner/${id}`);
     const position = await alignment(page);
