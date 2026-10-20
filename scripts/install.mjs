@@ -169,7 +169,7 @@ async function install(userId, isInteractive, prompt) {
   await prepareCodex(saved, environment, isInteractive);
   await stopService(port, userId);
   console.info("Installing Pocket's dependencies…");
-  npm(["ci", "--no-audit", "--no-fund"]);
+  npm(["ci", "--include=dev", "--no-audit", "--no-fund"]);
   npm(["run", "setup"], environment);
   run(process.execPath, [path.join(root, "node_modules/next/dist/bin/next"), "typegen"], environment);
   npm(["run", "check"]);
