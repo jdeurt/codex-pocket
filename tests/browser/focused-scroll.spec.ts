@@ -5,9 +5,11 @@ import {
   scrollTop,
   scrollWithWheel,
   scroller,
+  setVisualViewport,
   touchTranscript,
 } from "./focused-fixture";
 import { expect, test } from "@playwright/test";
+import { composerFocusEndTests } from "./focused-end-flows";
 
 const TRANSCRIPT_WHEEL_DELTA = 400;
 const MIN_TRANSCRIPT_TRAVEL = 100;
@@ -31,6 +33,8 @@ const BACKWARD_WHEEL_DELTA = 200;
 test.beforeEach(async ({ page }) => {
   await mountFocusedChat(page);
 });
+
+composerFocusEndTests();
 
 test("focused composer contains page scrolling and preserves transcript and textarea scrolling", async ({
   page,
@@ -150,25 +154,6 @@ test("focused shell follows keyboard-like visual viewport changes and releases t
   browserName,
   isMobile,
 }, info) => {
-  const setViewport = (height: number, offsetTop = 0, scale = 1) =>
-    page.evaluate(
-      (values) => {
-        const viewport = globalThis.visualViewport;
-
-        if (!viewport) {
-          throw new Error("Visual viewport is unavailable");
-        }
-
-        for (const [name, value] of Object.entries(values)) {
-          Object.defineProperty(viewport, name, { configurable: true, value });
-        }
-
-        viewport.dispatchEvent(new Event("resize"));
-        viewport.dispatchEvent(new Event("scroll"));
-      },
-      { height, offsetTop, scale }
-    );
-
   const originalHeight = await test.step("Install visual-only viewport events and focus the parent draft", async () => {
     // Emulation does not open an OS keyboard. Emit its visual-only resize/pan
     // sequence independently of layout viewport resizing (Safari's behavior).
@@ -189,7 +174,7 @@ test("focused shell follows keyboard-like visual viewport changes and releases t
     return await page.locator(".chat-shell").evaluate((element) => element.clientHeight);
   });
   const before = await test.step("Apply keyboard-like viewport changes before measuring native scroll", async () => {
-    await setViewport(FOCUSED_VIEWPORT_HEIGHT, FOCUSED_VIEWPORT_TOP);
+    await setVisualViewport(page, FOCUSED_VIEWPORT_HEIGHT, FOCUSED_VIEWPORT_TOP);
     await expect(page.locator(".chat-shell")).toHaveCSS("height", "380px");
     await expect(page.locator(".chat-shell")).toHaveCSS("top", "24px");
     expect(await page.locator(".composer-wrap").evaluate((element) => element.getBoundingClientRect().bottom)).toBe(
@@ -216,7 +201,7 @@ test("focused shell follows keyboard-like visual viewport changes and releases t
   await scrollWithWheel(page, scroller(page), -BACKWARD_WHEEL_DELTA, browserName === "webkit" && isMobile);
   await expect.poll(() => scrollTop(page)).toBeLessThan(before);
 
-  await setViewport(RESTORED_VIEWPORT_HEIGHT);
+  await setVisualViewport(page, RESTORED_VIEWPORT_HEIGHT);
   await expect(page.locator(".chat-shell")).toHaveCSS("height", "460px");
   await input(page).fill("Growing draft\n".repeat(GROWING_DRAFT_LINES));
   expect(await page.locator(".composer-wrap").evaluate((element) => element.getBoundingClientRect().bottom)).toBe(
@@ -225,19 +210,19 @@ test("focused shell follows keyboard-like visual viewport changes and releases t
   await assertDocumentStable(page);
   await page.screenshot({ path: info.outputPath("keyboard-viewport.png") });
 
-  await setViewport(ZOOMED_VIEWPORT_HEIGHT, 0, 2);
+  await setVisualViewport(page, ZOOMED_VIEWPORT_HEIGHT, 0, 2);
   await expect(page.locator(".chat-shell")).not.toHaveAttribute("style", /composer-viewport/);
-  await setViewport(FOCUSED_VIEWPORT_HEIGHT);
+  await setVisualViewport(page, FOCUSED_VIEWPORT_HEIGHT);
   await input(page).evaluate((element) => {
     element.blur();
   });
   await expect(page.locator("body")).toHaveCSS("position", "static");
   await expect(page.locator(".chat-shell")).not.toHaveAttribute("style", /composer-viewport/);
-  await setViewport(HIDDEN_VIEWPORT_HEIGHT);
+  await setVisualViewport(page, HIDDEN_VIEWPORT_HEIGHT);
   expect(await page.locator(".chat-shell").evaluate((element) => element.clientHeight)).toBe(originalHeight);
   await input(page).focus();
   await expect(page.locator(".chat-shell")).toHaveCSS("height", "280px");
-  await setViewport(originalHeight);
+  await setVisualViewport(page, originalHeight);
   await assertDocumentStable(page);
 });
 
