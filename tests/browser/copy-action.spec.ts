@@ -1,5 +1,5 @@
-import { type Page, expect, test } from "@playwright/test";
-import { type Snapshot, initialSnapshot } from "../../src/lib/protocol";
+import { clipboardCalls, showChat } from "./copy-fixture";
+import { expect, test } from "@playwright/test";
 
 /**
 Encodes arbitrary clipboard text as the renderer's explicit copy fence without normalizing its bytes.
@@ -7,114 +7,9 @@ Encodes arbitrary clipboard text as the renderer's explicit copy fence without n
 @returns Markdown copy marker containing the JSON-encoded payload.
 */
 const marker = (text: string) => "```pocket-copy\n" + JSON.stringify(text) + "\n```";
+
 const EXPECTED_BLOCKS = 3;
 const MAX_TABS = 8;
-
-declare global {
-  interface Window {
-    copyTest: { calls: string[]; resolve?: () => void };
-  }
-}
-
-/**
-Mounts the real chat with an offline assistant payload and captures attempted API mutations.
-@param page - Isolated browser using fixture routes.
-@param text - Exact assistant Markdown, including embedded copy payloads.
-@param items - Additional canonical items belonging to the same completed turn.
-@returns Rendered Markdown, captured mutations and the canonical snapshot update operation.
-*/
-async function showChat(page: Page, text: string, items: Snapshot["turns"][number]["items"] = []) {
-  const assistant = { id: "assistant-copy", type: "agentMessage", phase: "final_answer", text };
-  const state: Snapshot = {
-    ...structuredClone(initialSnapshot),
-    connection: "connected",
-    turns: [
-      {
-        id: "copy-flow",
-        status: "completed",
-        items: [...items, assistant],
-      },
-    ],
-  };
-  const writes: string[] = [];
-  const markdown = page.locator('[data-message-id="assistant-copy"] .markdown');
-
-  // Keep unrelated notification setup local and dismiss it before inspecting chat.
-  await page.addInitScript(() => Reflect.deleteProperty(globalThis, "Notification"));
-  await page.route("**/api/notifications", (route) => route.fulfill({ json: {} }));
-  await page.route("**/api/events", (route) =>
-    route.fulfill({
-      contentType: "text/event-stream",
-      body: `data: ${JSON.stringify(state)}\n\n`,
-    })
-  );
-  await page.route("**/api/logs", (route) => route.fulfill({ json: {} }));
-  await page.route("**/api/messages", (route) => {
-    writes.push(route.request().postData() ?? "");
-
-    return route.abort();
-  });
-  await page.goto("/");
-  await page.getByRole("button", { name: "Dismiss notification prompt", exact: true }).click();
-
-  await expect(markdown).toBeVisible();
-
-  return {
-    markdown,
-    writes,
-    stream: async (next: string) => {
-      state.turns[0].status = "inProgress";
-      state.activeTurnId = "copy-flow";
-      assistant.text = next;
-      // Reconnect through the real event-stream hook with the next streamed snapshot.
-      await page.evaluate(() => globalThis.dispatchEvent(new Event("online")));
-    },
-  };
-}
-
-/**
-Installs a deterministic native clipboard boundary before the page loads.
-@param page - Isolated browser receiving the clipboard spy.
-@param mode - Native clipboard outcome exercised by the workflow.
-@returns Completion of the browser initialization script.
-*/
-async function spyClipboard(page: Page, mode: "resolve" | "reject" | "pending" | "unavailable" = "resolve") {
-  await page.addInitScript((behavior) => {
-    const state: Window["copyTest"] = { calls: [] };
-
-    globalThis.window.copyTest = state;
-    Object.defineProperty(navigator, "clipboard", {
-      configurable: true,
-      value:
-        behavior === "unavailable"
-          ? undefined
-          : {
-              writeText(text: string) {
-                state.calls.push(text);
-
-                if (behavior === "reject") {
-                  return Promise.reject(new DOMException("Clipboard denied", "NotAllowedError"));
-                }
-
-                if (behavior === "pending") {
-                  return new Promise<void>((resolve) => {
-                    state.resolve = resolve;
-                  });
-                }
-
-                return Promise.resolve();
-              },
-            },
-    });
-  }, mode);
-}
-
-/**
-Reads clipboard writes captured by the browser's native-boundary spy.
-@param page - Browser with the spy installed before navigation.
-@returns Exact payloads submitted by actual copy gestures.
-*/
-const clipboardCalls = (page: Page) => page.evaluate(() => globalThis.window.copyTest.calls);
 
 test("explicit assistant marker copies exact arbitrary text only on gesture and keeps one spaced block", async ({
   page,
@@ -123,25 +18,27 @@ test("explicit assistant marker copies exact arbitrary text only on gesture and 
   const text =
     '  first\r\nsecond\n"quoted" \\ café 👋 e\u{0301} 雪\t\0\n<script>globalThis.copyExecuted=1</script>\n<img src=x onerror="globalThis.copyExecuted=1">\n```pocket-copy\n"nested"\n```\n  ';
 
-  await spyClipboard(page);
   const { markdown, writes } = await showChat(page, `Before\n\n${marker(text)}\n\nAfter`);
   const button = markdown.getByRole("button", { name: "Copy text", exact: true });
 
-  await expect(button).toHaveCount(1);
-  expect(await clipboardCalls(page)).toEqual([]);
-  await expect(markdown.locator("script, img, a[href^='javascript:']")).toHaveCount(0);
-  const geometry = await markdown.evaluate((element) => {
-    const children = [...element.children];
-    const [before, action, after] = children;
+  const geometry = await test.step("Verify gesture-only rendering before sampling copy-block spacing", async () => {
+    await expect(button).toHaveCount(1);
+    expect(await clipboardCalls(page)).toEqual([]);
+    await expect(markdown.locator("script, img, a[href^='javascript:']")).toHaveCount(0);
 
-    return {
-      count: children.length,
-      gap: Number(getComputedStyle(element).getPropertyValue("--message-block-gap").replace("px", "")),
-      before: action.getBoundingClientRect().top - before.getBoundingClientRect().bottom,
-      after: after.getBoundingClientRect().top - action.getBoundingClientRect().bottom,
-      marginBottom: getComputedStyle(action).marginBottom,
-      tag: action.tagName,
-    };
+    return await markdown.evaluate((element) => {
+      const children = [...element.children];
+      const [before, action, after] = children;
+
+      return {
+        count: children.length,
+        gap: Number(getComputedStyle(element).getPropertyValue("--message-block-gap").replace("px", "")),
+        before: action.getBoundingClientRect().top - before.getBoundingClientRect().bottom,
+        after: after.getBoundingClientRect().top - action.getBoundingClientRect().bottom,
+        marginBottom: getComputedStyle(action).marginBottom,
+        tag: action.tagName,
+      };
+    });
   });
 
   expect(geometry.count).toBe(EXPECTED_BLOCKS);
@@ -174,7 +71,6 @@ test("explicit assistant marker copies exact arbitrary text only on gesture and 
 });
 
 test("code examples, nested blocks, user text and tool output never become copy actions", async ({ page }) => {
-  await spyClipboard(page);
   const example = marker("example");
   const samples = [
     `\`\`\`\`markdown\n${example}\n\`\`\`\``,
@@ -199,11 +95,13 @@ test("code examples, nested blocks, user text and tool output never become copy 
     '```pocket-copy\n"invalid \\q"\n```',
     "[Unsafe link](javascript:alert(1))",
   ].join("\n\n");
-  const { markdown } = await showChat(page, samples, [
-    { id: "user-marker", type: "userMessage", content: [{ type: "text", text: example }] },
-    { id: "tool-marker", type: "commandExecution", content: [{ type: "text", text: example }] },
-    { id: "image-marker", type: "imageOutput", content: [{ type: "text", text: example }] },
-  ]);
+  const { markdown } = await showChat(page, samples, {
+    items: [
+      { id: "user-marker", type: "userMessage", content: [{ type: "text", text: example }] },
+      { id: "tool-marker", type: "commandExecution", content: [{ type: "text", text: example }] },
+      { id: "image-marker", type: "imageOutput", content: [{ type: "text", text: example }] },
+    ],
+  });
 
   await expect(page.getByRole("button", { name: "Copy text", exact: true })).toHaveCount(0);
   await expect(page.locator('[data-message-id="user-marker"]')).toContainText("pocket-copy");
@@ -213,8 +111,8 @@ test("code examples, nested blocks, user text and tool output never become copy 
 });
 
 test("streaming partial and malformed markers remain code until a valid closing fence arrives", async ({ page }) => {
-  await spyClipboard(page);
   const { markdown, stream } = await showChat(page, '```pocket-copy\n"part');
+  const button = markdown.getByRole("button", { name: "Copy text", exact: true });
 
   await expect(markdown.getByRole("button")).toHaveCount(0);
   await stream('```pocket-copy\n"complete JSON"');
@@ -224,8 +122,6 @@ test("streaming partial and malformed markers remain code until a valid closing 
   await expect(markdown).toContainText("``");
   await expect(markdown.getByRole("button")).toHaveCount(0);
   await stream(marker("complete JSON"));
-  const button = markdown.getByRole("button", { name: "Copy text", exact: true });
-
   await expect(button).toBeVisible();
   expect(await clipboardCalls(page)).toEqual([]);
   await button.click();
@@ -243,45 +139,45 @@ test("streaming partial and malformed markers remain code until a valid closing 
 });
 
 test("an empty streamed marker stays visible without empty flow blocks or extra wrapper space", async ({ page }) => {
-  await spyClipboard(page);
   const { markdown, stream } = await showChat(page, "Before\n\n```pocket-copy");
-
-  for (const partial of [
-    "```",
-    "```p",
-    "```pocket-",
-    "```pocket-copy",
-    "```pocket-copy\n",
-    "```pocket-copy\n \n",
-    "```pocket-copy\n\n```",
-    '```pocket-copy\n"unfinished',
-  ]) {
-    await stream("Before\n\n" + partial);
-    await expect(markdown).toContainText(partial.trim());
-    await expect(markdown.getByRole("button")).toHaveCount(0);
-    expect(await markdown.evaluate((element) => [...element.children].every((child) => child.textContent.trim()))).toBe(
-      true
-    );
-  }
-
-  await stream(marker(""));
   const button = markdown.getByRole("button", { name: "Copy text", exact: true });
+  const dimensions =
+    await test.step("Retain partial fences until an empty payload becomes a valid copy action", async () => {
+      for (const partial of [
+        "```",
+        "```p",
+        "```pocket-",
+        "```pocket-copy",
+        "```pocket-copy\n",
+        "```pocket-copy\n \n",
+        "```pocket-copy\n\n```",
+        '```pocket-copy\n"unfinished',
+      ]) {
+        await stream("Before\n\n" + partial);
+        await expect(markdown).toContainText(partial.trim());
+        await expect(markdown.getByRole("button")).toHaveCount(0);
+        expect(
+          await markdown.evaluate((element) => [...element.children].every((child) => child.textContent.trim()))
+        ).toBe(true);
+      }
 
-  await expect(button).toBeVisible();
-  const dimensions = await button.evaluate((element) => {
-    const buttonRect = element.getBoundingClientRect();
-    const action = element.parentElement?.getBoundingClientRect();
+      await stream(marker(""));
+      await expect(button).toBeVisible();
 
-    return action ? { width: action.width - buttonRect.width, height: action.height - buttonRect.height } : null;
-  });
+      return await button.evaluate((element) => {
+        const buttonRect = element.getBoundingClientRect();
+        const action = element.parentElement?.getBoundingClientRect();
+
+        return action ? { width: action.width - buttonRect.width, height: action.height - buttonRect.height } : null;
+      });
+    });
 
   expect(dimensions).toEqual({ width: 0, height: 0 });
 });
 
 for (const mode of ["reject", "unavailable"] as const) {
   test(`clipboard ${mode} reports an accessible error and never claims success`, async ({ page }, testInfo) => {
-    await spyClipboard(page, mode);
-    const { markdown } = await showChat(page, marker("Denied text"));
+    const { markdown } = await showChat(page, marker("Denied text"), { clipboard: mode });
 
     await markdown.getByRole("button", { name: "Copy text", exact: true }).click();
     await expect(markdown.getByRole("status")).toHaveText(
@@ -296,8 +192,7 @@ for (const mode of ["reject", "unavailable"] as const) {
 }
 
 test("pending writes wait for completion and empty text remains a valid action", async ({ page }) => {
-  await spyClipboard(page, "pending");
-  const { markdown } = await showChat(page, marker(""));
+  const { markdown } = await showChat(page, marker(""), { clipboard: "pending" });
   const button = markdown.getByRole("button", { name: "Copy text", exact: true });
 
   await button.click();
@@ -312,11 +207,14 @@ test("pending writes wait for completion and empty text remains a valid action",
 test("native browser clipboard receives the decoded text", async ({ page, context, browserName }) => {
   const text = "Clipboard “quotes” 👋 雪\nSecond line\n";
 
-  if (browserName === "chromium") {
-    await context.grantPermissions(["clipboard-read", "clipboard-write"]);
-  }
+  const { markdown, writes } =
+    await test.step("Grant native clipboard access before mounting the real clipboard workflow", async () => {
+      if (browserName === "chromium") {
+        await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+      }
 
-  const { markdown, writes } = await showChat(page, marker(text));
+      return await showChat(page, marker(text), { clipboard: "native" });
+    });
   const isAvailable = await page.evaluate(() => "clipboard" in globalThis.navigator);
 
   test.skip(!isAvailable, "Native clipboard is unavailable in this browser environment.");
