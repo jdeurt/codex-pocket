@@ -1,4 +1,3 @@
-import { type Thread, string } from "../src/lib/protocol";
 import { CodexRpc } from "../src/server/rpc";
 import { configSchema } from "../src/server/config";
 import { mkdir } from "node:fs/promises";
@@ -7,6 +6,7 @@ import path from "node:path";
 import { pocketInstructions } from "../src/server/pocket-runtime";
 import { seedThread } from "./seed-thread";
 import { spawn } from "node:child_process";
+import { string } from "../src/lib/protocol";
 
 nextEnv.loadEnvConfig(process.cwd());
 const directory = path.resolve(".local", "live-check", crypto.randomUUID());
@@ -21,11 +21,11 @@ const config = configSchema.parse({
 });
 const rpc = new CodexRpc();
 await rpc.connect(config);
-const { config: effective } = await rpc.request<{ config: Record<string, unknown> }>("config/read", {
+const { config: effective } = await rpc.request("config/read", {
   includeLayers: false,
   cwd: config.cwd,
 });
-const started = await rpc.request<{ thread: Thread; model: string; reasoningEffort: string | null }>("thread/start", {
+const started = await rpc.request("thread/start", {
   cwd: project,
   approvalPolicy: "on-request",
   sandbox: "read-only",
@@ -66,7 +66,11 @@ const stop = () => {
 };
 process.once("SIGTERM", stop);
 process.once("SIGINT", stop);
-await new Promise<void>((resolve) => host.once("exit", () => resolve()));
+await new Promise<void>((resolve) =>
+  host.once("exit", () => {
+    resolve();
+  })
+);
 const cleanup = new CodexRpc();
 
 try {

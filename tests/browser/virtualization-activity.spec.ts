@@ -1,14 +1,31 @@
-/* eslint-disable @typescript-eslint/no-magic-numbers -- Exercise a complete large disclosure and history flow. */
 import { type Item, type Snapshot, initialSnapshot } from "../../src/lib/protocol";
 import { type Page, expect, test } from "@playwright/test";
 import { mount, publish } from "./virtualization-fixture";
 import { writeFile } from "node:fs/promises";
+
+const ACTIVITY_VARIANTS = 6;
+const IMAGE_CADENCE = 83;
+const STABLE_FRAMES = 3;
+const OFFSET_TOLERANCE = 3;
+const SCROLL_STOPS = {
+  nearStart: 0.02,
+  middle: 0.5,
+  nearEnd: 0.9,
+  upper: 0.2,
+  lower: 0.75,
+  start: 0,
+  end: 1,
+  center: 0.55,
+};
 
 const viewport = '[data-slot="message-scroller-viewport"]';
 const MAX_ROWS = 250;
 
 async function painted(page: Page) {
   return page.locator(viewport).evaluate((element) => {
+    const TOP_GAP = 32;
+    const BOTTOM_GAP = 64;
+    const LAST_ROW = -1;
     const bounds = element.getBoundingClientRect();
     const leaves = [...element.querySelectorAll<HTMLElement>("[data-transcript-row]:not([data-activity-row])")];
     const blocks = [
@@ -29,7 +46,9 @@ async function painted(page: Page) {
     return {
       count: element.querySelectorAll("[data-transcript-row]").length,
       covered:
-        blocks.length > 0 && blocks[0].top <= bounds.top + 32 && (blocks.at(-1)?.bottom ?? 0) >= bounds.bottom - 64,
+        blocks.length > 0 &&
+        blocks[0].top <= bounds.top + TOP_GAP &&
+        (blocks.at(LAST_ROW)?.bottom ?? 0) >= bounds.bottom - BOTTOM_GAP,
       anchor: anchor
         ? { id: anchor.dataset.transcriptRow ?? "", top: anchor.getBoundingClientRect().top - bounds.top }
         : null,
@@ -63,12 +82,12 @@ test("a thousand activity messages stay virtualized through scrolling, media gro
 }, info) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   const details: Item[] = Array.from({ length: 1200 }, (_, index) => ({
-    id: `detail-${index}`,
+    id: `detail-${String(index)}`,
     type: "agentMessage",
     phase: "commentary",
-    text: `Activity ${index}\n\n${"Variable **markdown** paragraph.\n\n".repeat(index % 6)}`,
-    ...(index % 83 === 0 && {
-      images: [{ source: `/api/images?item=detail-${index}`, alt: `Activity image ${index}` }],
+    text: `Activity ${String(index)}\n\n${"Variable **markdown** paragraph.\n\n".repeat(index % ACTIVITY_VARIANTS)}`,
+    ...(index % IMAGE_CADENCE === 0 && {
+      images: [{ source: `/api/images?item=detail-${String(index)}`, alt: `Activity image ${String(index)}` }],
     }),
   }));
   const turn = {
@@ -91,7 +110,7 @@ test("a thousand activity messages stay virtualized through scrolling, media gro
   );
   const counts: number[] = [];
 
-  for (const fraction of [0.02, 0.5, 0.9, 0.2, 0.75, 0, 1, 0.55]) {
+  for (const fraction of Object.values(SCROLL_STOPS)) {
     await scroll(page, fraction);
     const frame = await painted(page);
     counts.push(frame.count);
@@ -106,7 +125,7 @@ test("a thousand activity messages stay virtualized through scrolling, media gro
           stable = Math.abs(element.scrollTop - previous) < 1 ? stable + 1 : 0;
           previous = element.scrollTop;
 
-          if (stable > 3) {
+          if (stable > STABLE_FRAMES) {
             resolve();
           } else {
             globalThis.requestAnimationFrame(frame);
@@ -134,7 +153,7 @@ test("a thousand activity messages stay virtualized through scrolling, media gro
             : Infinity;
         }, anchor)
       )
-      .toBeLessThan(3);
+      .toBeLessThan(OFFSET_TOLERANCE);
   };
   const index = turn.items.findIndex((item) => anchor.id.endsWith(`/${item.id}`));
   turn.items[index - 2].images = [{ source: "/api/images?item=reader-growth", alt: "Image above activity reader" }];
@@ -145,10 +164,10 @@ test("a thousand activity messages stay virtualized through scrolling, media gro
     1,
     0,
     ...Array.from({ length: 100 }, (_, offset) => ({
-      id: `prepended-${offset}`,
+      id: `prepended-${String(offset)}`,
       type: "agentMessage",
       phase: "commentary",
-      text: `Older activity ${offset}`,
+      text: `Older activity ${String(offset)}`,
     }))
   );
   await publish(page, state);
@@ -165,7 +184,7 @@ test("a thousand activity messages stay virtualized through scrolling, media gro
   await expect(page.locator('[data-message-id="detail-1199"]')).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Message Pocket" })).toHaveValue("Keep the parent draft");
   expect(
-    await scroller?.evaluate(
+    await scroller.evaluate(
       (element) => element === globalThis.document.querySelector('[data-slot="message-scroller-viewport"]')
     )
   ).toBe(true);

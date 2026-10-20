@@ -1,8 +1,8 @@
 import { type FileHandle, open, writeFile } from "node:fs/promises";
+import { type SpinnerLibrary, savedSpinnerSchema, spinnerToneSchema } from "../lib/spinner";
 import { chmodSync, closeSync, constants, mkdirSync, openSync, readFileSync, unlinkSync } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import Database from "better-sqlite3";
-import type { SpinnerLibrary } from "../lib/spinner";
 import { localDirectory } from "./local-state";
 import path from "node:path";
 import sharp from "sharp";
@@ -21,8 +21,14 @@ const MIME: Record<string, string> = { gif: "image/gif", png: "image/png", jpeg:
 const PNG_SIGNATURE_BYTES = 8;
 const PNG_CHUNK_OVERHEAD = 12;
 const PNG_CHUNK_LENGTH_BYTES = 4;
+const storedSpinnerSchema = savedSpinnerSchema.omit({ tone: true }).extend({
+  tone: z
+    .string()
+    .nullable()
+    .transform((value) => (value ? spinnerToneSchema.parse(JSON.parse(value)) : null)),
+});
 const COLUMNS = "id,mime,width,height,frames,bytes,createdAt,tone";
-export const spinnerId = z.string().uuid();
+export const spinnerId = z.uuid();
 
 async function boundedRaster(file: FileHandle) {
   const info = await file.stat();
@@ -71,10 +77,10 @@ function isAnimatedPng(input: Buffer) {
 async function validatedRaster(input: Buffer) {
   const image = sharp(input, { animated: true, limitInputPixels: MAX_PIXELS, failOn: "warning" });
   const meta = await image.metadata();
-  const width = meta.width ?? 0;
+  const width = meta.width;
   const frames = meta.pages ?? 1;
-  const height = meta.pageHeight ?? meta.height ?? 0;
-  const mime = MIME[meta.format ?? ""];
+  const height = meta.pageHeight ?? meta.height;
+  const mime = MIME[meta.format];
 
   if (
     !mime ||
@@ -156,7 +162,9 @@ export class SpinnerStore {
     `);
     this.db
       .transaction(() => {
-        const columns = this.db.prepare("PRAGMA table_info(spinner_assets)").all() as { name: string }[];
+        const columns = z
+          .array(z.object({ name: z.string() }))
+          .parse(this.db.prepare("PRAGMA table_info(spinner_assets)").all());
 
         if (columns.every((column) => column.name !== "tone")) {
           this.db.exec("ALTER TABLE spinner_assets ADD COLUMN tone TEXT");
@@ -165,15 +173,12 @@ export class SpinnerStore {
       .immediate();
   }
   status(): SpinnerLibrary {
-    const saved = this.db.prepare(`SELECT ${COLUMNS} FROM spinner_assets ORDER BY createdAt,id`).all() as (Omit<
-      SpinnerLibrary["saved"][number],
-      "tone"
-    > & { tone: string | null })[];
-    const { activeId } = this.db.prepare("SELECT activeId FROM spinner_preference WHERE singleton=1").get() as {
-      activeId: string | null;
-    };
-
-    const assets = saved.map((asset) => ({ ...asset, tone: asset.tone ? JSON.parse(asset.tone) : null }));
+    const assets = z
+      .array(storedSpinnerSchema)
+      .parse(this.db.prepare(`SELECT ${COLUMNS} FROM spinner_assets ORDER BY createdAt,id`).all());
+    const { activeId } = z
+      .object({ activeId: z.string().nullable() })
+      .parse(this.db.prepare("SELECT activeId FROM spinner_preference WHERE singleton=1").get());
 
     return { current: assets.find((asset) => asset.id === activeId) ?? null, saved: assets };
   }
@@ -183,13 +188,15 @@ export class SpinnerStore {
     const digest = createHash("sha256").update(input).digest("hex");
     const target = path.join(this.assets, id);
     await writeFile(target, input, { mode: PRIVATE_FILE_MODE, flag: "wx" });
-    let used = false;
+    const saved = { used: false };
 
     try {
       this.db
         .transaction(() => {
-          const existing = this.db.prepare("SELECT id FROM spinner_assets WHERE digest=?").get(digest) as
-            { id: string } | undefined;
+          const existing = z
+            .object({ id: z.string() })
+            .optional()
+            .parse(this.db.prepare("SELECT id FROM spinner_assets WHERE digest=?").get(digest));
 
           if (existing) {
             this.db
@@ -200,9 +207,11 @@ export class SpinnerStore {
             return;
           }
 
-          const { count, bytes } = this.db
-            .prepare("SELECT COUNT(*) AS count,COALESCE(SUM(bytes),0) AS bytes FROM spinner_assets")
-            .get() as { count: number; bytes: number };
+          const { count, bytes } = z
+            .object({ count: z.number(), bytes: z.number() })
+            .parse(
+              this.db.prepare("SELECT COUNT(*) AS count,COALESCE(SUM(bytes),0) AS bytes FROM spinner_assets").get()
+            );
 
           if (count >= MAX_SAVED || bytes + input.length > MAX_LIBRARY_BYTES) {
             throw new Error(
@@ -226,11 +235,11 @@ export class SpinnerStore {
               JSON.stringify(metadata.tone)
             );
           this.db.prepare("UPDATE spinner_preference SET activeId=? WHERE singleton=1").run(id);
-          used = true;
+          saved.used = true;
         })
         .immediate();
     } finally {
-      if (!used) {
+      if (!saved.used) {
         unlinkSync(target);
       }
     }
@@ -257,7 +266,7 @@ export class SpinnerStore {
         try {
           unlinkSync(path.join(this.assets, id));
         } catch (error) {
-          if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+          if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
             throw new Error("Could not delete the managed spinner copy. Try again.", { cause: error });
           }
         }
@@ -270,8 +279,10 @@ export class SpinnerStore {
   }
   async asset(id: string) {
     spinnerId.parse(id);
-    const asset = this.db.prepare("SELECT mime,digest,tone FROM spinner_assets WHERE id=?").get(id) as
-      { mime: string; digest: string; tone: string | null } | undefined;
+    const asset = z
+      .object({ mime: z.string(), digest: z.string(), tone: z.string().nullable() })
+      .optional()
+      .parse(this.db.prepare("SELECT mime,digest,tone FROM spinner_assets WHERE id=?").get(id));
 
     if (!asset) {
       throw new Error("Spinner unavailable.");

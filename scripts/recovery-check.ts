@@ -1,4 +1,4 @@
-import { type Snapshot, type Thread, string } from "../src/lib/protocol";
+import { type Snapshot, string } from "../src/lib/protocol";
 import { Bridge } from "../src/server/bridge";
 import { CodexRpc } from "../src/server/rpc";
 import assert from "node:assert/strict";
@@ -22,7 +22,7 @@ const config = configSchema.parse({
 });
 const rpc = new CodexRpc();
 await rpc.connect(config);
-const { thread } = await rpc.request<{ thread: Thread }>("thread/start", {
+const { thread } = await rpc.request("thread/start", {
   cwd: project,
   sandbox: "read-only",
   approvalPolicy: "never",
@@ -50,7 +50,7 @@ function waitFor(target: Bridge, check: (state: Snapshot) => boolean, label: str
       if (check(target.snapshot)) {
         resolve();
       } else {
-        reject(new Error(`${label}: ${target.snapshot.error}`));
+        reject(new Error(`${label}: ${target.snapshot.error ?? "Unknown error"}`));
       }
     }
 

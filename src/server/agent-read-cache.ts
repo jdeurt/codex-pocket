@@ -1,5 +1,5 @@
 import { type AgentRecord, hydrateAgent, nativeStatus, observedMetadata } from "./agent-sources";
-import type { Turn } from "../lib/protocol";
+import { type Turn } from "../lib/protocol";
 import { activeAgent } from "../lib/agents";
 import { agentRead } from "./agent-read-pool";
 import { agentRevision } from "./agent-revision";
@@ -51,7 +51,7 @@ export class AgentReadCache {
       record.turns = saved.turns;
     }
 
-    record.historyError = record.discoveryError || saved.historyError;
+    record.historyError = record.discoveryError === true ? true : saved.historyError;
   }
   private remember(record: AgentRecord, revision: string, full: boolean) {
     record.agent.previewState = record.historyError ? "unavailable" : record.agent.preview ? undefined : "empty";
@@ -133,7 +133,7 @@ export class AgentReadCache {
     const saved = this.previews.get(record.agent.id);
     const revision = await agentRevision(record);
 
-    if (saved && saved.revision === revision) {
+    if (saved?.revision === revision) {
       this.apply(record, saved);
     } else {
       record.agent.preview = saved?.agent.preview ?? "";

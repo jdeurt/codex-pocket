@@ -2,6 +2,7 @@ import { createRotatingLogStream, redactLog } from "../src/server/logging";
 import { mkdtemp, readFile, readdir, rm, stat } from "node:fs/promises";
 import assert from "node:assert/strict";
 import { finished } from "node:stream/promises";
+import { object } from "../src/lib/protocol";
 import path from "node:path";
 import pino from "pino";
 import test from "node:test";
@@ -19,7 +20,7 @@ async function writeRecords(directory: string, retention: number) {
   const logger = pino(
     {
       timestamp: pino.stdTimeFunctions.isoTime,
-      formatters: { log: (fields) => redactLog(fields) as Record<string, unknown> },
+      formatters: { log: (fields) => redactLog(fields) },
     },
     stream
   );
@@ -32,7 +33,7 @@ async function writeRecords(directory: string, retention: number) {
   await finished(stream);
 }
 
-test("size rotation preserves whole JSON records in private files named with ISO creation timestamps", async () => {
+await test("size rotation preserves whole JSON records in private files named with ISO creation timestamps", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "pocket-logs-"));
 
   try {
@@ -52,7 +53,7 @@ test("size rotation preserves whole JSON records in private files named with ISO
         ...contents
           .trim()
           .split("\n")
-          .map((line) => JSON.parse(line) as Record<string, unknown>)
+          .map((line) => object(JSON.parse(line)))
       );
     }
 
@@ -63,7 +64,7 @@ test("size rotation preserves whole JSON records in private files named with ISO
   }
 });
 
-test("retention keeps only the configured number of recent log files", async () => {
+await test("retention keeps only the configured number of recent log files", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "pocket-retention-"));
 
   try {
@@ -75,13 +76,13 @@ test("retention keeps only the configured number of recent log files", async () 
   }
 });
 
-test("redaction covers nested credentials while retaining message and error diagnostics", () => {
+await test("redaction covers nested credentials while retaining message and error diagnostics", () => {
   const redacted = redactLog({
     message: "Hello",
     keys: { auth: "secret", privateKey: "secret" },
     headers: { Authorization: "secret" },
     error: new Error("Broken"),
-  }) as Record<string, unknown>;
+  });
   assert.equal(redacted.message, "Hello");
   assert.equal(JSON.stringify(redacted).includes('"secret"'), false);
   assert.match(JSON.stringify(redacted), /Broken/);

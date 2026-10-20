@@ -1,46 +1,46 @@
-/* eslint-disable @typescript-eslint/no-magic-numbers -- Varied fixture sizes and scroll positions exercise whole flows. */
 import { type Page, expect, test } from "@playwright/test";
-import { type Snapshot, initialSnapshot } from "../../src/lib/protocol";
 import { mount, publish } from "./virtualization-fixture";
 import { readFile, writeFile } from "node:fs/promises";
+import { type Snapshot } from "../../src/lib/protocol";
+import { history } from "../fixtures/virtualized-history";
 
-const LONG_HISTORY = 1200;
+const REQUIRED_STABLE_FRAMES = 8;
+const MIN_MOUNTED_ROWS = 150;
+const SCROLL_STOPS = {
+  middle: 0.5,
+  nearStart: 0.02,
+  nearEnd: 0.95,
+  upper: 0.25,
+  lower: 0.75,
+  start: 0,
+  end: 1,
+  center: 0.4,
+};
+const WHEEL_DELTA = 5000;
+const ACTIVITY_STOPS = { upper: 0.1, lower: 0.8, nearStart: 0.05, nearEnd: 0.9, top: 0.3, bottom: 0.6 };
+const PREPEND_FRACTION = 0.55;
+const PREPEND_COUNT = 100;
+const STREAM_CHUNKS = 8;
+const STREAM_PARAGRAPHS = 5;
+const STEER_PARAGRAPHS = 30;
+const END_TOLERANCE = 40;
+const QUEUED_LINES = 100;
+const OFFSET_TOLERANCE = 3;
+const HISTORY_COUNT = 140;
+const PARENT_SCROLL_FRACTION = 0.4;
+const APPEND_COUNT = 30;
+
+const LAST_MOUNTED_ROW = -1;
 const MAX_MOUNTED_ROWS = 250;
 const viewport = '[data-slot="message-scroller-viewport"]';
 const row = "[data-transcript-row]";
 const pixelTolerance = 3;
 
-function history(count = LONG_HISTORY, start = 0): Snapshot {
-  return {
-    ...initialSnapshot,
-    connection: "connected",
-    threadId: "synthetic-virtualization",
-    turns: [
-      {
-        id: "long-turn",
-        status: "interrupted",
-        items: Array.from({ length: count }, (_, offset) => {
-          const index = start + offset;
-
-          return {
-            id: `message-${index}`,
-            type: index % 4 === 0 ? "userMessage" : "agentMessage",
-            content: [{ type: "text", text: `Fixture ${index}\n${"User line.\n".repeat(Math.abs(index % 5))}` }],
-            text: `Fixture ${index}\n\n${"Variable height paragraph with **markdown**.\n\n".repeat(Math.abs(index % 9))}${
-              index % 20 === 0 ? "\n```ts\nconst fixture = true;\n```" : ""
-            }`,
-            ...(index % 97 === 0 && {
-              images: [{ source: `/api/images?item=history-${index}`, alt: `History image ${index}` }],
-            }),
-          };
-        }),
-      },
-    ],
-  };
-}
-
 async function visibleCoverage(page: Page) {
   return page.locator(viewport).evaluate((element) => {
+    const TOP_GAP = 32;
+    const BOTTOM_GAP = 64;
+    const LAST_ROW = -1;
     const bounds = element.getBoundingClientRect();
     const visible = [
       ...element.querySelectorAll<HTMLElement>(
@@ -51,7 +51,9 @@ async function visibleCoverage(page: Page) {
       .filter((item) => item.bottom > bounds.top && item.top < bounds.bottom);
 
     return (
-      visible.length > 0 && visible[0].top <= bounds.top + 32 && (visible.at(-1)?.bottom ?? 0) >= bounds.bottom - 64
+      visible.length > 0 &&
+      visible[0].top <= bounds.top + TOP_GAP &&
+      (visible.at(LAST_ROW)?.bottom ?? 0) >= bounds.bottom - BOTTOM_GAP
     );
   });
 }
@@ -89,7 +91,7 @@ async function settledAnchor(page: Page) {
           stableFrames = Math.abs(element.scrollTop - last) < 1 ? stableFrames + 1 : 0;
           last = element.scrollTop;
 
-          if (stableFrames >= 8) {
+          if (stableFrames >= REQUIRED_STABLE_FRAMES) {
             resolve();
           } else {
             globalThis.requestAnimationFrame(sample);
@@ -123,23 +125,25 @@ test("large single-turn history stays bounded through rapid scrollbar, wheel and
 }, info) => {
   const writes = await mount(page, history());
   await expect(page.locator('[data-message-id="message-1199"]')).toBeVisible();
-  expect(await page.locator(row).count()).toBeGreaterThanOrEqual(150);
+  expect(await page.locator(row).count()).toBeGreaterThanOrEqual(MIN_MOUNTED_ROWS);
   expect(await page.locator(row).count()).toBeLessThan(MAX_MOUNTED_ROWS);
   await page.getByRole("textbox", { name: "Message Pocket" }).fill("Unsent parent draft");
   const mounted: number[] = [];
 
-  for (const fraction of [0.5, 0.02, 0.95, 0.25, 0.75, 0, 1, 0.4]) {
+  for (const fraction of Object.values(SCROLL_STOPS)) {
     await scrollToFraction(page, fraction);
     mounted.push(await page.locator(row).count());
-    expect(mounted.at(-1)).toBeLessThan(MAX_MOUNTED_ROWS);
+    expect(mounted.at(LAST_MOUNTED_ROW)).toBeLessThan(MAX_MOUNTED_ROWS);
   }
 
   await page.locator(viewport).hover();
 
   if (info.project.use.browserName === "webkit" && info.project.use.isMobile) {
-    await page.locator(viewport).evaluate((element) => element.scrollBy({ top: -5000, behavior: "auto" }));
+    await page.locator(viewport).evaluate((element) => {
+      element.scrollBy({ top: -5000, behavior: "auto" });
+    });
   } else {
-    await page.mouse.wheel(0, -5000);
+    await page.mouse.wheel(0, -WHEEL_DELTA);
   }
 
   await expect.poll(() => visibleCoverage(page)).toBe(true);
@@ -148,7 +152,7 @@ test("large single-turn history stays bounded through rapid scrollbar, wheel and
   await expect.poll(() => visibleCoverage(page)).toBe(true);
   // Consecutive scrollbar teleports without waiting for layout between jumps.
   await page.locator(viewport).evaluate(async (element) => {
-    for (const part of [0.1, 0.8, 0.05, 0.9, 0.3, 0.6]) {
+    for (const part of Object.values(ACTIVITY_STOPS)) {
       element.scrollTop = (element.scrollHeight - element.clientHeight) * part;
       await new Promise(globalThis.requestAnimationFrame);
     }
@@ -168,9 +172,9 @@ test("prepend, streaming, append and steering preserve the reader anchor and fol
 }, info) => {
   const state = history();
   await mount(page, state);
-  await scrollToFraction(page, 0.55);
+  await scrollToFraction(page, PREPEND_FRACTION);
   let anchor = await settledAnchor(page);
-  state.turns[0].items.unshift(...history(100, -100).turns[0].items);
+  state.turns[0].items.unshift(...history(PREPEND_COUNT, -PREPEND_COUNT).turns[0].items);
   await publish(page, state);
   await expectAnchor(page, anchor);
   const { promise: imageReady, resolve: releaseImage } = Promise.withResolvers<boolean>();
@@ -188,7 +192,9 @@ test("prepend, streaming, append and steering preserve the reader anchor and fol
   // Let the size tree and initial scroll correction settle before pixels arrive.
   await settledAnchor(page);
   await settledAnchor(page);
-  await page.locator(viewport).evaluate((element) => element.scrollBy({ top: 200, behavior: "auto" }));
+  await page.locator(viewport).evaluate((element) => {
+    element.scrollBy({ top: 200, behavior: "auto" });
+  });
   anchor = await settledAnchor(page);
   releaseImage(true);
   await expect(page.getByRole("img", { name: "Image above reader", exact: true })).toHaveJSProperty("complete", true);
@@ -201,8 +207,8 @@ test("prepend, streaming, append and steering preserve the reader anchor and fol
   await expectAnchor(page, anchor);
   await expect(page.getByRole("status", { name: "Pocket activity" })).toHaveText(state.activity);
 
-  for (let index = 0; index < 8; index++) {
-    stream.text += "\n\nMore streaming text with **markdown**. ".repeat(5);
+  for (let index = 0; index < STREAM_CHUNKS; index++) {
+    stream.text += "\n\nMore streaming text with **markdown**. ".repeat(STREAM_PARAGRAPHS);
     await publish(page, state);
   }
 
@@ -216,13 +222,13 @@ test("prepend, streaming, append and steering preserve the reader anchor and fol
   state.turns[0].items.push(afterSteer);
   await publish(page, state);
   await expect(page.locator('[data-message-id="after-steer"]')).toBeVisible();
-  afterSteer.text += "\n\nFollow this growing response. ".repeat(30);
+  afterSteer.text += "\n\nFollow this growing response. ".repeat(STEER_PARAGRAPHS);
   await publish(page, state);
   await expect
     .poll(() =>
       page.locator(viewport).evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)
     )
-    .toBeLessThan(40);
+    .toBeLessThan(END_TOLERANCE);
   await page.screenshot({ path: `.local/virtualization-${info.project.name}-streaming.png` });
 });
 
@@ -233,28 +239,24 @@ test("empty and short chats preserve drafts, activity, images, selection and red
   const state: Snapshot = { ...history(), turns: [] };
   await mount(page, state);
   await page.getByRole("textbox", { name: "Message Pocket" }).fill("Preserved first draft");
-  state.queue = [{ id: "first-queued", text: "Queued first message.\n".repeat(100), status: "sending" }];
+  state.queue = [{ id: "first-queued", text: "Queued first message.\n".repeat(QUEUED_LINES), status: "sending" }];
   await publish(page, state);
   await expect(page.locator('[data-message-id="first-queued"]')).toBeVisible();
   await expect
     .poll(() =>
       page.locator(viewport).evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)
     )
-    .toBeLessThan(3);
+    .toBeLessThan(OFFSET_TOLERANCE);
   state.queue = [];
-  state.turns = history(140).turns;
+  state.turns = history(HISTORY_COUNT).turns;
   await publish(page, state);
   await expect(page.getByRole("textbox", { name: "Message Pocket" })).toHaveValue("Preserved first draft");
-  await expect(page.locator(row)).toHaveCount(140);
-  await scrollToFraction(page, 0.4);
+  await expect(page.locator(row)).toHaveCount(HISTORY_COUNT);
+  await scrollToFraction(page, PARENT_SCROLL_FRACTION);
   const anchor = await settledAnchor(page);
   const scroller = await page.locator(viewport).elementHandle();
 
-  if (!scroller) {
-    throw new Error("Missing shared conversation scroller");
-  }
-
-  state.turns[0].items.push(...history(30, 140).turns[0].items);
+  state.turns[0].items.push(...history(APPEND_COUNT, HISTORY_COUNT).turns[0].items);
   await publish(page, state);
   await expectAnchor(page, anchor);
   expect(
@@ -262,9 +264,9 @@ test("empty and short chats preserve drafts, activity, images, selection and red
       (element) => element === globalThis.document.querySelector('[data-slot="message-scroller-viewport"]')
     )
   ).toBe(true);
-  state.turns[0].items.splice(140);
+  state.turns[0].items.splice(HISTORY_COUNT);
   await publish(page, state);
-  await expect(page.locator(row)).toHaveCount(140);
+  await expect(page.locator(row)).toHaveCount(HISTORY_COUNT);
   await expectAnchor(page, anchor);
   expect(
     await scroller.evaluate(
@@ -278,10 +280,10 @@ test("empty and short chats preserve drafts, activity, images, selection and red
     items: [
       { id: "activity-user", type: "userMessage", content: [{ text: "Activity fixture" }] },
       ...Array.from({ length: 700 }, (_, index) => ({
-        id: `activity-${index}`,
+        id: `activity-${String(index)}`,
         type: "agentMessage",
         phase: "commentary",
-        text: `Activity detail ${index}\n\n${"Activity paragraph.\n\n".repeat(index % 5)}`,
+        text: `Activity detail ${String(index)}\n\n${"Activity paragraph.\n\n".repeat(index % STREAM_PARAGRAPHS)}`,
       })),
       {
         id: "activity-final",

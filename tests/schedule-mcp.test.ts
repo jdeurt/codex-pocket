@@ -4,12 +4,14 @@ import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
+import { scheduleSchema } from "../src/server/schedules";
 import test from "node:test";
+import { toolJson } from "./fixtures/tool-json";
 
 const DAY_MS = 86_400_000;
 const TOOL_COUNT = 17;
 
-test("the bundled MCP process validates input and performs schedule CRUD over real stdio", async () => {
+await test("the bundled MCP process validates input and performs schedule CRUD over real stdio", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "pocket-mcp-"));
   const client = new Client({ name: "pocket-check", version: "1.0.0" });
   const transport = new StdioClientTransport({
@@ -34,30 +36,36 @@ test("the bundled MCP process validates input and performs schedule CRUD over re
       const result = await client.callTool({ name, arguments: arguments_ });
       assert.equal(result.isError, undefined, JSON.stringify(result));
 
-      return JSON.parse((result.content as { text: string }[])[0].text) as Record<string, unknown>;
+      return toolJson(result);
     };
     const future = new Date(Date.now() + DAY_MS)
       .toISOString()
       .replaceAll(/[-:]/g, "")
       .replace(/\.\d{3}/, "");
-    const created = await call("schedule_create", {
-      title: "MCP check",
-      body: "Read project status.",
-      calendar: `DTSTART:${future}`,
-    });
-    const updated = await call("schedule_update", {
-      id: created.id,
-      changes: { title: "Updated MCP check", active: false },
-      expectedRevision: created.revision,
-    });
+    const created = scheduleSchema.parse(
+      await call("schedule_create", {
+        title: "MCP check",
+        body: "Read project status.",
+        calendar: `DTSTART:${future}`,
+      })
+    );
+    const updated = scheduleSchema.parse(
+      await call("schedule_update", {
+        id: created.id,
+        changes: { title: "Updated MCP check", active: false },
+        expectedRevision: created.revision,
+      })
+    );
     assert.equal(updated.title, "Updated MCP check");
-    const fetched = await call("schedule_get", { id: created.id });
+    const fetched = scheduleSchema.parse(await call("schedule_get", { id: created.id }));
     assert.equal(fetched.active, 0);
-    const renamed = await call("schedule_update", {
-      id: created.id,
-      changes: { title: "Still paused" },
-      expectedRevision: fetched.revision,
-    });
+    const renamed = scheduleSchema.parse(
+      await call("schedule_update", {
+        id: created.id,
+        changes: { title: "Still paused" },
+        expectedRevision: fetched.revision,
+      })
+    );
     assert.equal(renamed.active, 0);
     assert.equal(Array.isArray(await call("schedule_list", {})), true);
     const invalid = await client.callTool({

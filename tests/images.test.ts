@@ -12,7 +12,7 @@ import { visibleSnapshot } from "../src/server/visible-snapshot";
 
 const ICON_SIZE = 192;
 
-test("image references support generated output, MCP, dynamic tools and local user attachments", () => {
+await test("image references support generated output, MCP, dynamic tools and local user attachments", () => {
   assert.deepEqual(
     itemImageSources({ id: "generated", type: "imageGeneration", result: "aGVsbG8=", savedPath: "/tmp/generated.png" }),
     ["/tmp/generated.png"]
@@ -42,7 +42,7 @@ test("image references support generated output, MCP, dynamic tools and local us
   assert.equal(thumbnailUrl("/api/images?item=test&index=0"), "/api/images?item=test&index=0&thumbnail=1");
 });
 
-test("client snapshots project tool images without sending tool arguments or image bytes", () => {
+await test("client snapshots project tool images without sending tool arguments or image bytes", () => {
   const state = structuredClone(initialSnapshot);
   state.turns = [
     {
@@ -60,7 +60,7 @@ test("client snapshots project tool images without sending tool arguments or ima
   assert.equal(JSON.stringify(visible).includes("private"), false);
 });
 
-test("local and inline images render safely while non-images and remote fetches are rejected", async () => {
+await test("local and inline images render safely while non-images and remote fetches are rejected", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "pocket-images-"));
   process.env.CODEX_POCKET_LOG_DIR = path.join(directory, "logs");
 
@@ -83,7 +83,7 @@ test("local and inline images render safely while non-images and remote fetches 
   }
 });
 
-test("image diagnostics retain sizes and saved paths without repeating megabytes of base64", () => {
+await test("image diagnostics retain sizes and saved paths without repeating megabytes of base64", () => {
   const entry = { type: "imageGeneration", result: "base64-content", savedPath: "/tmp/image.png" };
   const output = JSON.stringify(redactLog(entry));
   assert.equal(output.includes("base64-content"), false);

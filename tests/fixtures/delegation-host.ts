@@ -1,9 +1,10 @@
-// Simulator for process-level delegation integration flows. Never loads a model.
-import type { AdapterOptions, HarnessAdapter, HarnessResult } from "../../src/server/harness/types";
+import { type AdapterOptions, type HarnessAdapter, type HarnessResult } from "../../src/server/harness/types";
 import { object, string } from "../../src/lib/protocol";
 import { DelegationStore } from "../../src/server/delegations";
 import { DelegationWorker } from "../../src/server/delegation-worker";
 import { configSchema } from "../../src/server/config";
+
+// Simulator for process-level delegation integration flows. Never loads a model.
 
 if (process.env.CODEX_THREAD_ID || !process.env.CODEX_POCKET_STATE_DIR) {
   throw new Error("Integration host requires private state and no inherited model thread.");
@@ -33,8 +34,8 @@ class SimulatedAdapter implements HarnessAdapter {
   ) {
     adapters.set(options.child.id, this);
   }
-  async open() {
-    return this.options.child.sessionId ?? `saved:${this.options.child.id}`;
+  open() {
+    return Promise.resolve(this.options.child.sessionId ?? `saved:${this.options.child.id}`);
   }
   run(id: string, text: string) {
     if (text === "hold-close") {
@@ -71,11 +72,13 @@ class SimulatedAdapter implements HarnessAdapter {
   release() {
     this.releaseClose?.();
   }
-  async history() {
-    return [];
+  history() {
+    return Promise.resolve([]);
   }
-  async interrupt() {
+  interrupt() {
     this.resolve?.({ status: "interrupted", text: "Closed" });
+
+    return Promise.resolve();
   }
   async archive() {
     await this.interrupt();
@@ -225,8 +228,12 @@ process.on("message", (message) => {
       }
     }
   })()
-    .then((result) => send({ id, result }))
-    .catch((error: unknown) => send({ id, error: String(error) }));
+    .then((result) => {
+      send({ id, result });
+    })
+    .catch((error: unknown) => {
+      send({ id, error: String(error) });
+    });
 });
 
 worker?.start();

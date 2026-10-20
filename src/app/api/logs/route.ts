@@ -9,8 +9,8 @@ const schema = z.object({
   events: z
     .array(
       z.object({
-        id: z.string().uuid(),
-        time: z.string().datetime(),
+        id: z.uuid(),
+        time: z.iso.datetime(),
         level: z.enum(["info", "error"]),
         event: z.string().max(MAX_EVENT_NAME),
         details: z.record(z.string(), z.unknown()),

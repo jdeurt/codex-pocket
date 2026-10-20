@@ -20,10 +20,10 @@ test("ordinary activity expansion retains CSS animation and bounded rows", async
         items: [
           { id: "question", type: "userMessage", content: [{ text: "Inspect activity" }] },
           ...Array.from({ length: 1200 }, (_, index) => ({
-            id: `detail-${index}`,
+            id: `detail-${String(index)}`,
             type: "agentMessage",
             phase: "commentary",
-            text: `Saved activity detail ${index}`,
+            text: `Saved activity detail ${String(index)}`,
           })),
           { id: "final", type: "agentMessage", phase: "final_answer", text: "Saved final answer" },
         ],
@@ -61,9 +61,9 @@ test("activity disclosure keeps shared outer gaps and hit target through expansi
         id: "older",
         status: "interrupted",
         items: Array.from({ length: 1200 }, (_, index) => ({
-          id: `older-${index}`,
+          id: `older-${String(index)}`,
           type: "agentMessage",
-          text: `Older fixture ${index}`,
+          text: `Older fixture ${String(index)}`,
         })),
       },
       {
@@ -72,10 +72,10 @@ test("activity disclosure keeps shared outer gaps and hit target through expansi
         items: [
           { id: "before-control", type: "userMessage", content: [{ text: "Inspect activity" }] },
           ...Array.from({ length: ACTIVITY_MESSAGES }, (_, index) => ({
-            id: `detail-${index}`,
+            id: `detail-${String(index)}`,
             type: "agentMessage",
             phase: "commentary",
-            text: `Visible activity detail ${index}`,
+            text: `Visible activity detail ${String(index)}`,
           })),
           { id: "after-control", type: "agentMessage", phase: "final_answer", text: "Final visible block" },
         ],
@@ -106,9 +106,8 @@ test("activity disclosure keeps shared outer gaps and hit target through expansi
           return [Infinity];
         }
 
-        // eslint-disable-next-line unicorn/prefer-number-coercion -- CSS dimensions include units.
-        const expected = Number.parseFloat(
-          globalThis.getComputedStyle(transcript).getPropertyValue("--message-block-gap")
+        const expected = Number(
+          globalThis.getComputedStyle(transcript).getPropertyValue("--message-block-gap").trim().replace(/px$/, "")
         );
         const boxes = [previous, control, ...(open ? details : []), final, status].map((item) =>
           item.getBoundingClientRect()

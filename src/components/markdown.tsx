@@ -21,7 +21,12 @@ function MarkdownCode({ children, className, node }: ComponentProps<"code"> & Ex
     return <CopyAction key={copyText} text={copyText} />;
   }
 
-  const text = String(children).replace(/\n$/, "");
+  const text =
+    node?.children
+      .filter((child) => child.type === "text")
+      .map((child) => child.value)
+      .join("")
+      .replace(/\n$/, "") ?? "";
 
   return className || text.includes("\n") ? (
     <CodeBlock>

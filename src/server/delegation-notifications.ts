@@ -47,7 +47,7 @@ export class DelegationNotifications {
     if (!this.watcher) {
       try {
         this.watcher = watch(this.directory, { persistent: false }, (_event, filename) => {
-          if (!filename || filename.toString() === SIGNAL_FILE) {
+          if (!filename || filename === SIGNAL_FILE) {
             this.emit();
           }
         });

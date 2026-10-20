@@ -1,6 +1,7 @@
-// OFFLINE REPLAY ONLY. These are synthetic harness wire records, not live results.
-import type { Turn } from "../../src/lib/protocol";
+import { type Turn } from "../../src/lib/protocol";
 import { replayToolOutputs } from "./agent-tool-output";
+
+// OFFLINE REPLAY ONLY. These are synthetic harness wire records, not live results.
 
 export const replayParent = "replay-parent";
 export const claudeSession = "11111111-1111-4111-8111-111111111111";
@@ -73,14 +74,18 @@ export function replayThreads(settled = false, revision = 1) {
 export function replayTurns(id: string, stage = "initial"): Turn[] {
   if (id === replayParent) {
     return Array.from({ length: 25 }, (_, index) => ({
-      id: `parent-${index}`,
+      id: `parent-${String(index)}`,
       status: "completed",
       items: [
-        { id: `parent-u-${index}`, type: "userMessage", content: [{ type: "text", text: `Parent question ${index}` }] },
         {
-          id: `parent-a-${index}`,
+          id: `parent-u-${String(index)}`,
+          type: "userMessage",
+          content: [{ type: "text", text: `Parent question ${String(index)}` }],
+        },
+        {
+          id: `parent-a-${String(index)}`,
           type: "agentMessage",
-          text: `Parent answer ${index}. The parent conversation stays in place while viewing agents.`,
+          text: `Parent answer ${String(index)}. The parent conversation stays in place while viewing agents.`,
           phase: "final_answer",
         },
       ],
@@ -157,13 +162,13 @@ export function replayTurns(id: string, stage = "initial"): Turn[] {
   }
 
   const archived = Array.from({ length: 40 }, (_, index) => ({
-    id: `archived-${index}`,
+    id: `archived-${String(index)}`,
     status: "completed",
     items: [
       {
-        id: `archived-item-${index}`,
+        id: `archived-item-${String(index)}`,
         type: "agentMessage",
-        text: `Archived research ${index}. ${"Saved history. ".repeat(ARCHIVE_TEXT_REPETITIONS)}`,
+        text: `Archived research ${String(index)}. ${"Saved history. ".repeat(ARCHIVE_TEXT_REPETITIONS)}`,
         phase: "final_answer",
       },
     ],

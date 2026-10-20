@@ -15,7 +15,7 @@ const PRIVATE_MODE = 0o600;
 const MODE_MASK = 0o777;
 const input = { title: "Morning check", body: "Read the project status.", calendar: "DTSTART:20261020T160000Z" };
 
-test("one-time events, recurring dates, exclusions and DST resolve to UTC instants", async () => {
+await test("one-time events, recurring dates, exclusions and DST resolve to UTC instants", async () => {
   const once = normalizeCalendar(input.calendar);
   assert.equal(await nextOccurrence(once, NOW), FIRST);
   assert.equal(await nextOccurrence(once, FIRST), null);
@@ -27,7 +27,7 @@ test("one-time events, recurring dates, exclusions and DST resolve to UTC instan
   assert.equal(await nextOccurrence(additional, FIRST), Date.parse("2026-10-22T18:00:00Z"));
 });
 
-test("invalid dates, floating dates, timezones and ambiguous event shapes are rejected", () => {
+await test("invalid dates, floating dates, timezones and ambiguous event shapes are rejected", () => {
   for (const calendar of [
     "DTSTART:20260230T090000Z",
     "DTSTART:20261020",
@@ -47,12 +47,12 @@ test("invalid dates, floating dates, timezones and ambiguous event shapes are re
   }
 });
 
-test("recurrence computation is bounded so pathological rules cannot block the scheduler", async () => {
+await test("recurrence computation is bounded so pathological rules cannot block the scheduler", async () => {
   const calendar = normalizeCalendar("DTSTART:20000101T000000Z\nRRULE:FREQ=MINUTELY;BYMONTH=2;BYMONTHDAY=30");
   await assert.rejects(() => nextOccurrence(calendar, NOW), /too long/);
 });
 
-test("schedule CRUD is scoped, revision checked, durable and owner private", async () => {
+await test("schedule CRUD is scoped, revision checked, durable and owner private", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "pocket-schedules-"));
   process.env.CODEX_POCKET_LOG_DIR = path.join(directory, "logs");
   let store = new ScheduleStore(directory);
@@ -93,7 +93,7 @@ test("schedule CRUD is scoped, revision checked, durable and owner private", asy
   }
 });
 
-test("scheduled triggers stay hidden while ordinary messages, replies and prompts remain visible", () => {
+await test("scheduled triggers stay hidden while ordinary messages, replies and prompts remain visible", () => {
   const state = structuredClone(initialSnapshot);
   state.scheduled["run-id"] = { title: "Morning check", scheduledAt: FIRST };
   state.queue = [

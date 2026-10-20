@@ -1,11 +1,12 @@
-import type { RestartEvent, Snapshot, Turn } from "../lib/protocol";
+import { type RestartEvent, type Snapshot, type Turn, restartEventSchema } from "../lib/protocol";
 import { readLocal, writeLocal } from "./local-state";
+import { z } from "zod";
 
 const STORE = "restart-events.json";
 const LAST_ITEM = -1;
 
 export async function recordRestart(state: Snapshot): Promise<RestartEvent[]> {
-  const saved = await readLocal<RestartEvent[]>(STORE, []);
+  const saved = z.array(restartEventSchema).parse(await readLocal(STORE, []));
   const turn = state.turns.findLast((entry) => entry.items.length > 0);
   const item = turn?.items.at(LAST_ITEM);
 

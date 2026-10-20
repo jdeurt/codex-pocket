@@ -23,10 +23,9 @@ async function prepareRegistration() {
     return await Promise.race([
       readyRegistration(),
       new Promise<never>((_, reject) => {
-        timer = setTimeout(
-          () => reject(new Error("Open the installed Pocket app to enable notifications.")),
-          PREPARATION_TIMEOUT_MS
-        );
+        timer = setTimeout(() => {
+          reject(new Error("Open the installed Pocket app to enable notifications."));
+        }, PREPARATION_TIMEOUT_MS);
       }),
     ]);
   } finally {
@@ -43,15 +42,12 @@ export function NotificationPrompt() {
   useNotificationPresence(endpoint);
 
   useEffect(() => {
-    let active = true;
     const controller = new AbortController();
 
     async function prepare() {
       const config = await get("/api/notifications", controller.signal);
 
-      if (!active) {
-        return;
-      }
+      controller.signal.throwIfAborted();
 
       if (!("Notification" in globalThis) || !("PushManager" in globalThis) || !("serviceWorker" in navigator)) {
         setStatus("unsupported");
@@ -92,9 +88,7 @@ export function NotificationPrompt() {
         await post("/api/notifications", subscription.toJSON());
       }
 
-      if (!active) {
-        return;
-      }
+      controller.signal.throwIfAborted();
 
       setEndpoint(subscription?.endpoint ?? "");
       setStatus(subscription ? "enabled" : "ready");
@@ -103,7 +97,7 @@ export function NotificationPrompt() {
     void prepare().catch((error_: unknown) => {
       reportClient("notifications.prepare_failed", clientError(error_), "error");
 
-      if (!active) {
+      if (controller.signal.aborted) {
         return;
       }
 
@@ -112,7 +106,6 @@ export function NotificationPrompt() {
     });
 
     return () => {
-      active = false;
       controller.abort();
     };
   }, []);
@@ -170,7 +163,9 @@ export function NotificationPrompt() {
           variant="ghost"
           size="icon-xl"
           aria-label="Dismiss notification prompt"
-          onClick={() => setStatus("dismissed")}
+          onClick={() => {
+            setStatus("dismissed");
+          }}
         >
           <XIcon />
         </Button>

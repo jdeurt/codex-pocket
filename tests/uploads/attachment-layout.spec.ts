@@ -1,7 +1,9 @@
+import { type Item, initialSnapshot, object, snapshotSchema, string } from "../../src/lib/protocol";
 import { type Locator, expect, test } from "@playwright/test";
 import { mkdir, writeFile } from "node:fs/promises";
-import type { AgentEntry } from "../../src/lib/agents";
-import { initialSnapshot } from "../../src/lib/protocol";
+import { type AgentEntry } from "../../src/lib/agents";
+import assert from "node:assert/strict";
+import { readSnapshot } from "../../scripts/read-snapshot.mjs";
 import sharp from "sharp";
 
 const GAP = 16;
@@ -30,7 +32,7 @@ async function metrics(bubble: Locator) {
     }
 
     const group = query('[aria-label="Attachments"]', content);
-    const rows = [...group.children] as HTMLElement[];
+    const rows = [...group.children].filter((row): row is HTMLElement => row instanceof HTMLElement);
     const text = content.querySelector<HTMLElement>(":scope > p");
     const first = rows[0].getBoundingClientRect();
     const icon = query("svg", rows[0]).getBoundingClientRect();
@@ -48,8 +50,10 @@ async function metrics(bubble: Locator) {
       availableWidth: parent.getBoundingClientRect().width,
       nameTruncated: query("span[title]", rows[0]).scrollWidth > query("span[title]", rows[0]).clientWidth,
       // CSS dimensions carry units; coercion must parse their numeric prefix.
-      // eslint-disable-next-line unicorn/prefer-number-coercion
-      contentWidth: content.clientWidth - Number.parseFloat(style.paddingLeft) - Number.parseFloat(style.paddingRight),
+      contentWidth:
+        content.clientWidth -
+        Number(style.paddingLeft.replace(/px$/, "")) -
+        Number(style.paddingRight.replace(/px$/, "")),
       margins: rows.map((row) => [getComputedStyle(row).marginTop, getComputedStyle(row).marginBottom]),
       overflow: document.documentElement.scrollWidth > innerWidth,
     };
@@ -80,7 +84,7 @@ test("real uploads fill the original bubble interior with static file rows and e
   await expect(selected.getByText("Ready to send", { exact: true })).toHaveCount(2);
   await expect(selected.locator("img")).toHaveCount(0);
   const draft = await selected.evaluate((list) => {
-    const rows = [...list.children] as HTMLElement[];
+    const rows = [...list.children].filter((row): row is HTMLElement => row instanceof HTMLElement);
     const card = rows[0];
     const style = getComputedStyle(card);
     const text = card.querySelector("p");
@@ -101,10 +105,10 @@ test("real uploads fill the original bubble interior with static file rows and e
     };
   });
   expect(draft).toEqual({
-    left: `${GAP}px`,
-    right: `${GAP}px`,
-    top: `${VERTICAL_PADDING}px`,
-    bottom: `${VERTICAL_PADDING}px`,
+    left: `${String(GAP)}px`,
+    right: `${String(GAP)}px`,
+    top: `${String(VERTICAL_PADDING)}px`,
+    bottom: `${String(VERTICAL_PADDING)}px`,
     gap: GAP,
     aligned: true,
   });
@@ -142,31 +146,26 @@ test("real uploads fill the original bubble interior with static file rows and e
 
   // A newer/stale wire projection must not reintroduce a second uploaded-image preview.
   await control("duplicate-image");
-  const projected = await page.evaluate(
-    async (text) =>
-      new Promise<Record<string, unknown>>((resolve) => {
-        const stream = new globalThis.EventSource("/api/events");
-        stream.addEventListener("message", (event) => {
-          const state = JSON.parse(event.data);
-          const item = state.turns
-            .flatMap((turn: { items: Record<string, unknown>[] }) => turn.items)
-            .find(
-              (entry: Record<string, unknown>) =>
-                entry.fixtureDuplicateImage &&
-                Array.isArray(entry.content) &&
-                entry.content.some((part: { text?: string }) => part.text === text)
-            );
+  let projected: Item | undefined;
+  await expect
+    .poll(async () => {
+      const response = await fetch(new URL("/api/events", page.url()));
+      assert.ok(response.body);
+      const state = snapshotSchema.parse(await readSnapshot(response.body));
+      projected = state.turns
+        .flatMap((turn) => turn.items)
+        .find(
+          (entry) =>
+            entry.fixtureDuplicateImage &&
+            Array.isArray(entry.content) &&
+            entry.content.some((part: unknown) => string(object(part).text) === message)
+        );
 
-          if (!item) {
-            return;
-          }
+      return projected !== undefined;
+    })
+    .toBe(true);
+  assert.ok(projected);
 
-          stream.close();
-          resolve(item);
-        });
-      }),
-    message
-  );
   expect(projected.images).toBeUndefined();
   await expect(bubble.locator("img, a, button")).toHaveCount(0);
   await control("complete");

@@ -1,7 +1,6 @@
 "use client";
-
 import * as React from "react";
-import { cva, type VariantProps } from "class-variance-authority";
+import { type VariantProps, cva } from "class-variance-authority";
 import { cn } from "cn";
 
 const tableVariants = cva("caption-bottom", {
@@ -29,10 +28,12 @@ function scrollTableWithKeyboard(event: React.KeyboardEvent<HTMLDivElement>) {
   };
   const left = positions[event.key];
 
-  if (left !== undefined) {
-    event.preventDefault();
-    element.scrollTo({ left });
+  if (left === undefined) {
+    return;
   }
+
+  event.preventDefault();
+  element.scrollTo({ left });
 }
 
 function Table({
@@ -119,4 +120,4 @@ function TableCaption({ className, ...props }: React.ComponentProps<"caption">) 
   );
 }
 
-export { Table, TableHeader, TableBody, TableFooter, TableHead, TableRow, TableCell, TableCaption };
+export { Table, TableBody, TableCaption, TableCell, TableFooter, TableHead, TableHeader, TableRow };

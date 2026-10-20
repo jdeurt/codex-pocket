@@ -14,7 +14,7 @@ if (!threadId) {
 }
 
 const owner = threadId;
-const idSchema = z.object({ id: z.string().uuid() }).strict();
+const idSchema = z.object({ id: z.uuid() }).strict();
 
 serveStdio(
   () => {
@@ -71,5 +71,9 @@ serveStdio(
 
     return server;
   },
-  { onerror: (error) => log().error({ error }, "schedule.mcp_error") }
+  {
+    onerror: (error) => {
+      log().error({ error }, "schedule.mcp_error");
+    },
+  }
 );

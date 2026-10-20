@@ -13,9 +13,9 @@ test("pending answer drafts survive new output and prepended history without sub
         id: "pending-question",
         status: "interrupted",
         items: Array.from({ length: HISTORY_SIZE }, (_, index) => ({
-          id: `before-${index}`,
+          id: `before-${String(index)}`,
           type: "agentMessage",
-          text: `Fixture message ${index}`,
+          text: `Fixture message ${String(index)}`,
         })),
       },
     ],

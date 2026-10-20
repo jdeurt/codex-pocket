@@ -1,11 +1,11 @@
 import { type CodexRpc, RpcError } from "./rpc";
-import type { Snapshot, Thread, Turn } from "../lib/protocol";
-import type { Config } from "./config";
-import type { Receipt } from "./outbox";
+import { type Config } from "./config";
+import { type Receipt } from "./outbox";
+import { type Snapshot } from "../lib/protocol";
 import { attachmentInput } from "./uploads";
 
 async function startTurn(rpc: CodexRpc, config: Config, state: Snapshot, input: unknown[], id: string) {
-  const { turn } = await rpc.request<{ turn: Turn }>("turn/start", {
+  const { turn } = await rpc.request("turn/start", {
     threadId: config.threadId,
     input,
     clientUserMessageId: id,
@@ -45,11 +45,11 @@ export async function deliverMessage(rpc: CodexRpc, config: Config, state: Snaps
       throw error;
     }
 
-    const { thread } = await rpc.request<{ thread: Thread }>("thread/read", {
+    const { thread } = await rpc.request("thread/read", {
       threadId: config.threadId,
       includeTurns: true,
     });
-    const active = thread.turns.findLast((turn) => turn.status === "inProgress");
+    const active = thread.turns.some((turn) => turn.status === "inProgress");
 
     if (active) {
       throw error;

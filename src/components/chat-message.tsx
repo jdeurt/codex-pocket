@@ -4,14 +4,30 @@ import { Message, MessageContent } from "@/components/ui/message";
 import { hasMessageText, messageText } from "@/lib/turn-messages";
 import { AttachmentGroup } from "@/components/ui/attachment";
 import { ChatImage } from "./chat-image";
-import type { FileAttachment } from "@/lib/attachments";
 import { FileAttachments } from "./file-attachments";
 import { Markdown } from "./markdown";
 import { SystemEvent } from "./system-event";
 import { ToolMessage } from "./tool-message";
 
-function uploadedFiles(item: Item) {
-  return Array.isArray(item.attachments) ? (item.attachments as FileAttachment[]) : [];
+function MessageAttachments({ item }: { item: Item }) {
+  const files = item.attachments ?? [];
+
+  return (
+    <>
+      <FileAttachments files={files} />
+      {files.length === 0 && Array.isArray(item.images) && item.images.length > 0 && (
+        <AttachmentGroup layout="wrap" className="chat-images">
+          {item.images.map((image) => (
+            <ChatImage
+              key={string(object(image).source)}
+              source={string(object(image).source)}
+              alt={string(object(image).alt) || "Image from Pocket"}
+            />
+          ))}
+        </AttachmentGroup>
+      )}
+    </>
+  );
 }
 
 export function ChatMessage({ item }: { item: Item }) {
@@ -23,7 +39,6 @@ export function ChatMessage({ item }: { item: Item }) {
     return <ToolMessage item={item} />;
   }
 
-  const files = uploadedFiles(item);
   const text = messageText(item);
 
   return (
@@ -37,18 +52,7 @@ export function ChatMessage({ item }: { item: Item }) {
           align={item.type === "userMessage" ? "end" : "start"}
         >
           <BubbleContent>
-            <FileAttachments files={files} />
-            {files.length === 0 && Array.isArray(item.images) && item.images.length > 0 && (
-              <AttachmentGroup layout="wrap" className="chat-images">
-                {item.images.map((image) => (
-                  <ChatImage
-                    key={string(object(image).source)}
-                    source={string(object(image).source)}
-                    alt={string(object(image).alt) || "Image from Pocket"}
-                  />
-                ))}
-              </AttachmentGroup>
-            )}
+            <MessageAttachments item={item} />
             {hasMessageText(item) &&
               (item.type === "userMessage" ? (
                 <p className="whitespace-pre-wrap">{text}</p>

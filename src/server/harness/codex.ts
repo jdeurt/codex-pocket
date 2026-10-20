@@ -1,14 +1,6 @@
-import type { AdapterOptions, HarnessAdapter, HarnessMessage, HarnessResult } from "./types";
+import { type AdapterOptions, type HarnessAdapter, type HarnessMessage, type HarnessResult } from "./types";
 import { CodexRpc, RpcError } from "../rpc";
-import {
-  type Item,
-  type PendingRequest,
-  type RpcEvent,
-  type Thread,
-  type Turn,
-  object,
-  string,
-} from "../../lib/protocol";
+import { type Item, type PendingRequest, type RpcEvent, type Thread, object, string } from "../../lib/protocol";
 import { codexParentTools } from "./mcp-config";
 import { codexPermissions } from "./permissions";
 import { harnessMessages } from "./transcript";
@@ -29,7 +21,7 @@ function text(item: Item) {
     string(item.text) ||
     (Array.isArray(item.content)
       ? item.content
-          .map((part) => string(part.text))
+          .map((part) => string(object(part).text))
           .filter(Boolean)
           .join("\n")
       : "")
@@ -44,9 +36,15 @@ export class CodexAdapter implements HarnessAdapter {
   private outputs = new Map<string, string>();
   private nativeAgents: Record<string, { parentId: string; name: string; status: string }> = {};
   constructor(private options: AdapterOptions) {
-    this.rpc.on("event", (event: RpcEvent) => this.event(event));
-    this.rpc.on("diagnostic", (message: string) => log().debug({ message }, "side_pocket.codex.stderr"));
-    this.rpc.on("disconnect", (error: Error) => this.pending?.reject(error));
+    this.rpc.on("event", (event: RpcEvent) => {
+      this.event(event);
+    });
+    this.rpc.on("diagnostic", (message: string) => {
+      log().debug({ message }, "side_pocket.codex.stderr");
+    });
+    this.rpc.on("disconnect", (error: Error) =>
+      this.pending?.reject(error instanceof Error ? error : new Error("Harness request failed.", { cause: error }))
+    );
   }
   private observeNative(event: RpcEvent) {
     if (
@@ -113,16 +111,18 @@ export class CodexAdapter implements HarnessAdapter {
     }
 
     if (event.id !== undefined) {
-      void this.answerRequest(event as PendingRequest).catch((error: unknown) => this.pending?.reject(error as Error));
+      void this.answerRequest({ ...event, id: event.id }).catch((error: unknown) =>
+        this.pending?.reject(error instanceof Error ? error : new Error("Harness request failed.", { cause: error }))
+      );
 
       return;
     }
 
     switch (event.method) {
       case "item/completed": {
-        const item = event.params.item as Item;
+        const item = event.params.item;
 
-        if (item.type !== "agentMessage") {
+        if (item?.type !== "agentMessage") {
           return;
         }
 
@@ -132,16 +132,23 @@ export class CodexAdapter implements HarnessAdapter {
       }
 
       case "turn/started": {
-        this.active = (event.params.turn as Turn).id;
+        this.active = event.params.turn?.id;
         break;
       }
 
       case "turn/completed": {
-        const turn = event.params.turn as Turn;
+        const turn = event.params.turn;
+
+        if (!turn) {
+          break;
+        }
+
         this.active = undefined;
         this.pending?.resolve({
           status: turn.status === "completed" ? "completed" : turn.status === "interrupted" ? "interrupted" : "failed",
-          text: this.outputs.values().toArray().join("\n\n") || turn.error?.message || "No response text.",
+          text:
+            this.outputs.values().toArray().join("\n\n") ||
+            (turn.error?.message.length ? turn.error.message : "No response text."),
         });
         break;
       }
@@ -192,7 +199,7 @@ export class CodexAdapter implements HarnessAdapter {
       },
       "bare"
     );
-    const { config: effective } = await this.rpc.request<{ config: Record<string, unknown> }>("config/read", {
+    const { config: effective } = await this.rpc.request("config/read", {
       cwd: child.cwd,
       includeLayers: false,
     });
@@ -224,13 +231,15 @@ export class CodexAdapter implements HarnessAdapter {
     this.options.callbacks.metadata({ sessionStarted: true });
 
     try {
-      const start = this.rpc.request<{ turn: Turn }>("turn/start", {
+      const start = this.rpc.request("turn/start", {
         threadId: this.sessionId,
         clientUserMessageId: id,
         input: [{ type: "text", text: input, text_elements: [] }],
         effort: child.effort ?? child.policy.effort,
       });
-      void start.catch((error: Error) => this.pending?.reject(error));
+      void start.catch((error: unknown) =>
+        this.pending?.reject(error instanceof Error ? error : new Error("Harness request failed.", { cause: error }))
+      );
 
       return await result;
     } finally {
@@ -238,7 +247,7 @@ export class CodexAdapter implements HarnessAdapter {
     }
   }
   async history(): Promise<HarnessMessage[]> {
-    const { thread } = await this.rpc.request<{ thread: Thread }>("thread/read", {
+    const { thread } = await this.rpc.request("thread/read", {
       threadId: this.sessionId,
       includeTurns: true,
     });

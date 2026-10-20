@@ -29,5 +29,9 @@ serveStdio(
 
     return server;
   },
-  { onerror: (error) => log().error({ error }, "side_pocket.mcp_error") }
+  {
+    onerror: (error) => {
+      log().error({ error }, "side_pocket.mcp_error");
+    },
+  }
 );

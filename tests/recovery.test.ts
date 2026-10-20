@@ -1,13 +1,13 @@
 import { RECOVERY_PROMPT, isRecoveryMessageId, recoveryReceipt } from "../src/server/recovery";
-import { type Snapshot, initialSnapshot } from "../src/lib/protocol";
-import type { Receipt } from "../src/server/outbox";
+import { type Snapshot, initialSnapshot, snapshotSchema } from "../src/lib/protocol";
+import { type Receipt } from "../src/server/outbox";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { visibleSnapshot } from "../src/server/visible-snapshot";
 
 const turns = [{ id: "turn", status: "completed", items: [{ id: "user", type: "userMessage" }] }];
 
-test("only resumed history produces recovery, and an existing pending or uncertain recovery is not duplicated", () => {
+await test("only resumed history produces recovery, and an existing pending or uncertain recovery is not duplicated", () => {
   assert.equal(recoveryReceipt([], []), undefined);
   assert.equal(recoveryReceipt([{ id: "empty", status: "completed", items: [] }], []), undefined);
   const first = recoveryReceipt(turns, []);
@@ -25,8 +25,9 @@ test("only resumed history produces recovery, and an existing pending or uncerta
   assert.equal(isRecoveryMessageId(crypto.randomUUID()), false);
 });
 
-test("recovery prompts stay hidden by durable identity while ordinary messages and agent responses remain", () => {
-  const recovery = recoveryReceipt(turns, []) as Receipt;
+await test("recovery prompts stay hidden by durable identity while ordinary messages and agent responses remain", () => {
+  const recovery = recoveryReceipt(turns, []);
+  assert.ok(recovery);
   const ordinary: Receipt = { id: crypto.randomUUID(), text: RECOVERY_PROMPT, status: "queued" };
   const state: Snapshot = {
     ...structuredClone(initialSnapshot),
@@ -58,6 +59,6 @@ test("recovery prompts stay hidden by durable identity while ordinary messages a
   assert.deepEqual(visible.queue, [ordinary]);
   assert.deepEqual(visible.turns[0].items, state.turns[0].items.slice(1));
   const saved = JSON.stringify(state);
-  assert.deepEqual(visibleSnapshot(JSON.parse(saved)), visible);
+  assert.deepEqual(visibleSnapshot(snapshotSchema.parse(JSON.parse(saved))), visible);
   assert.equal(state.queue.length, 2);
 });

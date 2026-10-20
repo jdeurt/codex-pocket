@@ -7,7 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-test("a child MCP exposes only message_parent and routes content to its recorded parent", async () => {
+await test("a child MCP exposes only message_parent and routes content to its recorded parent", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "pocket-child-mcp-"));
   const store = new DelegationStore(directory);
   const owner = "parent-chat";

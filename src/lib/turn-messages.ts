@@ -67,10 +67,13 @@ export function turnMessages(turn: Turn, active: boolean): TurnEntry[] {
   for (const item of turn.items) {
     if (item.type === "pocketRestart") {
       // A display event is meaningful without text or media; keep it outside the empty-message filter.
-      entries.push(...messageEntries({ ...turn, id: segment ? `${turn.id}:${segment}` : turn.id, items }, active), {
-        kind: "message",
-        item,
-      });
+      entries.push(
+        ...messageEntries({ ...turn, id: segment ? `${turn.id}:${String(segment)}` : turn.id, items }, active),
+        {
+          kind: "message",
+          item,
+        }
+      );
       items = [];
       segment += 1;
     } else {
@@ -78,7 +81,7 @@ export function turnMessages(turn: Turn, active: boolean): TurnEntry[] {
     }
   }
 
-  entries.push(...messageEntries({ ...turn, id: segment ? `${turn.id}:${segment}` : turn.id, items }, active));
+  entries.push(...messageEntries({ ...turn, id: segment ? `${turn.id}:${String(segment)}` : turn.id, items }, active));
 
   return entries;
 }

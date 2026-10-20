@@ -42,7 +42,7 @@ export async function readBody(request: Request) {
   const chunks: Uint8Array[] = [];
   let size = 0;
 
-  while (true) {
+  for (;;) {
     const { done, value } = await reader.read();
 
     if (done) {
@@ -59,7 +59,9 @@ export async function readBody(request: Request) {
     chunks.push(value);
   }
 
-  return JSON.parse(Buffer.concat(chunks).toString("utf8")) as unknown;
+  const data: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+
+  return data;
 }
 export const noStore = { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" };
 export function errorResponse(error: unknown, status = HTTP_BAD_REQUEST) {

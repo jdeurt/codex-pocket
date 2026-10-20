@@ -41,7 +41,11 @@ export async function checkAgentScroll(page: Page, control: (stage: string) => P
   await page.evaluate(
     () =>
       new Promise<void>((resolve) => {
-        globalThis.requestAnimationFrame(() => globalThis.requestAnimationFrame(() => resolve()));
+        globalThis.requestAnimationFrame(() =>
+          globalThis.requestAnimationFrame(() => {
+            resolve();
+          })
+        );
       })
   );
 
@@ -60,7 +64,9 @@ export async function checkAgentScroll(page: Page, control: (stage: string) => P
     expect(before).toBeGreaterThan(SCROLLED_OFFSET - OFFSET_TOLERANCE);
     const beforeAnchor = await anchor(parent);
     // Do not scroll the offscreen activity control into view before opening.
-    await trigger.evaluate((button: HTMLButtonElement) => button.click());
+    await trigger.evaluate((button: HTMLButtonElement) => {
+      button.click();
+    });
     const row = dialog.getByRole("button", { name: /Researching an exceptionally long/ });
     await row.click();
     await expect(dialog.getByRole("heading", { name: "Side Pocket", exact: true })).toBeFocused();
@@ -75,7 +81,11 @@ export async function checkAgentScroll(page: Page, control: (stage: string) => P
     await page.evaluate(
       () =>
         new Promise<void>((resolve) => {
-          globalThis.requestAnimationFrame(() => globalThis.requestAnimationFrame(() => resolve()));
+          globalThis.requestAnimationFrame(() =>
+            globalThis.requestAnimationFrame(() => {
+              resolve();
+            })
+          );
         })
     );
     const during = await parent.evaluate((element) => element.scrollTop);

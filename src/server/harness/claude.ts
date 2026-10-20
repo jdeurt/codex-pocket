@@ -1,4 +1,4 @@
-import type { AdapterOptions, HarnessAdapter, HarnessMessage, HarnessResult } from "./types";
+import { type AdapterOptions, type HarnessAdapter, type HarnessMessage, type HarnessResult } from "./types";
 import { type ChildProcess, spawn } from "node:child_process";
 import {
   type Options,
@@ -45,7 +45,9 @@ export function claudeOptions(
     strictMcpConfig: true,
     mcpServers: parentTools ? { pocket_parent: { type: "stdio", ...parentTools } } : {},
     persistSession: true,
-    stderr: (message) => log().debug({ message, childId: child.id }, "side_pocket.claude.stderr"),
+    stderr: (message) => {
+      log().debug({ message, childId: child.id }, "side_pocket.claude.stderr");
+    },
     hooks: {
       PermissionRequest: [
         {
@@ -222,12 +224,16 @@ export class ClaudeAdapter implements HarnessAdapter {
     this.nativeAgents = {};
     this.options.callbacks.metadata({ nativeAgents: null });
     const finished = Promise.withResolvers<undefined>();
+    const messageIdSchema: z.ZodType<NonNullable<SDKUserMessage["uuid"]>> = z
+      .uuid()
+      .pipe(z.templateLiteral([z.string(), "-", z.string(), "-", z.string(), "-", z.string(), "-", z.string()]));
+    const messageId = messageIdSchema.parse(id);
     const input = async function* () {
       yield {
         type: "user" as const,
         message: { role: "user" as const, content: text },
         parent_tool_use_id: null,
-        uuid: id as SDKUserMessage["uuid"],
+        uuid: messageId,
       };
       await finished.promise;
     };

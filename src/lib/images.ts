@@ -32,7 +32,9 @@ export function itemImageSources(item: Item): string[] {
         }
 
         if (type === "image") {
-          return value.data && string(value.mimeType).startsWith("image/")
+          return typeof value.data === "string" &&
+            typeof value.mimeType === "string" &&
+            value.mimeType.startsWith("image/")
             ? `data:${value.mimeType};base64,${value.data}`
             : string(value.url);
         }
@@ -44,7 +46,9 @@ export function itemImageSources(item: Item): string[] {
         if (type === "resource") {
           const resource = object(value.resource);
 
-          return string(resource.mimeType).startsWith("image/") && resource.blob
+          return typeof resource.mimeType === "string" &&
+            resource.mimeType.startsWith("image/") &&
+            typeof resource.blob === "string"
             ? `data:${resource.mimeType};base64,${resource.blob}`
             : [];
         }
@@ -57,7 +61,7 @@ export function itemImageSources(item: Item): string[] {
 }
 
 export function itemImageUrl(itemId: string, index: number) {
-  return `/api/images?item=${encodeURIComponent(itemId)}&index=${index}`;
+  return `/api/images?item=${encodeURIComponent(itemId)}&index=${String(index)}`;
 }
 
 export function imageUrl(source: string) {
@@ -65,11 +69,8 @@ export function imageUrl(source: string) {
     return "";
   }
 
-  if (/^data:image\/(?:png|jpe?g|webp|gif|avif);base64,/i.test(source)) {
-    return source;
-  }
-
   if (
+    /^data:image\/(?:png|jpe?g|webp|gif|avif);base64,/i.test(source) ||
     /^https?:\/\//i.test(source) ||
     ["/api/images?", "/api/uploads?", "/api/agents?"].some((prefix) => source.startsWith(prefix))
   ) {

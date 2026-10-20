@@ -15,9 +15,9 @@ export async function POST(request: Request) {
   try {
     const input = z
       .object({
-        id: z.string().uuid(),
+        id: z.uuid(),
         text: z.string().trim().max(MAX_MESSAGE_LENGTH),
-        attachments: z.array(z.string().uuid()).max(MAX_ATTACHMENTS).default([]),
+        attachments: z.array(z.uuid()).max(MAX_ATTACHMENTS).default([]),
       })
       .strict()
       .refine((value) => value.text.length > 0 || value.attachments.length > 0, "Write a message or attach a file.")

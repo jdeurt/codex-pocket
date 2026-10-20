@@ -1,4 +1,12 @@
-import type { ChildContext, Harness, ParentPolicy } from "./harness/types";
+import {
+  type DelegationCommand,
+  type ParentContext,
+  type SidePocket,
+  delegationCommandSchema,
+  parentContextSchema,
+  pocket,
+  storedPocketSchema,
+} from "./delegation-data";
 import { delegationDatabase, lastCommandStatus } from "./delegation-db";
 import { DelegationMailbox } from "./delegation-mail";
 import { DelegationNotifications } from "./delegation-notifications";
@@ -25,33 +33,7 @@ export const delegationInput = z
     idempotencyKey: delegationKey,
   })
   .strict();
-export interface SidePocket extends ChildContext {
-  harness: Harness;
-  status: "idle" | "running" | "waiting" | "closing" | "closed" | "unknown";
-  createdAt: number;
-  updatedAt: number;
-  metadata: string;
-}
-interface StoredPocket extends Omit<SidePocket, "policy"> {
-  policy: string;
-  fingerprint: string;
-}
-export interface DelegationCommand {
-  id: string;
-  childId: string;
-  parentId: string;
-  body: string;
-  status: "queued" | "running" | "completed" | "failed" | "unknown" | "cancelled";
-  result: string | null;
-}
-interface ParentContext {
-  cwd: string;
-  policy: ParentPolicy;
-}
-
-function pocket(row: StoredPocket): SidePocket {
-  return { ...row, policy: JSON.parse(row.policy) };
-}
+export type { DelegationCommand, ParentContext, SidePocket, StoredPocket } from "./delegation-data";
 
 export class DelegationStore {
   private db;
@@ -72,25 +54,28 @@ export class DelegationStore {
       .run(id, JSON.stringify(context));
   }
   parent(id: string): ParentContext {
-    const row = this.db.prepare("SELECT context FROM delegation_parents WHERE id=?").get(id) as
-      { context: string } | undefined;
+    const row = z
+      .object({ context: z.string() })
+      .optional()
+      .parse(this.db.prepare("SELECT context FROM delegation_parents WHERE id=?").get(id));
 
     if (!row) {
       throw new Error("Parent Pocket must connect before delegating work.");
     }
 
-    return JSON.parse(row.context);
+    return parentContextSchema.parse(JSON.parse(row.context));
   }
   list(parentId: string) {
-    const rows = this.db
-      .prepare("SELECT * FROM side_pockets WHERE parentId=? ORDER BY createdAt,id")
-      .all(parentId) as StoredPocket[];
+    const rows = z
+      .array(storedPocketSchema)
+      .parse(this.db.prepare("SELECT * FROM side_pockets WHERE parentId=? ORDER BY createdAt,id").all(parentId));
 
     return rows.map((row) => pocket(row));
   }
   get(parentId: string, id: string) {
-    const row = this.db.prepare("SELECT * FROM side_pockets WHERE parentId=? AND id=?").get(parentId, id) as
-      StoredPocket | undefined;
+    const row = storedPocketSchema
+      .optional()
+      .parse(this.db.prepare("SELECT * FROM side_pockets WHERE parentId=? AND id=?").get(parentId, id));
 
     if (!row) {
       throw new Error("Side Pocket not found for this parent. Use side_pocket_list to look up titles and IDs.");
@@ -105,9 +90,13 @@ export class DelegationStore {
 
     return this.db
       .transaction(() => {
-        const existing = this.db
-          .prepare("SELECT * FROM side_pockets WHERE parentId=? AND createKey=?")
-          .get(parentId, value.idempotencyKey) as StoredPocket | undefined;
+        const existing = storedPocketSchema
+          .optional()
+          .parse(
+            this.db
+              .prepare("SELECT * FROM side_pockets WHERE parentId=? AND createKey=?")
+              .get(parentId, value.idempotencyKey)
+          );
 
         if (existing) {
           if (existing.fingerprint !== fingerprint) {
@@ -158,9 +147,9 @@ export class DelegationStore {
     return this.db
       .transaction(() => {
         const child = this.get(parentId, childId);
-        const existing = this.db
-          .prepare("SELECT * FROM delegation_commands WHERE childId=? AND key=?")
-          .get(childId, key) as DelegationCommand | undefined;
+        const existing = delegationCommandSchema
+          .optional()
+          .parse(this.db.prepare("SELECT * FROM delegation_commands WHERE childId=? AND key=?").get(childId, key));
 
         if (existing) {
           if (existing.body !== text) {
@@ -182,22 +171,26 @@ export class DelegationStore {
           .run(id, childId, parentId, key, text, Date.now());
         this.notifications.changed();
 
-        return this.db.prepare("SELECT * FROM delegation_commands WHERE id=?").get(id) as DelegationCommand;
+        return delegationCommandSchema.parse(this.db.prepare("SELECT * FROM delegation_commands WHERE id=?").get(id));
       })
       .immediate();
   }
   commands(parentId: string, childId: string) {
-    return this.db
-      .prepare("SELECT * FROM delegation_commands WHERE parentId=? AND childId=? ORDER BY createdAt,rowid")
-      .all(parentId, childId) as DelegationCommand[];
+    return z
+      .array(delegationCommandSchema)
+      .parse(
+        this.db
+          .prepare("SELECT * FROM delegation_commands WHERE parentId=? AND childId=? ORDER BY createdAt,rowid")
+          .all(parentId, childId)
+      );
   }
   claim(parentId: string, childId: string) {
     return this.db
       .transaction(() => {
         const child = this.get(parentId, childId);
-        const { count } = this.db
-          .prepare("SELECT count(*) AS count FROM delegation_commands WHERE status='running'")
-          .get() as { count: number };
+        const { count } = z
+          .object({ count: z.number() })
+          .parse(this.db.prepare("SELECT count(*) AS count FROM delegation_commands WHERE status='running'").get());
 
         if (child.status !== "idle" || count >= MAX_CONCURRENT_CHILDREN) {
           return;
@@ -219,13 +212,15 @@ export class DelegationStore {
       .immediate();
   }
   queuedChildren(parentId: string) {
-    const rows = this.db
-      .prepare(
-        `SELECT p.* FROM delegation_commands c JOIN side_pockets p ON p.id=c.childId
+    const rows = z.array(storedPocketSchema).parse(
+      this.db
+        .prepare(
+          `SELECT p.* FROM delegation_commands c JOIN side_pockets p ON p.id=c.childId
       WHERE c.parentId=? AND c.status='queued' AND p.status='idle'
       ORDER BY c.createdAt,c.rowid`
-      )
-      .all(parentId) as StoredPocket[];
+        )
+        .all(parentId)
+    );
 
     return rows.map((row) => pocket(row));
   }
@@ -339,12 +334,15 @@ declare global {
 }
 
 export function delegations() {
-  if (!globalThis.codexPocketDelegations) {
-    Object.defineProperty(globalThis, "codexPocketDelegations", {
-      value: new DelegationStore(localDirectory()),
-      configurable: true,
-    });
+  const existing = globalThis.codexPocketDelegations;
+
+  if (existing) {
+    return existing;
   }
 
-  return globalThis.codexPocketDelegations as DelegationStore;
+  const store = new DelegationStore(localDirectory());
+
+  Object.defineProperty(globalThis, "codexPocketDelegations", { value: store, configurable: true });
+
+  return store;
 }

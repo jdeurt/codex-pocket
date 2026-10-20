@@ -1,26 +1,21 @@
 import { delegationBody, delegationInput, delegationKey, delegations } from "../src/server/delegations";
-import type { McpServer } from "@modelcontextprotocol/server";
+import { type McpServer } from "@modelcontextprotocol/server";
 import { findClaudeBinary } from "../src/server/harness/claude-binary";
 import { harnessCapabilities } from "../src/server/harness/types";
 import { toolResult } from "../src/server/mcp-result";
 import { z } from "zod";
 
 const CLOSE_TIMEOUT_MS = 15_000;
-const idSchema = z.object({ id: z.string().uuid() }).strict();
+const idSchema = z.object({ id: z.uuid() }).strict();
 
 async function closeChild(owner: string, id: string) {
   const store = delegations();
 
   return new Promise<ReturnType<typeof store.get>>((resolve, reject) => {
-    // Cleanup captures this before the subscription is installed.
-    // eslint-disable-next-line prefer-const
-    let unsubscribe: (() => void) | undefined;
-    // The cleanup callback runs after this timer has been installed.
-    // eslint-disable-next-line prefer-const
-    let timer: NodeJS.Timeout | undefined;
+    const resources: { timer?: NodeJS.Timeout; unsubscribe?: () => void } = {};
     const cleanup = () => {
-      clearTimeout(timer);
-      unsubscribe?.();
+      clearTimeout(resources.timer);
+      resources.unsubscribe?.();
     };
     const check = () => {
       const child = store.get(owner, id);
@@ -34,8 +29,8 @@ async function closeChild(owner: string, id: string) {
 
       return false;
     };
-    unsubscribe = store.subscribe(check);
-    timer = setTimeout(() => {
+    resources.unsubscribe = store.subscribe(check);
+    resources.timer = setTimeout(() => {
       // A final read covers a lost close notification without another poller.
       if (check()) {
         return;
@@ -54,7 +49,7 @@ async function closeChild(owner: string, id: string) {
       check();
     } catch (error) {
       cleanup();
-      reject(error);
+      reject(error instanceof Error ? error : new Error("Operation failed.", { cause: error }));
     }
   });
 }
@@ -124,7 +119,7 @@ export function registerDelegationTools(server: McpServer, owner: string) {
     {
       description:
         "Answer a pending harness question/approval using its request ID from side_pocket_get. For ordinary message_parent questions, reply with side_pocket_send.",
-      inputSchema: idSchema.extend({ requestId: z.string().uuid(), answer: z.record(z.string(), z.unknown()) }),
+      inputSchema: idSchema.extend({ requestId: z.uuid(), answer: z.record(z.string(), z.unknown()) }),
     },
     ({ id, requestId, answer }) => toolResult(() => delegations().mail.answer(owner, id, requestId, answer))
   );

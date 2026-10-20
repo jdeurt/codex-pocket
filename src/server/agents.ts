@@ -74,7 +74,7 @@ export class AgentBrowser {
     return record;
   }
   async catalog(owner: string, previews = false) {
-    if (!this.cached || this.cached.owner !== owner || Date.now() - this.cached.catalog.updatedAt >= REFRESH_MS) {
+    if (this.cached?.owner !== owner || Date.now() - this.cached.catalog.updatedAt >= REFRESH_MS) {
       this.refreshing ??= this.refresh(owner);
       await this.refreshing;
     }
@@ -131,7 +131,7 @@ export class AgentBrowser {
         ...(Array.isArray(item.images) && {
           images: item.images.map((_, index) => ({
             alt: "Image from Pocket",
-            source: `/api/agents?agent=${encodeURIComponent(id)}&item=${encodeURIComponent(item.id)}&index=${index}`,
+            source: `/api/agents?agent=${encodeURIComponent(id)}&item=${encodeURIComponent(item.id)}&index=${String(index)}`,
           })),
         }),
       })),
@@ -169,9 +169,14 @@ declare global {
   var pocketAgentBrowser: AgentBrowser | undefined;
 }
 export function agentBrowser() {
-  if (!globalThis.pocketAgentBrowser) {
-    Object.defineProperty(globalThis, "pocketAgentBrowser", { value: new AgentBrowser(), configurable: true });
+  const existing = globalThis.pocketAgentBrowser;
+
+  if (existing) {
+    return existing;
   }
 
-  return globalThis.pocketAgentBrowser as AgentBrowser;
+  const browser = new AgentBrowser();
+  Object.defineProperty(globalThis, "pocketAgentBrowser", { value: browser, configurable: true });
+
+  return browser;
 }

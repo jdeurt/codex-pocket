@@ -1,4 +1,4 @@
-import { type Snapshot, initialSnapshot } from "../../src/lib/protocol";
+import { type Snapshot, initialSnapshot, snapshotSchema } from "../../src/lib/protocol";
 import { expect, test } from "@playwright/test";
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -21,7 +21,7 @@ test.beforeAll(async () => {
       env: { ...process.env, CODEX_THREAD_ID: "" },
     }
   );
-  const directory = stdout.match(/Artifacts: (.+)/)?.[1];
+  const directory = /Artifacts: (.+)/.exec(stdout)?.[1];
 
   if (!directory) {
     throw new Error(`No restart integration artifact: ${stdout}`);
@@ -42,7 +42,7 @@ for (const length of ["short", "long"]) {
       throw new Error("Run scripts/restart-notice-check.ts and pass its snapshot.json path as POCKET_RESTART_SNAPSHOT");
     }
 
-    const saved = JSON.parse(await readFile(artifacts.snapshotFile, "utf8")) as Snapshot;
+    const saved = snapshotSchema.parse(JSON.parse(await readFile(artifacts.snapshotFile, "utf8")));
     const state: Snapshot = {
       ...saved,
       activeTurnId: "fixture-thinking",
@@ -50,19 +50,19 @@ for (const length of ["short", "long"]) {
       turns: [
         ...(length === "long"
           ? Array.from({ length: OLD_TURNS }, (_, index) => ({
-              id: `old-turn-${index}`,
+              id: `old-turn-${String(index)}`,
               status: "completed",
               items: [
                 {
-                  id: `old-user-${index}`,
+                  id: `old-user-${String(index)}`,
                   type: "userMessage",
-                  content: [{ type: "text", text: `Earlier task ${index}` }],
+                  content: [{ type: "text", text: `Earlier task ${String(index)}` }],
                 },
                 {
-                  id: `old-reply-${index}`,
+                  id: `old-reply-${String(index)}`,
                   type: "agentMessage",
                   phase: "final_answer",
-                  text: `Earlier reply ${index}`,
+                  text: `Earlier reply ${String(index)}`,
                 },
               ],
             }))
@@ -171,7 +171,7 @@ test("read-only agent viewer excludes a parent restart event and retains ordinar
     throw new Error("Missing persisted restart fixture");
   }
 
-  const saved = JSON.parse(await readFile(artifacts.snapshotFile, "utf8")) as Snapshot;
+  const saved = snapshotSchema.parse(JSON.parse(await readFile(artifacts.snapshotFile, "utf8")));
   const agent = {
     id: "codex:restart-exclusion",
     parentId: saved.threadId,

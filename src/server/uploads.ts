@@ -1,14 +1,20 @@
-import { type FileAttachment, MAX_ATTACHMENTS, MAX_ATTACHMENT_BYTES, MAX_FILE_BYTES } from "../lib/attachments";
+import {
+  type FileAttachment,
+  MAX_ATTACHMENTS,
+  MAX_ATTACHMENT_BYTES,
+  MAX_FILE_BYTES,
+  fileAttachmentSchema,
+} from "../lib/attachments";
 import { localDirectory, readLocal, writeLocal } from "./local-state";
 import { mkdir, open, readFile, rename, rm, stat } from "node:fs/promises";
-import type { Receipt } from "./outbox";
-import type { Snapshot } from "../lib/protocol";
+import { type Receipt } from "./outbox";
+import { type Snapshot } from "../lib/protocol";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import sharp from "sharp";
 import { z } from "zod";
 
-const uuid = z.string().uuid();
+const uuid = z.uuid();
 const MAX_NAME_LENGTH = 240;
 const MAX_MEDIA_TYPE_LENGTH = 120;
 const PRIVATE_FILE_MODE = 0o600;
@@ -27,9 +33,8 @@ const rasterTypes = new Set([
   "image/heif",
   "image/tiff",
 ]);
-interface StoredUpload extends FileAttachment {
-  sha256: string;
-}
+const storedUploadSchema = fileAttachmentSchema.extend({ sha256: z.string() });
+type StoredUpload = z.infer<typeof storedUploadSchema>;
 
 function directory(parent: string, id: string) {
   uuid.parse(id);
@@ -42,7 +47,9 @@ export function uploadPath(parent: string, file: FileAttachment, image = false) 
 }
 
 export async function getUpload(parent: string, id: string): Promise<StoredUpload> {
-  const file = await readLocal<StoredUpload | null>(path.join(directory(parent, id), "metadata.json"), null);
+  const file = storedUploadSchema
+    .nullable()
+    .parse(await readLocal(path.join(directory(parent, id), "metadata.json"), null));
 
   if (!file) {
     throw new Error("This file is unavailable in this chat. Choose it again.");
@@ -75,7 +82,7 @@ async function writeBytes(request: Request, pending: string) {
   let size = 0;
 
   try {
-    while (true) {
+    for (;;) {
       const chunk = await reader.read();
 
       if (chunk.done) {
@@ -116,7 +123,7 @@ async function normalizeImage(pending: string) {
     const image = sharp(path.join(pending, "original"), { limitInputPixels: MAX_IMAGE_PIXELS, animated: false });
     const metadata = await image.metadata();
 
-    if (!metadata.format || !rasterFormats.has(metadata.format)) {
+    if (!rasterFormats.has(metadata.format)) {
       throw new Error("Unsupported raster image.");
     }
 
@@ -148,19 +155,19 @@ async function commitUpload(parent: string, pending: string, file: StoredUpload)
 }
 
 function validName(value: string) {
-  return (
-    value !== "." &&
-    value !== ".." &&
-    [...value].every(
-      (character) =>
-        !(
-          (character.codePointAt(0) ?? 0) <= LAST_CONTROL_CHARACTER ||
-          character.codePointAt(0) === DELETE_CHARACTER ||
-          character === "/" ||
-          character === "\\"
-        )
-    )
-  );
+  if (value === "." || value === "..") {
+    return false;
+  }
+
+  for (const character of value) {
+    const point = character.codePointAt(0) ?? 0;
+
+    if (point <= LAST_CONTROL_CHARACTER || point === DELETE_CHARACTER || character === "/" || character === "\\") {
+      return false;
+    }
+  }
+
+  return true;
 }
 
 function imageUpload(name: string, mediaType: string) {
@@ -179,18 +186,21 @@ export async function saveUpload(parent: string, id: string, request: Request) {
     .max(MAX_NAME_LENGTH)
     .refine(validName, "Choose a file with a valid name.")
     .parse(url.searchParams.get("name"));
+  const requestedType = url.searchParams.get("type");
   const mediaType = z
     .string()
     .max(MAX_MEDIA_TYPE_LENGTH)
     .regex(/^[\w.+-]+\/[\w.+-]+$/)
-    .parse(url.searchParams.get("type") || "application/octet-stream");
+    .parse(requestedType?.length ? requestedType : "application/octet-stream");
   const pending = `${directory(parent, id)}.${crypto.randomUUID()}.tmp`;
 
   try {
     const { size, sha256 } = await writeBytes(request, pending);
     const kind = imageUpload(name, mediaType) ? "image" : "file";
     const file: StoredUpload = { id, name, size, mediaType, kind, sha256 };
-    const existing = await readLocal<StoredUpload | null>(path.join(directory(parent, id), "metadata.json"), null);
+    const existing = storedUploadSchema
+      .nullable()
+      .parse(await readLocal(path.join(directory(parent, id), "metadata.json"), null));
 
     if (existing) {
       sameUpload(file, existing);

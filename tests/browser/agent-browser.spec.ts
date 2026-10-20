@@ -1,5 +1,5 @@
-import { type AgentCatalog, type AgentTranscript, activeAgent } from "../../src/lib/agents";
 import { HTTP_FORBIDDEN, HTTP_NOT_FOUND } from "../../src/lib/constants";
+import { activeAgent, agentCatalogSchema, agentTranscriptSchema } from "../../src/lib/agents";
 import { claudeSession, longName } from "../fixtures/agent-browser-data";
 import { expect, test } from "@playwright/test";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
@@ -8,6 +8,8 @@ import { checkAgentCache } from "./agent-cache";
 import { checkAgentScroll } from "./agent-scroll";
 import { checkAgentTools } from "./agent-tools";
 import { checkAgentUploads } from "./agent-uploads";
+import { replayLogSchema } from "../fixtures/replay-protocol";
+import { z } from "zod";
 
 // OFFLINE whole-flow replay: real Next routes, SQLite, JSON-RPC transport, Claude
 // SDK saved-history reader and shared browser renderers; no live inference/auth.
@@ -22,7 +24,7 @@ async function control(stage: string) {
 }
 
 async function ids() {
-  return JSON.parse(await readFile(`${directory}/ids.json`, "utf8")) as Record<string, string>;
+  return z.record(z.string(), z.string()).parse(JSON.parse(await readFile(`${directory}/ids.json`, "utf8")));
 }
 
 async function lifecycle(settled = false) {
@@ -72,7 +74,7 @@ test("offline replay: scoped discovery, complete normalized histories and GET-on
   await page.screenshot({ animations: "disabled", path: ".local/agent-browser-screenshots/mobile-parent.png" });
   const catalog = await request.get("/api/agents");
   expect(catalog.ok()).toBeTruthy();
-  const data = (await catalog.json()) as AgentCatalog;
+  const data = agentCatalogSchema.parse(await catalog.json());
   expect(data.agents.filter(activeAgent)).toHaveLength(ACTIVE_COUNT);
   expect(data.agents.filter((agent) => agent.name === "Codex Side Pocket")).toHaveLength(1);
   expect(data.agents.some((agent) => /PRIVATE|Duplicate/.test(agent.name))).toBeFalsy();
@@ -107,7 +109,7 @@ test("offline replay: scoped discovery, complete normalized histories and GET-on
   }
 
   const transcriptResponse = await request.get("/api/agents?agent=codex:native-codex");
-  const transcript = (await transcriptResponse.json()) as AgentTranscript;
+  const transcript = agentTranscriptSchema.parse(await transcriptResponse.json());
   expect(JSON.stringify(transcript)).toContain("Earlier progress from the full transcript");
   expect(JSON.stringify(transcript)).toContain("REPLAY_TOOL_OUTPUT");
   expect(JSON.stringify(transcript)).not.toMatch(
@@ -119,7 +121,7 @@ test("offline replay: scoped discovery, complete normalized histories and GET-on
     throw new Error("Expected replay image.");
   }
 
-  const imageUrl = (image.images as { source: string }[])[0].source;
+  const imageUrl = (image.images ?? [])[0].source;
   const imageResponse = await request.get(imageUrl);
   expect(imageResponse.headers()["content-type"]).toBe("image/webp");
   const unrelatedImage = await request.get(imageUrl.replace("codex%3Anative-codex", "codex%3Aunrelated"));
@@ -133,7 +135,7 @@ test("offline replay: scoped discovery, complete normalized histories and GET-on
   );
   expect(forgedImage.status()).toBe(HTTP_NOT_FOUND);
   const claudeResponse = await request.get(`/api/agents?agent=pocket:${entries["Claude Side Pocket"]}`);
-  const claude = (await claudeResponse.json()) as AgentTranscript;
+  const claude = agentTranscriptSchema.parse(await claudeResponse.json());
   expect(JSON.stringify(claude)).toContain("CLAUDE_REPLAY_TOOL_OUTPUT");
   expect(claude.state.turns.flatMap((turn) => turn.items).filter((item) => item.type === "userMessage")).toHaveLength(
     1
@@ -142,7 +144,7 @@ test("offline replay: scoped discovery, complete normalized histories and GET-on
   const log = rawLog
     .trim()
     .split("\n")
-    .map((line) => JSON.parse(line));
+    .map((line) => replayLogSchema.parse(JSON.parse(line)));
   expect(
     log.filter(
       (entry) =>
@@ -173,9 +175,9 @@ test("offline replay: mobile/desktop read-only navigation, ellipsis, focus and p
     element.scrollTop = 240;
   });
   const scroll = await viewport.evaluate((element) => element.scrollTop);
-  await page
-    .getByRole("button", { name: "6 agents", exact: true })
-    .evaluate((button: HTMLButtonElement) => button.click());
+  await page.getByRole("button", { name: "6 agents", exact: true }).evaluate((button: HTMLButtonElement) => {
+    button.click();
+  });
   const dialog = page.getByRole("dialog", { name: "Agents", exact: true });
   await expect(dialog).toBeVisible();
   await expect(dialog.locator(".agents-list-header").getByRole("button")).toHaveCount(1);
@@ -245,7 +247,9 @@ test("offline replay: live updates, retained terminal history, errors and zero a
     element.scrollTop = 180;
   });
   const scroll = await parentViewport.evaluate((element) => element.scrollTop);
-  await trigger.evaluate((button: HTMLButtonElement) => button.click());
+  await trigger.evaluate((button: HTMLButtonElement) => {
+    button.click();
+  });
   const dialog = page.getByRole("dialog", { name: "Agents", exact: true });
   await dialog.getByRole("button", { name: /Researching an exceptionally long/ }).click();
   await control("updated");
@@ -312,7 +316,7 @@ test("offline replay: denied access, network reconnect, native Claude chat and n
   connection.mode = "offline";
   await expect(chat.getByText(/Updates unavailable/)).toBeVisible();
   connection.mode = "healthy";
-  await page.evaluate(() => globalThis.dispatchEvent(new globalThis.Event("online")));
+  await page.evaluate(() => globalThis.dispatchEvent(new Event("online")));
   await expect(chat.getByText(/Access denied|Updates unavailable/)).toHaveCount(0);
   await page.keyboard.press("Escape");
   await expect(dialog.getByRole("button", { name: /Researching an exceptionally long/ })).toBeFocused();

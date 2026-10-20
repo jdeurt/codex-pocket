@@ -9,7 +9,7 @@ const PARAGRAPHS = 24;
 
 function silentTurns(start: number) {
   return Array.from({ length: TURNS_PER_BATCH }, (_, index) => {
-    const id = `silent-${start + index}`;
+    const id = `silent-${String(start + index)}`;
 
     return {
       id,
@@ -66,9 +66,9 @@ test("repeated silent turns create no message containers or accumulated scroll e
 
   for (let batch = 0; batch < BATCHES; batch += 1) {
     state.turns.push(...silentTurns(batch * TURNS_PER_BATCH));
-    visible.items[0].content = [{ text: `Visible prompt ${batch + 1}` }];
+    visible.items[0].content = [{ text: `Visible prompt ${String(batch + 1)}` }];
     await publish(page, state);
-    await expect(page.locator('[data-message-id="prompt"]')).toHaveText(`Visible prompt ${batch + 1}`);
+    await expect(page.locator('[data-message-id="prompt"]')).toHaveText(`Visible prompt ${String(batch + 1)}`);
     await expect(page.locator('[data-transcript-row^="silent-"], [data-message-id^="silent-"]')).toHaveCount(0);
     await expect.poll(() => geometry(viewport)).toEqual(baseline);
     measurements.push(await geometry(viewport));

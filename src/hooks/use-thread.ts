@@ -1,8 +1,8 @@
 "use client";
-import { type QueuedMessage, type Snapshot, initialSnapshot } from "@/lib/protocol";
-import type { FileAttachment } from "@/lib/attachments";
+import { type QueuedMessage, type Snapshot, initialSnapshot, snapshotSchema } from "@/lib/protocol";
+import { clientError, reportClient } from "@/lib/client-logging";
+import { type FileAttachment } from "@/lib/attachments";
 import { reconcileDeliveries } from "@/lib/deliveries";
-import { reportClient } from "@/lib/client-logging";
 import { useSyncExternalStore } from "react";
 
 const listeners = new Set<() => void>();
@@ -49,18 +49,37 @@ function start() {
     clearTimeout(retry);
     source = new EventSource("/api/events");
     source.addEventListener("message", (event: MessageEvent<string>) => {
-      const state = JSON.parse(event.data) as Snapshot;
-      const summary = JSON.stringify({
+      let data: unknown;
+
+      try {
+        data = JSON.parse(event.data);
+      } catch (error) {
+        reportClient("sse.invalid_json", clientError(error), "error");
+
+        return;
+      }
+
+      const parsed = snapshotSchema.safeParse(data);
+
+      if (!parsed.success) {
+        reportClient("sse.invalid_state", { error: parsed.error.message }, "error");
+
+        return;
+      }
+
+      const state = parsed.data;
+      const details = {
         connection: state.connection,
         activeTurnId: state.activeTurnId,
         model: state.model,
         effort: state.reasoningEffort,
         queued: state.queue.length,
         requests: state.requests.length,
-      });
+      };
+      const summary = JSON.stringify(details);
 
       if (summary !== lastSummary) {
-        reportClient("sse.state", JSON.parse(summary));
+        reportClient("sse.state", details);
         lastSummary = summary;
       }
 

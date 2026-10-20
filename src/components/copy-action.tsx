@@ -10,7 +10,7 @@ export function CopyAction({ text }: { text: string }) {
     setStatus("copying");
 
     try {
-      if (!globalThis.navigator.clipboard?.writeText) {
+      if (!("clipboard" in navigator)) {
         throw new Error("Clipboard is unavailable.");
       }
 
@@ -24,7 +24,15 @@ export function CopyAction({ text }: { text: string }) {
 
   return (
     <div className="copy-action">
-      <Button type="button" variant="outline" size="touch" disabled={status === "copying"} onClick={copy}>
+      <Button
+        type="button"
+        variant="outline"
+        size="touch"
+        disabled={status === "copying"}
+        onClick={() => {
+          void copy();
+        }}
+      >
         <CopyIcon aria-hidden="true" />
         Copy text
       </Button>

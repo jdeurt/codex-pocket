@@ -4,7 +4,7 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import type { Question } from "@/lib/questions";
+import { type Question } from "@/lib/questions";
 
 function QuestionField({
   question,
@@ -27,7 +27,9 @@ function QuestionField({
           orientation="vertical"
           className="prompt-options"
           value={value ? [value] : []}
-          onValueChange={(selected) => change(selected[0] ?? "")}
+          onValueChange={(selected) => {
+            change(selected[0] ?? "");
+          }}
           disabled={disabled}
         >
           {question.options.map((option) => (
@@ -49,7 +51,9 @@ function QuestionField({
           autoComplete="off"
           disabled={disabled}
           value={value}
-          onChange={(event) => change(event.target.value)}
+          onChange={(event) => {
+            change(event.target.value);
+          }}
         />
       </Field>
     </FieldSet>
@@ -65,7 +69,7 @@ export function QuestionForm({
   sending: boolean;
   submit: (result: unknown) => Promise<void>;
 }) {
-  const [values, setValues] = useState<Record<string, string>>({});
+  const [values, setValues] = useState<Partial<Record<string, string>>>({});
 
   return (
     <form
@@ -82,7 +86,9 @@ export function QuestionForm({
             key={question.id}
             question={question}
             value={values[question.id] ?? ""}
-            change={(value) => setValues({ ...values, [question.id]: value })}
+            change={(value) => {
+              setValues({ ...values, [question.id]: value });
+            }}
             disabled={sending}
           />
         ))}

@@ -1,5 +1,4 @@
 "use client";
-
 import { ESTIMATED_MESSAGE_HEIGHT, bufferedMessages } from "@/lib/transcript-virtualization";
 import { type Item, string } from "@/lib/protocol";
 import { type RefObject, useCallback, useLayoutEffect, useRef, useState } from "react";
@@ -11,8 +10,9 @@ import {
   TraceLine,
   TraceTitle,
 } from "@/components/ui/trace";
-import { type VirtualItem, elementScroll, useVirtualizer } from "@tanstack/react-virtual";
+import { type VirtualItem, elementScroll } from "@tanstack/react-virtual";
 import { ChatMessage } from "./chat-message";
+import { useTranscriptVirtualizer } from "@/hooks/use-transcript-virtualizer";
 
 export type ActivityMeasurements = Map<string, VirtualItem[]>;
 
@@ -39,32 +39,40 @@ function ActivityMessages({
   measurements: ActivityMeasurements;
   suspended: boolean;
 }) {
-  "use no memo";
   const content = useRef<HTMLDivElement>(null);
   const [margin, setMargin] = useState(origin);
   const getItemKey = useCallback((index: number) => string(items[index].clientId) || items[index].id, [items]);
-  const virtualizer = useVirtualizer<HTMLDivElement, HTMLElement>({
-    count: items.length,
-    getScrollElement: () => viewport.current,
-    getItemKey,
-    initialOffset: () => viewport.current?.scrollTop ?? 0,
-    estimateSize: () => ESTIMATED_MESSAGE_HEIGHT,
-    anchorTo: !suspended && scrollOffset >= margin && scrollOffset < end ? "end" : "start",
-    followOnAppend: false,
-    scrollEndThreshold: -1,
-    initialMeasurementsCache: measurements.get(id),
-    scrollMargin: margin,
-    rangeExtractor: (range) => (nearby ? bufferedMessages(range) : []),
-    overscan: items.length,
-    useCachedMeasurements: suspended,
-    // Inner writes only preserve a reader's keyed/measurement anchor.
-    // The outer TanStack list owns navigation and append following.
-    scrollToFn: (offset, options, instance) => {
-      if (!suspended) {
-        elementScroll(offset, options, instance);
-      }
+  const { virtualizer, layout } = useTranscriptVirtualizer(
+    {
+      count: items.length,
+      getScrollElement: () => viewport.current,
+      getItemKey,
+      initialOffset: () => viewport.current?.scrollTop ?? 0,
+      estimateSize: () => ESTIMATED_MESSAGE_HEIGHT,
+      anchorTo: !suspended && scrollOffset >= margin && scrollOffset < end ? "end" : "start",
+      followOnAppend: false,
+      scrollEndThreshold: -1,
+      initialMeasurementsCache: measurements.get(id),
+      scrollMargin: margin,
+      rangeExtractor: (range) => (nearby ? bufferedMessages(range) : []),
+      overscan: items.length,
+      useCachedMeasurements: suspended,
+      // Inner writes only preserve a reader's keyed/measurement anchor.
+      // The outer TanStack list owns navigation and append following.
+      scrollToFn: (offset, options, instance) => {
+        if (!suspended) {
+          elementScroll(offset, options, instance);
+        }
+      },
     },
-  });
+    (item, _delta, instance) => {
+      const offset = instance.scrollOffset ?? 0;
+
+      // A fully preceding panel is anchored by the outer list. While reading
+      // inside it, only its inner message list can identify the visible anchor.
+      return !suspended && offset < margin + instance.getTotalSize() && item.end <= offset;
+    }
+  );
 
   useLayoutEffect(() => {
     const element = content.current;
@@ -77,42 +85,34 @@ function ActivityMessages({
   }, [origin, viewport, suspended]);
 
   useLayoutEffect(() => {
-    virtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item, _delta, instance) => {
-      const offset = instance.scrollOffset ?? 0;
-
-      // A fully preceding panel is anchored by the outer list. While reading
-      // inside it, only its inner message list can identify the visible anchor.
-      return !suspended && offset < margin + instance.getTotalSize() && item.end <= offset;
-    };
-
     return () => {
       measurements.set(id, virtualizer.takeSnapshot());
     };
-  }, [virtualizer, id, margin, measurements, suspended]);
+  }, [virtualizer, id, measurements]);
 
   const measure = useCallback(
-    (element: HTMLElement | null) => virtualizer.measureElement(element),
+    (element: HTMLElement | null) => {
+      if (!suspended) {
+        virtualizer.measureElement(element);
+      }
+    },
     [virtualizer, suspended]
   );
 
-  const rows = virtualizer.getVirtualItems();
+  const rows = layout.rows;
 
   return (
-    <div
-      ref={content}
-      data-activity-virtualizer={id}
-      style={{ height: virtualizer.getTotalSize(), position: "relative" }}
-    >
+    <div ref={content} data-activity-virtualizer={id} style={{ height: layout.size, position: "relative" }}>
       <ul
         aria-label="Activity messages"
         className="absolute top-0 left-0 w-full min-w-0"
-        style={{ transform: `translateY(${(rows[0]?.start ?? margin) - margin}px)` }}
+        style={{ transform: `translateY(${String((rows[0]?.start ?? margin) - margin)}px)` }}
       >
         {rows.map((row) => (
           <li
             key={row.key}
             data-index={row.index}
-            data-transcript-row={`${turnId}/${row.key}`}
+            data-transcript-row={`${turnId}/${String(row.key)}`}
             aria-posinset={row.index + 1}
             aria-setsize={items.length}
             ref={measure}

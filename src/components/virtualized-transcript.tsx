@@ -1,7 +1,15 @@
 "use client";
-
 import { type ActivityMeasurements, VirtualizedActivity } from "./virtualized-activity";
-import { Children, type ReactNode, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  Children,
+  type ReactNode,
+  type RefObject,
+  useCallback,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import {
   END_THRESHOLD,
   ESTIMATED_MESSAGE_HEIGHT,
@@ -13,7 +21,8 @@ import {
   rowsForTurns,
 } from "@/lib/transcript-virtualization";
 import { MessageScroller, MessageScrollerProvider, MessageScrollerViewport } from "@/components/ui/message-scroller";
-import { type Range, elementScroll, useVirtualizer } from "@tanstack/react-virtual";
+import { type Range, type VirtualItem, elementScroll } from "@tanstack/react-virtual";
+import { type TranscriptLayout, useTranscriptVirtualizer } from "@/hooks/use-transcript-virtualizer";
 import { ArrowDownIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ChatMessage } from "./chat-message";
@@ -22,6 +31,91 @@ const PADDING_START = 24;
 const PADDING_END = 32;
 const LAST_ITEM = -1;
 const ACTIVITY_LOOKAHEAD_VIEWPORTS = 3;
+
+function TranscriptEntry({
+  row,
+  virtualRow,
+  open,
+  toggle,
+  viewport,
+  layout,
+  measurements,
+  suspended,
+}: {
+  row: Row;
+  virtualRow: VirtualItem;
+  open: boolean;
+  toggle: () => void;
+  viewport: RefObject<HTMLDivElement | null>;
+  layout: TranscriptLayout;
+  measurements: ActivityMeasurements;
+  suspended: boolean;
+}) {
+  if (row.entry.kind === "message") {
+    return <ChatMessage item={row.entry.item} />;
+  }
+
+  return (
+    <VirtualizedActivity
+      id={row.id}
+      turnId={row.turnId}
+      items={row.entry.items}
+      open={open}
+      onOpenChange={toggle}
+      viewport={viewport}
+      origin={virtualRow.start}
+      end={virtualRow.end}
+      scrollOffset={layout.offset}
+      nearby={
+        virtualRow.end >= layout.offset - layout.height * 2 &&
+        virtualRow.start <= layout.offset + layout.height * ACTIVITY_LOOKAHEAD_VIEWPORTS
+      }
+      measurements={measurements}
+      suspended={suspended}
+    />
+  );
+}
+
+function transcriptRange(rows: Row[], expanded: Set<string>, range: Range) {
+  const nested = rows
+    .slice(Math.max(range.startIndex - 1, 0), range.endIndex + 1)
+    .some((row) => row.entry.kind === "activity" && expanded.has(row.id) && row.entry.items.length > FORWARD_MESSAGES);
+
+  return messageRange(range, nested ? FORWARD_MESSAGES : INITIAL_MESSAGE_WINDOW);
+}
+
+function TranscriptFooter({
+  count,
+  messages,
+  footerRow,
+  blockStart,
+  measure,
+  children,
+}: {
+  count: number;
+  messages: VirtualItem[];
+  footerRow?: VirtualItem;
+  blockStart: number;
+  measure: (element: HTMLElement | null) => void;
+  children: ReactNode;
+}) {
+  const includesTail = count === 0 || messages.at(LAST_ITEM)?.index === count - 1;
+
+  return (
+    <div
+      ref={measure}
+      data-index={count}
+      data-slot="transcript-footer"
+      className={`message-flow w-full min-w-0 ${count > 0 ? "[&:not(:empty)]:pt-(--message-block-gap)" : ""}`}
+      style={{
+        position: includesTail ? "static" : "absolute",
+        transform: includesTail ? undefined : `translateY(${String((footerRow?.start ?? 0) - blockStart)}px)`,
+      }}
+    >
+      {children}
+    </div>
+  );
+}
 
 function MeasuredTranscript({
   rows,
@@ -36,32 +130,24 @@ function MeasuredTranscript({
   toggle: (id: string) => void;
   suspended: boolean;
 }) {
-  "use no memo";
-
   const viewport = useRef<HTMLDivElement>(null);
   const savedOffset = useRef<number | undefined>(undefined);
   const [follow, setFollow] = useState(true);
-  const [activityMeasurements] = useState<ActivityMeasurements>(() => new Map());
-  const [atEnd, setAtEnd] = useState(true);
-  const rangeExtractor = useCallback(
-    (range: Range) => {
-      const nested = rows
-        .slice(Math.max(range.startIndex - 1, 0), range.endIndex + 1)
-        .some(
-          (row) => row.entry.kind === "activity" && expanded.has(row.id) && row.entry.items.length > FORWARD_MESSAGES
-        );
 
-      return messageRange(range, nested ? FORWARD_MESSAGES : INITIAL_MESSAGE_WINDOW);
-    },
-    [rows, expanded]
-  );
+  if (suspended && follow) {
+    setFollow(false);
+  }
+
+  const [activityMeasurements] = useState<ActivityMeasurements>(() => new Map());
+  const rangeExtractor = useCallback((range: Range) => transcriptRange(rows, expanded, range), [rows, expanded]);
+
   // Keep the ordinary content row mounted so pending answer drafts survive recycling.
   const footerKey = `footer:${rows.at(LAST_ITEM)?.id ?? "empty"}`;
   const getItemKey = useCallback(
     (index: number) => (index === rows.length ? footerKey : rows[index].id),
     [rows, footerKey]
   );
-  const virtualizer = useVirtualizer<HTMLDivElement, HTMLElement>({
+  const { virtualizer, layout } = useTranscriptVirtualizer({
     count: rows.length + 1,
     getScrollElement: () => viewport.current,
     getItemKey,
@@ -80,11 +166,14 @@ function MeasuredTranscript({
         elementScroll(offset, options, instance);
       }
     },
-    onChange: (instance) => setAtEnd(instance.isAtEnd()),
   });
   // Reattach the documented measurement ref when cached measurements resume.
   const measure = useCallback(
-    (element: HTMLElement | null) => virtualizer.measureElement(element),
+    (element: HTMLElement | null) => {
+      if (!suspended) {
+        virtualizer.measureElement(element);
+      }
+    },
     [virtualizer, suspended]
   );
   useLayoutEffect(() => {
@@ -94,18 +183,16 @@ function MeasuredTranscript({
     if (suspended) {
       savedOffset.current = viewport.current?.scrollTop;
       virtualizer.cancelScroll();
-      setFollow(false);
     } else if (savedOffset.current !== undefined) {
       virtualizer.scrollToOffset(savedOffset.current);
       savedOffset.current = undefined;
     }
   }, [suspended, virtualizer]);
 
-  const items = virtualizer.getVirtualItems();
+  const items = layout.rows;
   const messages = items.filter((item) => item.index < rows.length);
   const footerRow = items.at(LAST_ITEM);
-  const blockStart = messages[0]?.start ?? footerRow?.start ?? 0;
-  const includesTail = rows.length === 0 || messages.at(LAST_ITEM)?.index === rows.length - 1;
+  const blockStart = messages.at(0)?.start ?? footerRow?.start ?? 0;
   const resumeFollow = () => {
     if (!suspended) {
       setFollow(true);
@@ -127,15 +214,15 @@ function MeasuredTranscript({
             onKeyDown={resumeFollow}
           >
             <div className="transcript" style={{ paddingBlock: 0 }}>
-              <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
+              <div style={{ height: layout.size, position: "relative" }}>
                 <div
                   className="absolute top-0 left-0 w-full min-w-0"
-                  style={{ transform: `translateY(${blockStart}px)` }}
+                  style={{ transform: `translateY(${String(blockStart)}px)` }}
                 >
                   <ul aria-label="Conversation" className="w-full min-w-0">
                     {messages.map((virtualRow) => {
                       const row = rows[virtualRow.index];
-                      const next = rows[virtualRow.index + 1];
+                      const next = rows.at(virtualRow.index + 1);
 
                       return (
                         <li
@@ -150,51 +237,36 @@ function MeasuredTranscript({
                           className="message-flow min-w-0"
                           style={{ paddingBottom: next ? "var(--message-block-gap)" : 0 }}
                         >
-                          {row.entry.kind === "message" ? (
-                            <ChatMessage item={row.entry.item} />
-                          ) : (
-                            <VirtualizedActivity
-                              id={row.id}
-                              turnId={row.turnId}
-                              items={row.entry.items}
-                              open={expanded.has(row.id)}
-                              onOpenChange={() => toggle(row.id)}
-                              viewport={viewport}
-                              origin={virtualRow.start}
-                              end={virtualRow.end}
-                              scrollOffset={virtualizer.scrollOffset ?? 0}
-                              nearby={
-                                virtualRow.end >=
-                                  (virtualizer.scrollOffset ?? 0) - (virtualizer.scrollRect?.height ?? 0) * 2 &&
-                                virtualRow.start <=
-                                  (virtualizer.scrollOffset ?? 0) +
-                                    (virtualizer.scrollRect?.height ?? 0) * ACTIVITY_LOOKAHEAD_VIEWPORTS
-                              }
-                              measurements={activityMeasurements}
-                              suspended={suspended}
-                            />
-                          )}
+                          <TranscriptEntry
+                            row={row}
+                            virtualRow={virtualRow}
+                            open={expanded.has(row.id)}
+                            toggle={() => {
+                              toggle(row.id);
+                            }}
+                            viewport={viewport}
+                            layout={layout}
+                            measurements={activityMeasurements}
+                            suspended={suspended}
+                          />
                         </li>
                       );
                     })}
                   </ul>
-                  <div
-                    ref={measure}
-                    data-index={rows.length}
-                    data-slot="transcript-footer"
-                    className={`message-flow w-full min-w-0 ${rows.length ? "[&:not(:empty)]:pt-(--message-block-gap)" : ""}`}
-                    style={{
-                      position: includesTail ? "static" : "absolute",
-                      transform: includesTail ? undefined : `translateY(${(footerRow?.start ?? 0) - blockStart}px)`,
-                    }}
+                  <TranscriptFooter
+                    count={rows.length}
+                    messages={messages}
+                    footerRow={footerRow}
+                    blockStart={blockStart}
+                    measure={measure}
                   >
                     {footer}
-                  </div>
+                  </TranscriptFooter>
                 </div>
               </div>
             </div>
           </MessageScrollerViewport>
-          {!atEnd && (
+          {!layout.atEnd && (
             <Button
               variant="secondary"
               size="icon-xl"

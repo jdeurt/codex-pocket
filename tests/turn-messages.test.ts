@@ -1,4 +1,4 @@
-import type { Item, Turn } from "../src/lib/protocol";
+import { type Item, type Turn } from "../src/lib/protocol";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { turnMessages } from "../src/lib/turn-messages";
@@ -15,7 +15,7 @@ const items: Item[] = [
 ];
 const turn: Turn = { id: "turn", status: "completed", items };
 
-test("a running turn keeps visible messages in order without an expander", () => {
+await test("a running turn keeps visible messages in order without an expander", () => {
   const entries = turnMessages(turn, true);
   assert.equal(
     entries.every((entry) => entry.kind === "message"),
@@ -27,7 +27,7 @@ test("a running turn keeps visible messages in order without an expander", () =>
   );
 });
 
-test("steering preserves earlier updates while subsequent activity collapses beside the final reply", () => {
+await test("steering preserves earlier updates while subsequent activity collapses beside the final reply", () => {
   const entries = turnMessages(turn, false);
   const activity = entries.find((entry) => entry.kind === "activity");
   assert.ok(activity?.kind === "activity");
@@ -36,7 +36,7 @@ test("steering preserves earlier updates while subsequent activity collapses bes
     ["second"]
   );
   assert.deepEqual(
-    entries.flatMap((entry) => (entry.kind === "message" ? [entry.item.id] : [])),
+    entries.flatMap((entry) => (entry.kind === "message" ? entry.item.id : [])),
     ["user", "first", "steering", "image", "final"]
   );
   assert.deepEqual(turnMessages(structuredClone(turn), false), entries);
@@ -46,7 +46,7 @@ test("steering preserves earlier updates while subsequent activity collapses bes
   );
 });
 
-test("legacy phase-less history keeps its last reply, and commentary-only interrupted turns remain visible", () => {
+await test("legacy phase-less history keeps its last reply, and commentary-only interrupted turns remain visible", () => {
   const legacy = {
     ...turn,
     items: items.filter((item) => item.type === "agentMessage").map((item) => ({ ...item, phase: null })),
@@ -57,7 +57,9 @@ test("legacy phase-less history keeps its last reply, and commentary-only interr
     entries.some((entry) => entry.kind === "message" && entry.item.id === "final"),
     true
   );
-  const onlyFinal = turnMessages({ ...turn, items: [items.at(LAST_ITEM_INDEX) as Item] }, false);
+  const final = items.at(LAST_ITEM_INDEX);
+  assert.ok(final);
+  const onlyFinal = turnMessages({ ...turn, items: [final] }, false);
   assert.equal(
     onlyFinal.some((entry) => entry.kind === "activity"),
     false
@@ -66,7 +68,7 @@ test("legacy phase-less history keeps its last reply, and commentary-only interr
   assert.equal(interrupted[0].kind, "message");
 });
 
-test("uninterrupted activity still collapses with the final answer outside", () => {
+await test("uninterrupted activity still collapses with the final answer outside", () => {
   const ordinary = { ...turn, items: items.filter((item) => item.id !== "steering") };
   const entries = turnMessages(ordinary, false);
   assert.deepEqual(
@@ -82,19 +84,21 @@ test("uninterrupted activity still collapses with the final answer outside", () 
   assert.equal(entries.at(LAST_ITEM_INDEX)?.kind, "message");
 });
 
-test("each repeated interruption fixes all preceding updates in their chronological positions", () => {
+await test("each repeated interruption fixes all preceding updates in their chronological positions", () => {
+  const final = items.at(LAST_ITEM_INDEX);
+  assert.ok(final);
   const repeated: Turn = {
     ...turn,
     items: [
       ...items.slice(0, LAST_ITEM_INDEX),
       { id: "steering-again", type: "userMessage" },
       { id: "third", type: "agentMessage", phase: "commentary", text: "Third update" },
-      items.at(LAST_ITEM_INDEX) as Item,
+      final,
     ],
   };
   const entries = turnMessages(repeated, false);
   assert.deepEqual(
-    entries.flatMap((entry) => (entry.kind === "message" ? [entry.item.id] : [])),
+    entries.flatMap((entry) => (entry.kind === "message" ? entry.item.id : [])),
     ["user", "first", "steering", "second", "image", "steering-again", "final"]
   );
   assert.deepEqual(turnMessages(structuredClone(repeated), false), entries);

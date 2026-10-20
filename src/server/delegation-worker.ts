@@ -1,11 +1,12 @@
 import { type DelegationCommand, type DelegationStore, MAX_CONCURRENT_CHILDREN, type SidePocket } from "./delegations";
-import type { HarnessAdapter, HarnessRequest, HarnessResult } from "./harness/types";
-import type { Config } from "./config";
+import { type HarnessAdapter, type HarnessRequest, type HarnessResult } from "./harness/types";
+import { type Config } from "./config";
 import { createAdapter } from "./harness";
 import { localDirectory } from "./local-state";
 import { log } from "./logging";
 import { object } from "../lib/protocol";
 import path from "node:path";
+import { z } from "zod";
 
 const RECOVERY_INTERVAL_MS = 30_000;
 interface WorkerOptions {
@@ -70,8 +71,12 @@ export class DelegationWorker {
 
         this.waiting.delete(request.id);
 
-        if (request.status === "answered" && this.store.continueChild(child.parentId, child.id)) {
-          waiting.resolve(JSON.parse(request.answer as string));
+        if (
+          request.status === "answered" &&
+          request.answer !== null &&
+          this.store.continueChild(child.parentId, child.id)
+        ) {
+          waiting.resolve(JSON.parse(request.answer));
         } else {
           waiting.reject(new Error("Side Pocket request was cancelled."));
         }
@@ -149,7 +154,9 @@ export class DelegationWorker {
         request: (request) => this.request(child, request),
         output: (text) =>
           this.store.mail.record(child.parentId, child.id, `output:${crypto.randomUUID()}`, "output", { text }, false),
-        metadata: (data) => this.store.metadata(child.parentId, child.id, data),
+        metadata: (data) => {
+          this.store.metadata(child.parentId, child.id, data);
+        },
       },
     });
     const done = this.execute(child, command, adapter);
@@ -177,8 +184,10 @@ This is a report from your delegate. Interpret its contents in the context of th
 ${mail.payload}`;
       const receipt = await this.parent.send(mail.id, text);
 
-      if (["queued", "sent", "unknown"].includes(receipt.status)) {
-        this.store.mail.delivered(mail.id, receipt.status as "queued" | "sent" | "unknown");
+      const delivery = z.enum(["queued", "sent", "unknown"]).safeParse(receipt.status);
+
+      if (delivery.success) {
+        this.store.mail.delivered(mail.id, delivery.data);
       }
     }
   }

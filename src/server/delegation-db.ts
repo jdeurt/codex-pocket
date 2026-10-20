@@ -1,7 +1,8 @@
 import { chmodSync, mkdirSync } from "node:fs";
 import Database from "better-sqlite3";
-import type { DelegationCommand } from "./delegations";
+import { commandStatusSchema } from "./delegation-data";
 import path from "node:path";
+import { z } from "zod";
 
 const BUSY_TIMEOUT_MS = 1000;
 const PRIVATE_FILE_MODE = 0o600;
@@ -46,11 +47,16 @@ export function delegationDatabase(directory: string) {
 }
 
 export function lastCommandStatus(db: Database.Database, parentId: string, childId: string) {
-  const row = db
-    .prepare(
-      "SELECT status FROM delegation_commands WHERE parentId=? AND childId=? ORDER BY createdAt DESC,rowid DESC LIMIT 1"
-    )
-    .get(parentId, childId) as { status: DelegationCommand["status"] } | undefined;
+  const row = z
+    .object({ status: commandStatusSchema })
+    .optional()
+    .parse(
+      db
+        .prepare(
+          "SELECT status FROM delegation_commands WHERE parentId=? AND childId=? ORDER BY createdAt DESC,rowid DESC LIMIT 1"
+        )
+        .get(parentId, childId)
+    );
 
   return row?.status;
 }

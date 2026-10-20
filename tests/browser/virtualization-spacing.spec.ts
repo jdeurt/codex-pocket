@@ -15,9 +15,9 @@ test("visible message edges and pending status use one shared outer gap", async 
         id: "long-turn",
         status: "interrupted",
         items: Array.from({ length: 1000 }, (_, index) => ({
-          id: `message-${index}`,
+          id: `message-${String(index)}`,
           type: "agentMessage",
-          text: `Spacing fixture ${index}`,
+          text: `Spacing fixture ${String(index)}`,
         })),
       },
       { id: "gap-turn", status: "inProgress", items: [] },
@@ -62,9 +62,8 @@ test("visible message edges and pending status use one shared outer gap", async 
           return [Infinity];
         }
 
-        // eslint-disable-next-line unicorn/prefer-number-coercion -- CSS dimensions include units.
-        const expected = Number.parseFloat(
-          globalThis.getComputedStyle(transcript).getPropertyValue("--message-block-gap")
+        const expected = Number(
+          globalThis.getComputedStyle(transcript).getPropertyValue("--message-block-gap").trim().replace(/px$/, "")
         );
         const gaps = [firstVisible.getBoundingClientRect().top - previous.getBoundingClientRect().bottom];
 
@@ -115,9 +114,8 @@ test("visible message edges and pending status use one shared outer gap", async 
           return Infinity;
         }
 
-        // eslint-disable-next-line unicorn/prefer-number-coercion -- CSS dimensions include units.
-        const expected = Number.parseFloat(
-          globalThis.getComputedStyle(transcript).getPropertyValue("--message-block-gap")
+        const expected = Number(
+          globalThis.getComputedStyle(transcript).getPropertyValue("--message-block-gap").trim().replace(/px$/, "")
         );
 
         return Math.abs(status.getBoundingClientRect().top - queued.getBoundingClientRect().bottom - expected);

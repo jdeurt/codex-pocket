@@ -1,5 +1,5 @@
 import { type Page, expect } from "@playwright/test";
-import type { Snapshot } from "../../src/lib/protocol";
+import { type Snapshot } from "../../src/lib/protocol";
 import { readFile } from "node:fs/promises";
 
 export async function mount(page: Page, state: Snapshot) {
@@ -17,11 +17,15 @@ export async function mount(page: Page, state: Snapshot) {
   await page.addInitScript((snapshot) => {
     class FixtureSource extends EventTarget {
       readyState = 1;
-      receive = (event: Event) => this.emit((event as MessageEvent).data);
+      receive = (event: Event) => {
+        this.emit(event instanceof MessageEvent ? event.data : undefined);
+      };
       constructor() {
         super();
         globalThis.addEventListener("fixture-snapshot", this.receive);
-        queueMicrotask(() => this.emit(snapshot));
+        queueMicrotask(() => {
+          this.emit(snapshot);
+        });
       }
       emit(data: unknown) {
         if (this.readyState === 1) {
@@ -49,6 +53,6 @@ export async function mount(page: Page, state: Snapshot) {
 
 export async function publish(page: Page, state: Snapshot) {
   await page.evaluate((snapshot) => {
-    globalThis.dispatchEvent(new globalThis.MessageEvent("fixture-snapshot", { data: snapshot }));
+    globalThis.dispatchEvent(new MessageEvent("fixture-snapshot", { data: snapshot }));
   }, state);
 }

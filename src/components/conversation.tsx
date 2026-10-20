@@ -8,9 +8,9 @@ import { ActivitySpinner } from "./activity-spinner";
 import { FileAttachments } from "./file-attachments";
 import { MessageScrollerItem } from "@/components/ui/message-scroller";
 import { Prompt } from "./prompt";
-import type { ReactNode } from "react";
+import { type ReactNode } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
-import type { Snapshot } from "@/lib/protocol";
+import { type Snapshot } from "@/lib/protocol";
 import { VirtualizedTranscript } from "./virtualized-transcript";
 import { post } from "@/lib/client-api";
 import { turnMessages } from "@/lib/turn-messages";
@@ -123,7 +123,7 @@ export function Conversation({
         </MessageScrollerItem>
       ))}
       {state.requests.map((request) => (
-        <MessageScrollerItem messageId={`request-${request.id}`} key={request.id}>
+        <MessageScrollerItem messageId={`request-${String(request.id)}`} key={request.id}>
           <Prompt
             request={request}
             readOnly={readOnly}

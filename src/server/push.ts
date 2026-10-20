@@ -1,9 +1,9 @@
 import { type Turn, string } from "../lib/protocol";
 import { readLocal, writeLocal } from "./local-state";
-import webpush, { type PushSubscription, type VapidKeys } from "web-push";
 import { log } from "./logging";
 import { notificationPresence } from "./notification-presence";
 import { readConfig } from "./config";
+import webpush from "web-push";
 import { z } from "zod";
 
 const PUSH_TIMEOUT_MS = 10_000;
@@ -18,7 +18,6 @@ const EXPIRED_SUBSCRIPTION_STATUSES = new Set([HTTP_NOT_FOUND, HTTP_GONE]);
 
 export const subscriptionSchema = z.object({
   endpoint: z
-    .string()
     .url()
     .max(MAX_ENDPOINT_LENGTH)
     .refine((value) => new URL(value).protocol === "https:"),
@@ -28,21 +27,22 @@ export const subscriptionSchema = z.object({
   }),
 });
 
-interface PushState {
-  keys: VapidKeys;
-  subscriptions: PushSubscription[];
-  notified: string[];
-}
+const pushStateSchema = z.object({
+  keys: z.object({ publicKey: z.string(), privateKey: z.string() }),
+  subscriptions: z.array(subscriptionSchema),
+  notified: z.array(z.string()),
+});
+type PushState = z.infer<typeof pushStateSchema>;
 
 declare global {
   var codexPocketPush: { serial: Promise<unknown> } | undefined;
 }
 
-if (!globalThis.codexPocketPush) {
-  Object.defineProperty(globalThis, "codexPocketPush", { value: { serial: Promise.resolve() }, configurable: true });
-}
+const operations = globalThis.codexPocketPush ?? { serial: Promise.resolve() };
 
-const operations = globalThis.codexPocketPush as { serial: Promise<unknown> };
+if (!globalThis.codexPocketPush) {
+  Object.defineProperty(globalThis, "codexPocketPush", { value: operations, configurable: true });
+}
 
 function withState<T>(action: (state: PushState) => T | Promise<T>) {
   const previous = operations.serial;
@@ -53,7 +53,7 @@ function withState<T>(action: (state: PushState) => T | Promise<T>) {
       // A failed operation must not block later subscriptions or notifications.
     }
 
-    const state = (await readLocal<PushState | null>("push.json", null)) ?? {
+    const state = pushStateSchema.nullable().parse(await readLocal("push.json", null)) ?? {
       keys: webpush.generateVAPIDKeys(),
       subscriptions: [],
       notified: [],
@@ -103,7 +103,10 @@ export function completionPayload(threadId: string, turn: Turn) {
     return payload;
   }
 
-  const characters = [...notification.body];
+  const characters = Array.from(
+    new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(notification.body),
+    ({ segment }) => segment
+  );
   let start = 0;
   let end = characters.length;
 
@@ -164,7 +167,10 @@ export async function notifyTurnComplete(threadId: string, turn: Turn) {
         });
         log().info({ threadId, turnId: turn.id, provider: new URL(subscription.endpoint).origin }, "push.delivered");
       } catch (error) {
-        const status = (error as { statusCode?: number }).statusCode;
+        const status =
+          error instanceof Error && "statusCode" in error && typeof error.statusCode === "number"
+            ? error.statusCode
+            : undefined;
 
         if (status && EXPIRED_SUBSCRIPTION_STATUSES.has(status)) {
           expired.add(subscription.endpoint);

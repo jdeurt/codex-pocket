@@ -1,12 +1,20 @@
 import { type ChildProcess, fork } from "node:child_process";
+import {
+  type DelegationCommand,
+  type SidePocket,
+  delegationCommandSchema,
+  sidePocketSchema,
+} from "../../src/server/delegation-data";
 import { mkdtemp, rm } from "node:fs/promises";
 import { Client } from "@modelcontextprotocol/client";
 import { DelegationStore } from "../../src/server/delegations";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import assert from "node:assert/strict";
+import { dataSchema } from "../../src/lib/protocol";
 import { once } from "node:events";
 import os from "node:os";
 import path from "node:path";
+import { toolJson } from "./tool-json";
 
 export type Message = Record<string, unknown>;
 export const owner = "integration-parent";
@@ -21,10 +29,12 @@ export const THREE_MORE_STARTS = 3;
 class Peer {
   private listeners = new Set<() => void>();
   private sequence = 0;
-  private pending = new Map<number, { resolve: (value: Message) => void; reject: (error: Error) => void }>();
+  private pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
   readonly events: Message[] = [];
   constructor(readonly child: ChildProcess) {
-    child.on("message", (message: Message) => {
+    child.on("message", (input: unknown) => {
+      const message = dataSchema.parse(input);
+
       if (message.event) {
         this.events.push(message);
       }
@@ -35,9 +45,9 @@ class Peer {
         this.pending.delete(Number(message.id));
 
         if (message.error) {
-          pending.reject(new Error(String(message.error)));
+          pending.reject(new Error(JSON.stringify(message.error)));
         } else {
-          pending.resolve(message.result as Message);
+          pending.resolve(message.result);
         }
       }
 
@@ -46,29 +56,38 @@ class Peer {
       }
     });
   }
-  call(method: string, args: Message = {}) {
+  call(method: "create" | "createAndCrash" | "close" | "resume" | "answerAndClose", args: Message): Promise<SidePocket>;
+  call(method: "claim", args: Message): Promise<DelegationCommand | undefined>;
+  call(method: string, args?: Message): Promise<unknown>;
+  async call(method: string, args: Message = {}): Promise<unknown> {
     const id = ++this.sequence;
 
-    return new Promise<Message>((resolve, reject) => {
+    const result = await new Promise<unknown>((resolve, reject) => {
       this.pending.set(id, { resolve, reject });
       this.child.send({ id, method, args });
     });
+
+    if (method === "claim") {
+      return delegationCommandSchema.optional().parse(result);
+    }
+
+    return ["create", "createAndCrash", "close", "resume", "answerAndClose"].includes(method)
+      ? sidePocketSchema.parse(result)
+      : result;
   }
   until(predicate: (events: Message[]) => boolean, timeoutMs = WAIT_MS) {
     return new Promise<void>((resolve, reject) => {
-      // The callback runs after the timer has been installed.
-      // eslint-disable-next-line prefer-const
-      let timer: NodeJS.Timeout;
+      const resources: { timer?: NodeJS.Timeout } = {};
       const check = () => {
         if (!predicate(this.events)) {
           return;
         }
 
-        clearTimeout(timer);
+        clearTimeout(resources.timer);
         this.listeners.delete(check);
         resolve();
       };
-      timer = setTimeout(() => {
+      resources.timer = setTimeout(() => {
         this.listeners.delete(check);
         reject(new Error(`Timed out; simulator events: ${JSON.stringify(this.events)}`));
       }, timeoutMs);
@@ -89,13 +108,15 @@ export async function fixture(t: { after: (callback: () => Promise<void>) => voi
   const clients: Client[] = [];
   const env = {
     ...Object.fromEntries(
-      Object.entries(process.env).filter(([key, value]) => key !== "CODEX_THREAD_ID" && value !== undefined)
+      Object.entries(process.env).filter(
+        (entry): entry is [string, string] => entry[0] !== "CODEX_THREAD_ID" && entry[1] !== undefined
+      )
     ),
     CODEX_POCKET_STATE_DIR: directory,
     POCKET_THREAD_ID: owner,
     POCKET_CLAUDE_BINARY: process.execPath,
-    NODE_ENV: "test",
-  } as NodeJS.ProcessEnv & Record<string, string>;
+    NODE_ENV: "test" as const,
+  };
   const peer = async (mode = "worker", recoveryIntervalMs = SIMULATOR_RECOVERY_MS) => {
     const child = fork(path.resolve("tests/fixtures/delegation-host.ts"), [], {
       execArgv: ["--import", "tsx"],
@@ -156,29 +177,24 @@ export const tool = async (client: Client, name: string, args: Message) => {
   const result = await client.callTool({ name, arguments: args });
   assert.equal(result.isError, undefined, JSON.stringify(result));
 
-  return JSON.parse((result.content as { text: string }[])[0].text) as Message;
+  return dataSchema.parse(toolJson(result));
 };
 
 export function state(store: DelegationStore, predicate: () => boolean) {
   return new Promise<void>((resolve, reject) => {
-    // The callback runs after the timer has been installed.
-    // eslint-disable-next-line prefer-const
-    let timer: NodeJS.Timeout;
-    // Cleanup captures this before the subscription is installed.
-    // eslint-disable-next-line prefer-const
-    let unsubscribe: (() => void) | undefined;
+    const resources: { timer?: NodeJS.Timeout; unsubscribe?: () => void } = {};
     const check = () => {
       if (!predicate()) {
         return;
       }
 
-      clearTimeout(timer);
-      unsubscribe?.();
+      clearTimeout(resources.timer);
+      resources.unsubscribe?.();
       resolve();
     };
-    unsubscribe = store.subscribe(check);
-    timer = setTimeout(() => {
-      unsubscribe?.();
+    resources.unsubscribe = store.subscribe(check);
+    resources.timer = setTimeout(() => {
+      resources.unsubscribe?.();
       reject(new Error("Persisted state did not reach expected outcome"));
     }, WAIT_MS);
     check();

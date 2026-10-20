@@ -1,5 +1,5 @@
 import { readdir, stat } from "node:fs/promises";
-import type { AgentRecord } from "./agent-sources";
+import { type AgentRecord } from "./agent-sources";
 import os from "node:os";
 import path from "node:path";
 
@@ -71,7 +71,7 @@ export async function agentRevision(record: AgentRecord) {
 
       if (file) {
         const info = await stat(/* turbopackIgnore: true */ file);
-        fileRevision = `${info.mtimeMs}:${info.size}`;
+        fileRevision = `${String(info.mtimeMs)}:${String(info.size)}`;
       }
     } catch {
       /*

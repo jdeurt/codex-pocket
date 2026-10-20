@@ -5,6 +5,6 @@ export const ACTIVITY_MOTION = {
 } as const;
 
 export const ACTIVITY_TRANSITION = {
-  transitionDuration: `${ACTIVITY_MOTION.duration}ms`,
+  transitionDuration: `${String(ACTIVITY_MOTION.duration)}ms`,
   transitionTimingFunction: ACTIVITY_MOTION.easing,
 } as const;

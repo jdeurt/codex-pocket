@@ -5,7 +5,7 @@ import { z } from "zod";
 
 const HEARTBEAT_MS = 15_000;
 const deviceSchema = z.string().regex(/^[\da-f]{64}$/);
-const acknowledgementSchema = z.object({ deviceId: deviceSchema, challengeId: z.string().uuid() });
+const acknowledgementSchema = z.object({ deviceId: deviceSchema, challengeId: z.uuid() });
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -27,11 +27,15 @@ export async function GET(request: Request) {
   const stream = new ReadableStream({
     start(controller) {
       const encoder = new TextEncoder();
-      const send = (text: string) => controller.enqueue(encoder.encode(text));
+      const send = (text: string) => {
+        controller.enqueue(encoder.encode(text));
+      };
       const disconnect = notificationPresence.connect(device.data, (challengeId) => {
         send(`event: probe\ndata: ${JSON.stringify({ challengeId })}\n\n`);
       });
-      const heartbeat = setInterval(() => send(": keepalive\n\n"), HEARTBEAT_MS);
+      const heartbeat = setInterval(() => {
+        send(": keepalive\n\n");
+      }, HEARTBEAT_MS);
       const abort = () => cleanup?.(true);
       let closed = false;
       cleanup = (close) => {

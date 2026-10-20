@@ -64,7 +64,7 @@ export async function renderImage(source: string, cwd: string, thumbnail: boolea
   const image = sharp(input, { limitInputPixels: MAX_INPUT_PIXELS });
   const metadata = await image.metadata();
 
-  if (!metadata.format || !RASTER_FORMATS.has(metadata.format)) {
+  if (!RASTER_FORMATS.has(metadata.format)) {
     throw new Error("This file is not a supported raster image.");
   }
 
@@ -79,7 +79,12 @@ export async function renderImage(source: string, cwd: string, thumbnail: boolea
   let total = cache.values().reduce((sum, entry) => sum + entry.bytes.length, 0);
 
   while (total > MAX_CACHE_BYTES && cache.size > 0) {
-    const first = cache.keys().next().value as string;
+    const first = cache.keys().next().value;
+
+    if (first === undefined) {
+      break;
+    }
+
     total -= cache.get(first)?.bytes.length ?? 0;
     cache.delete(first);
   }

@@ -10,11 +10,11 @@ export async function writeLocal(name: string, data: unknown) {
   await writeFile(temp, JSON.stringify(data, null, 2) + "\n", { mode: 0o600 });
   await rename(temp, file);
 }
-export async function readLocal<T>(name: string, fallback: T): Promise<T> {
+export async function readLocal(name: string, fallback: unknown): Promise<unknown> {
   try {
     return JSON.parse(await readFile(/* turbopackIgnore: true */ path.resolve(localDirectory(), name), "utf8"));
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
       return fallback;
     }
 

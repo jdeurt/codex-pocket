@@ -3,7 +3,7 @@ import { type AgentEntry, agentSource, agentStatus } from "@/lib/agents";
 import { ArrowLeftIcon, ChevronRightIcon } from "lucide-react";
 import { Button } from "./ui/button";
 import { Dialog } from "@base-ui/react/dialog";
-import type { RefObject } from "react";
+import { type RefObject } from "react";
 
 export function AgentList({
   entries,
@@ -32,7 +32,7 @@ export function AgentList({
       <div className="agents-list">
         {error || warnings.length > 0 ? (
           <p className="agent-notice" role="status">
-            {error || warnings.join(" ")}
+            {error?.length ? error : warnings.join(" ")}
             {error && " Showing the last update; statuses may be stale."}
           </p>
         ) : null}
@@ -48,7 +48,9 @@ export function AgentList({
                 rows.current.delete(agent.id);
               }
             }}
-            onClick={() => select(agent)}
+            onClick={() => {
+              select(agent);
+            }}
           >
             <span className="agent-row-content">
               <span className="agent-row-title">

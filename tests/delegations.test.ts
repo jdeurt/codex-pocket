@@ -25,7 +25,7 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }) {
   return { store, directory };
 }
 
-test("delegation creation and sends are scoped, durable and idempotent", async (t) => {
+await test("delegation creation and sends are scoped, durable and idempotent", async (t) => {
   const { store, directory } = await fixture(t);
   const child = store.create(owner, assignment);
   assert.equal(store.create(owner, assignment).id, child.id);
@@ -43,7 +43,7 @@ test("delegation creation and sends are scoped, durable and idempotent", async (
   assert.equal(info.mode & PERMISSION_MASK, PRIVATE_FILE_MODE);
 });
 
-test("close cancels queued work and resume keeps the same child and saved session", async (t) => {
+await test("close cancels queued work and resume keeps the same child and saved session", async (t) => {
   const { store } = await fixture(t);
   const child = store.create(owner, assignment);
   store.setSession(owner, child.id, "saved");
@@ -65,7 +65,7 @@ test("close cancels queued work and resume keeps the same child and saved sessio
   assert.equal(store.claim(owner, child.id)?.body, "New work");
 });
 
-test("child messages route by managed identity, deduplicate retries and reject inactive turns", async (t) => {
+await test("child messages route by managed identity, deduplicate retries and reject inactive turns", async (t) => {
   const { store } = await fixture(t);
   const child = store.create(owner, assignment);
   const command = store.claim(owner, child.id);
@@ -79,7 +79,7 @@ test("child messages route by managed identity, deduplicate retries and reject i
   assert.throws(() => store.mail.message(child.id, command.id, { message: "Late message" }), /no longer active/);
 });
 
-test("restarts preserve reports and identities without replaying uncertain child work", async (t) => {
+await test("restarts preserve reports and identities without replaying uncertain child work", async (t) => {
   const { store, directory } = await fixture(t);
   const child = store.create(owner, assignment);
   const command = store.claim(owner, child.id);
@@ -100,7 +100,7 @@ test("restarts preserve reports and identities without replaying uncertain child
   reopened.close();
 });
 
-test("harness answers are validated before persistence and remain parent scoped", async (t) => {
+await test("harness answers are validated before persistence and remain parent scoped", async (t) => {
   const { store } = await fixture(t);
   const child = store.create(owner, assignment);
   const id = store.mail.request(owner, child.id, {
@@ -116,7 +116,7 @@ test("harness answers are validated before persistence and remain parent scoped"
   assert.equal(store.mail.requests(owner, child.id)[0].status, "answered");
 });
 
-test("delegate reports stay internal while ordinary chat and parent replies remain visible", () => {
+await test("delegate reports stay internal while ordinary chat and parent replies remain visible", () => {
   const reportId = "pocket-delegate:report-id";
   const snapshot = structuredClone(initialSnapshot);
   snapshot.queue.push({ id: reportId, text: "Internal child report", status: "queued" });

@@ -8,8 +8,12 @@ import { schedules } from "./schedules";
 
 export function registerNode() {
   log().info({ node: process.version, cwd: process.cwd() }, "server.started");
-  process.on("uncaughtExceptionMonitor", (error) => log().fatal({ error }, "server.uncaught_exception"));
-  process.on("warning", (warning) => log().warn({ warning }, "server.warning"));
+  process.on("uncaughtExceptionMonitor", (error) => {
+    log().fatal({ error }, "server.uncaught_exception");
+  });
+  process.on("warning", (warning) => {
+    log().warn({ warning }, "server.warning");
+  });
 
   if (process.env.NEXT_PHASE !== "phase-production-build") {
     void (async () => {
@@ -26,6 +30,8 @@ export function registerNode() {
       worker.start();
       process.once("SIGTERM", () => void worker.stop());
       process.once("SIGINT", () => void worker.stop());
-    })().catch((error: unknown) => log().error({ error }, "server.startup_failed"));
+    })().catch((error: unknown) => {
+      log().error({ error }, "server.startup_failed");
+    });
   }
 }

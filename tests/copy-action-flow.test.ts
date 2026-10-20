@@ -7,10 +7,17 @@ import { delegations } from "../src/server/delegations";
 import os from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { z } from "zod";
+
+const promptLogSchema = z.object({
+  pid: z.number(),
+  method: z.string(),
+  params: z.object({ developerInstructions: z.string().optional() }).default({}),
+});
 
 const STAGES = ["initial", "restart", "reconnect"];
 
-test("canonical main prompt retains copy guidance and existing instructions across fresh process reconnects without user-message injection", async () => {
+await test("canonical main prompt retains copy guidance and existing instructions across fresh process reconnects without user-message injection", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "pocket-copy-prompt-flow-"));
   const oldState = process.env.CODEX_POCKET_STATE_DIR;
   process.env.CODEX_POCKET_STATE_DIR = directory;
@@ -55,7 +62,7 @@ test("canonical main prompt retains copy guidance and existing instructions acro
     const messages = recorded
       .trim()
       .split("\n")
-      .map((line) => JSON.parse(line));
+      .map((line) => promptLogSchema.parse(JSON.parse(line)));
     assert.equal(new Set(messages.map((message) => message.pid)).size, STAGES.length);
     const sessions = messages.filter((message) => ["thread/start", "thread/resume"].includes(message.method));
     assert.equal(sessions.length, STAGES.length);

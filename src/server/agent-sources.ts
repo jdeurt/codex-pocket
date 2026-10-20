@@ -1,11 +1,13 @@
-import { type AgentEntry, type AgentStatus, activeAgent } from "../lib/agents";
+import { type AgentEntry, type AgentStatus, activeAgent, agentStatusSchema } from "../lib/agents";
 import { type ClaudeMessage, claudeTranscript } from "./harness/transcript";
 import { type Data, type PendingRequest, type Thread, type Turn, object, string } from "../lib/protocol";
 import { getSessionInfo, getSessionMessages, getSubagentMessages, listSubagents } from "@anthropic-ai/claude-agent-sdk";
 import { refreshCodexHistory, visiblePreview } from "./agent-history";
-import type { SidePocket } from "./delegations";
+import { type SidePocket } from "./delegations";
 import { agentRead } from "./agent-read-pool";
 import { bridge } from "./bridge";
+
+const LAST_MESSAGE = -1;
 
 export interface CodexThread extends Thread, Data {}
 export interface AgentRecord {
@@ -37,7 +39,7 @@ export function codexParent(thread: CodexThread) {
 export function observedMetadata(data: Data) {
   return {
     ...(string(data.model) && { model: string(data.model) }),
-    ...((typeof data.effort === "string" || data.effort === null) && { reasoningEffort: data.effort as string | null }),
+    ...((typeof data.effort === "string" || data.effort === null) && { reasoningEffort: data.effort }),
   };
 }
 
@@ -52,7 +54,7 @@ export function nativeStatus(thread: CodexThread, turns: Turn[]): AgentStatus {
     return "failed";
   }
 
-  const last = turns.findLast(() => true);
+  const last = turns.at(LAST_MESSAGE);
 
   if (last?.status === "failed") {
     return "failed";
@@ -116,19 +118,19 @@ export function observeCodex(record: AgentRecord) {
   }
 
   const runtime = object(object(JSON.parse(record.runtimeOwner.metadata)).nativeAgents);
-  const observed = string(object(runtime[record.sessionId ?? ""]).status);
+  const observed = agentStatusSchema.safeParse(object(runtime[record.sessionId ?? ""]).status);
 
-  if (!["running", "waiting", "idle", "completed", "failed", "closed"].includes(observed)) {
+  if (!observed.success || observed.data === "unknown") {
     return;
   }
 
-  record.agent.status = observed as AgentStatus;
-  record.observedStatus = observed as AgentStatus;
+  record.agent.status = observed.data;
+  record.observedStatus = observed.data;
 }
 
 async function readCodex(record: AgentRecord, sessionId: string) {
   const rpc = bridge.agentReader();
-  const { thread } = await rpc.request<{ thread: CodexThread }>("thread/read", {
+  const { thread } = await rpc.request("thread/read", {
     threadId: sessionId,
     includeTurns: false,
   });
@@ -159,7 +161,7 @@ async function readClaude(record: AgentRecord, sessionId: string) {
     return;
   }
 
-  const last = object(messages.findLast(() => true)?.message);
+  const last = object(messages.at(LAST_MESSAGE)?.message);
   record.agent.status =
     record.observedStatus ??
     (["end_turn", "stop_sequence"].includes(string(last.stop_reason))
@@ -197,13 +199,13 @@ export async function claudeChildren(
     return [];
   }
 
-  const runtime = object(parent.pocket ? JSON.parse(parent.pocket.metadata).nativeAgents : {});
+  const runtime = object(object(parent.pocket ? JSON.parse(parent.pocket.metadata) : {}).nativeAgents);
   const ids = [...new Set([...(await listSubagents(parent.sessionId, { dir: parent.cwd })), ...Object.keys(runtime)])];
   const messages = new Map<string, ClaudeMessage[]>();
 
   await Promise.all(
     ids.map(async (id) => {
-      const saved = previous.get(`claude:${parent.sessionId}:${id}`);
+      const saved = previous.get(`claude:${parent.sessionId ?? ""}:${id}`);
 
       if (Object.hasOwn(runtime, id) || saved?.ancestryKnown) {
         return;
@@ -235,17 +237,15 @@ export async function claudeChildren(
       }
 
       const observed = object(runtime[id]);
-      const saved = previous.get(`claude:${parent.sessionId}:${id}`);
-      const ancestor =
-        transcript.find((message) => message.parent_agent_id)?.parent_agent_id ||
-        string(observed.parentId) ||
-        saved?.claudeParent;
+      const saved = previous.get(`claude:${parent.sessionId ?? ""}:${id}`);
+      const transcriptParent = transcript.find((message) => message.parent_agent_id)?.parent_agent_id;
+      const ancestor = [transcriptParent, string(observed.parentId), saved?.claudeParent].find(Boolean);
 
       if (ancestor && !known.has(ancestor)) {
         continue;
       }
 
-      const agentId = `claude:${parent.sessionId}:${id}`;
+      const agentId = `claude:${parent.sessionId ?? ""}:${id}`;
       known.set(id, agentId);
       progress = true;
       const invocation = transcript.find((message) => message.parent_tool_use_id)?.parent_tool_use_id;
@@ -267,7 +267,7 @@ export async function claudeChildren(
         claudeRoot: parent.sessionId,
         claudeAgent: id,
         ancestryKnown: transcript.length > 0 || Object.hasOwn(runtime, id) || saved?.ancestryKnown,
-        claudeParent: ancestor || null,
+        claudeParent: ancestor?.length ? ancestor : null,
       });
     }
   }
@@ -277,15 +277,16 @@ export async function claudeChildren(
 
 export function observeClaudeChild(parent: AgentRecord, child: AgentRecord) {
   const runtime = object(object(parent.pocket ? JSON.parse(parent.pocket.metadata) : {}).nativeAgents);
-  const status = string(object(runtime[child.claudeAgent ?? ""]).status);
+  const status = agentStatusSchema.safeParse(object(runtime[child.claudeAgent ?? ""]).status);
 
   if (!(
-    ["running", "waiting", "completed", "failed", "closed"].includes(status) &&
-    (!activeAgent({ ...child.agent, status: status as AgentStatus }) || activeAgent(parent.agent))
+    status.success &&
+    ["running", "waiting", "completed", "failed", "closed"].includes(status.data) &&
+    (!activeAgent({ ...child.agent, status: status.data }) || activeAgent(parent.agent))
   )) {
     return;
   }
 
-  child.agent.status = status as AgentStatus;
-  child.observedStatus = status as AgentStatus;
+  child.agent.status = status.data;
+  child.observedStatus = status.data;
 }

@@ -1,7 +1,8 @@
 import { Client } from "@modelcontextprotocol/client";
-import type { SpinnerLibrary } from "../../src/lib/spinner";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import assert from "node:assert/strict";
+import { spinnerLibrarySchema } from "../../src/lib/spinner";
+import { toolJson } from "./tool-json";
 
 export async function spinnerClient(
   directory: string,
@@ -31,7 +32,7 @@ export async function spinnerClient(
       const result = await client.callTool({ name, arguments: args });
       assert.equal(result.isError, undefined, JSON.stringify(result));
 
-      return JSON.parse((result.content as { text: string }[])[0].text) as SpinnerLibrary;
+      return spinnerLibrarySchema.parse(toolJson(result));
     },
   };
 }

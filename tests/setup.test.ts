@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { tmpdir } from "node:os";
 
-test("local setup needs no remote origin, while phone origins must be canonical HTTPS addresses", () => {
+await test("local setup needs no remote origin, while phone origins must be canonical HTTPS addresses", () => {
   assert.equal(setupOrigin(""), undefined);
   assert.equal(setupOrigin("  "), undefined);
   const insecure = new URL("https://example.com");
@@ -18,7 +18,7 @@ test("local setup needs no remote origin, while phone origins must be canonical 
   }
 });
 
-test("configuration reruns keep chat identity, secrets and process settings while updating selected values", () => {
+await test("configuration reruns keep chat identity, secrets and process settings while updating selected values", () => {
   const source = "# Keep this comment\nCODEX_THREAD_ID='saved-chat'\nSECRET_TOKEN=private-value\n";
   const values = {
     CODEX_THREAD_ID: "saved-chat",
@@ -34,7 +34,7 @@ test("configuration reruns keep chat identity, secrets and process settings whil
   assert.throws(() => formatEnvironment(first, { CODEX_THREAD_ID: "one\ntwo" }));
 });
 
-test("setup atomically writes an owner-private env file without altering neighboring state", async () => {
+await test("setup atomically writes an owner-private env file without altering neighboring state", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "pocket-setup-"));
   const file = path.join(directory, ".env.local");
   const modeMask = 0o777;

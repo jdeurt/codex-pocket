@@ -1,7 +1,10 @@
-// OFFLINE JSON-RPC replay. Refuses every mutation directed at a child session.
 import { appendFileSync, readFileSync, watchFile, writeFileSync } from "node:fs";
 import { replayParent, replayThreads, replayTurns } from "./agent-browser-data";
 import { createInterface } from "node:readline";
+import { fixtureRequestSchema } from "./replay-protocol";
+import { z } from "zod";
+
+// OFFLINE JSON-RPC replay. Refuses every mutation directed at a child session.
 
 const directory = process.env.POCKET_REPLAY_DIRECTORY;
 
@@ -11,7 +14,8 @@ if (!directory) {
 
 const APPROVAL_DELAY_MS = 750;
 const emit = (value: unknown) => process.stdout.write(JSON.stringify(value) + "\n");
-const stage = () => JSON.parse(readFileSync(`${directory}/control.json`, "utf8")).stage as string;
+const stage = () =>
+  z.object({ stage: z.string() }).parse(JSON.parse(readFileSync(`${directory}/control.json`, "utf8"))).stage;
 const replay = { promptSent: false, activeReads: 0, maxReads: 0 };
 const HISTORY_DELAY_MS = 30;
 const PAGE_LIMIT = 20;
@@ -190,17 +194,17 @@ function response(request: { method: string }, params: Record<string, unknown>, 
 }
 
 createInterface({ input: process.stdin }).on("line", (line) => {
-  const request = JSON.parse(line);
+  const request = fixtureRequestSchema.parse(JSON.parse(line));
   appendFileSync(
     `${directory}/rpc.jsonl`,
     JSON.stringify({
       method: request.method ?? "response",
-      threadId: request.params?.threadId,
+      threadId: request.params.threadId,
       id: request.id,
-      itemsView: request.params?.itemsView,
-      sortDirection: request.params?.sortDirection,
-      limit: request.params?.limit,
-      cursor: request.params?.cursor,
+      itemsView: request.params.itemsView,
+      sortDirection: request.params.sortDirection,
+      limit: request.params.limit,
+      cursor: request.params.cursor,
     }) + "\n"
   );
 
@@ -208,13 +212,13 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     return;
   }
 
-  const params = request.params ?? {};
+  const params = request.params;
   const state = stage();
 
   try {
-    const result = response(request, params, state);
+    const result = response({ method: request.method }, params, state);
     const history =
-      request.params?.threadId !== replayParent && ["thread/turns/list", "thread/items/list"].includes(request.method);
+      request.params.threadId !== replayParent && ["thread/turns/list", "thread/items/list"].includes(request.method);
 
     if (!history) {
       emit({ id: request.id, result });

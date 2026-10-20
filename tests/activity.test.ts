@@ -5,7 +5,7 @@ import { reduceEvent } from "../src/server/reducer";
 import test from "node:test";
 import { visibleSnapshot } from "../src/server/visible-snapshot";
 
-test("activity summarizes structured actions without leaking paths, commands or tool arguments", () => {
+await test("activity summarizes structured actions without leaking paths, commands or tool arguments", () => {
   const command: Item = { id: "command", type: "commandExecution", command: "private command" };
   assert.equal(itemActivity(command), "Running commands");
   assert.equal(
@@ -40,7 +40,7 @@ test("activity summarizes structured actions without leaking paths, commands or 
   assert.equal(itemActivity({ id: "tool", type: "dynamicToolCall", tool: "apply_patch" }), "Editing files");
 });
 
-test("activity labels use plural targets and no punctuation across Codex item types", () => {
+await test("activity labels use plural targets and no punctuation across Codex item types", () => {
   for (const type of [
     "commandExecution",
     "fileChange",
@@ -73,9 +73,12 @@ test("activity labels use plural targets and no punctuation across Codex item ty
   assert.equal(itemActivity({ id: "response", type: "agentMessage" }), "");
 });
 
-test("live activity follows the latest event in this turn, survives reload and clears at completion", () => {
+await test("live activity follows the latest event in this turn, survives reload and clears at completion", () => {
   const state = { ...structuredClone(initialSnapshot), threadId: "thread" };
-  reduceEvent(state, { method: "turn/started", params: { threadId: "thread", turn: { id: "turn", items: [] } } });
+  reduceEvent(state, {
+    method: "turn/started",
+    params: { threadId: "thread", turn: { id: "turn", status: "inProgress", items: [] } },
+  });
   const item: Item = {
     id: "read",
     type: "commandExecution",
@@ -115,10 +118,13 @@ test("live activity follows the latest event in this turn, survives reload and c
   assert.equal(currentActivity({ ...state, activity: undefined }), "");
   reduceEvent(state, {
     method: "turn/completed",
-    params: { threadId: "thread", turn: { id: "turn", status: "completed" } },
+    params: { threadId: "thread", turn: { id: "turn", status: "completed", items: [] } },
   });
   assert.equal(currentActivity(state), undefined);
   assert.equal(state.activity, undefined);
-  reduceEvent(state, { method: "turn/started", params: { threadId: "thread", turn: { id: "next", items: [] } } });
+  reduceEvent(state, {
+    method: "turn/started",
+    params: { threadId: "thread", turn: { id: "next", status: "inProgress", items: [] } },
+  });
   assert.equal(currentActivity(state), "Considering options");
 });

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { codexParentTools } from "../src/server/harness/mcp-config";
 import test from "node:test";
 
-test("delegates map full parent access explicitly, and reject incompatible Claude policies", () => {
+await test("delegates map full parent access explicitly, and reject incompatible Claude policies", () => {
   const policy = parentPolicy({ sandbox_mode: "danger-full-access", approval_policy: "never" });
   assert.deepEqual(claudePermissions(policy), {
     permissionMode: "bypassPermissions",
@@ -17,7 +17,7 @@ test("delegates map full parent access explicitly, and reject incompatible Claud
   assert.throws(() => parentPolicy({}), /Cannot determine/);
 });
 
-test("child Codex configuration disables the main Pocket server and adds parent messaging", () => {
+await test("child Codex configuration disables the main Pocket server and adds parent messaging", () => {
   const args = codexParentTools({ command: "/node", args: ["parent.ts"], env: { CHILD_ID: "child" } });
   assert.equal(args[1], "mcp_servers.pocket.enabled=false");
   assert.equal(args.includes('mcp_servers.pocket_parent.command="/node"'), true);

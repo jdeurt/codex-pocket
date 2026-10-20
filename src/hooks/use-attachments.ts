@@ -1,110 +1,11 @@
 "use client";
-import { type FileAttachment, MAX_ATTACHMENTS, MAX_ATTACHMENT_BYTES, MAX_FILE_BYTES } from "@/lib/attachments";
+import { type DraftAttachment, type SavedDraft, savedDraft, uploadFile } from "@/lib/draft-attachments";
+import { MAX_ATTACHMENTS, MAX_ATTACHMENT_BYTES, MAX_FILE_BYTES } from "@/lib/attachments";
 import { useEffect, useRef, useState } from "react";
 
-const UPLOAD_TIMEOUT_MS = 180_000;
+export type { DraftAttachment } from "@/lib/draft-attachments";
 const PERCENT = 100;
-const UPLOADING_MAX_PERCENT = 99;
-const HTTP_OK = 200;
-const HTTP_REDIRECT = 300;
-
-export interface DraftAttachment {
-  id: string;
-  file: File;
-  uploaded?: FileAttachment;
-  progress: number;
-  error?: string;
-}
-interface SavedDraft {
-  files: DraftAttachment[];
-  pending?: { id: string; text: string };
-}
-interface StoredDraft {
-  files: (Omit<DraftAttachment, "file"> & { file: { name: string; type: string; bytes: ArrayBuffer } })[];
-  pending?: SavedDraft["pending"];
-}
 const empty: SavedDraft = { files: [] };
-
-async function database() {
-  return new Promise<IDBDatabase>((resolve, reject) => {
-    const request = indexedDB.open("pocket-attachments", 1);
-    request.onupgradeneeded = () => request.result.createObjectStore("drafts");
-    request.onsuccess = () => resolve(request.result);
-    request.addEventListener("error", () =>
-      reject(new Error("Couldn't save files on this device. Allow browser storage and try again."))
-    );
-  });
-}
-
-async function savedDraft(parent: string, value?: SavedDraft): Promise<SavedDraft> {
-  const db = await database();
-
-  try {
-    // ArrayBuffers also work in Safari sessions that cannot persist File/Blob objects.
-    const stored = value && {
-      ...value,
-      files: await Promise.all(
-        value.files.map(async (entry) => ({
-          ...entry,
-          file: { name: entry.file.name, type: entry.file.type, bytes: await entry.file.arrayBuffer() },
-        }))
-      ),
-    };
-    const result = await new Promise<StoredDraft>((resolve, reject) => {
-      const transaction = db.transaction("drafts", value ? "readwrite" : "readonly");
-      const store = transaction.objectStore("drafts");
-      const request = stored ? store.put(stored, parent) : store.get(parent);
-      transaction.oncomplete = () => resolve(stored ?? (request.result as StoredDraft | undefined) ?? { files: [] });
-      const failed = () =>
-        reject(new Error("Couldn't save files on this device. Free up browser storage and try again."));
-      transaction.addEventListener("error", failed);
-      transaction.addEventListener("abort", failed);
-    });
-
-    return {
-      ...result,
-      files: result.files.map((entry) => ({
-        ...entry,
-        file: new File([entry.file.bytes], entry.file.name, { type: entry.file.type }),
-      })),
-    };
-  } finally {
-    db.close();
-  }
-}
-
-function uploadFile(entry: DraftAttachment, progress: (value: number) => void, signal: AbortSignal) {
-  return new Promise<FileAttachment>((resolve, reject) => {
-    const xhr = new XMLHttpRequest();
-    const url = `/api/uploads?${new URLSearchParams({ id: entry.id, name: entry.file.name, type: entry.file.type || "application/octet-stream" })}`;
-    xhr.open("PUT", url);
-    xhr.setRequestHeader("Content-Type", "application/octet-stream");
-    xhr.timeout = UPLOAD_TIMEOUT_MS;
-    xhr.upload.addEventListener("progress", (event) =>
-      progress(
-        event.lengthComputable ? Math.min(UPLOADING_MAX_PERCENT, Math.round((event.loaded * PERCENT) / event.total)) : 0
-      )
-    );
-    xhr.addEventListener("error", () => reject(new Error("Upload interrupted. Retry when connected.")));
-    xhr.ontimeout = () => reject(new Error("Upload timed out. Retry when connected."));
-    xhr.addEventListener("abort", () => reject(new Error("Upload interrupted. Retry when connected.")));
-    xhr.addEventListener("load", () => {
-      try {
-        const result = JSON.parse(xhr.responseText) as { file?: FileAttachment; error?: string };
-
-        if (xhr.status < HTTP_OK || xhr.status >= HTTP_REDIRECT || !result.file) {
-          throw new Error(result.error || "Upload failed. Retry or choose another file.");
-        }
-
-        resolve(result.file);
-      } catch (error) {
-        reject(error instanceof Error ? error : new Error("Upload failed. Retry when connected."));
-      }
-    });
-    signal.addEventListener("abort", () => xhr.abort(), { once: true });
-    xhr.send(entry.file);
-  });
-}
 
 export function useAttachments(parent?: string) {
   const [state, setState] = useState<SavedDraft>(empty);
@@ -165,12 +66,12 @@ export function useAttachments(parent?: string) {
         });
         setLoadedParent(parent);
       })
-      .catch((error_: Error) => {
+      .catch((error_: unknown) => {
         if (!active) {
           return;
         }
 
-        setError(error_.message);
+        setError(error_ instanceof Error ? error_.message : "Could not restore attachments.");
         setLoadedParent(parent);
       });
     const activeUploads = uploads.current;
@@ -207,7 +108,13 @@ export function useAttachments(parent?: string) {
     patch({ progress: 0, error: undefined });
 
     try {
-      const uploaded = await uploadFile(entry, (progress) => patch({ progress }), controller.signal);
+      const uploaded = await uploadFile(
+        entry,
+        (progress) => {
+          patch({ progress });
+        },
+        controller.signal
+      );
       patch({ uploaded, progress: PERCENT });
       await persist(current.current);
     } catch (error_) {
@@ -220,7 +127,7 @@ export function useAttachments(parent?: string) {
         try {
           await persist(current.current);
         } catch (error__) {
-          setError((error__ as Error).message);
+          setError(error__ instanceof Error ? error__.message : "Could not save attachments.");
         }
       }
     } finally {
@@ -280,7 +187,7 @@ export function useAttachments(parent?: string) {
     try {
       await persist(value);
     } catch (error_) {
-      setError((error_ as Error).message);
+      setError(error_ instanceof Error ? error_.message : "Could not save attachments.");
     }
   }
 

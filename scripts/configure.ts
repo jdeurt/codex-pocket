@@ -1,4 +1,3 @@
-import { type Thread, string } from "../src/lib/protocol";
 import { saveSetupEnvironment, setupOrigin } from "./setup-env";
 import { CodexRpc } from "../src/server/rpc";
 import { configSchema } from "../src/server/config";
@@ -7,6 +6,7 @@ import nextEnv from "@next/env";
 import path from "node:path";
 import { pocketInstructions } from "../src/server/pocket-runtime";
 import { seedThread } from "./seed-thread";
+import { string } from "../src/lib/protocol";
 
 // Codex injects its own thread ID into agent shells. Pocket selects its thread explicitly.
 delete process.env.CODEX_THREAD_ID;
@@ -15,11 +15,12 @@ const origin = setupOrigin(process.env.POCKET_ORIGIN ?? "");
 const requestedThreadId = process.env.POCKET_THREAD_ID ?? process.env.CODEX_THREAD_ID;
 const envPath = path.resolve(".env.local");
 
+const serverArgs: unknown = JSON.parse(process.env.CODEX_SERVER_ARGS ?? '["app-server","--listen","stdio://"]');
 const config = configSchema.parse({
-  threadId: requestedThreadId || "setup",
+  threadId: requestedThreadId?.length ? requestedThreadId : "setup",
   cwd: process.env.CODEX_CWD ?? path.join(homedir(), "Developer"),
   codexBinary: process.env.CODEX_BINARY ?? "codex",
-  serverArgs: JSON.parse(process.env.CODEX_SERVER_ARGS ?? '["app-server","--listen","stdio://"]'),
+  serverArgs,
 });
 
 async function saveEnvironment(threadId: string) {
@@ -51,21 +52,15 @@ try {
   let threadId = requestedThreadId;
 
   if (threadId) {
-    await rpc.request<{ thread: Thread }>("thread/read", { threadId });
+    await rpc.request("thread/read", { threadId });
     await saveEnvironment(threadId);
     console.info(`Reused thread ${threadId}. Saved ${envPath}.`);
   } else {
-    const { config: effective } = await rpc.request<{ config: Record<string, unknown> }>("config/read", {
+    const { config: effective } = await rpc.request("config/read", {
       includeLayers: false,
       cwd: config.cwd,
     });
-    const started = await rpc.request<{
-      thread: Thread;
-      model: string;
-      reasoningEffort: string;
-      sandbox: unknown;
-      approvalPolicy: unknown;
-    }>("thread/start", {
+    const started = await rpc.request("thread/start", {
       cwd: config.cwd,
       ephemeral: false,
       developerInstructions: pocketInstructions(

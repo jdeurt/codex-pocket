@@ -21,7 +21,7 @@ async function readSignal(filename: string) {
   try {
     return await readFile(filename, "utf8");
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
       throw error;
     }
 
@@ -29,7 +29,7 @@ async function readSignal(filename: string) {
   }
 }
 
-test(
+await test(
   "startup drains persisted assignments in queue order, caps both harnesses at eight, and exit frees a slot immediately",
   { timeout: TEST_TIMEOUT_MS },
   async (t) => {
@@ -41,7 +41,11 @@ test(
       children.push(
         await writer.call(
           "create",
-          assignment(`queued-${index}`, index % 2 ? "claude" : "codex", index === 0 ? "hold-close" : `queued-${index}`)
+          assignment(
+            `queued-${String(index)}`,
+            index % 2 ? "claude" : "codex",
+            index === 0 ? "hold-close" : `queued-${String(index)}`
+          )
         )
       );
     }
@@ -65,7 +69,7 @@ test(
   }
 );
 
-test(
+await test(
   "simultaneous stdio enqueue wakes dispatch, and older queued assignments precede old-child followups",
   { timeout: TEST_TIMEOUT_MS },
   async (t) => {
@@ -74,7 +78,7 @@ test(
     const client = await mcp();
     const children = await Promise.all(
       Array.from({ length: CAPACITY + 1 }, (_, index) =>
-        tool(client, "side_pocket_create", assignment(`burst-${index}`))
+        tool(client, "side_pocket_create", assignment(`burst-${String(index)}`))
       )
     );
     await worker.until(() => worker.starts().length === CAPACITY);
@@ -108,7 +112,7 @@ test(
   }
 );
 
-test(
+await test(
   "cross-process child mail, requests, answers, cancellation and confirmed close wake without polling",
   { timeout: TEST_TIMEOUT_MS },
   async (t) => {
@@ -166,7 +170,7 @@ test(
   }
 );
 
-test(
+await test(
   "worker crash marks in-flight work unknown, retains mail IDs, and never automatically replays it",
   { timeout: TEST_TIMEOUT_MS },
   async (t) => {
@@ -185,7 +189,7 @@ test(
     const pendingMail = store.mail.pending(owner).find((mail) => mail.kind === "message");
     assert.ok(pendingMail);
     await worker.call("ask", { childId: child.id });
-    await state(store, () => store.mail.requests(owner, String(child.id)).length === 1);
+    await state(store, () => store.mail.requests(owner, child.id).length === 1);
     const exited = once(worker.child, "exit");
     worker.child.kill("SIGKILL");
     await exited;
@@ -193,10 +197,10 @@ test(
     const restarted = await peer();
     await restarted.until(() => restarted.starts().length === 1);
     assert.equal(restarted.starts()[0].childId, queued.id);
-    assert.equal(store.commands(owner, String(child.id))[0].status, "unknown");
-    assert.equal(store.get(owner, String(child.id)).status, "unknown");
-    assert.equal(store.mail.requests(owner, String(child.id))[0].status, "cancelled");
-    const recovery = store.mail.history(owner, String(child.id)).find((mail) => mail.kind === "recovery");
+    assert.equal(store.commands(owner, child.id)[0].status, "unknown");
+    assert.equal(store.get(owner, child.id).status, "unknown");
+    assert.equal(store.mail.requests(owner, child.id)[0].status, "cancelled");
+    const recovery = store.mail.history(owner, child.id).find((mail) => mail.kind === "recovery");
     assert.ok(recovery);
     await restarted.until((events) => events.some((entry) => entry.event === "mail" && entry.id === recovery.id));
     await restarted.until((events) => events.some((entry) => entry.event === "mail" && entry.id === pendingMail.id));
@@ -204,11 +208,11 @@ test(
     await writer.call("send", { childId: child.id, key: "continue", body: "Continue after inspection" });
     await restarted.until(() => restarted.starts().length === 2);
     assert.equal(restarted.starts()[1].text, "Continue after inspection");
-    assert.equal(store.mail.history(owner, String(child.id)).filter((mail) => mail.kind === "recovery").length, 1);
+    assert.equal(store.mail.history(owner, child.id).filter((mail) => mail.kind === "recovery").length, 1);
   }
 );
 
-test(
+await test(
   "bounded reconciliation recovers a commit whose writer exits before publishing its notification",
   { timeout: TEST_TIMEOUT_MS },
   async (t) => {
@@ -224,11 +228,11 @@ test(
     assert.equal(await readSignal(signal), before);
     await worker.until(() => worker.starts().length === 1);
     assert.equal(worker.starts()[0].childId, child.id);
-    assert.equal(store.commands(owner, String(child.id))[0].status, "running");
+    assert.equal(store.commands(owner, child.id)[0].status, "running");
   }
 );
 
-test(
+await test(
   "competing process claims enforce the shared eight-child cap without duplicate starts",
   { timeout: TEST_TIMEOUT_MS },
   async (t) => {
@@ -238,7 +242,7 @@ test(
     const children: Message[] = [];
 
     for (let index = 0; index <= CAPACITY; index++) {
-      children.push(await first.call("create", assignment(`contended-${index}`)));
+      children.push(await first.call("create", assignment(`contended-${String(index)}`)));
     }
 
     const claims = await Promise.all(
@@ -247,7 +251,7 @@ test(
         second.call("claim", { childId: child.id }),
       ])
     );
-    const claimed = claims.filter(Boolean);
+    const claimed = claims.filter((command) => command !== undefined);
     assert.equal(claimed.length, CAPACITY);
     assert.equal(new Set(claimed.map((command) => command.id)).size, CAPACITY);
     const commands = children.flatMap((child) => store.commands(owner, String(child.id)));
@@ -255,7 +259,7 @@ test(
   }
 );
 
-test(
+await test(
   "slow parent delivery permits dispatch and answers, and unknown delivery is not retried",
   { timeout: TEST_TIMEOUT_MS },
   async (t) => {
@@ -270,21 +274,21 @@ test(
     const next = await writer.call("create", assignment("dispatch-while-mail-waits"));
     await worker.until(() => worker.starts().length === 2);
     await worker.call("ask", { childId: next.id });
-    await state(store, () => store.mail.requests(owner, String(next.id)).length === 1);
+    await state(store, () => store.mail.requests(owner, next.id).length === 1);
     await writer.call("answer", {
       childId: next.id,
-      requestId: store.mail.requests(owner, String(next.id))[0].id,
+      requestId: store.mail.requests(owner, next.id)[0].id,
       answer: { answers: { color: "Blue" } },
     });
     await worker.until((events) => events.some((event) => event.event === "answer"));
     await worker.call("deliveryStatus", { status: "unknown" });
     await worker.call("releaseDelivery");
-    await state(store, () => store.mail.history(owner, String(child.id))[0].delivery === "unknown");
-    const mailId = store.mail.history(owner, String(child.id))[0].id;
+    await state(store, () => store.mail.history(owner, child.id)[0].delivery === "unknown");
+    const mailId = store.mail.history(owner, child.id)[0].id;
     await worker.call("barrier");
     assert.equal(worker.events.filter((event) => event.event === "mail" && event.id === mailId).length, 1);
     await worker.call("fail", { childId: child.id });
-    await state(store, () => store.get(owner, String(child.id)).status === "unknown");
-    assert.equal(store.commands(owner, String(child.id))[0].status, "unknown");
+    await state(store, () => store.get(owner, child.id).status === "unknown");
+    assert.equal(store.commands(owner, child.id)[0].status, "unknown");
   }
 );

@@ -1,4 +1,3 @@
-import { type Thread, string } from "../src/lib/protocol";
 import { access, mkdir, readFile } from "node:fs/promises";
 import { Bridge } from "../src/server/bridge";
 import { CodexRpc } from "../src/server/rpc";
@@ -9,6 +8,8 @@ import nextEnv from "@next/env";
 import path from "node:path";
 import { readConfig } from "../src/server/config";
 import { setTimeout } from "node:timers/promises";
+import { string } from "../src/lib/protocol";
+import { z } from "zod";
 
 nextEnv.loadEnvConfig(process.cwd());
 const base = await readConfig();
@@ -30,7 +31,7 @@ await mkdir(cwd, { recursive: true });
 process.env.CODEX_POCKET_STATE_DIR = path.join(root, "state");
 const setup = new CodexRpc();
 await setup.connect({ ...base, cwd }, "bare");
-const { thread } = await setup.request<{ thread: Thread }>("thread/start", {
+const { thread } = await setup.request("thread/start", {
   cwd,
   sandbox: "danger-full-access",
   approvalPolicy: "never",
@@ -84,7 +85,7 @@ async function verifyChildren() {
         .some((mail) => mail.kind === "message" && mail.payload.includes("RESUME_DONE ORCHID_731")),
       true
     );
-    const metadata = JSON.parse(child.metadata) as { pid: number };
+    const metadata = z.object({ pid: z.number() }).parse(JSON.parse(child.metadata));
     assert.throws(() => process.kill(metadata.pid, 0), { code: "ESRCH" });
   }
 
@@ -127,9 +128,9 @@ async function verifyActiveClose() {
       `Run this shell command in the foreground: printf STARTED > '${marker}'; sleep 30; printf LATE > '${late}'. This tests interrupting an active command. Use no other tools and send no parent messages.`
     );
     await waitUntil(() => fileExists(marker), "active child command");
-    const metadata = JSON.parse(store.get(thread.id, child.id).metadata) as { pid: number };
+    const metadata = z.object({ pid: z.number() }).parse(JSON.parse(store.get(thread.id, child.id).metadata));
     store.closeChild(thread.id, child.id);
-    await waitUntil(async () => store.get(thread.id, child.id).status === "closed", "process closure");
+    await waitUntil(() => Promise.resolve(store.get(thread.id, child.id).status === "closed"), "process closure");
     assert.throws(() => process.kill(metadata.pid, 0), { code: "ESRCH" });
     await assert.rejects(access(late), { code: "ENOENT" });
     assert.equal(store.commands(thread.id, child.id).at(LAST_INDEX)?.status, "cancelled");

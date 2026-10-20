@@ -1,9 +1,8 @@
 import * as React from "react";
-import { ACTIVITY_TRANSITION } from "@/lib/activity-motion";
-import { cn } from "cn";
-
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { ACTIVITY_TRANSITION } from "@/lib/activity-motion";
 import { ChevronRightIcon } from "lucide-react";
+import { cn } from "cn";
 
 function Trace({ className, ...props }: React.ComponentProps<"div">) {
   return (
@@ -130,7 +129,7 @@ function TraceCollapsibleContent({
     <CollapsibleContent
       data-slot="trace-collapsible-content"
       className="h-(--collapsible-panel-height) min-w-0 overflow-hidden transition-[height] motion-reduce:transition-none data-ending-style:h-0 data-starting-style:h-0"
-      style={{ ...ACTIVITY_TRANSITION, ...style }}
+      style={(state) => ({ ...ACTIVITY_TRANSITION, ...(typeof style === "function" ? style(state) : style) })}
       {...props}
     >
       <div
@@ -151,11 +150,11 @@ function TraceCollapsibleContent({
 
 export {
   Trace,
-  TraceLine,
-  TraceIcon,
-  TraceTitle,
-  TraceDescription,
   TraceCollapsible,
-  TraceCollapsibleTrigger,
   TraceCollapsibleContent,
+  TraceCollapsibleTrigger,
+  TraceDescription,
+  TraceIcon,
+  TraceLine,
+  TraceTitle,
 };

@@ -1,5 +1,5 @@
 import { type APIRequestContext, type Page, expect } from "@playwright/test";
-import type { AgentTranscript } from "../../src/lib/agents";
+import { agentTranscriptSchema } from "../../src/lib/agents";
 import { mkdir } from "node:fs/promises";
 
 const expected = [
@@ -40,7 +40,7 @@ export async function checkAgentTools(page: Page, request: APIRequestContext) {
   await draft.fill("Keep the parent tool replay draft");
   const response = await request.get(`/api/agents?agent=codex:${session}`);
   expect(response.ok()).toBeTruthy();
-  const transcript = (await response.json()) as AgentTranscript;
+  const transcript = agentTranscriptSchema.parse(await response.json());
   const items = transcript.state.turns.flatMap((turn) => turn.items);
 
   for (const output of expected) {
@@ -51,7 +51,7 @@ export async function checkAgentTools(page: Page, request: APIRequestContext) {
       continue;
     }
 
-    const images = item?.images as { source: string }[];
+    const images = item?.images ?? [];
     expect(images).toHaveLength(1);
     const image = await request.get(images[0].source);
     expect(image.ok()).toBeTruthy();

@@ -48,12 +48,12 @@ async function showChat(page: Page, text: string, items: Snapshot["turns"][numbe
   return {
     markdown,
     writes,
-    async stream(next: string) {
+    stream: async (next: string) => {
       state.turns[0].status = "inProgress";
       state.activeTurnId = "copy-flow";
       assistant.text = next;
       // Reconnect through the real event-stream hook with the next streamed snapshot.
-      await page.evaluate(() => globalThis.dispatchEvent(new globalThis.Event("online")));
+      await page.evaluate(() => globalThis.dispatchEvent(new Event("online")));
     },
   };
 }
@@ -62,7 +62,7 @@ async function spyClipboard(page: Page, mode: "resolve" | "reject" | "pending" |
   await page.addInitScript((behavior) => {
     const state: Window["copyTest"] = { calls: [] };
     globalThis.window.copyTest = state;
-    Object.defineProperty(globalThis.navigator, "clipboard", {
+    Object.defineProperty(navigator, "clipboard", {
       configurable: true,
       value:
         behavior === "unavailable"
@@ -72,7 +72,7 @@ async function spyClipboard(page: Page, mode: "resolve" | "reject" | "pending" |
                 state.calls.push(text);
 
                 if (behavior === "reject") {
-                  return Promise.reject(new globalThis.DOMException("Clipboard denied", "NotAllowedError"));
+                  return Promise.reject(new DOMException("Clipboard denied", "NotAllowedError"));
                 }
 
                 if (behavior === "pending") {
@@ -227,9 +227,9 @@ test("an empty streamed marker stays visible without empty flow blocks or extra 
     await stream("Before\n\n" + partial);
     await expect(markdown).toContainText(partial.trim());
     await expect(markdown.getByRole("button")).toHaveCount(0);
-    expect(
-      await markdown.evaluate((element) => [...element.children].every((child) => child.textContent?.trim()))
-    ).toBe(true);
+    expect(await markdown.evaluate((element) => [...element.children].every((child) => child.textContent.trim()))).toBe(
+      true
+    );
   }
 
   await stream(marker(""));
@@ -281,13 +281,13 @@ test("native browser clipboard receives the decoded text", async ({ page, contex
   }
 
   const { markdown, writes } = await showChat(page, marker(text));
-  const available = await page.evaluate(() => !!globalThis.navigator.clipboard?.writeText);
+  const available = await page.evaluate(() => "clipboard" in navigator);
   test.skip(!available, "Native clipboard is unavailable in this browser environment.");
   await markdown.getByRole("button", { name: "Copy text", exact: true }).click();
   await expect(markdown.getByRole("status")).toHaveText("Copied");
 
   if (browserName === "chromium") {
-    expect(await page.evaluate(() => globalThis.navigator.clipboard.readText())).toBe(text);
+    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(text);
   } else {
     // WebKit requires a real paste gesture for clipboard read access.
     const composer = page.getByRole("textbox", { name: "Message Pocket" });

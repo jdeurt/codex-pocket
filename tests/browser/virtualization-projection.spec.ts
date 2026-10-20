@@ -1,9 +1,9 @@
+import { type Item, type Snapshot, initialSnapshot } from "../../src/lib/protocol";
 import { type Page, expect, test } from "@playwright/test";
-import { type Snapshot, initialSnapshot } from "../../src/lib/protocol";
 import { mount, publish } from "./virtualization-fixture";
 
 const MAX_MOUNTED_ROWS = 250;
-const mediaTail = [
+const mediaTail: Item[] = [
   { id: "empty-assistant", type: "agentMessage", text: " \n" },
   { id: "empty-user", type: "userMessage", content: [{ text: " \n" }] },
   { id: "empty-image", type: "imageOutput", images: [] },
@@ -54,9 +54,9 @@ test("shared projected history preserves one scroller, media, pending drafts and
         status: "inProgress",
         items: [
           ...Array.from({ length: 1200 }, (_, index) => ({
-            id: `visible-${index}`,
+            id: `visible-${String(index)}`,
             type: "agentMessage",
-            text: `History ${index}`,
+            text: `History ${String(index)}`,
           })),
           { id: "literal", type: "agentMessage", text: "<!-- literal HTML remains visible -->" },
           {
@@ -112,10 +112,6 @@ test("shared projected history preserves one scroller, media, pending drafts and
   }
 
   const viewport = await page.locator('[data-slot="message-scroller-viewport"]').elementHandle();
-
-  if (!viewport) {
-    throw new Error("Missing persistent scroller");
-  }
 
   await expect(page.locator('[data-message-id="literal"]')).toContainText("literal HTML remains visible");
   await expect(page.getByRole("img", { name: "Kept image", exact: true })).toHaveJSProperty("complete", true);

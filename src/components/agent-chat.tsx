@@ -1,5 +1,5 @@
 "use client";
-import type { AgentEntry, AgentTranscript } from "@/lib/agents";
+import { type AgentEntry, agentTranscriptSchema } from "@/lib/agents";
 import { useEffect, useRef } from "react";
 import { ArrowLeftIcon } from "lucide-react";
 import { Button } from "./ui/button";
@@ -7,7 +7,7 @@ import { Conversation } from "./conversation";
 import { useAgentRead } from "@/hooks/use-agents";
 
 export function AgentChat({ agent, back }: { agent: AgentEntry; back: () => void }) {
-  const { data, error } = useAgentRead<AgentTranscript>(`/api/agents?agent=${encodeURIComponent(agent.id)}`);
+  const { data, error } = useAgentRead(`/api/agents?agent=${encodeURIComponent(agent.id)}`, agentTranscriptSchema);
   const heading = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     heading.current?.focus();
@@ -39,9 +39,9 @@ export function AgentChat({ agent, back }: { agent: AgentEntry; back: () => void
           This agent’s last turn failed. Its saved messages are shown below.
         </p>
       )}
-      {(error || data?.warning) && (
+      {(error?.length ? error : data?.warning) && (
         <p className="agent-notice" role="status">
-          {error || data?.warning}
+          {error?.length ? error : data?.warning}
           {data && " Showing saved history; updates may be stale."}
         </p>
       )}

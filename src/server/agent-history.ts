@@ -25,7 +25,7 @@ export function visiblePreview(items: Item[]) {
 }
 
 export async function codexPreview(rpc: CodexRpc, threadId: string) {
-  const summary = await rpc.request<{ data: Turn[] }>("thread/turns/list", {
+  const summary = await rpc.request("thread/turns/list", {
     threadId,
     limit: 1,
     sortDirection: "desc",

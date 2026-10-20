@@ -1,5 +1,5 @@
 "use client";
-import { type AgentCatalog, type AgentEntry, activeAgent } from "@/lib/agents";
+import { type AgentCatalog, type AgentEntry, activeAgent, agentCatalogSchema } from "@/lib/agents";
 import { useContext, useEffect, useRef, useState } from "react";
 import { ActivityIndicatorContext } from "@/lib/activity-indicator-context";
 import { ActivityRow } from "./activity-row";
@@ -9,15 +9,15 @@ import { Dialog } from "@base-ui/react/dialog";
 import { useAgentRead } from "@/hooks/use-agents";
 
 function useAgentCatalog(open: boolean) {
-  const overview = useAgentRead<AgentCatalog>("/api/agents");
-  const detail = useAgentRead<AgentCatalog>("/api/agents?view=list", open);
+  const overview = useAgentRead("/api/agents", agentCatalogSchema);
+  const detail = useAgentRead("/api/agents?view=list", agentCatalogSchema, open);
   const data =
     overview.data && (!detail.data || overview.data.updatedAt > detail.data.updatedAt) ? overview.data : detail.data;
 
   return {
     data,
     error: open ? (detail.error ?? overview.error) : overview.error,
-    count: overview.error ? 0 : (data?.agents?.filter(activeAgent).length ?? 0),
+    count: overview.error ? 0 : (data?.agents.filter(activeAgent).length ?? 0),
   };
 }
 

@@ -1,8 +1,12 @@
 import { type APIResponse, expect, test } from "@playwright/test";
-import { MAX_FILE_BYTES, attachmentUrl } from "../../src/lib/attachments";
+import { MAX_FILE_BYTES, attachmentUrl, fileAttachmentSchema } from "../../src/lib/attachments";
 import { readFile, writeFile } from "node:fs/promises";
+import assert from "node:assert/strict";
+import { outboxSchema } from "../../src/server/outbox";
 import path from "node:path";
 import sharp from "sharp";
+import { uploadRequestSchema } from "../fixtures/replay-protocol";
+import { z } from "zod";
 
 const directory = path.resolve(".local/uploads-replay");
 const origin = "http://127.0.0.1:3118";
@@ -18,7 +22,7 @@ async function requests() {
       .trim()
       .split("\n")
       .filter(Boolean)
-      .map((line) => JSON.parse(line));
+      .map((line) => uploadRequestSchema.parse(JSON.parse(line)));
   } catch {
     return [];
   }
@@ -76,9 +80,10 @@ test("pick, retry, remove, file-only send, reload, queued recovery and real stor
   const photoRequest = photoRequests.findLast((request) =>
     request.input.some((part: { type: string }) => part.type === "localImage")
   );
+  assert.ok(photoRequest);
   expect(photoRequest.bytes[0].size).toBeGreaterThan(0);
   expect(photoRequest.input.map((part: { type: string }) => part.type)).toEqual(["localImage", "text"]);
-  expect(Buffer.from(photoRequest.bytes[1].base64, "base64")).toEqual(png);
+  expect(Buffer.from(photoRequest.files[0].base64, "base64")).toEqual(png);
 
   // An upload failure keeps the Blob, survives reload, then retries using the same ID.
   let failedId = "";
@@ -123,8 +128,9 @@ test("pick, retry, remove, file-only send, reload, queued recovery and real stor
   await send.click();
   await expect(selected).toHaveCount(0);
   await expect(page.getByText("Queued", { exact: true }).last()).toBeVisible();
-  const outbox = JSON.parse(await readFile(path.join(directory, "state/outbox.json"), "utf8"));
+  const outbox = outboxSchema.parse(JSON.parse(await readFile(path.join(directory, "state/outbox.json"), "utf8")));
   const receipt = outbox.receipts.find((entry: { text: string }) => entry.text === message);
+  assert.ok(receipt?.attachments);
   expect(receipt.attachments).toHaveLength(MIXED_FILE_COUNT);
   expect(receipt.attachments[0].id).toBe(failedId);
 
@@ -143,13 +149,12 @@ test("pick, retry, remove, file-only send, reload, queued recovery and real stor
   await expect.poll(() => deliveredCount(receipt.id)).toBe(1);
   const captured = await requests();
   const delivered = captured.find((request) => request.clientUserMessageId === receipt.id);
+  assert.ok(delivered);
   expect(delivered.bytes).toHaveLength(MIXED_FILE_COUNT);
-  expect(
-    Buffer.from(delivered.bytes.find((file: { name: string }) => file.name === binaryName).base64, "base64")
-  ).toEqual(binary);
-  expect(
-    Buffer.from(delivered.bytes.find((file: { name: string }) => file.name === textName).base64, "base64")
-  ).toEqual(textBytes);
+  expect(Buffer.from(delivered.files.find((file) => file.name === binaryName)?.base64 ?? "", "base64")).toEqual(binary);
+  expect(Buffer.from(delivered.files.find((file) => file.name === textName)?.base64 ?? "", "base64")).toEqual(
+    textBytes
+  );
   await expect(
     page.getByRole("list", { name: "Attachments", exact: true }).getByText(textName, { exact: true }).last()
   ).toBeVisible();
@@ -159,6 +164,7 @@ test("pick, retry, remove, file-only send, reload, queued recovery and real stor
     page.getByRole("list", { name: "Attachments", exact: true }).getByText(binaryName, { exact: true }).last()
   ).toBeVisible();
   const binaryFile = receipt.attachments.find((file: { name: string }) => file.name === binaryName);
+  assert.ok(binaryFile);
   const download = await page.request.get(attachmentUrl(binaryFile.id));
   expect(download.headers()["content-type"]).toBe("application/octet-stream");
   expect(download.headers()["content-disposition"]).toContain("attachment;");
@@ -189,7 +195,7 @@ test("API confines IDs, origins, filenames, content and retries", async ({ reque
   };
   const first = await request.put(url, options);
   expect(first.ok()).toBeTruthy();
-  const firstBody = await first.json();
+  const firstBody = z.object({ file: fileAttachmentSchema }).parse(await first.json());
   expect(firstBody.file.kind).toBe("file");
   expect(await ok(request.put(url, options))).toBeTruthy();
   expect(await ok(request.put(url, { ...options, data: Buffer.from("changed") }))).toBeFalsy();
@@ -271,7 +277,7 @@ test("keyboard picker, upload progress, parent draft and IME sending", async ({ 
     .poll(async () => {
       const entries = await requests();
 
-      return entries.filter((entry) => entry.input.some((part: { text?: string }) => part.text === draft)).length;
+      return entries.filter((entry) => entry.input.some((part) => part.type === "text" && part.text === draft)).length;
     })
     .toBe(1);
   await control("complete");
@@ -307,9 +313,11 @@ test("animated GIF exposes its durable original path to harness tools", async ({
   await page.getByRole("button", { name: "Send message", exact: true }).click();
   await expect(page.getByRole("list", { name: "Selected attachments" })).toHaveCount(0);
   const captured = await requests();
-  const delivered = captured.findLast((request) => request.bytes.some((file: { name?: string }) => file.name === name));
+  const delivered = captured.findLast((request) => request.files.some((file) => file.name === name));
+  assert.ok(delivered);
   expect(delivered.input.map((part: { type: string }) => part.type)).toEqual(["localImage", "text"]);
-  const original = delivered.bytes.find((file: { name?: string }) => file.name === name);
+  const original = delivered.files.find((file: { name?: string }) => file.name === name);
+  assert.ok(original);
   expect(original.mediaType).toBe("image/gif");
   expect(Buffer.from(original.base64, "base64")).toEqual(gif);
   const durableBytes = await readFile(original.path);
@@ -318,7 +326,9 @@ test("animated GIF exposes its durable original path to harness tools", async ({
   expect(metadata.pages).toBe(2);
   expect(metadata.delay).toEqual(sourceMetadata.delay);
   expect(metadata.loop).toBe(0);
-  const imagePath = delivered.input.find((part: { type: string }) => part.type === "localImage").path;
+  const imageInput = delivered.input.find((part) => part.type === "localImage");
+  assert.ok(imageInput);
+  const imagePath = imageInput.path;
   expect(imagePath).not.toBe(original.path);
   const preview = await sharp(imagePath).metadata();
   expect(preview.format).toBe("png");

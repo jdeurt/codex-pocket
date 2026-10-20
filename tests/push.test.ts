@@ -27,7 +27,7 @@ function subscription(endpoint: string) {
   };
 }
 
-test("push keys stay stable and concurrent subscription saves preserve both devices with private storage", async () => {
+await test("push keys stay stable and concurrent subscription saves preserve both devices with private storage", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "pocket-push-"));
   const previous = process.env.CODEX_POCKET_STATE_DIR;
   process.env.CODEX_POCKET_STATE_DIR = directory;
@@ -58,14 +58,14 @@ test("push keys stay stable and concurrent subscription saves preserve both devi
   }
 });
 
-test("subscriptions require HTTPS and browser encryption keys", () => {
+await test("subscriptions require HTTPS and browser encryption keys", () => {
   const valid = subscription("https://push.example/device");
   assert.deepEqual(subscriptionSchema.parse(valid), valid);
   assert.throws(() => subscriptionSchema.parse({ ...valid, endpoint: "http://push.example/device" }));
   assert.throws(() => subscriptionSchema.parse({ ...valid, keys: { auth: "bad", p256dh: "bad" } }));
 });
 
-test("completion notifications contain the final reply, keep tap routing and use fallbacks without final text", () => {
+await test("completion notifications contain the final reply, keep tap routing and use fallbacks without final text", () => {
   const turn: Turn = {
     id: "turn",
     status: "completed",
@@ -91,7 +91,7 @@ test("completion notifications contain the final reply, keep tap routing and use
   );
 });
 
-test("payloads retain full replies that fit and limit actual encrypted bytes without splitting Unicode", () => {
+await test("payloads retain full replies that fit and limit actual encrypted bytes without splitting Unicode", () => {
   const device = subscription("https://push.example/size-check");
   const MAX_ENCRYPTED_BYTES = 4096;
   const LONG_REPETITIONS = 5000;
@@ -107,7 +107,7 @@ test("payloads retain full replies that fit and limit actual encrypted bytes wit
     assert.ok(!String(body).endsWith("…"));
     assert.ok(!String(body).includes("�"));
     const encrypted = webpush.generateRequestDetails(device, payload);
-    assert.ok(Buffer.byteLength(encrypted.body ?? "") <= MAX_ENCRYPTED_BYTES);
+    assert.ok(Buffer.byteLength(encrypted.body) <= MAX_ENCRYPTED_BYTES);
 
     if (text === texts[0]) {
       assert.equal(body, text.trim());
@@ -117,7 +117,7 @@ test("payloads retain full replies that fit and limit actual encrypted bytes wit
   }
 });
 
-test("delivery skips only the acknowledged foreground device, keeps background delivery and deduplicates", async (t) => {
+await test("delivery skips only the acknowledged foreground device, keeps background delivery and deduplicates", async (t) => {
   const directory = await mkdtemp(path.join(tmpdir(), "pocket-push-delivery-"));
   const previousState = process.env.CODEX_POCKET_STATE_DIR;
   const previousThread = process.env.CODEX_THREAD_ID;
@@ -131,15 +131,11 @@ test("delivery skips only the acknowledged foreground device, keeps background d
     notificationPresence.acknowledge(notificationDeviceId(phone.endpoint), challengeId);
   });
   const sent: { endpoint: string; body: unknown }[] = [];
-  t.mock.method(
-    webpush,
-    "sendNotification",
-    async (...[device, payload]: Parameters<typeof webpush.sendNotification>) => {
-      sent.push({ endpoint: device.endpoint, body: object(JSON.parse(String(payload))).body });
+  t.mock.method(webpush, "sendNotification", (...[device, payload]: Parameters<typeof webpush.sendNotification>) => {
+    sent.push({ endpoint: device.endpoint, body: object(JSON.parse(String(payload))).body });
 
-      return { statusCode: 201, body: "", headers: {} };
-    }
-  );
+    return Promise.resolve({ statusCode: 201, body: "", headers: {} });
+  });
 
   try {
     await saveSubscription(phone);

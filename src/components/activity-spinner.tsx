@@ -1,9 +1,8 @@
 "use client";
-
 import "./activity-spinner.css";
+import { type SpinnerPreference, spinnerPreferenceSchema } from "@/lib/spinner";
 import { useEffect, useId, useState, useSyncExternalStore } from "react";
 import { Spinner } from "@/components/ui/spinner";
-import type { SpinnerPreference } from "@/lib/spinner";
 
 const POLL_MS = 2000;
 const motionQuery = "(prefers-reduced-motion: reduce)";
@@ -11,7 +10,9 @@ const subscribeMotion = (callback: () => void) => {
   const media = globalThis.matchMedia(motionQuery);
   media.addEventListener("change", callback);
 
-  return () => media.removeEventListener("change", callback);
+  return () => {
+    media.removeEventListener("change", callback);
+  };
 };
 const reducedMotion = () => globalThis.matchMedia(motionQuery).matches;
 const staticMotion = () => true;
@@ -36,8 +37,8 @@ export function ActivitySpinner() {
       try {
         const response = await fetch("/api/spinner", { cache: "no-store", signal: abort.signal });
 
-        if (response.ok && !abort.signal.aborted) {
-          const preference = (await response.json()) as SpinnerPreference;
+        if (response.ok) {
+          const preference = spinnerPreferenceSchema.parse(await response.json());
           setCurrent(preference.current);
         }
       } catch {
@@ -93,8 +94,12 @@ export function ActivitySpinner() {
           width={32}
           height={32}
           alt=""
-          onLoad={() => setLoaded(current.id)}
-          onError={() => setFailed(current.id)}
+          onLoad={() => {
+            setLoaded(current.id);
+          }}
+          onError={() => {
+            setFailed(current.id);
+          }}
         />
       )}
     </span>

@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { reconcileDeliveries } from "../src/lib/deliveries";
 import test from "node:test";
 
-test("a send stays visible before acknowledgment and merges with the server queue by ID", () => {
+await test("a send stays visible before acknowledgment and merges with the server queue by ID", () => {
   const pending: QueuedMessage[] = [{ id: "first", text: "Hello", status: "sending" }];
   assert.deepEqual(reconcileDeliveries(initialSnapshot, pending).state.queue, pending);
   const queued: Snapshot = { ...initialSnapshot, queue: [{ ...pending[0], status: "queued" }] };
@@ -12,7 +12,7 @@ test("a send stays visible before acknowledgment and merges with the server queu
   assert.deepEqual(reconcileDeliveries(queued, acknowledged).state.queue, acknowledged);
 });
 
-test("Codex confirmation removes only the matching optimistic message even when text is identical", () => {
+await test("Codex confirmation removes only the matching optimistic message even when text is identical", () => {
   const first: QueuedMessage = { id: "first", text: "Hello", status: "sending" };
   const second: QueuedMessage = { ...first, id: "second" };
   const state: Snapshot = {
@@ -26,7 +26,7 @@ test("Codex confirmation removes only the matching optimistic message even when 
   assert.deepEqual(reconcileDeliveries(state, [{ ...first, status: "sent" }, second]), result);
 });
 
-test("uncertain sends remain visible across a disconnected snapshot", () => {
+await test("uncertain sends remain visible across a disconnected snapshot", () => {
   const pending: QueuedMessage[] = [{ id: "first", text: "Hello", status: "unknown" }];
   const result = reconcileDeliveries({ ...initialSnapshot, connection: "disconnected" }, pending);
   assert.deepEqual(result.state.queue, pending);

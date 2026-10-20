@@ -1,5 +1,5 @@
 import { type Data, type Item, type Turn, object, string } from "../../lib/protocol";
-import type { HarnessMessage } from "./types";
+import { type HarnessMessage } from "./types";
 
 export interface ClaudeMessage {
   type: string;
@@ -39,7 +39,7 @@ interface MessageContext {
 }
 
 function appendPart({ message, raw, parts, userContent, turn, calls }: MessageContext, part: Data, index: number) {
-  const id = `${message.uuid}:${index}`;
+  const id = `${message.uuid}:${String(index)}`;
 
   switch (part.type) {
     case "tool_use": {
@@ -79,7 +79,7 @@ function appendPart({ message, raw, parts, userContent, turn, calls }: MessageCo
         for (const [imageIndex, image] of part.content.map((entry) => object(entry)).entries()) {
           if (image.type === "image") {
             turn.items.push({
-              id: `${id}:image:${imageIndex}`,
+              id: `${id}:image:${String(imageIndex)}`,
               type: "imageOutput",
               content: [imageContent(image)],
             });

@@ -1,4 +1,4 @@
-import { type Item, type RpcEvent, type Snapshot, type Turn, object, pretty, string } from "../lib/protocol";
+import { type RpcEvent, type Snapshot, object, pretty, string } from "../lib/protocol";
 import { updateActivity } from "./activity";
 
 const MISSING_INDEX = -1;
@@ -23,10 +23,14 @@ export function reduceEvent(state: Snapshot, event: RpcEvent) {
 
   switch (event.method) {
     case "turn/started": {
-      const incoming = params.turn as Turn;
+      const incoming = params.turn;
+
+      if (!incoming) {
+        break;
+      }
 
       if (!turn) {
-        turn = { ...incoming, items: incoming.items ?? [] };
+        turn = { ...incoming, items: incoming.items };
         state.turns.push(turn);
       }
 
@@ -38,7 +42,11 @@ export function reduceEvent(state: Snapshot, event: RpcEvent) {
     }
 
     case "turn/completed": {
-      const incoming = params.turn as Turn;
+      const incoming = params.turn;
+
+      if (!incoming) {
+        break;
+      }
 
       if (turn) {
         turn.status = incoming.status;
@@ -64,7 +72,12 @@ export function reduceEvent(state: Snapshot, event: RpcEvent) {
         state.turns.push(turn);
       }
 
-      const item = params.item as Item;
+      const item = params.item;
+
+      if (!item) {
+        break;
+      }
+
       const index = turn.items.findIndex((entry) => entry.id === item.id);
 
       if (index === MISSING_INDEX) {

@@ -44,7 +44,7 @@ export async function checkActivityInterruptions(page: Page) {
       .locator('[data-slot="bubble"]')
       .evaluateAll(
         (elements, wanted) =>
-          elements.map((element) => element.textContent?.trim() ?? "").filter((text) => wanted.includes(text)),
+          elements.map((element) => element.textContent.trim()).filter((text) => wanted.includes(text)),
         expected
       );
     expect(order).toEqual(expected);

@@ -1,4 +1,13 @@
-import { object } from "./protocol";
+import { dataSchema } from "./protocol";
+import { z } from "zod";
+
+const clientRecordSchema = z.object({
+  id: z.string(),
+  time: z.string(),
+  level: z.enum(["info", "error"]),
+  event: z.string(),
+  details: dataSchema,
+});
 
 interface ClientRecord {
   id: string;
@@ -75,7 +84,7 @@ export function reportClient(
   details: Record<string, unknown> = {},
   level: ClientRecord["level"] = "info"
 ) {
-  if (globalThis.window === undefined) {
+  if (typeof window === "undefined") {
     return;
   }
 
@@ -86,7 +95,11 @@ export function reportClient(
       const saved: unknown = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "[]");
 
       if (Array.isArray(saved)) {
-        queue.records = saved.filter((entry) => typeof object(entry).id === "string") as ClientRecord[];
+        queue.records = saved.flatMap((entry: unknown) => {
+          const parsed = clientRecordSchema.safeParse(entry);
+
+          return parsed.success ? [parsed.data] : [];
+        });
       }
     } catch {
       /*

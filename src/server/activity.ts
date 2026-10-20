@@ -113,7 +113,7 @@ function eventActivity(event: RpcEvent, turn: Turn | undefined) {
   switch (event.method) {
     case "item/started":
     case "item/completed": {
-      return itemActivity(event.params.item as Item);
+      return event.params.item ? itemActivity(event.params.item) : "";
     }
 
     case "item/agentMessage/delta": {

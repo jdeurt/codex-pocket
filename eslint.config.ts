@@ -105,6 +105,19 @@ export default defineConfig([
     files: tsFiles,
     languageOptions: { parserOptions: { projectService: true, tsconfigRootDir } },
   },
+  {
+    files: ["tests/browser/**/*.ts", "tests/uploads/**/*.ts"],
+    languageOptions: {
+      globals: {
+        navigator: "readonly",
+        Event: "readonly",
+        CustomEvent: "readonly",
+        MessageEvent: "readonly",
+        EventSource: "readonly",
+        TextEncoder: "readonly",
+      },
+    },
+  },
   prettierRecommended,
   {
     files,

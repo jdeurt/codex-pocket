@@ -29,7 +29,7 @@ async function headers(page: Page) {
     });
     expect(offset).toBeLessThan(1);
     measurements.push({ width, offset });
-    await page.screenshot({ path: `${directory}/header-upload-${width}.png`, animations: "disabled" });
+    await page.screenshot({ path: `${directory}/header-upload-${String(width)}.png`, animations: "disabled" });
   }
 
   await writeFile(`${directory}/header-upload-measurements.json`, JSON.stringify(measurements));

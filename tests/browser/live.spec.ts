@@ -1,8 +1,12 @@
+import { type Snapshot, snapshotSchema } from "../../src/lib/protocol";
 import { expect, test } from "@playwright/test";
-import type { Snapshot } from "../../src/lib/protocol";
 import { checkActivityInterruptions } from "./activity-interruptions";
 import { checkImagePreviews } from "./image-previews";
 import { send } from "./messages";
+
+declare global {
+  var validateLiveSnapshot: (value: unknown) => Promise<Snapshot>;
+}
 
 if (process.env.CODEX_TEST_ACTIVITY === "1") {
   test("real Codex activity stays live, collapses at completion and preserves its final reply", async ({ page }) => {
@@ -51,9 +55,13 @@ if (process.env.CODEX_TEST_ACTIVITY === "1") {
     await expect(hide.locator("svg")).toHaveCSS("width", "16px");
     await expect
       .poll(() =>
-        hide
-          .locator("svg")
-          .evaluate((icon) => Number(getComputedStyle(icon.parentElement as Element).rotate.replace("deg", "")) || 0)
+        hide.locator("svg").evaluate((icon) => {
+          if (!icon.parentElement) {
+            throw new Error("Missing disclosure icon parent.");
+          }
+
+          return Number(getComputedStyle(icon.parentElement).rotate.replace("deg", "")) || 0;
+        })
       )
       .toBe(QUARTER_TURN_DEGREES);
     await page.screenshot({ path: ".local/activity-expanded.png" });
@@ -166,6 +174,7 @@ if (process.env.CODEX_TEST_ACTIVITY === "1") {
     await expect(page.getByText("RETRY_OK", { exact: true })).toBeVisible();
     await expect(page.getByText(retryText, { exact: true })).toHaveCount(1);
     await expect(page.getByText("Connected", { exact: true })).toBeVisible();
+    await observer.exposeFunction("validateLiveSnapshot", (value: unknown) => snapshotSchema.parse(value));
     const streaming = observer.evaluate(
       () =>
         new Promise<number>((resolve, reject) => {
@@ -177,30 +186,35 @@ if (process.env.CODEX_TEST_ACTIVITY === "1") {
             reject(new Error("Live response streaming timed out."));
           }, STREAM_TIMEOUT_MS);
           source.addEventListener("message", (event: MessageEvent<string>) => {
-            const LAST_TURN_INDEX = -1;
-            const state = JSON.parse(event.data) as Snapshot;
-            const text =
-              state.turns
-                .at(LAST_TURN_INDEX)
-                ?.items.filter((item) => item.type === "agentMessage")
-                .map((item) => String(item.text))
-                .findLast((message) => message.includes("STREAM_START")) ?? "";
+            void (async () => {
+              const LAST_TURN_INDEX = -1;
+              const data: unknown = JSON.parse(event.data);
+              const state = await globalThis.validateLiveSnapshot(data);
+              const text =
+                state.turns
+                  .at(LAST_TURN_INDEX)
+                  ?.items.filter((item) => item.type === "agentMessage")
+                  .map((item) => String(item.text))
+                  .findLast((message) => message.includes("STREAM_START")) ?? "";
 
-            if (!text.includes("STREAM_START")) {
-              return;
-            }
+              if (!text.includes("STREAM_START")) {
+                return;
+              }
 
-            if (state.activeTurnId) {
-              prefixes.add(text);
-            }
+              if (state.activeTurnId) {
+                prefixes.add(text);
+              }
 
-            if (!text.includes("STREAM_END") || state.activeTurnId) {
-              return;
-            }
+              if (!text.includes("STREAM_END") || state.activeTurnId) {
+                return;
+              }
 
-            clearTimeout(timer);
-            source.close();
-            resolve(prefixes.size);
+              clearTimeout(timer);
+              source.close();
+              resolve(prefixes.size);
+            })().catch((error: unknown) => {
+              reject(error instanceof Error ? error : new Error("Invalid snapshot.", { cause: error }));
+            });
           });
         })
     );

@@ -1,5 +1,6 @@
+import { delegationMailSchema, delegationRequestSchema } from "./delegation-data";
 import type Database from "better-sqlite3";
-import type { HarnessRequest } from "./harness/types";
+import { type HarnessRequest } from "./harness/types";
 import { createHash } from "node:crypto";
 import { object } from "../lib/protocol";
 import { validateAnswer } from "./answers";
@@ -45,18 +46,23 @@ export class DelegationMailbox {
       this.changed();
     }
 
-    return this.db
-      .prepare("SELECT * FROM delegation_mail WHERE childId=? AND sourceId=?")
-      .get(childId, sourceId) as DelegationMail;
+    return delegationMailSchema.parse(
+      this.db.prepare("SELECT * FROM delegation_mail WHERE childId=? AND sourceId=?").get(childId, sourceId)
+    );
   }
   message(childId: string, commandId: string, input: unknown) {
     const { message } = parentMessageInput.parse(input);
-    const command = this.db
-      .prepare(
-        `SELECT * FROM delegation_commands WHERE childId=? AND id=? AND status='running'
+    const command = z
+      .object({ parentId: z.string() })
+      .optional()
+      .parse(
+        this.db
+          .prepare(
+            `SELECT * FROM delegation_commands WHERE childId=? AND id=? AND status='running'
       AND EXISTS (SELECT 1 FROM side_pockets WHERE id=? AND status IN ('running','waiting'))`
-      )
-      .get(childId, commandId, childId) as { parentId: string } | undefined;
+          )
+          .get(childId, commandId, childId)
+      );
 
     if (!command) {
       throw new Error("This Side Pocket turn is no longer active.");
@@ -68,22 +74,30 @@ export class DelegationMailbox {
     return { id: mail.id, queued: true, note: "The parent receives this message and can reply in this saved session." };
   }
   pending(parentId: string) {
-    return this.db
-      .prepare(
-        "SELECT * FROM delegation_mail WHERE parentId=? AND delivery IN ('pending','queued') ORDER BY createdAt,rowid"
-      )
-      .all(parentId) as DelegationMail[];
+    return z
+      .array(delegationMailSchema)
+      .parse(
+        this.db
+          .prepare(
+            "SELECT * FROM delegation_mail WHERE parentId=? AND delivery IN ('pending','queued') ORDER BY createdAt,rowid"
+          )
+          .all(parentId)
+      );
   }
   delivered(id: string, status: "queued" | "sent" | "unknown") {
     this.db.prepare("UPDATE delegation_mail SET delivery=? WHERE id=?").run(status, id);
   }
   history(parentId: string, childId: string) {
-    return this.db
-      .prepare(
-        "SELECT * FROM delegation_mail WHERE parentId=? AND childId=? ORDER BY createdAt DESC,rowid DESC LIMIT ?"
-      )
-      .all(parentId, childId, HISTORY_LIMIT)
-      .toReversed() as DelegationMail[];
+    return z
+      .array(delegationMailSchema)
+      .parse(
+        this.db
+          .prepare(
+            "SELECT * FROM delegation_mail WHERE parentId=? AND childId=? ORDER BY createdAt DESC,rowid DESC LIMIT ?"
+          )
+          .all(parentId, childId, HISTORY_LIMIT)
+          .toReversed()
+      );
   }
   hasMessage(childId: string, commandId: string) {
     return !!this.db
@@ -100,18 +114,26 @@ export class DelegationMailbox {
     return id;
   }
   requests(parentId: string, childId: string, pendingOnly = false) {
-    return this.db
-      .prepare(
-        "SELECT * FROM delegation_requests WHERE parentId=? AND childId=? AND (?=0 OR status='pending') ORDER BY createdAt"
-      )
-      .all(parentId, childId, Number(pendingOnly)) as DelegationRequest[];
+    return z
+      .array(delegationRequestSchema)
+      .parse(
+        this.db
+          .prepare(
+            "SELECT * FROM delegation_requests WHERE parentId=? AND childId=? AND (?=0 OR status='pending') ORDER BY createdAt"
+          )
+          .all(parentId, childId, Number(pendingOnly))
+      );
   }
   answer(parentId: string, childId: string, id: string, answer: unknown) {
     return this.db
       .transaction(() => {
-        const request = this.db
-          .prepare("SELECT * FROM delegation_requests WHERE parentId=? AND childId=? AND id=?")
-          .get(parentId, childId, id) as DelegationRequest | undefined;
+        const request = delegationRequestSchema
+          .optional()
+          .parse(
+            this.db
+              .prepare("SELECT * FROM delegation_requests WHERE parentId=? AND childId=? AND id=?")
+              .get(parentId, childId, id)
+          );
 
         if (!request || request.status === "cancelled") {
           throw new Error("This request is no longer waiting. Send a follow-up to the saved Side Pocket session.");

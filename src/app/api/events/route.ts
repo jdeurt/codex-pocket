@@ -1,6 +1,6 @@
 import { errorResponse, guard, noStore } from "@/server/http";
 import { HTTP_FORBIDDEN } from "@/lib/constants";
-import type { Snapshot } from "@/lib/protocol";
+import { type Snapshot } from "@/lib/protocol";
 import { bridge } from "@/server/bridge";
 import { log } from "@/server/logging";
 import { visibleSnapshot } from "@/server/visible-snapshot";
@@ -59,8 +59,12 @@ export async function GET(request: Request) {
       send(bridge.snapshot);
       void bridge
         .ensureConnected()
-        .then(() => send(bridge.snapshot))
-        .catch(() => send(bridge.snapshot));
+        .then(() => {
+          send(bridge.snapshot);
+        })
+        .catch(() => {
+          send(bridge.snapshot);
+        });
     },
     cancel() {
       cleanup?.(false);

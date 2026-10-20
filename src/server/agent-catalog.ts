@@ -9,7 +9,7 @@ import {
   observeCodex,
   observedMetadata,
 } from "./agent-sources";
-import { type AgentStatus, activeAgent } from "../lib/agents";
+import { type AgentStatus, activeAgent, agentStatusSchema } from "../lib/agents";
 import { type SidePocket, delegations } from "./delegations";
 import { object, string } from "../lib/protocol";
 import { readConfig } from "./config";
@@ -18,7 +18,7 @@ function pocketRecord(child: SidePocket, id: string, parentId: string): AgentRec
   const metadata = object(JSON.parse(child.metadata));
   const lastStatus = delegations().lastCommandStatus(child.parentId, child.id);
   let status: AgentStatus = ["running", "waiting", "idle", "closed"].includes(child.status)
-    ? (child.status as AgentStatus)
+    ? agentStatusSchema.parse(child.status)
     : "unknown";
 
   if (status === "idle" && lastStatus === "failed") {
@@ -85,7 +85,7 @@ function attachPocket(tree: DiscoveryTree, child: SidePocket, parent: string) {
 export async function discoverAgents(owner: string, previous = new Map<string, AgentRecord>()) {
   const config = await readConfig();
 
-  if (!config || config.threadId !== owner) {
+  if (config?.threadId !== owner) {
     throw new Error("Parent chat is unavailable.");
   }
 

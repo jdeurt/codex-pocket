@@ -1,10 +1,10 @@
 import { type Page, expect, test } from "@playwright/test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
-import type { Snapshot } from "../../src/lib/protocol";
 import path from "node:path";
 import { readSnapshot } from "../../scripts/read-snapshot.mjs";
 import { send } from "./messages";
 import sharp from "sharp";
+import { snapshotSchema } from "../../src/lib/protocol";
 
 async function completedTurn(page: Page, prompt: string) {
   await send(page, prompt);
@@ -20,7 +20,7 @@ async function completedTurn(page: Page, prompt: string) {
         throw new Error("Pocket did not return a snapshot stream.");
       }
 
-      const state = (await readSnapshot(response.body)) as Snapshot;
+      const state = snapshotSchema.parse(await readSnapshot(response.body));
       const current = state.turns.find((entry) =>
         entry.items.some((item) => item.type === "userMessage" && JSON.stringify(item.content).includes(prompt))
       );

@@ -1,11 +1,18 @@
-import { type Snapshot, type Turn, initialSnapshot } from "../src/lib/protocol";
+import { type Snapshot, type Turn, initialSnapshot, object, snapshotSchema, string } from "../src/lib/protocol";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import { fork } from "node:child_process";
 import { once } from "node:events";
+import { outboxSchema } from "../src/server/outbox";
 import path from "node:path";
 import { setTimeout as pause } from "node:timers/promises";
+import { z } from "zod";
+
+const replySchema = z.union([
+  z.object({ raw: snapshotSchema, visible: snapshotSchema, error: z.undefined().optional() }),
+  z.object({ error: z.string() }),
+]);
 
 const script = fileURLToPath(import.meta.url);
 const fixture = path.resolve("tests/fixtures/restart-rpc.mjs");
@@ -48,7 +55,7 @@ async function worker() {
   });
   process.once("SIGTERM", () => {
     bridge.close();
-    process.disconnect?.();
+    process.disconnect();
   });
 }
 
@@ -80,17 +87,19 @@ async function check() {
 
   let child = start();
 
-  async function request(text?: string): Promise<{ raw: Snapshot; visible: Snapshot; error?: string }> {
+  async function request(text?: string) {
     const reply = once(child, "message", { signal: AbortSignal.timeout(PROCESS_TIMEOUT_MS) });
     child.send({ id: crypto.randomUUID(), text });
-    const [result] = await reply;
+    const replies: unknown[] = await reply;
+    const result = replies[0];
 
-    return result;
+    return replySchema.parse(result);
   }
 
   async function snapshot(text?: string) {
     const result = await request(text);
     assert.equal(result.error, undefined);
+    assert.ok("raw" in result && "visible" in result);
 
     return result;
   }
@@ -136,7 +145,7 @@ async function check() {
     assert.equal(await readFile(path.join(failureDirectory, "fake-processes.jsonl"), "utf8"), processes);
     await stop();
     const outboxFile = path.join(failureDirectory, "outbox.json");
-    const outbox = JSON.parse(await readFile(outboxFile, "utf8"));
+    const outbox = outboxSchema.parse(JSON.parse(await readFile(outboxFile, "utf8")));
     outbox.receipts.push({ id: "pocket-recovery:already-queued", text: RECOVERY_PROMPT, status: "queued" });
     await writeFile(outboxFile, JSON.stringify(outbox));
     child = start(failureDirectory);
@@ -180,7 +189,8 @@ async function check() {
     const recovery = restarted.raw.turns
       .flatMap((turn) => turn.items)
       .find((item) => String(item.clientId).startsWith("pocket-recovery:"));
-    assert.equal((recovery?.content as { text: string }[])[0].text, RECOVERY_PROMPT);
+    assert.ok(Array.isArray(recovery?.content));
+    assert.equal(string(object(recovery.content[0]).text), RECOVERY_PROMPT);
     const persisted = await readFile(path.join(directory, "restart-events.json"), "utf8");
     const processes = await readFile(path.join(directory, "fake-processes.jsonl"), "utf8");
     assert.equal(processes.trim().split("\n").length, 2);
@@ -235,7 +245,7 @@ async function check() {
     // An uncertain recovery instruction must not be replayed just to display a restart.
     await stop();
     const outboxFile = path.join(directory, "outbox.json");
-    const outbox = JSON.parse(await readFile(outboxFile, "utf8"));
+    const outbox = outboxSchema.parse(JSON.parse(await readFile(outboxFile, "utf8")));
     outbox.receipts.push({ id: "pocket-recovery:unknown", text: RECOVERY_PROMPT, status: "unknown" });
     await writeFile(outboxFile, JSON.stringify(outbox));
     child = start();

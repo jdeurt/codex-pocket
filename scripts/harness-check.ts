@@ -5,6 +5,7 @@ import { createAdapter } from "../src/server/harness";
 import nextEnv from "@next/env";
 import path from "node:path";
 import { readConfig } from "../src/server/config";
+import { z } from "zod";
 
 nextEnv.loadEnvConfig(process.cwd());
 const config = await readConfig();
@@ -18,7 +19,9 @@ const cwd = path.join(root, "project");
 await mkdir(cwd, { recursive: true });
 process.env.CODEX_POCKET_STATE_DIR = path.join(root, "state");
 
-for (const harness of ["codex", "claude"] as Harness[]) {
+const harnesses: Harness[] = ["codex", "claude"];
+
+for (const harness of harnesses) {
   let metadata: Record<string, unknown> = {};
   const options: AdapterOptions = {
     config,
@@ -34,9 +37,7 @@ for (const harness of ["codex", "claude"] as Harness[]) {
       metadata: (value) => {
         metadata = { ...metadata, ...value };
       },
-      request: async () => {
-        return { answers: { "Choose a test color": "Blue" } };
-      },
+      request: () => Promise.resolve({ answers: { "Choose a test color": "Blue" } }),
     },
   };
   let adapter = createAdapter(harness, options);
@@ -46,7 +47,7 @@ for (const harness of ["codex", "claude"] as Harness[]) {
     let sessionId = await adapter.open();
     await adapter.close();
     options.child.sessionId = sessionId;
-    options.child.sessionStarted = metadata.sessionStarted as boolean | undefined;
+    options.child.sessionStarted = z.boolean().optional().parse(metadata.sessionStarted);
     adapter = createAdapter(harness, options);
     const reopened = await adapter.open();
 
@@ -67,15 +68,18 @@ for (const harness of ["codex", "claude"] as Harness[]) {
     if (harness === "claude") {
       assert.equal(metadata.permissionMode, "bypassPermissions");
       assert.equal(
-        (metadata.tools as string[]).some((tool) => ["Agent", "Task"].includes(tool)),
+        z
+          .array(z.string())
+          .parse(metadata.tools)
+          .some((tool) => ["Agent", "Task"].includes(tool)),
         true
       );
-      assert.equal((metadata.tools as string[]).includes("Skill"), true);
+      assert.equal(z.array(z.string()).parse(metadata.tools).includes("Skill"), true);
     }
 
     await adapter.close();
     options.child.sessionId = sessionId;
-    options.child.sessionStarted = metadata.sessionStarted as boolean | undefined;
+    options.child.sessionStarted = z.boolean().optional().parse(metadata.sessionStarted);
     adapter = createAdapter(harness, options);
     assert.equal(await adapter.open(), sessionId);
     const resumed = await adapter.run(

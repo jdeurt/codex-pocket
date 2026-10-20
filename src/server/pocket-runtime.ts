@@ -1,10 +1,10 @@
-import { type Thread, string } from "../lib/protocol";
-import type { CodexRpc } from "./rpc";
-import type { Config } from "./config";
+import { type CodexRpc } from "./rpc";
+import { type Config } from "./config";
 import { delegations } from "./delegations";
 import { localDirectory } from "./local-state";
 import { parentPolicy } from "./harness/permissions";
 import path from "node:path";
+import { string } from "../lib/protocol";
 
 export function pocketServerArgs(config: Config) {
   const root = process.cwd();
@@ -51,7 +51,7 @@ Pocket injects the body as a user message when due, obeying its configured steer
 }
 
 export async function resumePocket(rpc: CodexRpc, config: Config) {
-  const { config: effective } = await rpc.request<{ config: Record<string, unknown> }>("config/read", {
+  const { config: effective } = await rpc.request("config/read", {
     includeLayers: false,
     cwd: config.cwd,
   });
@@ -62,13 +62,7 @@ export async function resumePocket(rpc: CodexRpc, config: Config) {
     effective.sandbox_mode === "danger-full-access"
   );
 
-  const resumed = await rpc.request<{
-    thread: Thread;
-    model: string;
-    reasoningEffort: string | null;
-    approvalPolicy?: unknown;
-    sandbox?: { type: string };
-  }>("thread/resume", {
+  const resumed = await rpc.request("thread/resume", {
     threadId: config.threadId,
     excludeTurns: true,
     ...(effort && { config: { model_reasoning_effort: effort } }),

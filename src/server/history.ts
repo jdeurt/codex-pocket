@@ -1,6 +1,7 @@
-const METHOD_NOT_FOUND = -32_601;
 import { type CodexRpc, RpcError } from "./rpc";
-import type { Item, Thread, Turn } from "../lib/protocol";
+import { type Item, type Thread, type Turn } from "../lib/protocol";
+
+const METHOD_NOT_FOUND = -32_601;
 
 export async function loadItems(rpc: CodexRpc, threadId: string, turnId: string) {
   const items: Item[] = [];
@@ -52,7 +53,7 @@ export async function loadHistory(rpc: CodexRpc, thread: Thread): Promise<Turn[]
       throw error;
     }
 
-    const result = await rpc.request<{ thread: Thread }>("thread/read", { threadId: thread.id, includeTurns: true });
+    const result = await rpc.request("thread/read", { threadId: thread.id, includeTurns: true });
 
     return result.thread.turns;
   }

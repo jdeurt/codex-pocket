@@ -1,6 +1,10 @@
 import { type APIRequestContext, expect } from "@playwright/test";
 import { readFile, writeFile } from "node:fs/promises";
-import type { AgentTranscript } from "../../src/lib/agents";
+import { agentTranscriptSchema } from "../../src/lib/agents";
+import { replayLogSchema } from "../fixtures/replay-protocol";
+import { z } from "zod";
+
+const LAST_TURN = -1;
 
 const directory = ".local/agent-browser-replay";
 const ARCHIVED_TURNS = 40;
@@ -15,7 +19,7 @@ export async function checkAgentCache(request: APIRequestContext, control: (stag
     .trim()
     .split("\n")
     .slice(baseline)
-    .map((line) => JSON.parse(line));
+    .map((line) => replayLogSchema.parse(JSON.parse(line)));
   expect(
     discoveryReads.filter(
       (entry) =>
@@ -25,7 +29,7 @@ export async function checkAgentCache(request: APIRequestContext, control: (stag
     )
   ).toEqual([]);
   const idsText = await readFile(`${directory}/ids.json`, "utf8");
-  const closedId = JSON.parse(idsText)["Closed Side Pocket"] as string;
+  const closedId = z.record(z.string(), z.string()).parse(JSON.parse(idsText))["Closed Side Pocket"];
   const coldBaseline = afterCatalog.trim().split("\n").length;
   const concurrent = await Promise.all([
     request.get(`/api/agents?agent=pocket:${closedId}`),
@@ -38,7 +42,7 @@ export async function checkAgentCache(request: APIRequestContext, control: (stag
     .trim()
     .split("\n")
     .slice(coldBaseline)
-    .map((line) => JSON.parse(line))
+    .map((line) => replayLogSchema.parse(JSON.parse(line)))
     .filter(
       (entry) =>
         entry.threadId === "closed-session" && entry.method === "thread/turns/list" && entry.itemsView === "full"
@@ -46,7 +50,7 @@ export async function checkAgentCache(request: APIRequestContext, control: (stag
   expect(coldReads).toHaveLength(1);
   await request.get("/api/agents?view=list");
   const first = await request.get("/api/agents?agent=codex:done-codex");
-  const firstHistory = (await first.json()) as AgentTranscript;
+  const firstHistory = agentTranscriptSchema.parse(await first.json());
   expect(firstHistory.state.turns.length).toBeGreaterThan(ARCHIVED_TURNS);
   expect(firstHistory.state.turns[0].id).toBe("archived-0");
   const beforeReuse = await readFile(`${directory}/rpc.jsonl`, "utf8");
@@ -60,20 +64,20 @@ export async function checkAgentCache(request: APIRequestContext, control: (stag
     .trim()
     .split("\n")
     .slice(reuseBaseline)
-    .map((line) => JSON.parse(line))
+    .map((line) => replayLogSchema.parse(JSON.parse(line)))
     .filter((entry) => entry.threadId === "done-codex");
   expect(reuseReads).toEqual([]);
   await control("history-changed");
   await expect
     .poll(async () => {
       const response = await request.get("/api/agents?agent=codex:done-codex");
-      const transcript = (await response.json()) as AgentTranscript;
+      const transcript = agentTranscriptSchema.parse(await response.json());
 
-      return transcript.state.turns.findLast(() => true)?.id;
+      return transcript.state.turns.at(LAST_TURN)?.id;
     })
     .toBe("changed-turn");
   const changed = await request.get("/api/agents?agent=codex:done-codex");
-  const changedHistory = (await changed.json()) as AgentTranscript;
+  const changedHistory = agentTranscriptSchema.parse(await changed.json());
   expect(changedHistory.state.turns[0].id).toBe("archived-0");
   expect(changedHistory.state.turns.length).toBe(firstHistory.state.turns.length + 1);
   const changedLog = await readFile(`${directory}/rpc.jsonl`, "utf8");
@@ -81,14 +85,17 @@ export async function checkAgentCache(request: APIRequestContext, control: (stag
     .trim()
     .split("\n")
     .slice(reuseBaseline)
-    .map((line) => JSON.parse(line))
+    .map((line) => replayLogSchema.parse(JSON.parse(line)))
     .filter((entry) => entry.threadId === "done-codex" && entry.method === "thread/turns/list");
   expect(changedReads.length).toBeGreaterThan(0);
   expect(
-    changedReads.every((entry) => entry.sortDirection === "desc" && entry.limit < firstHistory.state.turns.length)
+    changedReads.every(
+      (entry) =>
+        entry.sortDirection === "desc" && entry.limit !== undefined && entry.limit < firstHistory.state.turns.length
+    )
   ).toBeTruthy();
   const metricsText = await readFile(`${directory}/rpc-metrics.json`, "utf8");
-  const metrics = JSON.parse(metricsText);
+  const metrics = z.object({ maxReads: z.number() }).parse(JSON.parse(metricsText));
   expect(metrics.maxReads).toBeLessThanOrEqual(MAX_READS);
   expect(metrics.maxReads).toBeGreaterThan(1);
   await writeFile(

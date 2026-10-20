@@ -1,9 +1,9 @@
-import type { ChildProcess } from "node:child_process";
+import { type ChildProcess } from "node:child_process";
 
 const PROCESS_EXIT_TIMEOUT_MS = 5000;
 
 export async function waitForProcessExit(child: ChildProcess | undefined) {
-  if (!child || child.exitCode !== null || child.signalCode !== null) {
+  if (child?.exitCode !== null || child.signalCode !== null) {
     return;
   }
 

@@ -46,7 +46,9 @@ export function ChatImage({ source, alt = "Image from Pocket" }: { source: strin
               loading="eager"
               decoding="async"
               referrerPolicy="no-referrer"
-              onLoad={() => setLoaded(true)}
+              onLoad={() => {
+                setLoaded(true);
+              }}
               onError={() => {
                 setFailed(true);
                 reportClient("image.failed", { source: src.startsWith("data:") ? "inline image" : src }, "error");

@@ -1,4 +1,4 @@
-import { type Thread, initialSnapshot } from "../src/lib/protocol";
+import { type Thread, initialSnapshot, object } from "../src/lib/protocol";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { pocketInstructions, resumePocket } from "../src/server/pocket-runtime";
 import { CodexRpc } from "../src/server/rpc";
@@ -9,6 +9,16 @@ import { loadHistory } from "../src/server/history";
 import path from "node:path";
 import { seedThread } from "./seed-thread";
 import { visibleSnapshot } from "../src/server/visible-snapshot";
+import { z } from "zod";
+
+const rolloutRowSchema = z.object({
+  type: z.string(),
+  payload: z.object({
+    base_instructions: z.object({ text: z.string() }).optional(),
+    role: z.string().optional(),
+    content: z.array(z.object({ text: z.string().optional() })).default([]),
+  }),
+});
 
 async function checkInstructions() {
   await mkdir(".local", { recursive: true });
@@ -35,7 +45,7 @@ async function checkInstructions() {
     ],
   });
   let rpc = new CodexRpc();
-  let thread: (Thread & { path: string }) | undefined;
+  let thread: Thread | undefined;
   let originalBase: string | undefined;
   const results: { stage: string; marker: string; baseHash: string; promptCopies: number }[] = [];
 
@@ -52,9 +62,9 @@ async function checkInstructions() {
   async function check(stage: string) {
     const replies: string[] = [];
     const listener = (event: { method: string; params: Record<string, unknown> }) => {
-      const item = event.params.item as { type?: string; text?: string } | undefined;
+      const item = object(event.params.item);
 
-      if (event.method === "item/completed" && item?.type === "agentMessage" && item.text) {
+      if (event.method === "item/completed" && item.type === "agentMessage" && typeof item.text === "string") {
         replies.push(item.text);
       }
     };
@@ -68,21 +78,24 @@ async function checkInstructions() {
 
     assert.deepEqual(replies, [marker]);
     assert.ok(thread);
+    assert.equal(typeof thread.path, "string");
+    assert.ok(typeof thread.path === "string");
     const content = await readFile(thread.path, "utf8");
     const rows = content
       .trim()
       .split("\n")
-      .map((line) => JSON.parse(line));
+      .map((line) => rolloutRowSchema.parse(JSON.parse(line)));
     const metadata = rows.find((row) => row.type === "session_meta");
-    const base = metadata.payload.base_instructions.text as string;
+    assert.ok(metadata?.payload.base_instructions);
+    const base = metadata.payload.base_instructions.text;
     assert.ok(base.length > 0);
     assert.equal(base.includes("You are Pocket"), false);
     originalBase ??= base;
     assert.equal(base, originalBase);
     const developerTexts = rows
-      .filter((row) => row.type === "response_item" && row.payload?.role === "developer")
+      .filter((row) => row.type === "response_item" && row.payload.role === "developer")
       .flatMap((row) => row.payload.content)
-      .map((part) => String(part.text ?? ""));
+      .map((part) => part.text ?? "");
     const promptCopies = developerTexts.filter((text) => text.includes(instructions)).length;
     assert.equal(promptCopies, 1);
     const turns = await loadHistory(rpc, { id: config.threadId, turns: [] });
@@ -95,7 +108,7 @@ async function checkInstructions() {
 
   try {
     await rpc.connect(config);
-    const started = await rpc.request<{ thread: Thread & { path: string } }>("thread/start", {
+    const started = await rpc.request("thread/start", {
       cwd: project,
       approvalPolicy: "never",
       sandbox: "read-only",

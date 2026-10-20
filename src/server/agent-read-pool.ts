@@ -27,7 +27,7 @@ export function agentRead<T>(read: () => Promise<T>, priority = 0): Promise<T> {
         try {
           resolve(await read());
         } catch (error) {
-          reject(error);
+          reject(error instanceof Error ? error : new Error("Agent history read failed.", { cause: error }));
         } finally {
           state.active--;
           drain();

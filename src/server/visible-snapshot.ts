@@ -1,4 +1,4 @@
-import { type Item, type Snapshot, string } from "../lib/protocol";
+import { type Item, type Snapshot, object, string } from "../lib/protocol";
 import { itemImageSources, itemImageUrl } from "../lib/images";
 import { currentActivity } from "./activity";
 import { delegationMessagePrefix } from "./delegation-mail";
@@ -10,7 +10,7 @@ const internal = (id: unknown) => isRecoveryMessageId(id) || string(id).startsWi
 
 // Only messages and explicitly projected display items leave the computer.
 export function visibleSnapshot(state: Snapshot, options: { tools?: boolean } = {}): Snapshot {
-  const scheduled = new Set(Object.keys(state.scheduled ?? {}));
+  const scheduled = new Set(Object.keys(state.scheduled));
 
   return {
     ...state,
@@ -51,7 +51,7 @@ export function visibleSnapshot(state: Snapshot, options: { tools?: boolean } = 
             ...(images.length > 0 && {
               images,
               content: Array.isArray(item.content)
-                ? item.content.filter((part) => (part as { type?: string }).type === "text")
+                ? item.content.filter((part) => object(part).type === "text")
                 : item.content,
             }),
           };

@@ -24,7 +24,7 @@ export function validateAnswer(request: PendingRequest, input: unknown): unknown
     const questions = z.array(z.object({ id: z.string() })).parse(request.params.questions);
 
     if (
-      questions.some((q) => result.answers[q.id] === undefined) ||
+      questions.some((q) => !Object.hasOwn(result.answers, q.id)) ||
       Object.keys(result.answers).some((id) => questions.every((q) => q.id !== id))
     ) {
       throw new Error("Answer each question.");

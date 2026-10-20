@@ -1,12 +1,13 @@
 import { NotificationPresence, notificationDeviceId } from "../src/server/notification-presence";
 import assert from "node:assert/strict";
 import test from "node:test";
+import { z } from "zod";
 
 const PHONE = "https://push.example/phone";
 const TABLET = "https://push.example/tablet";
 const PROBE_EXPIRY_MS = 1501;
 
-test("only a fresh acknowledgement from the receiving device suppresses delivery", async () => {
+await test("only a fresh acknowledgement from the receiving device suppresses delivery", async () => {
   const presence = new NotificationPresence();
   const phoneId = notificationDeviceId(PHONE);
   assert.equal(await presence.isForeground(PHONE), false);
@@ -21,7 +22,7 @@ test("only a fresh acknowledgement from the receiving device suppresses delivery
   assert.equal(await presence.isForeground(PHONE), false);
 });
 
-test("suspended connections and late acknowledgements fail open, and reconnects restore suppression", async (t) => {
+await test("suspended connections and late acknowledgements fail open, and reconnects restore suppression", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
   const presence = new NotificationPresence();
   const phoneId = notificationDeviceId(PHONE);
@@ -41,7 +42,7 @@ test("suspended connections and late acknowledgements fail open, and reconnects 
   restored();
 });
 
-test("disconnect resolves an in-flight probe without muting the device", async () => {
+await test("disconnect resolves an in-flight probe without muting the device", async () => {
   const presence = new NotificationPresence();
   const disconnect = presence.connect(notificationDeviceId(PHONE), () => {
     /*
@@ -53,7 +54,7 @@ test("disconnect resolves an in-flight probe without muting the device", async (
   assert.equal(await pending, false);
 });
 
-test("the live presence route carries probes, accepts same-origin acknowledgements and releases aborted streams", async () => {
+await test("the live presence route carries probes, accepts same-origin acknowledgements and releases aborted streams", async () => {
   const { GET, POST } = await import("../src/app/api/notifications/presence/route");
   const { notificationPresence } = await import("../src/server/notification-presence");
   const previousThread = process.env.CODEX_THREAD_ID;
@@ -80,7 +81,7 @@ test("the live presence route carries probes, accepts same-origin acknowledgemen
     const probeMessage = await reader.read();
     const probe = new TextDecoder().decode(probeMessage.value);
     const data = probe.split("data: ", 2)[1].trim();
-    const { challengeId } = JSON.parse(data) as { challengeId: string };
+    const { challengeId } = z.object({ challengeId: z.string() }).parse(JSON.parse(data));
     const acknowledge = await POST(
       new Request("http://127.0.0.1:3000/api/notifications/presence", {
         method: "POST",

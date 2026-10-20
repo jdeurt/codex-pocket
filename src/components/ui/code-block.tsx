@@ -1,12 +1,11 @@
 "use client";
-
 import * as React from "react";
-import { cva, type VariantProps } from "class-variance-authority";
+import { CheckIcon, CopyIcon } from "lucide-react";
+import { type VariantProps, cva } from "class-variance-authority";
+import { Button } from "@/components/ui/button";
 import { cn } from "cn";
 
-import { Button } from "@/components/ui/button";
-import { CheckIcon, CopyIcon } from "lucide-react";
-
+const COPY_STATUS_MS = 2000;
 const codeBlockVariants = cva(
   "group/code-block relative flex w-full min-w-0 flex-col overflow-hidden rounded-lg text-sm has-[>[data-slot=code-block-content]:focus-visible]:ring-3 has-[>[data-slot=code-block-content]:focus-visible]:ring-ring/50 data-[size=sm]:text-xs",
   {
@@ -94,9 +93,23 @@ function CodeBlockCopyButton({
       return;
     }
 
-    const timeout = setTimeout(() => setCopied(false), 2000);
-    return () => clearTimeout(timeout);
+    const timeout = setTimeout(() => {
+      setCopied(false);
+    }, COPY_STATUS_MS);
+
+    return () => {
+      clearTimeout(timeout);
+    };
   }, [copied]);
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  };
 
   return (
     <>
@@ -109,10 +122,7 @@ function CodeBlockCopyButton({
         className={cn(className)}
         onClick={(event) => {
           onClick?.(event);
-          navigator.clipboard
-            .writeText(value)
-            .then(() => setCopied(true))
-            .catch(() => {});
+          void copy();
         }}
         {...props}
       >
@@ -122,48 +132,6 @@ function CodeBlockCopyButton({
         {copied ? "Copied" : ""}
       </span>
     </>
-  );
-}
-
-function CodeBlockContent({
-  className,
-  children,
-  style,
-  wrap = false,
-  lineNumbers = false,
-  startLine = 1,
-  ...props
-}: React.ComponentProps<"pre"> & {
-  wrap?: boolean;
-  lineNumbers?: boolean;
-  startLine?: number;
-}) {
-  return (
-    <pre
-      data-slot="code-block-content"
-      data-wrap={wrap || undefined}
-      data-numbered={lineNumbers || undefined}
-      dir="ltr"
-      tabIndex={0}
-      style={{ counterReset: `line ${startLine - 1}`, ...style }}
-      className={cn(
-        "min-h-0 min-w-0 scroll-fade-x scrollbar-thin overflow-auto px-3 py-3 text-start font-mono leading-relaxed outline-none group-has-data-[slot=code-block-footer]/code-block:pb-2 group-has-data-[slot=code-block-header]/code-block:pt-2 group-data-[size=sm]/code-block:px-2.5 group-data-[size=sm]/code-block:py-2.5 group-data-[size=sm]/code-block:group-has-data-[slot=code-block-header]/code-block:pt-1.5 data-wrap:scroll-fade-y data-wrap:wrap-break-word data-wrap:whitespace-pre-wrap",
-        className
-      )}
-      {...props}
-    >
-      <code
-        data-slot="code-block-code"
-        className="grid min-h-lh min-w-max content-start in-data-numbered:grid-cols-[auto_1fr] in-data-wrap:min-w-0"
-      >
-        {lineNumbers && typeof children === "string"
-          ? children
-              .replace(/\n$/, "")
-              .split("\n")
-              .map((line, index) => <CodeBlockLine key={index}>{line}</CodeBlockLine>)
-          : children}
-      </code>
-    </pre>
   );
 }
 
@@ -211,6 +179,59 @@ function CodeBlockLine({
   );
 }
 
+function CodeBlockContent({
+  className,
+  children,
+  style,
+  wrap = false,
+  lineNumbers = false,
+  startLine = 1,
+  ...props
+}: React.ComponentProps<"pre"> & {
+  wrap?: boolean;
+  lineNumbers?: boolean;
+  startLine?: number;
+}) {
+  const occurrences = new Map<string, number>();
+  const lines =
+    typeof children === "string"
+      ? children
+          .replace(/\n$/, "")
+          .split("\n")
+          .map((line) => {
+            const occurrence = (occurrences.get(line) ?? 0) + 1;
+            occurrences.set(line, occurrence);
+
+            return { id: `${line}:${String(occurrence)}`, text: line };
+          })
+      : [];
+
+  return (
+    <pre
+      data-slot="code-block-content"
+      data-wrap={wrap || undefined}
+      data-numbered={lineNumbers || undefined}
+      dir="ltr"
+      tabIndex={0}
+      style={{ counterReset: `line ${String(startLine - 1)}`, ...style }}
+      className={cn(
+        "min-h-0 min-w-0 scroll-fade-x scrollbar-thin overflow-auto px-3 py-3 text-start font-mono leading-relaxed outline-none group-has-data-[slot=code-block-footer]/code-block:pb-2 group-has-data-[slot=code-block-header]/code-block:pt-2 group-data-[size=sm]/code-block:px-2.5 group-data-[size=sm]/code-block:py-2.5 group-data-[size=sm]/code-block:group-has-data-[slot=code-block-header]/code-block:pt-1.5 data-wrap:scroll-fade-y data-wrap:wrap-break-word data-wrap:whitespace-pre-wrap",
+        className
+      )}
+      {...props}
+    >
+      <code
+        data-slot="code-block-code"
+        className="grid min-h-lh min-w-max content-start in-data-numbered:grid-cols-[auto_1fr] in-data-wrap:min-w-0"
+      >
+        {lineNumbers && typeof children === "string"
+          ? lines.map((line) => <CodeBlockLine key={line.id}>{line.text}</CodeBlockLine>)
+          : children}
+      </code>
+    </pre>
+  );
+}
+
 function CodeBlockFooter({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -226,11 +247,11 @@ function CodeBlockFooter({ className, ...props }: React.ComponentProps<"div">) {
 
 export {
   CodeBlock,
-  CodeBlockHeader,
-  CodeBlockTitle,
   CodeBlockActions,
-  CodeBlockCopyButton,
   CodeBlockContent,
-  CodeBlockLine,
+  CodeBlockCopyButton,
   CodeBlockFooter,
+  CodeBlockHeader,
+  CodeBlockLine,
+  CodeBlockTitle,
 };

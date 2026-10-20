@@ -1,6 +1,13 @@
-/* eslint-disable @typescript-eslint/no-magic-numbers -- Explicit luminance bands and RGBA offsets define the tonal integration fixtures. */
 import path from "node:path";
 import sharp from "sharp";
+
+export const TONAL_BANDS = {
+  dark: { shadow: 4, low: 16, high: 28, highlight: 40 },
+  bright: { shadow: 216, low: 228, high: 240, highlight: 252 },
+  subtle: { shadow: 112, low: 116, high: 120, highlight: 124 },
+};
+const ALPHA_CHANNEL = 3;
+const WEIGHTED_ALPHA = 8;
 
 const SIZE = 32;
 const CHANNELS = 4;
@@ -12,13 +19,12 @@ const BAND_WIDTH = 4;
 export async function createTonalFixtures(directory: string) {
   const images: Record<string, string> = {};
 
-  for (const [name, levels] of Object.entries({
-    dark: [4, 16, 28, 40],
-    bright: [216, 228, 240, 252],
-    subtle: [112, 116, 120, 124],
-    hidden: [4, 16, 28, 40],
-    weighted: [4, 16, 28, 40],
+  for (const [name, bands] of Object.entries({
+    ...TONAL_BANDS,
+    hidden: TONAL_BANDS.dark,
+    weighted: TONAL_BANDS.dark,
   })) {
+    const levels = Object.values(bands);
     const data = Buffer.alloc(SIZE * SIZE * CHANNELS);
 
     for (let y = 0; y < SIZE; y++) {
@@ -29,7 +35,13 @@ export async function createTonalFixtures(directory: string) {
         data[offset] = luminance;
         data[offset + 1] = luminance;
         data[offset + 2] = luminance;
-        data[offset + 3] = inside ? (name === "weighted" && x < SIZE / 2 ? 8 : y < SIZE / 2 ? OPAQUE : HALF_ALPHA) : 0;
+        data[offset + ALPHA_CHANNEL] = inside
+          ? name === "weighted" && x < SIZE / 2
+            ? WEIGHTED_ALPHA
+            : y < SIZE / 2
+              ? OPAQUE
+              : HALF_ALPHA
+          : 0;
       }
     }
 

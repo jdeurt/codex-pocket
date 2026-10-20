@@ -1,6 +1,7 @@
+import { type QueuedMessage, queuedMessageSchema } from "../lib/protocol";
 import { readLocal, writeLocal } from "./local-state";
-import type { FileAttachment } from "../lib/attachments";
-import type { QueuedMessage } from "../lib/protocol";
+import { type FileAttachment } from "../lib/attachments";
+import { z } from "zod";
 
 const RECEIPT_LIMIT = 1000;
 
@@ -10,13 +11,10 @@ export interface Receipt {
   attachments?: FileAttachment[];
   status: QueuedMessage["status"];
 }
-interface Outbox {
-  threadId: string;
-  receipts: Receipt[];
-}
+export const outboxSchema = z.object({ threadId: z.string(), receipts: z.array(queuedMessageSchema) });
 
 export async function restoreReceipts(threadId: string) {
-  const outbox = await readLocal<Outbox>("outbox.json", { threadId, receipts: [] });
+  const outbox = outboxSchema.parse(await readLocal("outbox.json", { threadId, receipts: [] }));
 
   if (outbox.threadId !== threadId && outbox.receipts.some((r) => r.status !== "sent")) {
     throw new Error(

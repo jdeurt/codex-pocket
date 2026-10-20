@@ -1,5 +1,4 @@
 "use client";
-
 import { type RefObject, useEffect } from "react";
 
 // Safari can resize/pan only the visual viewport when the keyboard opens.
@@ -14,6 +13,7 @@ export function useComposerViewport(textarea: RefObject<HTMLTextAreaElement | nu
       return;
     }
 
+    let frame: number | undefined;
     const reset = () => {
       shell.style.removeProperty("--composer-viewport-height");
       shell.style.removeProperty("--composer-viewport-top");
@@ -26,21 +26,34 @@ export function useComposerViewport(textarea: RefObject<HTMLTextAreaElement | nu
         return;
       }
 
-      shell.style.setProperty("--composer-viewport-height", `${viewport.height}px`);
-      shell.style.setProperty("--composer-viewport-top", `${viewport.offsetTop}px`);
+      shell.style.setProperty("--composer-viewport-height", `${String(viewport.height)}px`);
+      shell.style.setProperty("--composer-viewport-top", `${String(viewport.offsetTop)}px`);
+    };
+    const schedule = () => {
+      if (frame !== undefined) {
+        cancelAnimationFrame(frame);
+      }
+
+      frame = requestAnimationFrame(() => {
+        frame = undefined;
+        resize();
+      });
     };
     const stop = () => {
-      viewport.removeEventListener("resize", resize);
-      viewport.removeEventListener("scroll", resize);
+      if (frame !== undefined) {
+        cancelAnimationFrame(frame);
+        frame = undefined;
+      }
+
+      viewport.removeEventListener("resize", schedule);
+      viewport.removeEventListener("scroll", schedule);
       reset();
     };
     const start = () => {
       resize();
       // Visual viewport changes do not resize the shell's layout viewport.
-      // eslint-disable-next-line unicorn/prefer-observer-apis -- ResizeObserver cannot observe the visual viewport.
-      viewport.addEventListener("resize", resize);
-      // eslint-disable-next-line unicorn/prefer-observer-apis -- IntersectionObserver cannot report viewport panning.
-      viewport.addEventListener("scroll", resize);
+      viewport.addEventListener("resize", schedule);
+      viewport.addEventListener("scroll", schedule);
     };
 
     input.addEventListener("focus", start);
