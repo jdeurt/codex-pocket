@@ -1,7 +1,7 @@
 import { type Turn, string } from "../lib/protocol";
 import { readLocal, writeLocal } from "./local-state";
-import { log } from "./logging";
 import { type NotificationPayload } from "../lib/notification-payload";
+import { log } from "./logging";
 import { notificationPresence } from "./notification-presence";
 import { readConfig } from "./config";
 import webpush from "web-push";
@@ -46,34 +46,61 @@ if (!globalThis.codexPocketPush) {
   Object.defineProperty(globalThis, "codexPocketPush", { value: operations, configurable: true });
 }
 
+/**
+Read and validate private push state, apply one queued operation, then atomically persist its result.
+@param action - Push-state operation executed only after the previous queued write settles.
+@returns The operation's result after its state has been persisted.
+*/
+async function pushTransaction<T>(action: (state: PushState) => T | Promise<T>) {
+  const state = pushStateSchema.nullable().parse(await readLocal("push.json", null)) ?? {
+    keys: webpush.generateVAPIDKeys(),
+    subscriptions: [],
+    notified: [],
+  };
+  const value = await action(state);
+
+  await writeLocal("push.json", state);
+
+  return value;
+}
+
+/**
+Serialize push-state operations while allowing later work to recover from a failed write.
+@param action - Concrete key, subscription or notification-receipt operation.
+@returns The queued operation's result after durable state replacement.
+*/
 function withState<T>(action: (state: PushState) => T | Promise<T>) {
   const previous = operations.serial;
-  const result = (async () => {
+
+  async function commitQueuedState() {
     try {
       await previous;
     } catch {
       // A failed operation must not block later subscriptions or notifications.
     }
 
-    const state = pushStateSchema.nullable().parse(await readLocal("push.json", null)) ?? {
-      keys: webpush.generateVAPIDKeys(),
-      subscriptions: [],
-      notified: [],
-    };
-    const value = await action(state);
+    return pushTransaction(action);
+  }
 
-    await writeLocal("push.json", state);
-
-    return value;
-  })();
+  const result = commitQueuedState();
 
   operations.serial = result;
 
   return result;
 }
 
-export const pushPublicKey = () => withState((state) => state.keys.publicKey);
+/**
+Read or initialize the stable public VAPID key through the private serialized state boundary.
+@returns The persisted public subscription key.
+*/
+export function pushPublicKey() {
+  return withState((state) => state.keys.publicKey);
+}
 
+/**
+Validate a native browser subscription and replace only its matching endpoint in private state.
+@param input - Untrusted browser subscription received by the same-origin endpoint.
+*/
 export async function saveSubscription(input: unknown) {
   const subscription = subscriptionSchema.parse(input);
 
@@ -84,6 +111,12 @@ export async function saveSubscription(input: unknown) {
   log().info({ provider: new URL(subscription.endpoint).origin }, "push.subscribed");
 }
 
+/**
+Select the final native assistant reply and preserve the existing completion fallback and tap route.
+@param threadId - Owning parent identity included only in the existing notification tag.
+@param turn - Completed native turn whose final assistant output is selected.
+@returns Shared completion-notification payload with the existing root tap route.
+*/
 export function completionNotification(threadId: string, turn: Turn): NotificationPayload {
   const replies = turn.items.filter((item) => item.type === "agentMessage");
   const reply = replies.findLast((item) => item.phase === "final_answer") ?? replies.findLast((item) => !item.phase);
@@ -100,14 +133,12 @@ export function completionNotification(threadId: string, turn: Turn): Notificati
   };
 }
 
-export function completionPayload(threadId: string, turn: Turn) {
-  const notification = completionNotification(threadId, turn);
-  const payload = JSON.stringify(notification);
-
-  if (Buffer.byteLength(payload) <= MAX_PAYLOAD_BYTES) {
-    return payload;
-  }
-
+/**
+Bound serialized notification bytes while preserving complete native Unicode graphemes.
+@param notification - Normalized completion notification whose full JSON exceeds the encrypted payload limit.
+@returns JSON payload whose actual UTF-8 size fits the existing plaintext limit.
+*/
+function boundedPayload(notification: NotificationPayload) {
   const characters = Array.from(
     new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(notification.body),
     ({ segment }) => segment
@@ -131,30 +162,32 @@ export function completionPayload(threadId: string, turn: Turn) {
   return JSON.stringify({ ...notification, body: characters.slice(0, start).join("") });
 }
 
-export async function notifyTurnComplete(threadId: string, turn: Turn) {
-  const delivery = await withState((state) => {
-    const receipt = `${threadId}:${turn.id}`;
+/**
+Preserve full replies that fit and bound only oversized serialized completion notifications.
+@param threadId - Owning parent identity used by the notification tag.
+@param turn - Completed native turn providing the final assistant response.
+@returns Shared notification JSON within the existing encrypted-push byte budget.
+*/
+export function completionPayload(threadId: string, turn: Turn) {
+  const notification = completionNotification(threadId, turn);
+  const payload = JSON.stringify(notification);
 
-    if (state.notified.includes(receipt) || state.subscriptions.length === 0) {
-      return;
-    }
+  return Buffer.byteLength(payload) <= MAX_PAYLOAD_BYTES ? payload : boundedPayload(notification);
+}
 
-    state.notified = [...state.notified, receipt].slice(-RECEIPT_LIMIT);
-
-    return { keys: state.keys, subscriptions: state.subscriptions };
-  });
-
-  if (!delivery) {
-    return;
-  }
-
-  const config = await readConfig();
-  const subject = config?.allowedOrigins.find((origin) => origin.startsWith("https:"));
-
-  if (!subject) {
-    throw new Error("Push notifications require a configured HTTPS origin.");
-  }
-
+/**
+Deliver a claimed completion only to devices without a fresh foreground acknowledgement.
+@param delivery - Validated subscription and key snapshot captured by the durable notification receipt.
+@param subject - Configured HTTPS origin required for the native VAPID subject.
+@param threadId - Owning parent identity retained in diagnostics and the existing notification tag.
+@param turn - Native completed turn whose response is delivered.
+*/
+async function sendCompletion(
+  delivery: Pick<PushState, "keys" | "subscriptions">,
+  subject: string,
+  threadId: string,
+  turn: Turn
+) {
   const expired = new Set<string>();
 
   await Promise.all(
@@ -193,4 +226,46 @@ export async function notifyTurnComplete(threadId: string, turn: Turn) {
       state.subscriptions = state.subscriptions.filter((subscription) => !expired.has(subscription.endpoint));
     });
   }
+}
+
+/**
+Require the configured HTTPS subject after claiming the receipt and before any native push attempt.
+@param delivery - Validated key and subscription snapshot from the durable receipt operation.
+@param threadId - Owning parent identity.
+@param turn - Native completed turn whose response is being delivered.
+*/
+async function deliverCompletion(delivery: Pick<PushState, "keys" | "subscriptions">, threadId: string, turn: Turn) {
+  const config = await readConfig();
+  const subject = config?.allowedOrigins.find((origin) => origin.startsWith("https:"));
+
+  if (!subject) {
+    throw new Error("Push notifications require a configured HTTPS origin.");
+  }
+
+  await sendCompletion(delivery, subject, threadId, turn);
+}
+
+/**
+Claim and persist a completion receipt before foreground-aware native delivery, without duplicate replay.
+@param threadId - Owning parent identity used by the stable receipt.
+@param turn - Native completed turn whose identity is deduplicated.
+*/
+export async function notifyTurnComplete(threadId: string, turn: Turn) {
+  const delivery = await withState((state) => {
+    const receipt = `${threadId}:${turn.id}`;
+
+    if (state.notified.includes(receipt) || state.subscriptions.length === 0) {
+      return;
+    }
+
+    state.notified = [...state.notified, receipt].slice(-RECEIPT_LIMIT);
+
+    return { keys: state.keys, subscriptions: state.subscriptions };
+  });
+
+  if (!delivery) {
+    return;
+  }
+
+  await deliverCompletion(delivery, threadId, turn);
 }

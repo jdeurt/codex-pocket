@@ -1,11 +1,16 @@
 import { object, string } from "../../lib/protocol";
 import type { ParentPolicy } from "./types";
 
+/**
+Validate the parent's effective native access policy before allowing it to be inherited.
+@param config - Native effective configuration normalized at the protocol boundary.
+@returns Inherited sandbox, approval, model, effort and workspace policy.
+*/
 export function parentPolicy(config: Record<string, unknown>): ParentPolicy {
   const sandbox = string(config.sandbox_mode);
   const approval = config.approval_policy;
 
-  if (!["read-only", "workspace-write", "danger-full-access"].includes(sandbox) || !approval) {
+  if (!approval || !["read-only", "workspace-write", "danger-full-access"].includes(sandbox)) {
     throw new Error("Cannot determine the parent's effective sandbox and approval policy.");
   }
 
@@ -18,6 +23,11 @@ export function parentPolicy(config: Record<string, unknown>): ParentPolicy {
   };
 }
 
+/**
+Map the validated parent policy into the native Codex session fields without broadening access.
+@param policy - Validated effective parent policy.
+@returns Native sandbox and approval fields, including existing workspace restrictions.
+*/
 export function codexPermissions(policy: ParentPolicy) {
   return {
     sandbox: policy.sandbox,
@@ -26,6 +36,11 @@ export function codexPermissions(policy: ParentPolicy) {
   };
 }
 
+/**
+Allow Claude only when the native parent policy has an exact unrestricted mapping.
+@param policy - Validated parent policy whose sandbox and approval mode must be preserved.
+@returns Native unrestricted Claude permission options, or the existing unsupported-mapping error.
+*/
 export function claudePermissions(policy: ParentPolicy) {
   if (policy.sandbox !== "danger-full-access" || policy.approval !== "never") {
     throw new Error(

@@ -2,6 +2,10 @@ import { type ChildProcess } from "node:child_process";
 
 const PROCESS_EXIT_TIMEOUT_MS = 5000;
 
+/**
+Wait for this owned native child to exit, escalating only its own process after the existing deadline.
+@param child - Owned child process, absent or already exited when no wait is needed.
+*/
 export async function waitForProcessExit(child: ChildProcess | undefined) {
   if (child?.exitCode !== null || child.signalCode !== null) {
     return;
