@@ -3,6 +3,7 @@
 import "../../../src/components/focused-composer.css";
 import { useEffect, useRef, useState } from "react";
 import { Dialog } from "@base-ui/react/dialog";
+import { Prompt } from "../../../src/components/prompt";
 import type { Snapshot } from "../../../src/lib/protocol";
 import { VirtualizedTranscript } from "../../../src/components/virtualized-transcript";
 import { suspensionHistory } from "./suspension-data";
@@ -16,10 +17,15 @@ export function SuspensionDialogFixture() {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const composer = useRef<HTMLTextAreaElement>(null);
+  const shell = useRef<HTMLElement>(null);
   useComposerViewport(composer);
   useEffect(() => {
     const update = (event: Event) => setState((event as CustomEvent<Snapshot>).detail);
     globalThis.addEventListener("suspension-snapshot", update);
+
+    if (shell.current) {
+      shell.current.dataset.fixtureReady = "true";
+    }
 
     return () => globalThis.removeEventListener("suspension-snapshot", update);
   }, []);
@@ -27,9 +33,16 @@ export function SuspensionDialogFixture() {
 
   return (
     <Dialog.Root open={open} onOpenChange={setOpen}>
-      <main className="chat-shell" data-revision={state.activity}>
+      <main ref={shell} className="chat-shell" data-revision={state.activity}>
         <header>Parent dialog fixture</header>
         <VirtualizedTranscript turns={turns} suspended={open}>
+          {state.requests.map((request) => (
+            <Prompt
+              key={request.id}
+              request={request}
+              answer={() => Promise.reject(new Error("Fixture is read-only"))}
+            />
+          ))}
           {state.activeTurnId && (
             <div className="activity-row">
               <span role="status">Parent working</span>

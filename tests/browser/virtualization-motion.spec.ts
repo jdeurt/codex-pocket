@@ -227,8 +227,8 @@ test("streaming coalesces motion, local sends return smoothly, and user scrollin
   const starts = frames.filter((frame, index) => frame.phase === "smooth" && frames[index - 1]?.phase !== "smooth");
   expect(starts.length).toBeLessThanOrEqual(1);
   await settled(page);
-  await page.locator(viewport).dispatchEvent("wheel", { deltaY: -500 });
   await page.locator(viewport).evaluate((element) => {
+    element.dispatchEvent(new globalThis.WheelEvent("wheel", { bubbles: true, deltaY: -500 }));
     element.scrollTop -= 500;
   });
   const saved = await page.locator(viewport).evaluate((element) => element.scrollTop);
@@ -245,8 +245,8 @@ test("streaming coalesces motion, local sends return smoothly, and user scrollin
   await publish(page, state);
   expectAnimated(await returning);
   await settled(page);
-  await page.locator(viewport).dispatchEvent("wheel", { deltaY: -800 });
   await page.locator(viewport).evaluate((element) => {
+    element.dispatchEvent(new globalThis.WheelEvent("wheel", { bubbles: true, deltaY: -800 }));
     element.scrollTop = element.scrollHeight * 0.25;
   });
   await page.evaluate(
@@ -262,14 +262,14 @@ test("streaming coalesces motion, local sends return smoothly, and user scrollin
   expectAnimated(jumping);
   expect(jumping.every((frame) => frame.covered)).toBe(true);
   await settled(page);
-  await page.locator(viewport).dispatchEvent("wheel", { deltaY: -800 });
   await page.locator(viewport).evaluate((element) => {
+    element.dispatchEvent(new globalThis.WheelEvent("wheel", { bubbles: true, deltaY: -800 }));
     element.scrollTop -= 800;
   });
   await page.getByRole("button", { name: "Jump to latest message" }).click();
   await expect(page.locator(viewport)).toHaveAttribute("data-scroll-motion", "smooth");
-  await page.locator(viewport).dispatchEvent("wheel", { deltaY: -300 });
   await page.locator(viewport).evaluate((element) => {
+    element.dispatchEvent(new globalThis.WheelEvent("wheel", { bubbles: true, deltaY: -300 }));
     element.scrollTop -= 300;
   });
   const stopped = await page.locator(viewport).evaluate((element) => element.scrollTop);

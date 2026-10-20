@@ -45,14 +45,31 @@ test("live reduced motion updates an open activity panel and cancels an active b
   const icon = page.locator('[data-slot="trace-collapsible-trigger"] [data-slot="trace-icon"]');
   const animating = await page
     .getByRole("button", { name: "Show activity", exact: true })
-    .evaluate(async (button: HTMLButtonElement) => {
-      button.click();
-      await new Promise(globalThis.requestAnimationFrame);
-      await new Promise(globalThis.requestAnimationFrame);
+    .evaluate((button: HTMLButtonElement) => {
+      const root = button.closest('[data-slot="message-scroller-viewport"]');
 
-      return (
-        (globalThis.document.querySelector('[data-slot="trace-collapsible-content"]')?.getAnimations().length ?? 0) > 0
-      );
+      if (!root) {
+        throw new Error("Missing motion viewport");
+      }
+
+      return new Promise<boolean>((resolve) => {
+        const started = (event: Event) => {
+          const element = event.target;
+
+          if (!(
+            element instanceof globalThis.Element &&
+            element.matches('[data-slot="trace-collapsible-content"]') &&
+            (event as TransitionEvent).propertyName === "height"
+          )) {
+            return;
+          }
+
+          root.removeEventListener("transitionrun", started);
+          resolve(element.getAnimations().length > 0);
+        };
+        root.addEventListener("transitionrun", started);
+        button.click();
+      });
     });
   expect(animating).toBe(true);
   await page.emulateMedia({ reducedMotion: "reduce" });
@@ -102,8 +119,8 @@ test("live reduced motion updates an open activity panel and cancels an active b
   await expect(icon).toHaveCSS("transition-property", "none");
 
   // Changing only the preference must not pull a history reader anywhere.
-  await scroller.dispatchEvent("wheel", { deltaY: -280 });
   await scroller.evaluate((node) => {
+    node.dispatchEvent(new globalThis.WheelEvent("wheel", { bubbles: true, deltaY: -280 }));
     node.scrollTop -= 280;
   });
   const before = await scroller.evaluate((node) => node.scrollTop);
