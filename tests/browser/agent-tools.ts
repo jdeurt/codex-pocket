@@ -1,4 +1,4 @@
-import { type APIRequestContext, type Page, expect } from "@playwright/test";
+import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
 import { agentTranscriptSchema } from "../../src/lib/agents";
 import { mkdir } from "node:fs/promises";
 
@@ -28,23 +28,35 @@ const expected = [
 ];
 const session = "tool-codex";
 
+/**
+Checks native saved tool results through scoped GET routes and shared read-only traces.
+@param page - Browser backed by private native replay state.
+@param request - Client for the same isolated app routes.
+@returns Completion of text, error, image and parent-draft checks.
+*/
 export async function checkAgentTools(page: Page, request: APIRequestContext) {
   const mutations: string[] = [];
   const draft = page.getByRole("textbox", { name: "Message Pocket" });
 
-  page.on("request", (call) => {
-    if (!["GET", "HEAD"].includes(call.method()) && !call.url().includes("/api/logs")) {
-      mutations.push(call.url());
-    }
+  const response = await test.step("Retain parent draft and read saved native tool transcript", async () => {
+    page.on("request", (call) => {
+      if (!["GET", "HEAD"].includes(call.method()) && !call.url().includes("/api/logs")) {
+        mutations.push(call.url());
+      }
+    });
+    await page.goto("/");
+    await draft.fill("Keep the parent tool replay draft");
+
+    return await request.get(`/api/agents?agent=codex:${session}`);
   });
-  await page.goto("/");
+  const transcript = await test.step("Normalize successful native tool history", async () => {
+    expect(response.ok()).toBeTruthy();
 
-  await draft.fill("Keep the parent tool replay draft");
-  const response = await request.get(`/api/agents?agent=codex:${session}`);
-
-  expect(response.ok()).toBeTruthy();
-  const transcript = agentTranscriptSchema.parse(await response.json());
+    return agentTranscriptSchema.parse(await response.json());
+  });
   const items = transcript.state.turns.flatMap((turn) => turn.items);
+  const dialog = page.getByRole("dialog", { name: "Agents", exact: true });
+  const chat = dialog.locator(".agent-chat");
 
   for (const output of expected) {
     const item = items.find((entry) => entry.id === `${session}-${output.suffix}`);
@@ -55,25 +67,23 @@ export async function checkAgentTools(page: Page, request: APIRequestContext) {
       continue;
     }
 
-    const images = item?.images ?? [];
+    await test.step(`Read scoped image for ${output.tool}`, async () => {
+      const images = item?.images ?? [];
+      const image = await test.step("Require one native image", async () => {
+        expect(images).toHaveLength(1);
 
-    expect(images).toHaveLength(1);
-    const image = await request.get(images[0].source);
+        return await request.get(images[0].source);
+      });
 
-    expect(image.ok()).toBeTruthy();
-    expect(image.headers()["content-type"]).toBe("image/webp");
-    const bytes = await image.body();
-
-    expect(bytes.length).toBeGreaterThan(0);
+      expect(image.ok()).toBeTruthy();
+      expect(image.headers()["content-type"]).toBe("image/webp");
+      expect(await image.body()).not.toHaveLength(0);
+    });
   }
 
   expect(JSON.stringify(transcript)).not.toMatch(/PRIVATE_TOOL_ARGUMENT|PRIVATE_TOOL_META|PRIVATE_TOOL_STRUCTURED/);
   await page.getByRole("button", { name: "6 agents", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "Agents", exact: true });
-
   await dialog.getByRole("button", { name: /Saved Codex tool transcript/ }).click();
-  const chat = dialog.locator(".agent-chat");
-
   await expect(chat.getByText("Saved tool output transcript", { exact: true })).toBeVisible();
   await mkdir(".local/agent-browser-screenshots", { recursive: true });
 
