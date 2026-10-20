@@ -1,6 +1,8 @@
 import { type Virtualizer, elementScroll } from "@tanstack/react-virtual";
 import { isAtTranscriptEnd, needsTranscriptSeek } from "./transcript-virtualization";
 import { ACTIVITY_MOTION } from "./activity-motion";
+import { TranscriptControlPress } from "./transcript-control-press";
+import { TranscriptScrollAnimation } from "./transcript-scroll-animation";
 import { TranscriptScrollOffset } from "./transcript-scroll-offset";
 
 type TranscriptVirtualizer = Virtualizer<HTMLDivElement, HTMLElement>;
@@ -13,7 +15,6 @@ export class TranscriptScrollMotion {
   private ready = false;
   private instance?: TranscriptVirtualizer;
   private canvas?: HTMLDivElement;
-  private frame = 0;
   private settling = 0;
   private inputFrame = 0;
   private heldSize = 0;
@@ -27,7 +28,8 @@ export class TranscriptScrollMotion {
   private intent = false;
   private disclosure = false;
   private seeked = false;
-  private animation?: { from: number; target: number; start: number; base: number; clock: Animation };
+  private animation?: TranscriptScrollAnimation;
+  private press = new TranscriptControlPress(() => this.controlReleased());
   readonly offsets = new TranscriptScrollOffset();
   private element() {
     return this.instance?.scrollElement;
@@ -45,8 +47,11 @@ export class TranscriptScrollMotion {
       element.dataset.scrollMotion = value;
     }
   }
-
   private release() {
+    if (this.press.active || this.press.retained) {
+      return;
+    }
+
     this.heldSize = 0;
 
     if (this.canvas && !this.suspended) {
@@ -98,6 +103,21 @@ export class TranscriptScrollMotion {
     this.intent = false;
     instance.cancelScroll();
   }
+  private controlReleased() {
+    if (this.suspended) {
+      return;
+    }
+
+    this.press.retained = false;
+    this.intent ||= !!this.heldSize && (this.element()?.scrollTop ?? 0) > this.target();
+    this.following ||= this.intent;
+
+    if (!this.following) {
+      this.release();
+    }
+
+    this.layout();
+  }
   size(total: number) {
     if (
       this.disclosure &&
@@ -142,13 +162,11 @@ export class TranscriptScrollMotion {
     }
   }
   cancel(preserveExtent = false) {
-    cancelAnimationFrame(this.frame);
     cancelAnimationFrame(this.settling);
     cancelAnimationFrame(this.inputFrame);
-    this.frame = 0;
     this.settling = 0;
     this.inputFrame = 0;
-    this.animation?.clock.cancel();
+    this.animation?.cancel();
     this.animation = undefined;
     this.intent = false;
     this.disclosure = false;
@@ -162,6 +180,7 @@ export class TranscriptScrollMotion {
     this.phase("idle");
   }
   interrupt() {
+    this.press.retained &&= this.press.active;
     this.allowFollow = true;
     this.cancel();
     this.following = false;
@@ -172,10 +191,10 @@ export class TranscriptScrollMotion {
       });
     });
   }
-
   control() {
     this.allowFollow = true;
     const pinned = isAtTranscriptEnd(this.instance);
+    this.press.begin(!!this.heldSize && (this.element()?.scrollTop ?? 0) > this.target());
     this.cancel();
     this.following = pinned;
   }
@@ -188,12 +207,7 @@ export class TranscriptScrollMotion {
       (this.animation || this.correcting) && this.following ? this.target() : offset + (options.adjustments ?? 0);
 
     if (this.animation) {
-      if (this.animation.target !== target) {
-        this.animation.clock.currentTime = Math.min(performance.now() - this.animation.start, ACTIVITY_MOTION.duration);
-        this.animation.base = this.animation.clock.effect?.getComputedTiming().progress ?? 0;
-        this.animation.from = instance.scrollElement?.scrollTop ?? this.animation.from;
-        this.animation.target = target;
-      }
+      this.animation.retarget(target, instance.scrollElement?.scrollTop ?? target);
 
       return;
     }
@@ -211,43 +225,29 @@ export class TranscriptScrollMotion {
       return;
     }
 
-    const clock = new Animation(new KeyframeEffect(null, [], { ...ACTIVITY_MOTION, fill: "both" }));
-    this.animation = { from: element.scrollTop, target, start: performance.now(), base: 0, clock };
+    this.animation = new TranscriptScrollAnimation(element.scrollTop, target);
     this.phase("smooth");
-    const tick = () => {
-      const current = this.animation;
+    this.animation.run(
+      () => this.reduced(),
+      (next, finished) => {
+        elementScroll(next, { behavior: "instant" }, instance);
 
-      if (!current) {
-        return;
-      }
+        if (!finished) {
+          return;
+        }
 
-      const elapsed = this.reduced()
-        ? ACTIVITY_MOTION.duration
-        : Math.min(performance.now() - current.start, ACTIVITY_MOTION.duration);
-      current.clock.currentTime = elapsed;
-      const eased = current.clock.effect?.getComputedTiming().progress ?? 1;
-      const progress = current.base >= 1 ? 1 : Math.max(0, (eased - current.base) / (1 - current.base));
-      elementScroll(current.from + (current.target - current.from) * progress, { behavior: "instant" }, instance);
-
-      if (elapsed < ACTIVITY_MOTION.duration) {
-        this.frame = requestAnimationFrame(tick);
-      } else {
-        current.clock.cancel();
         this.animation = undefined;
         this.intent = false;
         this.seeked = false;
-        this.frame = 0;
         this.release();
         this.phase("idle");
       }
-    };
-    this.frame = requestAnimationFrame(tick);
+    );
   }
-
   layout() {
     const outgoing = this.canvas?.querySelector<HTMLElement>('[data-delivery="sending"]')?.dataset.messageId;
 
-    if (!this.ready || this.suspended) {
+    if (!this.ready || this.suspended || this.press.active) {
       this.outgoing = outgoing;
 
       return;
@@ -318,11 +318,11 @@ export class TranscriptScrollMotion {
     this.intent = this.following;
     this.disclosure = true;
   }
-
   disclosed() {
     this.disclosure = false;
   }
   latest() {
+    this.press.retained = false;
     this.allowFollow = true;
     this.cancel(true);
     this.following = true;
@@ -340,6 +340,7 @@ export class TranscriptScrollMotion {
     this.offsets.freeze(value ? offset : undefined, this.instance);
   }
   unmount() {
+    this.press.cancel();
     this.cancel();
     this.ready = false;
     this.instance = undefined;
