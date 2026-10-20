@@ -13,6 +13,7 @@ import {
 } from "@/components/ui/trace";
 import { type VirtualItem, elementScroll, useVirtualizer } from "@tanstack/react-virtual";
 import { ChatMessage } from "./chat-message";
+import type { TranscriptScrollOffset } from "@/lib/transcript-scroll-offset";
 import type { TranscriptSuspension } from "@/lib/transcript-suspension";
 import { useTranscriptMeasurements } from "@/hooks/use-transcript-measurements";
 
@@ -30,6 +31,8 @@ function ActivityMessages({
   measurements,
   suspended,
   suspension,
+  offsets,
+  cached,
 }: {
   id: string;
   turnId: string;
@@ -42,6 +45,8 @@ function ActivityMessages({
   measurements: ActivityMeasurements;
   suspended: boolean;
   suspension: TranscriptSuspension;
+  offsets: TranscriptScrollOffset;
+  cached: boolean;
 }) {
   "use no memo";
   const content = useRef<HTMLDivElement>(null);
@@ -51,6 +56,7 @@ function ActivityMessages({
   const virtualizer = useVirtualizer<HTMLDivElement, HTMLElement>({
     count: items.length,
     getScrollElement: () => viewport.current,
+    observeElementOffset: offsets.observe,
     getItemKey,
     initialOffset: () => viewport.current?.scrollTop ?? 0,
     estimateSize: () => ESTIMATED_MESSAGE_HEIGHT,
@@ -62,7 +68,7 @@ function ActivityMessages({
     rangeExtractor: (range) => (nearby ? bufferedMessages(range) : []),
     overscan: items.length,
     measureElement: measureTranscriptRow,
-    useCachedMeasurements: suspended,
+    useCachedMeasurements: cached,
     // Inner writes only preserve a reader's keyed/measurement anchor.
     // Navigation and bottom following remain with the outer controller.
     scrollToFn: (offset, options, instance) => {
@@ -76,11 +82,11 @@ function ActivityMessages({
     const element = content.current;
     const scroller = viewport.current;
 
-    if (element && scroller) {
+    if (element && scroller && !cached) {
       // Supported scrollMargin composes virtual lists in one scroll element.
       setMargin(element.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop);
     }
-  }, [origin, viewport]);
+  }, [origin, viewport, cached]);
 
   useLayoutEffect(() => {
     virtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item, _delta, instance) => {
@@ -145,6 +151,8 @@ export function VirtualizedActivity({
   measurements,
   suspended,
   suspension,
+  offsets,
+  cached,
 }: {
   id: string;
   turnId: string;
@@ -160,6 +168,8 @@ export function VirtualizedActivity({
   measurements: ActivityMeasurements;
   suspended: boolean;
   suspension: TranscriptSuspension;
+  offsets: TranscriptScrollOffset;
+  cached: boolean;
 }) {
   return (
     <Trace>
@@ -190,6 +200,8 @@ export function VirtualizedActivity({
               measurements={measurements}
               suspended={suspended}
               suspension={suspension}
+              offsets={offsets}
+              cached={cached}
             />
           </div>
         </TraceCollapsibleContent>

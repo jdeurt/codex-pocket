@@ -13,7 +13,7 @@ export function useTranscriptMeasurements(
       suspension.addMeasurement(() => {
         // Synchronous measureElement defers during user scrolling; revisit
         // mounted nodes once idle without clearing any other cached sizes.
-        if (instance.isScrolling) {
+        if (instance.isScrolling || instance.options.useCachedMeasurements) {
           return false;
         }
 

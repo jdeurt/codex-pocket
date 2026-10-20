@@ -31,6 +31,28 @@ async function exactPosition(page: Page, expected: number) {
   await expect.poll(async () => Math.abs((await position(page)) - expected)).toBeLessThan(1);
 }
 
+async function returnToParent(page: Page, expected: number) {
+  const visible = await page
+    .getByRole("button", { name: "Return to parent" })
+    .evaluate(async (button: HTMLButtonElement) => {
+      button.click();
+      const offsets = [];
+
+      for (let frame = 0; frame < 8; frame++) {
+        await new Promise(globalThis.requestAnimationFrame);
+        const node = globalThis.document.querySelector<HTMLElement>('[data-slot="message-scroller-viewport"]');
+
+        if (node && node.clientHeight > 0) {
+          offsets.push(node.scrollTop);
+        }
+      }
+
+      return offsets;
+    });
+  expect(visible.length).toBeGreaterThan(0);
+  expect(Math.max(...visible.map((offset) => Math.abs(offset - expected)))).toBeLessThan(1);
+}
+
 for (const hide of [false, true]) {
   test(`parent suspension preserves offset, cache and drafts with ${hide ? "hidden" : "covered"} layout`, async ({
     page,
@@ -111,7 +133,7 @@ for (const hide of [false, true]) {
     }
 
     await expect(page.locator(viewport)).toHaveAttribute("data-scroll-motion", "idle");
-    await page.getByRole("button", { name: "Return to parent" }).click();
+    await returnToParent(page, paused);
     await expect(page.locator(viewport)).not.toHaveAttribute("data-scroll-suspended", "true");
     await exactPosition(page, paused);
     await expect(page.getByRole("textbox", { name: "Parent draft", exact: true })).toHaveValue("Keep parent text");
@@ -138,7 +160,7 @@ for (const hide of [false, true]) {
       await exactPosition(page, bottomBefore);
     }
 
-    await page.getByRole("button", { name: "Return to parent" }).click();
+    await returnToParent(page, bottomBefore);
     await expect(page.locator(viewport)).not.toHaveAttribute("data-scroll-suspended", "true");
     await exactPosition(page, bottomBefore);
     later.text += "\n\nMore output after return.";
@@ -152,7 +174,7 @@ for (const hide of [false, true]) {
     // Even returning to an unchanged bottom must not silently rearm follow.
     await page.getByRole("button", { name: "Open child overlay" }).click();
     const unchanged = await pausedPosition(page);
-    await page.getByRole("button", { name: "Return to parent" }).click();
+    await returnToParent(page, unchanged);
     await expect(page.locator(viewport)).not.toHaveAttribute("data-scroll-suspended", "true");
     await exactPosition(page, unchanged);
     state.turns[0].items.push({ id: "after-unchanged", type: "agentMessage", text: "After return.\n\n".repeat(20) });

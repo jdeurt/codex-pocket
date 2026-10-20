@@ -38,7 +38,10 @@ export function isAtTranscriptEnd(instance: Virtualizer<HTMLDivElement, HTMLElem
 
   const element = instance.scrollElement;
 
-  return Math.abs(Math.max(instance.getTotalSize() - element.clientHeight, 0) - element.scrollTop) <= END_THRESHOLD;
+  return (
+    Math.abs(Math.max(instance.getTotalSize() - element.clientHeight, 0) - element.scrollTop) <= END_THRESHOLD &&
+    Math.abs(element.scrollHeight - element.clientHeight - element.scrollTop) <= END_THRESHOLD
+  );
 }
 
 export function bufferedMessages(range: Range, backwards = INITIAL_MESSAGE_WINDOW) {
@@ -59,4 +62,38 @@ export function measureTranscriptRow(
   return instance.options.useCachedMeasurements
     ? measureElement(element, entry, instance)
     : entry?.borderBoxSize[0]?.blockSize || element.getBoundingClientRect().height;
+}
+
+// A mounted contiguous tail can animate without crossing an unrendered window.
+// Expanded activity lists must also have their whole nested path mounted.
+export function needsTranscriptSeek(instance: Virtualizer<HTMLDivElement, HTMLElement>, canvas?: HTMLElement) {
+  const viewport = instance.scrollElement;
+
+  if (
+    !viewport ||
+    Math.abs(Math.max(instance.getTotalSize() - viewport.clientHeight, 0) - viewport.scrollTop) <=
+      viewport.clientHeight * 2
+  ) {
+    return false;
+  }
+
+  const tail = instance.options.count - 2;
+  const mounted = tail < 0 || instance.getVirtualItems().some((item) => item.index === tail);
+
+  if (!mounted || !canvas) {
+    return true;
+  }
+
+  return [...canvas.querySelectorAll("[data-activity-virtualizer]")].some((panel) => {
+    const rows = panel.querySelectorAll(":scope > ul > li");
+
+    return rows.length === 0 || rows.length < Number(rows[0].getAttribute("aria-setsize"));
+  });
+}
+
+export function messageRange(range: Range, backwards: number) {
+  const footerIndex = range.count - 1;
+
+  // Keep interactive pending requests mounted while message rows are recycled.
+  return [...bufferedMessages({ ...range, count: footerIndex }, backwards), footerIndex];
 }
