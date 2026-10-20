@@ -34,10 +34,10 @@ await test("delegation creation and sends are scoped, durable and idempotent", a
   assert.throws(() => store.create(owner, { ...assignment, body: "Different work" }), /different work/);
   assert.throws(() => store.get("other-parent", child.id), /not found/);
   assert.deepEqual(child.policy, context.policy);
-  const first = store.send(owner, child.id, "followup", "Follow up");
+  const first = store.queue.send(owner, child.id, "followup", "Follow up");
 
-  assert.equal(store.send(owner, child.id, "followup", "Follow up").id, first.id);
-  assert.throws(() => store.send(owner, child.id, "followup", "Different text"), /different text/);
+  assert.equal(store.queue.send(owner, child.id, "followup", "Follow up").id, first.id);
+  assert.throws(() => store.queue.send(owner, child.id, "followup", "Different text"), /different text/);
   store.setSession(owner, child.id, "saved-native-session");
   const reopened = new DelegationStore(directory);
 
@@ -53,30 +53,30 @@ await test("close cancels queued work and resume keeps the same child and saved 
   const child = store.create(owner, assignment);
 
   store.setSession(owner, child.id, "saved");
-  const first = store.claim(owner, child.id);
+  const first = store.queue.claim(owner, child.id);
 
   assert.ok(first);
-  store.send(owner, child.id, "second", "Queued work");
-  assert.equal(store.claim(owner, child.id), undefined);
+  store.queue.send(owner, child.id, "second", "Queued work");
+  assert.equal(store.queue.claim(owner, child.id), undefined);
   store.closeChild(owner, child.id);
-  assert.equal(store.commands(owner, child.id)[1].status, "cancelled");
-  assert.throws(() => store.send(owner, child.id, "third", "New work"), /Resume/);
+  assert.equal(store.queue.list(owner, child.id)[1].status, "cancelled");
+  assert.throws(() => store.queue.send(owner, child.id, "third", "New work"), /Resume/);
   assert.throws(() => store.resume(owner, child.id), /still closing/);
-  store.finish(first, "cancelled", "Closed");
+  store.queue.finish(first, "cancelled", "Closed");
   store.setStatus(owner, child.id, "closed");
   const resumed = store.resume(owner, child.id);
 
   assert.equal(resumed.id, child.id);
   assert.equal(resumed.sessionId, "saved");
   assert.equal(resumed.status, "idle");
-  store.send(owner, child.id, "third", "New work");
-  assert.equal(store.claim(owner, child.id)?.body, "New work");
+  store.queue.send(owner, child.id, "third", "New work");
+  assert.equal(store.queue.claim(owner, child.id)?.body, "New work");
 });
 
 await test("child messages route by managed identity, deduplicate retries and reject inactive turns", async (t) => {
   const { store } = await fixture(t);
   const child = store.create(owner, assignment);
-  const command = store.claim(owner, child.id);
+  const command = store.queue.claim(owner, child.id);
 
   assert.ok(command);
   const first = store.mail.message(child.id, command.id, { message: "Which color?" });
@@ -92,7 +92,7 @@ await test("child messages route by managed identity, deduplicate retries and re
 await test("restarts preserve reports and identities without replaying uncertain child work", async (t) => {
   const { store, directory } = await fixture(t);
   const child = store.create(owner, assignment);
-  const command = store.claim(owner, child.id);
+  const command = store.queue.claim(owner, child.id);
 
   assert.ok(command);
   store.setSession(owner, child.id, "native-session");
@@ -102,14 +102,14 @@ await test("restarts preserve reports and identities without replaying uncertain
   reopened.recover(owner);
   assert.equal(reopened.get(owner, child.id).sessionId, "native-session");
   assert.equal(reopened.get(owner, child.id).status, "unknown");
-  assert.equal(reopened.commands(owner, child.id)[0].status, "unknown");
+  assert.equal(reopened.queue.list(owner, child.id)[0].status, "unknown");
   assert.equal(reopened.mail.pending(owner).length, 1);
-  assert.equal(reopened.claim(owner, child.id), undefined);
-  assert.throws(() => reopened.send(owner, child.id, "followup", "Continue"), /Resume/);
+  assert.equal(reopened.queue.claim(owner, child.id), undefined);
+  assert.throws(() => reopened.queue.send(owner, child.id, "followup", "Continue"), /Resume/);
   reopened.resume(owner, child.id);
-  const next = reopened.send(owner, child.id, "followup", "Continue from saved work");
+  const next = reopened.queue.send(owner, child.id, "followup", "Continue from saved work");
 
-  assert.equal(reopened.claim(owner, child.id)?.id, next.id);
+  assert.equal(reopened.queue.claim(owner, child.id)?.id, next.id);
   reopened.close();
 });
 

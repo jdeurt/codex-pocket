@@ -57,9 +57,9 @@ await test(
       worker.starts().map((entry) => entry.childId),
       children.slice(0, CAPACITY).map((child) => child.id)
     );
-    assert.equal(store.commands(owner, String(children[CAPACITY].id))[0].status, "queued");
+    assert.equal(store.queue.list(owner, String(children[CAPACITY].id))[0].status, "queued");
     await worker.call("complete", { childId: children[0].id });
-    await state(store, () => store.commands(owner, String(children[0].id))[0].status === "completed");
+    await state(store, () => store.queue.list(owner, String(children[0].id))[0].status === "completed");
     await worker.call("barrier");
     assert.equal(worker.starts().length, CAPACITY, "slot remains occupied until harness process exit");
     await worker.call("releaseClose", { childId: children[0].id });
@@ -110,7 +110,7 @@ await test(
     await worker.until(() => worker.starts().length === CAPACITY + THREE_MORE_STARTS);
     assert.equal(worker.starts().at(LAST_INDEX)?.text, "followup-two");
     assert.deepEqual(
-      store.commands(owner, String(first.childId)).map((command) => command.status),
+      store.queue.list(owner, String(first.childId)).map((command) => command.status),
       ["completed", "completed", "running"]
     );
   }
@@ -126,7 +126,7 @@ await test(
     const child = await tool(client, "side_pocket_create", assignment("question-flow"));
 
     await worker.until(() => worker.starts().length === 1);
-    const command = store.commands(owner, String(child.id))[0];
+    const command = store.queue.list(owner, String(child.id))[0];
     const childMcp = await mcp("scripts/side-pocket-mcp.ts", {
       POCKET_CHILD_ID: String(child.id),
       POCKET_COMMAND_ID: command.id,
@@ -157,7 +157,7 @@ await test(
     assert.equal(closed.status, "closed");
     await worker.until((events) => events.some((entry) => entry.event === "cancelled"));
     assert.deepEqual(
-      store.commands(owner, String(child.id)).map((entry) => entry.status),
+      store.queue.list(owner, String(child.id)).map((entry) => entry.status),
       ["cancelled", "cancelled"]
     );
     assert.equal(store.mail.requests(owner, String(child.id))[1].status, "cancelled");
@@ -175,7 +175,7 @@ await test(
       answer: { answers: { color: "Blue" } },
     });
     await state(store, () => store.get(owner, String(child.id)).status === "closed");
-    assert.equal(store.commands(owner, String(child.id)).at(LAST_INDEX)?.status, "cancelled");
+    assert.equal(store.queue.list(owner, String(child.id)).at(LAST_INDEX)?.status, "cancelled");
   }
 );
 
@@ -210,7 +210,7 @@ await test(
 
     await restarted.until(() => restarted.starts().length === 1);
     assert.equal(restarted.starts()[0].childId, queued.id);
-    assert.equal(store.commands(owner, child.id)[0].status, "unknown");
+    assert.equal(store.queue.list(owner, child.id)[0].status, "unknown");
     assert.equal(store.get(owner, child.id).status, "unknown");
     assert.equal(store.mail.requests(owner, child.id)[0].status, "cancelled");
     const recovery = store.mail.history(owner, child.id).find((mail) => mail.kind === "recovery");
@@ -243,7 +243,7 @@ await test(
     assert.equal(await readSignal(signal), before);
     await worker.until(() => worker.starts().length === 1);
     assert.equal(worker.starts()[0].childId, child.id);
-    assert.equal(store.commands(owner, child.id)[0].status, "running");
+    assert.equal(store.queue.list(owner, child.id)[0].status, "running");
   }
 );
 
@@ -270,7 +270,7 @@ await test(
 
     assert.equal(claimed.length, CAPACITY);
     assert.equal(new Set(claimed.map((command) => command.id)).size, CAPACITY);
-    const commands = children.flatMap((child) => store.commands(owner, String(child.id)));
+    const commands = children.flatMap((child) => store.queue.list(owner, String(child.id)));
 
     assert.equal(commands.filter((command) => command.status === "running").length, CAPACITY);
   }
@@ -310,6 +310,6 @@ await test(
     assert.equal(worker.events.filter((event) => event.event === "mail" && event.id === mailId).length, 1);
     await worker.call("fail", { childId: child.id });
     await state(store, () => store.get(owner, child.id).status === "unknown");
-    assert.equal(store.commands(owner, child.id)[0].status, "unknown");
+    assert.equal(store.queue.list(owner, child.id)[0].status, "unknown");
   }
 );

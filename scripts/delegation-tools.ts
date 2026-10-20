@@ -100,7 +100,7 @@ export function registerDelegationTools(server: McpServer, owner: string) {
 
         return {
           ...store.get(owner, id),
-          commands: store.commands(owner, id),
+          commands: store.queue.list(owner, id),
           messages: store.mail.history(owner, id),
           requests: store.mail.requests(owner, id),
         };
@@ -113,7 +113,7 @@ export function registerDelegationTools(server: McpServer, owner: string) {
         "Send a follow-up or answer to a Side Pocket by ID. Messages run in order after its current turn. Reuse idempotencyKey when retrying the same send.",
       inputSchema: idSchema.extend({ message: delegationBody, idempotencyKey: delegationKey }),
     },
-    ({ id, message, idempotencyKey }) => toolResult(() => delegations().send(owner, id, idempotencyKey, message))
+    ({ id, message, idempotencyKey }) => toolResult(() => delegations().queue.send(owner, id, idempotencyKey, message))
   );
   server.registerTool(
     "side_pocket_answer",

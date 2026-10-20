@@ -6,6 +6,9 @@ const SIGNAL_FILE = "delegations.notify";
 
 // Notifications are hints, never commands. SQLite owns durability and claiming.
 // Watch the directory so replacing the signal file cannot detach subscribers.
+/**
+Publish committed delegation changes as hints while SQLite remains authoritative for work claiming.
+*/
 export class DelegationNotifications {
   private listeners = new Set<() => void>();
 
@@ -15,6 +18,9 @@ export class DelegationNotifications {
 
   private closed = false;
 
+  /**
+Coalesce local change hints into one post-transaction microtask before notifying subscribers.
+*/
   changed = () => {
     if (this.scheduled || this.closed) {
       return;
@@ -40,14 +46,26 @@ export class DelegationNotifications {
     });
   };
 
+  /**
+Bind this private state directory without acquiring a native watcher.
+@param directory - Private delegation directory whose signal file communicates committed changes.
+*/
   constructor(private directory: string) {}
 
+  /**
+Notify currently registered change listeners without treating a hint as a command.
+*/
   private emit() {
     for (const listener of this.listeners) {
       listener();
     }
   }
 
+  /**
+Acquire a native directory watcher while at least one change subscriber exists.
+@param listener - Owner callback that rechecks authoritative persisted delegation state.
+@returns Cleanup removing this listener and closing the watcher after the final subscriber leaves.
+*/
   subscribe(listener: () => void) {
     this.listeners.add(listener);
 
@@ -80,6 +98,9 @@ export class DelegationNotifications {
     };
   }
 
+  /**
+Prevent queued hints and release this owner's native watcher and listeners.
+*/
   close() {
     this.closed = true;
     this.listeners.clear();

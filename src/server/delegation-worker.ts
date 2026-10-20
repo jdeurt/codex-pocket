@@ -104,7 +104,7 @@ export class DelegationWorker {
     const shouldNotify =
       !isClosing && (!this.store.mail.hasMessage(child.id, command.id) || result.status !== "completed");
 
-    this.store.recordResult(
+    this.store.queue.recordResult(
       command,
       isClosing ? "cancelled" : result.status === "failed" ? "failed" : "completed",
       JSON.stringify(result),
@@ -128,7 +128,7 @@ export class DelegationWorker {
       );
 
       if (this.store.get(child.parentId, child.id).status === "closing") {
-        this.store.finish(command, "cancelled", "Closed before sending.");
+        this.store.queue.finish(command, "cancelled", "Closed before sending.");
 
         return;
       }
@@ -141,7 +141,7 @@ export class DelegationWorker {
       const message = error instanceof Error ? error.message : String(error);
       const isClosing = this.store.get(child.parentId, child.id).status === "closing";
 
-      this.store.recordResult(
+      this.store.queue.recordResult(
         command,
         isClosing ? "cancelled" : isSending ? "unknown" : "failed",
         message,
@@ -266,7 +266,7 @@ ${mail.payload}`;
       this.closing.set(child.id, closing);
     }
 
-    for (const child of this.store.queuedChildren(this.config.threadId)) {
+    for (const child of this.store.queue.queuedChildren(this.config.threadId)) {
       if (this.active.size >= MAX_CONCURRENT_CHILDREN) {
         break;
       }
@@ -275,7 +275,7 @@ ${mail.payload}`;
         continue;
       }
 
-      const command = this.store.claim(child.parentId, child.id);
+      const command = this.store.queue.claim(child.parentId, child.id);
 
       if (command) {
         this.launch(child, command);

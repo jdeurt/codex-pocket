@@ -84,7 +84,7 @@ async function verifyChildren() {
     const contents = await readFile(path.join(root, `${child.harness}.txt`), "utf8");
 
     assert.equal(contents.trim(), "BLUE");
-    assert.equal(store.commands(thread.id, child.id).length, EXPECTED_COMMANDS);
+    assert.equal(store.queue.list(thread.id, child.id).length, EXPECTED_COMMANDS);
     assert.equal(
       store.mail
         .history(thread.id, child.id)
@@ -129,7 +129,7 @@ async function verifyActiveClose() {
     const late = path.join(root, `${child.harness}-late`);
 
     store.resume(thread.id, child.id);
-    store.send(
+    store.queue.send(
       thread.id,
       child.id,
       "active-close",
@@ -142,7 +142,7 @@ async function verifyActiveClose() {
     await waitUntil(() => Promise.resolve(store.get(thread.id, child.id).status === "closed"), "process closure");
     assert.throws(() => process.kill(metadata.pid, 0), { code: "ESRCH" });
     await assert.rejects(access(late), { code: "ENOENT" });
-    assert.equal(store.commands(thread.id, child.id).at(LAST_INDEX)?.status, "cancelled");
+    assert.equal(store.queue.list(thread.id, child.id).at(LAST_INDEX)?.status, "cancelled");
     assert.equal(store.get(thread.id, child.id).sessionId, child.sessionId);
   }
 }

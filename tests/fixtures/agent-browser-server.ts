@@ -54,13 +54,13 @@ function pocket(
     harness: "codex",
     idempotencyKey: name,
   });
-  const command = store.claim(replayParent, child.id);
+  const command = store.queue.claim(replayParent, child.id);
 
   if (!command) {
     throw new Error("Replay fixture command was not created.");
   }
 
-  store.finish(command, "completed", "offline fixture");
+  store.queue.finish(command, "completed", "offline fixture");
 
   if (session) {
     store.setSession(replayParent, child.id, session);

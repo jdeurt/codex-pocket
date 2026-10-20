@@ -142,7 +142,7 @@ process.on("message", (message) => {
       }
 
       case "send": {
-        return store.send(owner, childId, string(args.key), string(args.body));
+        return store.queue.send(owner, childId, string(args.key), string(args.body));
       }
 
       case "close": {
@@ -168,7 +168,7 @@ process.on("message", (message) => {
       }
 
       case "claim": {
-        return store.claim(owner, childId);
+        return store.queue.claim(owner, childId);
       }
 
       case "createAndCrash": {

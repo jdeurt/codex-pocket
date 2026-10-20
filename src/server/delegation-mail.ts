@@ -11,33 +11,77 @@ const HISTORY_LIMIT = 200;
 export const parentMessageInput = z.object({ message: z.string().trim().min(1).max(MAX_BODY_LENGTH) }).strict();
 export const delegationMessagePrefix = "pocket-delegate:";
 
-export interface DelegationMail {
-  id: string;
-  childId: string;
-  parentId: string;
-  sourceId: string;
-  kind: string;
-  payload: string;
-  delivery: "pending" | "queued" | "sent" | "unknown" | "local";
-  createdAt: number;
-}
-export interface DelegationRequest {
-  id: string;
-  childId: string;
-  parentId: string;
-  nativeId: string;
-  method: string;
-  input: string;
-  answer: string | null;
-  status: "pending" | "answered" | "cancelled";
-}
+export type DelegationMail = z.infer<typeof delegationMailSchema>;
+export type DelegationRequest = z.infer<typeof delegationRequestSchema>;
 
+/**
+Own durable parent reports and native requests scoped to managed child identities.
+*/
 export class DelegationMailbox {
+  /**
+Bind the private database and committed-change notifier without dispatching work.
+@param db - Native private delegation database.
+@param changed - Callback publishing a change hint after the owning transaction commits.
+*/
   constructor(
     private db: Database.Database,
     private changed: () => void
   ) {}
 
+  /**
+Persist an active child's parent message under its content-derived retry identity.
+@param parentId - Recorded parent that owns the active command.
+@param childId - Managed child identity verified by the active-command query.
+@param commandId - Running native command owning this message.
+@param message - Validated exact parent message text.
+@returns Persisted report acknowledgement using the existing parent-delivery contract.
+*/
+  private recordMessage(parentId: string, childId: string, commandId: string, message: string) {
+    const digest = createHash("sha256").update(message).digest("hex");
+    const mail = this.record(parentId, childId, `message:${commandId}:${digest}`, "message", { message });
+
+    return { id: mail.id, queued: true, note: "The parent receives this message and can reply in this saved session." };
+  }
+
+  /**
+Validate and atomically persist an owned pending answer without replacing a different prior answer.
+@param request - Persisted request checked inside the owning immediate transaction.
+@param answer - Untrusted answer validated against the native request protocol.
+@returns Existing acknowledgement of the persisted native answer.
+*/
+  private answerRequest(request: DelegationRequest, answer: unknown) {
+    const validated =
+      request.method === "AskUserQuestion"
+        ? z
+            .object({ answers: z.record(z.string(), z.string()) })
+            .strict()
+            .parse(answer)
+        : validateAnswer(
+            { id: request.nativeId, method: request.method, params: object(JSON.parse(request.input)) },
+            answer
+          );
+    const serialized = JSON.stringify(validated);
+
+    if (request.status === "answered" && request.answer !== serialized) {
+      throw new Error("This request already received a different answer.");
+    }
+
+    this.db.prepare("UPDATE delegation_requests SET answer=?,status='answered' WHERE id=?").run(serialized, request.id);
+    this.changed();
+
+    return { id: request.id, answered: true };
+  }
+
+  /**
+Persist a source-deduplicated child report before hinting that parent delivery is available.
+@param parentId - Recorded parent scope.
+@param childId - Managed child producing this report.
+@param sourceId - Stable source identity deduplicated within the child.
+@param kind - Existing report, request or result discriminator.
+@param payload - Protocol data serialized exactly once for private persistence.
+@param shouldNotify - Whether the report enters parent delivery or remains local.
+@returns Validated persisted report, including an existing report on retry.
+*/
   record(parentId: string, childId: string, sourceId: string, kind: string, payload: unknown, shouldNotify = true) {
     const id = `${delegationMessagePrefix}${crypto.randomUUID()}`;
 
@@ -63,6 +107,13 @@ export class DelegationMailbox {
     );
   }
 
+  /**
+Accept a parent message only from a still-active managed child command.
+@param childId - Managed child identity supplied by its dedicated connection.
+@param commandId - Running command identity bound to that connection.
+@param input - Untrusted parent-message input parsed by the shared schema.
+@returns Persisted parent-delivery acknowledgement.
+*/
   message(childId: string, commandId: string, input: unknown) {
     const { message } = parentMessageInput.parse(input);
     const command = z
@@ -81,12 +132,14 @@ export class DelegationMailbox {
       throw new Error("This Side Pocket turn is no longer active.");
     }
 
-    const digest = createHash("sha256").update(message).digest("hex");
-    const mail = this.record(command.parentId, childId, `message:${commandId}:${digest}`, "message", { message });
-
-    return { id: mail.id, queued: true, note: "The parent receives this message and can reply in this saved session." };
+    return this.recordMessage(command.parentId, childId, commandId, message);
   }
 
+  /**
+Read ordered undelivered reports only for their recorded parent.
+@param parentId - Parent scope required by the delivery query.
+@returns Validated pending or queued parent reports in durable order.
+*/
   pending(parentId: string) {
     return z
       .array(delegationMailSchema)
@@ -99,10 +152,21 @@ export class DelegationMailbox {
       );
   }
 
+  /**
+Persist the parent's acknowledged or uncertain delivery status for one report.
+@param id - Persisted parent-report identity.
+@param status - Delivery status returned by the parent receipt boundary.
+*/
   delivered(id: string, status: "queued" | "sent" | "unknown") {
     this.db.prepare("UPDATE delegation_mail SET delivery=? WHERE id=?").run(status, id);
   }
 
+  /**
+Read bounded child report history in chronological display order.
+@param parentId - Recorded parent scope.
+@param childId - Managed child whose reports belong to that parent.
+@returns Validated report history retaining the existing bounded window.
+*/
   history(parentId: string, childId: string) {
     return z
       .array(delegationMailSchema)
@@ -116,12 +180,25 @@ export class DelegationMailbox {
       );
   }
 
+  /**
+Check whether a managed command already produced an explicit parent message.
+@param childId - Managed child identity.
+@param commandId - Command whose source-prefixed messages are checked.
+@returns Whether at least one explicit report is persisted for that command.
+*/
   hasMessage(childId: string, commandId: string) {
     return !!this.db
       .prepare("SELECT 1 FROM delegation_mail WHERE childId=? AND sourceId LIKE ? LIMIT 1")
       .get(childId, `message:${commandId}:%`);
   }
 
+  /**
+Persist a native child request before recording its informational parent report.
+@param parentId - Recorded parent scope.
+@param childId - Managed child that owns the native request.
+@param request - Normalized native question or approval request.
+@returns Stable persisted request identity used for parent answers.
+*/
   request(parentId: string, childId: string, request: HarnessRequest) {
     const id = crypto.randomUUID();
 
@@ -133,6 +210,13 @@ export class DelegationMailbox {
     return id;
   }
 
+  /**
+Read native child requests within their recorded parent and optional pending filter.
+@param parentId - Recorded parent scope.
+@param childId - Managed child whose requests are inspected.
+@param isPendingOnly - Whether answered and cancelled history is excluded.
+@returns Validated native request records in creation order.
+*/
   requests(parentId: string, childId: string, isPendingOnly = false) {
     return z
       .array(delegationRequestSchema)
@@ -145,6 +229,14 @@ export class DelegationMailbox {
       );
   }
 
+  /**
+Hold an immediate transaction while verifying ownership and persisting a validated native answer.
+@param parentId - Recorded parent permitted to answer.
+@param childId - Managed child owning the request.
+@param id - Persisted request identity returned by the child request boundary.
+@param answer - Untrusted native answer input.
+@returns Persisted answer acknowledgement, including an identical retry.
+*/
   answer(parentId: string, childId: string, id: string, answer: unknown) {
     return this.db
       .transaction(() => {
@@ -160,30 +252,15 @@ export class DelegationMailbox {
           throw new Error("This request is no longer waiting. Send a follow-up to the saved Side Pocket session.");
         }
 
-        const validated =
-          request.method === "AskUserQuestion"
-            ? z
-                .object({ answers: z.record(z.string(), z.string()) })
-                .strict()
-                .parse(answer)
-            : validateAnswer(
-                { id: request.nativeId, method: request.method, params: object(JSON.parse(request.input)) },
-                answer
-              );
-        const serialized = JSON.stringify(validated);
-
-        if (request.status === "answered" && request.answer !== serialized) {
-          throw new Error("This request already received a different answer.");
-        }
-
-        this.db.prepare("UPDATE delegation_requests SET answer=?,status='answered' WHERE id=?").run(serialized, id);
-        this.changed();
-
-        return { id, answered: true };
+        return this.answerRequest(request, answer);
       })
       .immediate();
   }
 
+  /**
+Cancel a child's pending native requests and publish a hint only when rows changed.
+@param childId - Managed child whose pending requests must stop.
+*/
   cancelRequests(childId: string) {
     const result = this.db
       .prepare("UPDATE delegation_requests SET status='cancelled' WHERE childId=? AND status='pending'")

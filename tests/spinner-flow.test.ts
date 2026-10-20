@@ -189,7 +189,7 @@ await test("child MCP calls and forced main-server invocation reject spinner cap
     body: "No spinner access",
     idempotencyKey: "fixture",
   });
-  const command = store.claim("spinner-fixture", child.id);
+  const command = store.queue.claim("spinner-fixture", child.id);
 
   assert.ok(command);
   const context = { POCKET_CHILD_ID: child.id, POCKET_COMMAND_ID: command.id };

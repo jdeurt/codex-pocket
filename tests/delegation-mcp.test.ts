@@ -14,7 +14,7 @@ await test("a child MCP exposes only message_parent and routes content to its re
 
   store.saveParent(owner, { cwd: "/tmp", policy: { sandbox: "danger-full-access", approval: "never" } });
   const child = store.create(owner, { title: "Check", body: "Check messaging", idempotencyKey: "check" });
-  const command = store.claim(owner, child.id);
+  const command = store.queue.claim(owner, child.id);
 
   assert.ok(command);
   const client = new Client({ name: "child-check", version: "1.0.0" });

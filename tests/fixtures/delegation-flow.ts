@@ -121,6 +121,7 @@ export async function fixture(t: { after: (callback: () => Promise<void>) => voi
         (entry): entry is [string, string] => entry[0] !== "CODEX_THREAD_ID" && entry[1] !== undefined
       )
     ),
+    CODEX_THREAD_ID: "",
     CODEX_POCKET_STATE_DIR: directory,
     POCKET_THREAD_ID: owner,
     POCKET_CLAUDE_BINARY: process.execPath,
