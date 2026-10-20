@@ -7,6 +7,10 @@ import { AttachmentGroup } from "@/components/ui/attachment";
 import { ChatImage } from "./chat-image";
 import { CopyAction } from "./copy-action";
 import { Table } from "@/components/ui/table";
+import Link from "next/link";
+import { fileViewerUrl, localFileLink } from "@/lib/file-links";
+import { rehypeReveal } from "@/lib/rehype-reveal";
+import { useContentReveal } from "@/hooks/use-content-reveal";
 import { imageUrl } from "@/lib/images";
 
 /**
@@ -95,20 +99,38 @@ export const Markdown = memo(function MarkdownContent({
   children: source,
   allowCopyActions = false,
   imageBase,
+  fileBase,
+  revealFrom,
+  revealId,
 }: {
   children: string;
   allowCopyActions?: boolean;
   imageBase?: string;
+  fileBase?: string;
+  revealFrom?: number;
+  revealId?: string;
 }) {
+  const container = useContentReveal(revealId);
+
   if (!hasMarkdownOutput(source, allowCopyActions)) {
     return null;
   }
 
   return (
-    <div className="markdown">
+    <div ref={container} className="markdown">
       <ReactMarkdown
         remarkPlugins={markdownPlugins(allowCopyActions)}
-        urlTransform={(url, key) => markdownUrl(url, key, imageBase)}
+        rehypePlugins={revealFrom === undefined ? [] : [[rehypeReveal, { source, from: revealFrom }]]}
+        urlTransform={(url, key) => {
+          const local = localFileLink(url, fileBase);
+          if (key === "href" && local) {
+            return fileViewerUrl(local);
+          }
+          if (key === "src" && fileBase && local) {
+            return `/api/files?path=${encodeURIComponent(local)}`;
+          }
+          return markdownUrl(url, key, imageBase);
+        }}
         components={{
           table: ({ children }) => (
             <Table
@@ -123,11 +145,16 @@ export const Markdown = memo(function MarkdownContent({
           ),
           // Markdown permits images inside paragraphs; use a block container for attachment/dialog composition.
           p: MarkdownParagraph,
-          a: ({ children, ...props }) => (
-            <a {...props} target="_blank" rel="noopener noreferrer">
-              {children}
-            </a>
-          ),
+          a: ({ children, href, ...props }) =>
+            href?.startsWith("/files?") ? (
+              <Link {...props} href={href} scroll={false} prefetch={false}>
+                {children}
+              </Link>
+            ) : (
+              <a {...props} href={href} target="_blank" rel="noopener noreferrer">
+                {children}
+              </a>
+            ),
           pre: MarkdownPre,
           code: MarkdownCode,
         }}

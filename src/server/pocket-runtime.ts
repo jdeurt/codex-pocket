@@ -5,6 +5,7 @@ import { delegations } from "./delegations";
 import { localDirectory } from "./local-state";
 import { parentPolicy } from "./harness/permissions";
 import path from "node:path";
+import { savedSessionSettings } from "./session-settings";
 import { string } from "../lib/protocol";
 
 /**
@@ -26,6 +27,9 @@ export function pocketServerArgs(config: Config) {
     "mcp_servers.pocket.env.CODEX_POCKET_STATE_DIR": localDirectory(),
     "mcp_servers.pocket.env.POCKET_THREAD_ID": config.threadId,
     "mcp_servers.pocket.env.POCKET_MAIN_THREAD_ID": config.threadId,
+    "mcp_servers.pocket.env.POCKET_SERVER_ORIGIN":
+      config.allowedOrigins.find((origin) => ["127.0.0.1", "localhost"].includes(new URL(origin).hostname)) ??
+      config.allowedOrigins[0],
   };
 
   return [
@@ -55,12 +59,14 @@ export async function resumePocket(rpc: CodexRpc, config: Config) {
     cwd: config.cwd,
   });
 
-  const effort = string(effective.model_reasoning_effort);
+  const saved = await savedSessionSettings(config.threadId);
+  const effort = saved?.effort ?? string(effective.model_reasoning_effort);
   const instructions = pocketInstructions(string(effective.developer_instructions));
 
   const resumed = await rpc.request("thread/resume", {
     threadId: config.threadId,
     excludeTurns: true,
+    ...(saved?.model && { model: saved.model }),
     ...(effort && { config: { model_reasoning_effort: effort } }),
     developerInstructions: instructions,
   });

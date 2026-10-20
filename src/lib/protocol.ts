@@ -1,5 +1,6 @@
 import { type FileAttachment, fileAttachmentSchema } from "./attachments";
 import { type DelegateReport, delegateReportSchema } from "./delegate-reports";
+import { type ContextUsage, contextUsageSchema } from "./usage";
 import { z } from "zod";
 
 // Forward-compatible subset of Codex app-server v2, checked against CLI 0.163.
@@ -51,6 +52,8 @@ export interface Snapshot {
   threadId?: string;
   activeTurnId?: string;
   activity?: string;
+  usage?: ContextUsage;
+  lastCompactionAt?: number;
   turns: Turn[];
   restartEvents?: RestartEvent[];
   queue: QueuedMessage[];
@@ -154,6 +157,8 @@ export const snapshotSchema: z.ZodType<Snapshot> = z.object({
   title: z.string(),
   model: z.string().optional(),
   reasoningEffort: z.string().nullable().optional(),
+  usage: contextUsageSchema.optional(),
+  lastCompactionAt: z.number().optional(),
   threadId: z.string().optional(),
   activeTurnId: z.string().optional(),
   activity: z.string().optional(),

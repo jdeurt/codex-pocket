@@ -114,6 +114,7 @@ Open a fresh MCP process to migrate the deployed schema before cancellation and 
 async function migrateAndRun(flow: Awaited<ReturnType<typeof fixture>>, child: SidePocket) {
   const client = await flow.mcp();
 
+  await tool(client, "side_pocket_get", { id: child.id });
   await cancelObsolete(flow, client, child);
   await runRetained(flow, client, child);
 }

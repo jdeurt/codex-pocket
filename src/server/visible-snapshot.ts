@@ -114,12 +114,17 @@ Project one native turn through the shared visible-message and image boundary.
 @param options - Hidden scheduled identities and the existing opt-in for native tool traces.
 @returns Turn containing only the phone's normalized display items.
 */
-export function visibleTurn(turn: Turn, options: { scheduled?: Set<string>; tools?: boolean; reports?: Map<string, DelegateReport> } = {}): Turn {
+export function visibleTurn(
+  turn: Turn,
+  options: { scheduled?: Set<string>; tools?: boolean; reports?: Map<string, DelegateReport> } = {}
+): Turn {
   const scheduled = options.scheduled ?? new Set<string>();
 
   return {
     ...turn,
-    items: turn.items.flatMap<Item>((item) => displayItem(item, scheduled, options.tools === true, options.reports ?? new Map())),
+    items: turn.items.flatMap<Item>((item) =>
+      displayItem(item, scheduled, options.tools === true, options.reports ?? new Map<string, DelegateReport>())
+    ),
   };
 }
 

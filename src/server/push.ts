@@ -133,10 +133,7 @@ export function completionNotification(threadId: string, turn: Turn): Notificati
 
   return {
     title: "Pocket",
-    body:
-      reply && hasMessageText(reply)
-        ? messageText(reply).trim()
-        : "Pocket sent an image or attachment.",
+    body: reply && hasMessageText(reply) ? messageText(reply).trim() : "Pocket sent an image or attachment.",
     tag: `${threadId}:${turn.id}`,
     url: "/",
   };
@@ -176,7 +173,7 @@ Preserve full visible replies that fit and bound only oversized serialized compl
 @param notification - Eligible visible completion selected before receipt claiming.
 @returns Shared notification JSON within the existing encrypted-push byte budget.
 */
-function completionPayload(notification: NotificationPayload) {
+export function completionPayload(notification: NotificationPayload) {
   const payload = JSON.stringify(notification);
 
   return Buffer.byteLength(payload) <= MAX_PAYLOAD_BYTES ? payload : boundedPayload(notification);

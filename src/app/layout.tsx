@@ -18,13 +18,16 @@ export const viewport: Viewport = {
 
 /**
 Provides the shared document, theme and viewport shell for Pocket routes.
-@param { children } - Next route content mounted inside the shared document body.
+@param props - Next route content mounted inside the shared document body.
 @returns Shared root document.
 */
-export default function RootLayout({ children }: LayoutProps<"/">) {
+export default function RootLayout({ children, viewer }: LayoutProps<"/">) {
   return (
     <html lang="en" className="dark">
-      <body>{children}</body>
+      <body>
+        {children}
+        {viewer}
+      </body>
     </html>
   );
 }

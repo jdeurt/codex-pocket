@@ -196,7 +196,9 @@ function deliverResult(id: string | number, method: string, params: Record<strin
   const isHistory = params.threadId !== replayParent && ["thread/turns/list", "thread/items/list"].includes(method);
 
   if (method === "thread/list" && stage() === "discovery-held") {
-    setTimeout(() => deliverResult(id, method, params, result), HISTORY_DELAY_MS);
+    setTimeout(() => {
+      deliverResult(id, method, params, result);
+    }, HISTORY_DELAY_MS);
 
     return;
   }

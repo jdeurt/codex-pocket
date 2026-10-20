@@ -691,3 +691,11 @@
     transition: none;
   }
 }
+
+@supports (-webkit-touch-callout: none) {
+  @media (display-mode: standalone) {
+    .composer-wrap {
+      padding-bottom: env(safe-area-inset-bottom);
+    }
+  }
+}

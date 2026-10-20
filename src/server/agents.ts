@@ -3,6 +3,7 @@ import { agentImageSource, projectAgentTranscript } from "./agent-projection";
 import { AgentReadCache } from "./agent-read-cache";
 import { type AgentRecord } from "./agent-sources";
 import { discoverAgents } from "./agent-catalog";
+import { log } from "./logging";
 
 const REFRESH_MS = 2000;
 
@@ -93,6 +94,12 @@ Refresh scoped discovery while preserving known saved history through source out
   private async refresh(owner: string) {
     try {
       await this.updateDiscovery(owner);
+    } catch (error) {
+      if (this.cached?.owner !== owner) {
+        throw error;
+      }
+
+      log().warn({ err: error, owner }, "agents.discovery_failed");
     } finally {
       this.refreshing = undefined;
     }
@@ -141,14 +148,17 @@ Require a completed discovery belonging to the configured parent.
   }
 
   /**
-Coalesce stale parent discovery before requiring the current owner cache.
+Coalesce discovery in the background while serving only a verified same-owner cache.
 @param owner - Configured parent whose catalog is being requested.
 @returns Completed current discovery for that parent.
 */
   private async discovery(owner: string) {
-    if (this.cached?.owner !== owner || Date.now() - this.cached.catalog.updatedAt >= REFRESH_MS) {
+    if (this.cached?.owner !== owner) {
+      await this.refreshing;
       this.refreshing ??= this.refresh(owner);
       await this.refreshing;
+    } else if (Date.now() - this.cached.catalog.updatedAt >= REFRESH_MS) {
+      this.refreshing ??= this.refresh(owner);
     }
 
     return this.requireDiscovery(owner);

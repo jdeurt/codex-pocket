@@ -5,12 +5,12 @@ import { turnMessages } from "../src/lib/turn-messages";
 
 const LAST_ITEM_INDEX = -1;
 const items: Item[] = [
-  { id: "user", type: "userMessage" },
+  { id: "user", type: "userMessage", content: [{ type: "text", text: "Start" }] },
   { id: "first", type: "agentMessage", phase: "commentary", text: "First update" },
   { id: "private", type: "reasoning", content: ["Not visible"] },
-  { id: "steering", type: "userMessage" },
+  { id: "steering", type: "userMessage", content: [{ type: "text", text: "Correction" }] },
   { id: "second", type: "agentMessage", phase: "commentary", text: "Second update" },
-  { id: "image", type: "imageOutput", images: [] },
+  { id: "image", type: "imageOutput", images: [{ source: "/api/images/example", alt: "Output" }] },
   { id: "final", type: "agentMessage", phase: "final_answer", text: "Final reply" },
 ];
 const turn: Turn = { id: "turn", status: "completed", items };
@@ -101,7 +101,7 @@ function repeatedInterruption(): Turn {
     ...turn,
     items: [
       ...items.slice(0, LAST_ITEM_INDEX),
-      { id: "steering-again", type: "userMessage" },
+      { id: "steering-again", type: "userMessage", content: [{ type: "text", text: "Another correction" }] },
       { id: "third", type: "agentMessage", phase: "commentary", text: "Third update" },
       final,
     ],

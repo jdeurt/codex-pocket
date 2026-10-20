@@ -35,7 +35,10 @@
     "test:e2e:focused": "env -u NO_COLOR playwright test --project='focused-*'",
     "test:e2e:virtualization": "env -u NO_COLOR playwright test --project='virtualization-*'",
     "test:e2e:restart": "env -u NO_COLOR playwright test --project='restart-*'",
-    "test:e2e:spinner": "env -u NO_COLOR playwright test --project='spinner-*'"
+    "test:e2e:spinner": "env -u NO_COLOR playwright test --project='spinner-*'",
+    "usage": "tsx scripts/usage.ts",
+    "review:duplicates": "jscpd",
+    "review:dead-code": "jscpd --dead-code --dead-code-categories all --min-confidence 0 --include-tests --include-entry-exports"
   },
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.303",
@@ -83,6 +86,7 @@
     "eslint-plugin-react-hooks": "7.1.1",
     "eslint-plugin-unicorn": "78.0.0",
     "jiti": "2.7.0",
+    "jscpd": "^5.4.1",
     "prettier": "3.9.9",
     "prettier-plugin-toml": "3.0.2",
     "tailwindcss": "^4",

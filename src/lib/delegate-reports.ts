@@ -6,4 +6,5 @@ export const delegateReportSchema = z.object({
   text: z.string(),
   status: z.enum(["pending", "streaming", "completed", "failed"]),
 });
+
 export type DelegateReport = z.infer<typeof delegateReportSchema>;

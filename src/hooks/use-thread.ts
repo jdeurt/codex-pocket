@@ -3,6 +3,7 @@ import { type QueuedMessage, type Snapshot, initialSnapshot, snapshotSchema } fr
 import { clientError, reportClient } from "@/lib/client-logging";
 import { type FileAttachment } from "@/lib/attachments";
 import { ZodError } from "zod";
+import { markNewContent } from "@/lib/new-content";
 import { reconcileDeliveries } from "@/lib/deliveries";
 import { useSyncExternalStore } from "react";
 
@@ -22,7 +23,7 @@ Reconcile server state with local deliveries before notifying transcript subscri
 @param isConnected - Whether the browser currently receives the parent event stream.
 */
 function publish(state: Snapshot, isConnected: boolean) {
-  const reconciled = reconcileDeliveries(state, store.pending);
+  const reconciled = reconcileDeliveries(markNewContent(store.latestState, state), store.pending);
 
   store.latestState = state;
   store.pending = reconciled.pending;

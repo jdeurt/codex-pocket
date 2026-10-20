@@ -55,14 +55,15 @@ async function heldDiscovery(page: Page, request: APIRequestContext) {
     })
     .toBe(1);
 
-  const verified = await test.step("Keep known agents available without awaiting the held native response", async () => {
-    const response = await request.get("/api/agents", { timeout: CACHED_READ_TIMEOUT_MS });
-    const catalog = agentCatalogSchema.parse(await response.json());
+  const verified =
+    await test.step("Keep known agents available without awaiting the held native response", async () => {
+      const response = await request.get("/api/agents", { timeout: CACHED_READ_TIMEOUT_MS });
+      const catalog = agentCatalogSchema.parse(await response.json());
 
-    expect(catalog.agents.filter(isActiveAgent)).toHaveLength(6);
+      expect(catalog.agents.filter(isActiveAgent)).toHaveLength(6);
 
-    return catalog.updatedAt;
-  });
+      return catalog.updatedAt;
+    });
 
   for (let read = 0; read < REPEATED_CATALOG_READS; read++) {
     const response = await request.get("/api/agents?view=list", { timeout: CACHED_READ_TIMEOUT_MS });

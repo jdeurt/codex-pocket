@@ -39,11 +39,6 @@ function openDelegationDatabase(filename: string) {
       sourceId TEXT NOT NULL, kind TEXT NOT NULL, payload TEXT NOT NULL,
       delivery TEXT NOT NULL, createdAt INTEGER NOT NULL, UNIQUE(childId, sourceId)
     );
-    CREATE TABLE IF NOT EXISTS delegate_summaries (
-      messageId TEXT NOT NULL REFERENCES delegation_mail(id), digest TEXT NOT NULL,
-      text TEXT NOT NULL, status TEXT NOT NULL, owner INTEGER NOT NULL,
-      PRIMARY KEY(messageId,digest)
-    );
     CREATE TABLE IF NOT EXISTS delegation_requests (
       id TEXT PRIMARY KEY, childId TEXT NOT NULL REFERENCES side_pockets(id), parentId TEXT NOT NULL,
       nativeId TEXT NOT NULL, method TEXT NOT NULL, input TEXT NOT NULL,

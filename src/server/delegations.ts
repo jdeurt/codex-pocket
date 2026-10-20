@@ -55,7 +55,7 @@ Acquire private persistence, committed-change hints and concrete mailbox and que
   constructor(directory: string) {
     this.db = delegationDatabase(directory);
     this.notifications = new DelegationNotifications(directory);
-    this.summaries = new DelegateSummaryStore(this.db, this.notifications.changed);
+    this.summaries = new DelegateSummaryStore(this.db);
     this.mail = new DelegationMailbox(this.db, this.notifications.changed);
     this.queue = new DelegationQueue(this.db, this, this.notifications);
   }

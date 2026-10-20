@@ -121,6 +121,7 @@ async function replayDelivery(context: TestContext, sent: { endpoint: string; bo
     await saveSubscription(phone);
     await saveSubscription(tablet);
 
+    await replaySilentTurns(sent);
     await notifyTurnComplete("thread", turn);
     await notifyTurnComplete("thread", turn);
     assert.deepEqual(sent, [{ endpoint: tablet.endpoint, body: "Done" }]);
@@ -135,6 +136,24 @@ async function replayDelivery(context: TestContext, sent: { endpoint: string; bo
     );
   } finally {
     disconnect();
+  }
+}
+
+/**
+Replay silent and hidden native completions through persistence without claiming a notification receipt.
+@param sent - Captured outbound deliveries, which must remain empty throughout.
+*/
+async function replaySilentTurns(sent: { endpoint: string; body: unknown }[]) {
+  const outputs = [
+    [],
+    [{ id: "blank", type: "agentMessage", phase: "final_answer", text: " ".repeat(3) }],
+    [{ id: "commentary", type: "agentMessage", phase: "commentary", text: "Working" }],
+    [{ id: "tool", type: "commandExecution", command: "true", status: "completed" }],
+  ];
+
+  for (const items of outputs) {
+    await notifyTurnComplete("thread", { id: "turn", status: "completed", items });
+    assert.deepEqual(sent, []);
   }
 }
 
@@ -177,7 +196,7 @@ await test("subscriptions require HTTPS and browser encryption keys", () => {
   assert.throws(() => subscriptionSchema.parse({ ...valid, keys: { auth: "bad", p256dh: "bad" } }));
 });
 
-await test("completion notifications contain the final reply, keep tap routing and use fallbacks without final text", () => {
+await test("completion notifications contain the final reply, keep tap routing and suppress turns without final output", () => {
   const turn: Turn = {
     id: "turn",
     status: "completed",
@@ -188,18 +207,19 @@ await test("completion notifications contain the final reply, keep tap routing a
   };
   const notification = completionNotification("thread", turn);
 
+  assert.ok(notification);
   assert.equal(notification.title, "Pocket");
   assert.equal(notification.body, "A full response 👋");
   assert.equal(notification.url, "/");
   assert.equal(notification.tag, "thread:turn");
-  assert.notEqual(completionNotification("thread", { ...turn, id: "next" }).tag, notification.tag);
-  assert.match(completionNotification("thread", { ...turn, items: [turn.items[0]] }).body, /finished/);
-  assert.match(completionNotification("thread", { ...turn, status: "failed", items: [] }).body, /stopped/);
+  assert.notEqual(completionNotification("thread", { ...turn, id: "next" })?.tag, notification.tag);
+  assert.equal(completionNotification("thread", { ...turn, items: [turn.items[0]] }), undefined);
+  assert.equal(completionNotification("thread", { ...turn, status: "failed", items: [] }), undefined);
   assert.equal(
     completionNotification("thread", {
       ...turn,
       items: [{ id: "legacy", type: "agentMessage", text: "Older Codex reply" }],
-    }).body,
+    })?.body,
     "Older Codex reply"
   );
 });
@@ -213,7 +233,11 @@ await test("payloads retain full replies that fit and limit actual encrypted byt
 
   for (const text of texts) {
     const turn: Turn = { id: "turn", status: "completed", items: [{ id: "reply", type: "agentMessage", text }] };
-    const payload = completionPayload("thread", turn);
+    const notification = completionNotification("thread", turn);
+
+    assert.ok(notification);
+
+    const payload = completionPayload(notification);
     const body = object(JSON.parse(payload)).body;
 
     assert.ok(typeof body === "string");

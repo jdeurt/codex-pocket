@@ -9,7 +9,7 @@ import test from "node:test";
 import { toolJson } from "./fixtures/tool-json";
 
 const DAY_MS = 86_400_000;
-const TOOL_COUNT = 17;
+const TOOL_COUNT = 20;
 
 /**
 Requires a successful MCP envelope before decoding its JSON tool result.

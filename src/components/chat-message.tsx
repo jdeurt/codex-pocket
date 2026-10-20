@@ -61,6 +61,8 @@ function MessageBubble({ item }: { item: Item }) {
                 <p className="whitespace-pre-wrap">{text}</p>
               ) : (
                 <Markdown
+                  revealFrom={typeof item.revealFrom === "number" ? item.revealFrom : undefined}
+                  revealId={string(item.revealId) || undefined}
                   imageBase={string(item.imageBase) || undefined}
                   allowCopyActions={item.type === "agentMessage"}
                 >

@@ -1,5 +1,6 @@
 import { type RpcEvent, type Snapshot } from "../lib/protocol";
 import type { Config } from "./config";
+import { contextUsageSchema } from "../lib/usage";
 import { notifyTurnComplete } from "./push";
 import { reduceEvent } from "./reducer";
 import { writeLocal } from "./local-state";
@@ -13,6 +14,18 @@ Apply one parent-scoped native event and retain durable request and completion e
 export function applyBridgeEvent(state: Snapshot, config: Config | undefined, event: RpcEvent) {
   if (event.id === undefined) {
     reduceEvent(state, event);
+
+    if (event.method === "thread/tokenUsage/updated") {
+      const usage = contextUsageSchema.safeParse(event.params.tokenUsage);
+
+      if (usage.success) {
+        state.usage = usage.data;
+      }
+    }
+
+    if (event.method === "thread/compacted") {
+      state.lastCompactionAt = Date.now();
+    }
 
     if (event.method === "serverRequest/resolved" || event.method === "turn/completed") {
       if (event.method === "turn/completed") {
