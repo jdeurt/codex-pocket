@@ -1,4 +1,4 @@
-import { type Locator, type Page, expect } from "@playwright/test";
+import { type CDPSession, type Locator, type Page, expect, test } from "@playwright/test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import path from "node:path";
 import { send } from "./messages";
@@ -11,6 +11,8 @@ const PHONE_HEIGHT = 844;
 const IMAGE_GAP = 16;
 const RATIO_TOLERANCE = 0.01;
 const START_FRACTION = 4;
+const DRAG_DISTANCE = 400;
+const DRAG_STEPS = 8;
 
 /**
 Waits for decoded native image dimensions before requiring actual browser geometry.
@@ -18,8 +20,11 @@ Waits for decoded native image dimensions before requiring actual browser geomet
 @returns Non-null image bounding box.
 */
 async function bounds(image: Locator) {
-  await expect.poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth)).toBeGreaterThan(0);
-  const box = await image.boundingBox();
+  const box = await test.step("Decode the native image before measuring browser bounds", async () => {
+    await expect.poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth)).toBeGreaterThan(0);
+
+    return await image.boundingBox();
+  });
 
   if (!box) {
     throw new Error("Image bounds are unavailable");
@@ -29,36 +34,41 @@ async function bounds(image: Locator) {
 }
 
 /**
-Exercises native Chromium touch dismissal while measuring the actual animated displacement.
-@param page - Browser showing an open image preview.
-@returns Completion of dismissal and movement assertions.
+Dispatch native touch movement and require the preview's dragging state.
+@param client - Native Chromium debugging session owned by the swipe fixture.
+@param popup - Actual open image dialog.
+@param x - Horizontal touch coordinate.
+@param startY - Initial vertical touch coordinate.
+@returns Observed vertical transform after the drag.
 */
-async function swipeDown(page: Page) {
-  const popup = page.getByRole("dialog");
-  const box = await bounds(popup.locator("img"));
-  const client = await page.context().newCDPSession(page);
-  const x = box.x + box.width / 2;
-  const startY = box.y + box.height / START_FRACTION;
-  const DISTANCE = 400;
-  const STEPS = 8;
-
+async function dragPreview(client: CDPSession, popup: Locator, x: number, startY: number) {
   await client.send("Input.dispatchTouchEvent", {
     type: "touchStart",
     touchPoints: [{ x, y: startY }],
   });
 
-  for (let step = 1; step <= STEPS; step += 1) {
+  for (let step = 1; step <= DRAG_STEPS; step += 1) {
     await client.send("Input.dispatchTouchEvent", {
       type: "touchMove",
-      touchPoints: [{ x, y: startY + (DISTANCE * step) / STEPS }],
+      touchPoints: [{ x, y: startY + (DRAG_DISTANCE * step) / DRAG_STEPS }],
     });
   }
 
   await expect(popup).toHaveAttribute("data-swiping", "");
-  const offset = await popup.evaluate((element) => new DOMMatrixReadOnly(getComputedStyle(element).transform).m42);
 
-  expect(offset).toBeGreaterThan(DISTANCE / 2);
-  const dismissal = popup.evaluate(
+  return await popup.evaluate((element) => new DOMMatrixReadOnly(getComputedStyle(element).transform).m42);
+}
+
+/**
+Require a real drag before observing the dialog's remaining dismissal trajectory.
+@param popup - Dialog still connected during the native touch gesture.
+@param offset - Actual transform sampled before touch release.
+@returns Furthest observed transform once the dialog disconnects.
+*/
+function observeDismissal(popup: Locator, offset: number) {
+  expect(offset).toBeGreaterThan(DRAG_DISTANCE / 2);
+
+  return popup.evaluate(
     (element) =>
       new Promise<number>((resolve) => {
         let furthest = 0;
@@ -76,11 +86,42 @@ async function swipeDown(page: Page) {
         sample();
       })
   );
+}
+
+/**
+Release a real native drag and verify continued animated movement before the dialog disappears.
+@param client - Native debugging session released by the outer swipe fixture.
+@param popup - Open native image dialog.
+@param x - Horizontal touch coordinate.
+@param startY - Initial vertical touch coordinate.
+@returns Completion of dismissal and movement assertions.
+*/
+async function releasePreviewDrag(client: CDPSession, popup: Locator, x: number, startY: number) {
+  const offset = await dragPreview(client, popup, x, startY);
+  const dismissal = observeDismissal(popup, offset);
 
   await client.send("Input.dispatchTouchEvent", { type: "touchEnd", touchPoints: [] });
   await expect(popup).toHaveCount(0);
   expect(await dismissal).toBeGreaterThan(offset);
-  await client.detach();
+}
+
+/**
+Exercises native Chromium touch dismissal while measuring the actual animated displacement.
+@param page - Browser showing an open image preview.
+@returns Completion of dismissal and movement assertions.
+*/
+async function swipeDown(page: Page) {
+  const popup = page.getByRole("dialog");
+  const box = await bounds(popup.locator("img"));
+  const client = await page.context().newCDPSession(page);
+  const x = box.x + box.width / 2;
+  const startY = box.y + box.height / START_FRACTION;
+
+  try {
+    await releasePreviewDrag(client, popup, x, startY);
+  } finally {
+    await client.detach();
+  }
 }
 
 /**
@@ -100,56 +141,74 @@ async function checkImagePage(page: Page, browserName: string, portrait: string,
   const preview = page.getByRole("dialog", { name: "Portrait one", exact: true });
   const close = page.getByRole("button", { name: "Close image preview", exact: true });
 
-  await page.goto("/");
-  await expect(page.getByText("Connected", { exact: true })).toBeVisible();
-  await send(
-    page,
-    `Reply with exactly the following Markdown, no code fence or extra text. Do not use tools.\n\n${markdown}`
-  );
-
-  await expect(page.getByText("IMAGES_AFTER", { exact: true })).toBeVisible();
-  const a = await bounds(first);
-  const b = await bounds(second);
-  const landscapeBox = await bounds(wide);
-
-  expect(Math.abs(a.width / a.height - 1 / 2)).toBeLessThan(RATIO_TOLERANCE);
-  expect(Math.abs(landscapeBox.width / landscapeBox.height - 2)).toBeLessThan(RATIO_TOLERANCE);
-  expect(Math.abs(a.y - b.y)).toBeLessThan(1);
-  expect(b.x - a.x - a.width).toBe(IMAGE_GAP);
   const frame = first.locator("xpath=../..");
+  const { a, b, landscapeBox } = await test.step("Send original Markdown and measure decoded images", async () => {
+    await page.goto("/");
+    await expect(page.getByText("Connected", { exact: true })).toBeVisible();
+    await send(
+      page,
+      `Reply with exactly the following Markdown, no code fence or extra text. Do not use tools.\n\n${markdown}`
+    );
 
-  await expect(frame).toHaveCSS("border-width", "0px");
-  await expect(frame).toHaveCSS("box-shadow", "none");
-  const frameBox = await frame.boundingBox();
+    await expect(page.getByText("IMAGES_AFTER", { exact: true })).toBeVisible();
 
-  expect(frameBox?.width).toBe(a.width);
-  expect(frameBox?.height).toBe(a.height);
-  const before = await paragraph.boundingBox();
+    return { a: await bounds(first), b: await bounds(second), landscapeBox: await bounds(wide) };
+  });
 
-  expect(before?.x).toBe(a.x);
-  expect(Math.round(a.y - (before?.y ?? 0) - (before?.height ?? 0))).toBe(IMAGE_GAP);
-  await page.setViewportSize({ width: NARROW_WIDTH, height: PHONE_HEIGHT });
-  const narrowFirst = await bounds(first);
-  const narrowSecond = await bounds(second);
+  const frameBox = await test.step("Require original image aspect ratios, sibling gaps and frame styling", async () => {
+    expect(Math.abs(a.width / a.height - 1 / 2)).toBeLessThan(RATIO_TOLERANCE);
+    expect(Math.abs(landscapeBox.width / landscapeBox.height - 2)).toBeLessThan(RATIO_TOLERANCE);
+    expect(Math.abs(a.y - b.y)).toBeLessThan(1);
+    expect(b.x - a.x - a.width).toBe(IMAGE_GAP);
 
-  expect(narrowSecond.y).toBeGreaterThan(narrowFirst.y + narrowFirst.height);
-  expect(await page.locator("html").evaluate((element) => element.scrollWidth)).toBe(NARROW_WIDTH);
-  await page.setViewportSize({ width: PHONE_WIDTH, height: PHONE_HEIGHT });
-  await page.screenshot({ path: ".local/image-previews-mobile.png" });
-  await page.getByRole("button", { name: "Preview image: Portrait one", exact: true }).click();
+    await expect(frame).toHaveCSS("border-width", "0px");
+    await expect(frame).toHaveCSS("box-shadow", "none");
 
-  await expect(preview).toBeVisible();
-  await expect
-    .poll(() => preview.evaluate((element) => new DOMMatrixReadOnly(getComputedStyle(element).transform).m42))
-    .toBe(0);
-  await expect(preview).toHaveCSS("border-radius", "24px");
-  const full = await bounds(preview.locator("img"));
+    return await frame.boundingBox();
+  });
 
-  expect(full.x).toBeGreaterThanOrEqual(0);
-  expect(full.y).toBeGreaterThanOrEqual(0);
-  expect(full.x + full.width).toBeLessThanOrEqual(PHONE_WIDTH);
-  expect(full.y + full.height).toBeLessThanOrEqual(PHONE_HEIGHT);
-  const closeBox = await close.boundingBox();
+  const before =
+    await test.step("Require the image frame to fit its content before measuring the preceding paragraph", async () => {
+      expect(frameBox?.width).toBe(a.width);
+      expect(frameBox?.height).toBe(a.height);
+
+      return await paragraph.boundingBox();
+    });
+
+  const { narrowFirst, narrowSecond } =
+    await test.step("Require outer spacing before measuring narrow-screen wrapping", async () => {
+      expect(before?.x).toBe(a.x);
+      expect(Math.round(a.y - (before?.y ?? 0) - (before?.height ?? 0))).toBe(IMAGE_GAP);
+      await page.setViewportSize({ width: NARROW_WIDTH, height: PHONE_HEIGHT });
+
+      return { narrowFirst: await bounds(first), narrowSecond: await bounds(second) };
+    });
+
+  const full = await test.step("Verify narrow wrapping then open the original fitted preview", async () => {
+    expect(narrowSecond.y).toBeGreaterThan(narrowFirst.y + narrowFirst.height);
+    expect(await page.locator("html").evaluate((element) => element.scrollWidth)).toBe(NARROW_WIDTH);
+    await page.setViewportSize({ width: PHONE_WIDTH, height: PHONE_HEIGHT });
+    await page.screenshot({ path: ".local/image-previews-mobile.png" });
+    await page.getByRole("button", { name: "Preview image: Portrait one", exact: true }).click();
+
+    await expect(preview).toBeVisible();
+    await expect
+      .poll(() => preview.evaluate((element) => new DOMMatrixReadOnly(getComputedStyle(element).transform).m42))
+      .toBe(0);
+    await expect(preview).toHaveCSS("border-radius", "24px");
+
+    return await bounds(preview.locator("img"));
+  });
+
+  const closeBox =
+    await test.step("Require the full image inside the viewport before measuring its close control", async () => {
+      expect(full.x).toBeGreaterThanOrEqual(0);
+      expect(full.y).toBeGreaterThanOrEqual(0);
+      expect(full.x + full.width).toBeLessThanOrEqual(PHONE_WIDTH);
+      expect(full.y + full.height).toBeLessThanOrEqual(PHONE_HEIGHT);
+
+      return await close.boundingBox();
+    });
 
   expect(closeBox?.width).toBeGreaterThanOrEqual(TOUCH_TARGET);
   expect(closeBox?.height).toBeGreaterThanOrEqual(TOUCH_TARGET);
@@ -182,8 +241,11 @@ export async function checkImagePreviews(page: Page, browserName: string) {
   const PORTRAIT_WIDTH = 600;
   const LONG_EDGE = 1200;
 
-  await mkdir(".local", { recursive: true });
-  const directory = await mkdtemp(path.resolve(".local", "image-fixtures-"));
+  const directory = await test.step("Create private image layout inputs", async () => {
+    await mkdir(".local", { recursive: true });
+
+    return await mkdtemp(path.resolve(".local", "image-fixtures-"));
+  });
   const portrait = path.join(directory, "portrait.png");
   const landscape = path.join(directory, "landscape.png");
 

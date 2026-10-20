@@ -1,4 +1,4 @@
-import { type Page, expect } from "@playwright/test";
+import { type Page, expect, test } from "@playwright/test";
 import { send } from "./messages";
 
 /**
@@ -14,17 +14,6 @@ export async function checkActivityInterruptions(page: Page) {
   const secondSteer =
     "Steering update two: after the current command, finish with final answer exactly INTERRUPT_FINAL.";
 
-  await page.goto("/");
-  await expect(page.getByText("Connected", { exact: true })).toBeVisible();
-
-  await send(page, prompt);
-  await expect(page.getByText("INTERRUPT_TWO", { exact: true })).toBeVisible();
-  await expect(page.getByRole("status", { name: "Pocket activity" })).toContainText("Running commands");
-  await send(page, firstSteer);
-  await expect(page.getByText("INTERRUPT_THREE", { exact: true })).toBeVisible();
-  await expect(page.getByRole("status", { name: "Pocket activity" })).toContainText("Running commands");
-  await send(page, secondSteer);
-  await expect(page.getByText("INTERRUPT_FINAL", { exact: true })).toBeVisible();
   const turn = page
     .locator('[data-slot="message-scroller-item"]')
     .filter({ has: page.getByText(prompt, { exact: true }) });
@@ -38,22 +27,39 @@ export async function checkActivityInterruptions(page: Page) {
     "INTERRUPT_FINAL",
   ];
 
+  await page.goto("/");
+  await expect(page.getByText("Connected", { exact: true })).toBeVisible();
+
+  await send(page, prompt);
+  await expect(page.getByText("INTERRUPT_TWO", { exact: true })).toBeVisible();
+  await expect(page.getByRole("status", { name: "Pocket activity" })).toContainText("Running commands");
+  await send(page, firstSteer);
+  await expect(page.getByText("INTERRUPT_THREE", { exact: true })).toBeVisible();
+  await expect(page.getByRole("status", { name: "Pocket activity" })).toContainText("Running commands");
+  await send(page, secondSteer);
+  await expect(page.getByText("INTERRUPT_FINAL", { exact: true })).toBeVisible();
+
   for (const isReload of [false, true]) {
-    if (isReload) {
-      await page.reload();
-    }
+    const order = await test.step(
+      isReload ? "Reload preserved steering order" : "Inspect completed steering order",
+      async () => {
+        if (isReload) {
+          await page.reload();
+        }
 
-    for (const marker of ["INTERRUPT_ONE", "INTERRUPT_TWO", "INTERRUPT_THREE", "INTERRUPT_FINAL"]) {
-      await expect(turn.getByText(marker, { exact: true })).toBeVisible();
-    }
+        for (const marker of ["INTERRUPT_ONE", "INTERRUPT_TWO", "INTERRUPT_THREE", "INTERRUPT_FINAL"]) {
+          await expect(turn.getByText(marker, { exact: true })).toBeVisible();
+        }
 
-    const order = await turn
-      .locator('[data-slot="bubble"]')
-      .evaluateAll(
-        (elements, wanted) =>
-          elements.map((element) => element.textContent.trim()).filter((text) => wanted.includes(text)),
-        expected
-      );
+        return await turn
+          .locator('[data-slot="bubble"]')
+          .evaluateAll(
+            (elements, wanted) =>
+              elements.map((element) => element.textContent.trim()).filter((text) => wanted.includes(text)),
+            expected
+          );
+      }
+    );
 
     expect(order).toEqual(expected);
     await expect(turn.locator('[data-slot="trace-collapsible-content"]')).toHaveCount(0);

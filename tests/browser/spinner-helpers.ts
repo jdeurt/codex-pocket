@@ -16,20 +16,14 @@ Measures the actual spinner slot and label geometry in the activity row.
 export async function alignment(page: Page) {
   return page.evaluate(() => {
     const row = globalThis.document.querySelector(".activity-indicator");
+    const spinner = row?.querySelector("[data-activity-spinner]");
+    const text = row?.querySelector(":scope > span:last-child");
+    const slot = spinner?.getBoundingClientRect();
+    const label = text?.getBoundingClientRect();
 
-    if (!row) {
-      throw new Error("Missing activity row.");
+    if (!row || !slot || !label) {
+      throw new Error(row ? "Missing spinner or activity label." : "Missing activity row.");
     }
-
-    const spinner = row.querySelector("[data-activity-spinner]");
-    const text = row.querySelector(":scope > span:last-child");
-
-    if (!spinner || !text) {
-      throw new Error("Missing spinner or activity label.");
-    }
-
-    const slot = spinner.getBoundingClientRect();
-    const label = text.getBoundingClientRect();
 
     return {
       slot: { x: slot.x, y: slot.y, width: slot.width, height: slot.height },
@@ -67,19 +61,25 @@ Checks actual frame changes, grayscale pixels and stable image-derived tone acro
 export async function animatedGrayscale(page: Page) {
   const transfer = page.locator("[data-activity-spinner] feFuncR");
 
-  expect(await page.locator("[data-activity-spinner] img").getAttribute("style")).toContain("url(");
   const frames = new Set<string>();
   const readTone = () => Promise.all([transfer.getAttribute("slope"), transfer.getAttribute("intercept")]);
-  const transform = await readTone();
+  const transform = await test.step("Require the native filter before sampling its stable tone", async () => {
+    expect(await page.locator("[data-activity-spinner] img").getAttribute("style")).toContain("url(");
+
+    return await readTone();
+  });
 
   for (let index = 0; index < CAPTURE_FRAMES; index++) {
-    const bytes = await captureSlot(page);
-
-    await writeFile(`.local/spinner-frame-${test.info().project.name}-${String(index)}.png`, bytes);
-    const { data, info } = await sharp(bytes).removeAlpha().raw().toBuffer({ resolveWithObject: true });
-
     let brightest = 0;
     let maximumChroma = 0;
+
+    const bytes = await captureSlot(page);
+
+    const { data, info } = await test.step(`Capture actual spinner frame ${String(index)}`, async () => {
+      await writeFile(`.local/spinner-frame-${test.info().project.name}-${String(index)}.png`, bytes);
+
+      return await sharp(bytes).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+    });
 
     for (let pixel = 0; pixel < data.length; pixel += info.channels) {
       const channels = data.subarray(pixel, pixel + RGB_CHANNELS);

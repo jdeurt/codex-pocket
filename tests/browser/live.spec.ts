@@ -1,5 +1,5 @@
+import { type Page, expect, test } from "@playwright/test";
 import { type Snapshot, snapshotSchema } from "../../src/lib/protocol";
-import { expect, test } from "@playwright/test";
 import { checkActivityInterruptions } from "./activity-interruptions";
 import { checkImagePreviews } from "./image-previews";
 import { send } from "./messages";
@@ -8,55 +8,70 @@ declare global {
   var validateLiveSnapshot: (value: unknown) => Promise<Snapshot>;
 }
 
+/**
+Measure expanded activity paragraphs and validate all required browser boxes together.
+@param page - Browser after the actual disclosure was expanded.
+@returns Paragraph and message gaps measured from the same rendered activity.
+*/
+async function activityGaps(page: Page) {
+  const first = await page.getByText("ACTIVITY_ONE_FIRST", { exact: true }).boundingBox();
+  const second = await page.getByText("ACTIVITY_ONE_SECOND", { exact: true }).boundingBox();
+  const next = await page.getByText("ACTIVITY_TWO", { exact: true }).boundingBox();
+
+  if (!first || !second || !next) {
+    throw new Error("Expanded activity geometry is unavailable");
+  }
+
+  return { paragraphGap: second.y - first.y - first.height, messageGap: next.y - second.y - second.height };
+}
+
 if (process.env.CODEX_TEST_ACTIVITY === "1") {
   test("real Codex activity stays live, collapses at completion and preserves its final reply", async ({ page }) => {
     const prompt =
       "First send a commentary update with exactly two paragraphs: ACTIVITY_ONE_FIRST and ACTIVITY_ONE_SECOND. Then run the read-only shell command sleep 4. Send another commentary message exactly ACTIVITY_TWO, then run sleep 4. Finally send a final answer exactly ACTIVITY_FINAL. Do not modify files.";
 
-    await page.goto("/");
-    await expect(page.getByText("Connected", { exact: true })).toBeVisible();
-
-    await send(page, prompt);
-    await expect(page.getByText("ACTIVITY_ONE_FIRST", { exact: true })).toBeVisible();
     const turn = page
       .locator('[data-slot="message-scroller-item"]')
       .filter({ has: page.getByText(prompt, { exact: true }) });
-
-    await expect(turn.getByRole("button", { name: "Show activity", exact: true })).toHaveCount(0);
-    await expect(page.getByRole("status", { name: "Pocket activity" })).toContainText("Running commands");
-    const muted = await page.getByRole("status", { name: "Pocket activity" }).evaluate((element) => ({
-      color: getComputedStyle(element).color,
-      opacity: getComputedStyle(element).opacity,
-    }));
-
-    await expect(page.getByText("ACTIVITY_FINAL", { exact: true })).toBeVisible();
     const show = turn.getByRole("button", { name: "Show activity", exact: true });
-
-    await expect(show).toBeVisible();
-    await expect(show).toHaveCSS("opacity", muted.opacity);
-    await expect(show.locator('[data-slot="trace-line"]')).toHaveCSS("color", muted.color);
-    await expect(show.locator("svg")).toHaveCSS("color", muted.color);
-    await expect(page.getByText("ACTIVITY_ONE_FIRST", { exact: true })).toBeHidden();
-    await show.click();
     const hide = turn.getByRole("button", { name: "Hide activity", exact: true });
-
-    await expect(hide).toHaveAttribute("aria-expanded", "true");
-    await expect(hide.locator('[data-slot="trace-line"]')).toHaveCSS("color", muted.color);
-    await expect(page.getByText("ACTIVITY_TWO", { exact: true })).toBeVisible();
     const panel = turn.locator('[data-slot="trace-collapsible-content"]');
-
-    await expect(panel.getByText("ACTIVITY_FINAL", { exact: true })).toHaveCount(0);
-    const first = await page.getByText("ACTIVITY_ONE_FIRST", { exact: true }).boundingBox();
-    const second = await page.getByText("ACTIVITY_ONE_SECOND", { exact: true }).boundingBox();
-    const next = await page.getByText("ACTIVITY_TWO", { exact: true }).boundingBox();
-
-    if (!first || !second || !next) {
-      throw new Error("Expanded activity geometry is unavailable");
-    }
-
     const QUARTER_TURN_DEGREES = 90;
-    const paragraphGap = second.y - first.y - first.height;
-    const messageGap = next.y - second.y - second.height;
+    const muted = await test.step("Inspect active activity styling before completion", async () => {
+      await page.goto("/");
+      await expect(page.getByText("Connected", { exact: true })).toBeVisible();
+
+      await send(page, prompt);
+      await expect(page.getByText("ACTIVITY_ONE_FIRST", { exact: true })).toBeVisible();
+
+      await expect(turn.getByRole("button", { name: "Show activity", exact: true })).toHaveCount(0);
+      await expect(page.getByRole("status", { name: "Pocket activity" })).toContainText("Running commands");
+
+      return await page.getByRole("status", { name: "Pocket activity" }).evaluate((element) => ({
+        color: getComputedStyle(element).color,
+        opacity: getComputedStyle(element).opacity,
+      }));
+    });
+
+    const { paragraphGap, messageGap } =
+      await test.step("Expand completed activity and inspect its actual gaps", async () => {
+        await expect(page.getByText("ACTIVITY_FINAL", { exact: true })).toBeVisible();
+
+        await expect(show).toBeVisible();
+        await expect(show).toHaveCSS("opacity", muted.opacity);
+        await expect(show.locator('[data-slot="trace-line"]')).toHaveCSS("color", muted.color);
+        await expect(show.locator("svg")).toHaveCSS("color", muted.color);
+        await expect(page.getByText("ACTIVITY_ONE_FIRST", { exact: true })).toBeHidden();
+        await show.click();
+
+        await expect(hide).toHaveAttribute("aria-expanded", "true");
+        await expect(hide.locator('[data-slot="trace-line"]')).toHaveCSS("color", muted.color);
+        await expect(page.getByText("ACTIVITY_TWO", { exact: true })).toBeVisible();
+
+        await expect(panel.getByText("ACTIVITY_FINAL", { exact: true })).toHaveCount(0);
+
+        return await activityGaps(page);
+      });
 
     expect(Math.abs(messageGap - paragraphGap)).toBeLessThan(1);
     await expect(hide.locator('[data-slot="trace-line"]')).toHaveCSS("font-size", "16px");
@@ -102,12 +117,15 @@ if (process.env.CODEX_TEST_ACTIVITY === "1") {
     const SCHEDULE_DELAY_MS = 30_000;
     const body = "For this scheduled run, reply exactly SCHEDULED_OK";
 
-    await page.goto("/");
-    await expect(page.getByText("Connected", { exact: true })).toBeVisible();
-    const when = new Date(Date.now() + SCHEDULE_DELAY_MS)
-      .toISOString()
-      .replaceAll(/[-:]/g, "")
-      .replace(/\.\d{3}/, "");
+    const when = await test.step("Connect before starting the schedule delay", async () => {
+      await page.goto("/");
+      await expect(page.getByText("Connected", { exact: true })).toBeVisible();
+
+      return new Date(Date.now() + SCHEDULE_DELAY_MS)
+        .toISOString()
+        .replaceAll(/[-:]/g, "")
+        .replace(/\.\d{3}/, "");
+    });
 
     await send(
       page,
@@ -141,145 +159,159 @@ if (process.env.CODEX_TEST_ACTIVITY === "1") {
     const errors: string[] = [];
     const retryText = "Reply exactly RETRY_OK. Do not use tools.";
 
-    page.on("pageerror", (error) => {
-      errors.push(error.message);
+    const observer = await test.step("Connect the phone and open an independent observer page", async () => {
+      page.on("pageerror", (error) => {
+        errors.push(error.message);
+      });
+      await page.goto("/");
+      await expect(page.getByRole("heading", { name: "Pocket", exact: true })).toBeVisible();
+      await expect(page.getByText("Connected", { exact: true })).toBeVisible();
+      await expect(page.getByLabel("Model and reasoning effort")).toContainText("reasoning");
+
+      return await page.context().newPage();
     });
-    await page.goto("/");
-    await expect(page.getByRole("heading", { name: "Pocket", exact: true })).toBeVisible();
-    await expect(page.getByText("Connected", { exact: true })).toBeVisible();
-    await expect(page.getByLabel("Model and reasoning effort")).toContainText("reasoning");
-    const observer = await page.context().newPage();
 
-    await observer.goto("/");
-    await expect(observer.getByText("Connected", { exact: true })).toBeVisible();
-    const dispatch = Promise.withResolvers<boolean>();
+    const dispatch = await test.step("Connect the independent observer before delaying delivery", async () => {
+      await observer.goto("/");
+      await expect(observer.getByText("Connected", { exact: true })).toBeVisible();
 
-    await page.route(
-      "**/api/messages",
-      async (route) => {
-        await dispatch.promise;
-        await route.continue();
-      },
-      { times: 1 }
-    );
-    await send(page, "Reply exactly POCKET_OK. Do not use tools.");
-    await expect(page.getByText("Sending…", { exact: true })).toBeVisible();
-    await expect(page.getByRole("textbox", { name: "Message Pocket" })).toHaveValue("");
-    await expect(page.locator('[data-delivery="sending"]')).toHaveCSS("opacity", "0.55");
-    dispatch.resolve(true);
-    await expect(page.getByText("POCKET_OK", { exact: true })).toBeVisible();
-    await expect(page.getByText("Reply exactly POCKET_OK. Do not use tools.", { exact: true })).toHaveCount(1);
-    await expect(page.getByText("Sending…", { exact: true })).toHaveCount(0);
-    await expect(observer.getByText("POCKET_OK", { exact: true })).toBeVisible();
-    await page.route(
-      "**/api/messages",
-      (route) => route.fulfill({ status: 503, contentType: "text/html", body: "<html>Restarting</html>" }),
-      { times: 1 }
-    );
+      return Promise.withResolvers<boolean>();
+    });
 
-    await send(page, retryText);
-    await expect(page.getByRole("textbox", { name: "Message Pocket" })).toHaveValue(retryText);
-    await expect(
-      page.getByText("Pocket is restarting or returned an unreadable response. Your message is saved here.", {
-        exact: true,
-      })
-    ).toBeVisible();
-    await page.getByRole("button", { name: "Send message", exact: true }).click();
-    await expect(page.getByText("RETRY_OK", { exact: true })).toBeVisible();
-    await expect(page.getByText(retryText, { exact: true })).toHaveCount(1);
-    await expect(page.getByText("Connected", { exact: true })).toBeVisible();
-    await observer.exposeFunction("validateLiveSnapshot", (value: unknown) => snapshotSchema.parse(value));
-    const streaming = observer.evaluate(
-      () =>
-        new Promise<number>((resolve, reject) => {
-          const STREAM_TIMEOUT_MS = 90_000;
-          const source = new EventSource("/api/events");
-          const prefixes = new Set<string>();
-          const timer = setTimeout(() => {
-            source.close();
-            reject(new Error("Live response streaming timed out."));
-          }, STREAM_TIMEOUT_MS);
-
-          source.addEventListener("message", (event: MessageEvent<string>) => {
-            void (async () => {
-              const LAST_TURN_INDEX = -1;
-              const data: unknown = JSON.parse(event.data);
-              const state = await globalThis.validateLiveSnapshot(data);
-              const text =
-                state.turns
-                  .at(LAST_TURN_INDEX)
-                  ?.items.filter((item) => item.type === "agentMessage")
-                  .map((item) => String(item.text))
-                  .findLast((message) => message.includes("STREAM_START")) ?? "";
-
-              if (!text.includes("STREAM_START")) {
-                return;
-              }
-
-              if (state.activeTurnId) {
-                prefixes.add(text);
-              }
-
-              if (!text.includes("STREAM_END") || state.activeTurnId) {
-                return;
-              }
-
-              clearTimeout(timer);
-              source.close();
-              resolve(prefixes.size);
-            })().catch((error: unknown) => {
-              reject(error instanceof Error ? error : new Error("Invalid snapshot.", { cause: error }));
-            });
-          });
+    const streaming = await test.step("Verify delivery and retry, then start snapshot observation", async () => {
+      await page.route(
+        "**/api/messages",
+        async (route) => {
+          await dispatch.promise;
+          await route.continue();
+        },
+        { times: 1 }
+      );
+      await send(page, "Reply exactly POCKET_OK. Do not use tools.");
+      await expect(page.getByText("Sending…", { exact: true })).toBeVisible();
+      await expect(page.getByRole("textbox", { name: "Message Pocket" })).toHaveValue("");
+      await expect(page.locator('[data-delivery="sending"]')).toHaveCSS("opacity", "0.55");
+      dispatch.resolve(true);
+      await expect(page.getByText("POCKET_OK", { exact: true })).toBeVisible();
+      await expect(page.getByText("Reply exactly POCKET_OK. Do not use tools.", { exact: true })).toHaveCount(1);
+      await expect(page.getByText("Sending…", { exact: true })).toHaveCount(0);
+      await expect(observer.getByText("POCKET_OK", { exact: true })).toBeVisible();
+      await page.route(
+        "**/api/messages",
+        (route) => route.fulfill({ status: 503, contentType: "text/html", body: "<html>Restarting</html>" }),
+        { times: 1 }
+      );
+      await send(page, retryText);
+      await expect(page.getByRole("textbox", { name: "Message Pocket" })).toHaveValue(retryText);
+      await expect(
+        page.getByText("Pocket is restarting or returned an unreadable response. Your message is saved here.", {
+          exact: true,
         })
-    );
+      ).toBeVisible();
+      await page.getByRole("button", { name: "Send message", exact: true }).click();
+      await expect(page.getByText("RETRY_OK", { exact: true })).toBeVisible();
+      await expect(page.getByText(retryText, { exact: true })).toHaveCount(1);
+      await expect(page.getByText("Connected", { exact: true })).toBeVisible();
+      await observer.exposeFunction("validateLiveSnapshot", (value: unknown) => snapshotSchema.parse(value));
 
-    await send(
-      page,
-      "Start with STREAM_START, list the numbers 1 through 120 one per line, and finish with STREAM_END. Do not use tools."
-    );
-    expect(await streaming).toBeGreaterThan(1);
-    await expect(observer.getByText(/STREAM_START[\s\S]*STREAM_END/).last()).toBeVisible();
-    await observer.close();
-    await send(page, "Run the read-only shell command sleep 5, then reply BEFORE_STEER. Do not change any files.");
-    await expect(page.getByRole("status", { name: "Pocket activity" })).toContainText("Running commands");
-    await send(page, "Steering update: reply exactly STEER_OK instead.");
+      return {
+        completion: observer.evaluate(
+          () =>
+            new Promise<number>((resolve, reject) => {
+              const STREAM_TIMEOUT_MS = 90_000;
+              const source = new EventSource("/api/events");
+              const prefixes = new Set<string>();
+              const timer = setTimeout(() => {
+                source.close();
+                reject(new Error("Live response streaming timed out."));
+              }, STREAM_TIMEOUT_MS);
 
-    if (process.env.CODEX_TEST_ACTIVE_MODE === "queue") {
-      await expect(page.getByText("Queued", { exact: true })).toBeVisible();
-      await expect(page.getByText("BEFORE_STEER", { exact: true })).toBeVisible();
-    }
+              source.addEventListener("message", (event: MessageEvent<string>) => {
+                void (async () => {
+                  const LAST_TURN_INDEX = -1;
+                  const data: unknown = JSON.parse(event.data);
+                  const state = await globalThis.validateLiveSnapshot(data);
+                  const text =
+                    state.turns
+                      .at(LAST_TURN_INDEX)
+                      ?.items.filter((item) => item.type === "agentMessage")
+                      .map((item) => String(item.text))
+                      .findLast((message) => message.includes("STREAM_START")) ?? "";
 
-    await expect(page.getByText("STEER_OK", { exact: true })).toBeVisible();
-    await page.reload();
-    await expect(page.getByText("STEER_OK", { exact: true })).toBeVisible();
-    await expect(page.getByText("Connected", { exact: true })).toBeVisible();
-    await send(
-      page,
-      "Approval check: run mkdir -p approval-probe in the current test directory using exec_command with sandbox_permissions=require_escalated and justification 'May I create the test folder?'. Ask for approval first. After success reply exactly APPROVAL_OK."
-    );
-    await expect(page.getByText("Approval needed", { exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "Approve once", exact: true }).click();
-    await expect(page.getByText("APPROVAL_OK", { exact: true })).toBeVisible();
-    await page.getByRole("textbox", { name: "Message Pocket" }).fill("A draft that survives reload");
-    await page.reload();
-    await expect(page.getByRole("textbox", { name: "Message Pocket" })).toHaveValue("A draft that survives reload");
-    const centerDifference = await page.locator(".composer").evaluate((composer) => {
-      const input = composer.querySelector("textarea");
-      const button = composer.querySelector("button[type=submit]");
+                  if (!text.includes("STREAM_START")) {
+                    return;
+                  }
 
-      if (!input || !button) {
-        throw new Error("Composer controls are missing.");
+                  if (state.activeTurnId) {
+                    prefixes.add(text);
+                  }
+
+                  if (!text.includes("STREAM_END") || state.activeTurnId) {
+                    return;
+                  }
+
+                  clearTimeout(timer);
+                  source.close();
+                  resolve(prefixes.size);
+                })().catch((error: unknown) => {
+                  reject(error instanceof Error ? error : new Error("Invalid snapshot.", { cause: error }));
+                });
+              });
+            })
+        ),
+      };
+    });
+
+    const centerDifference = await test.step("Verify streaming, steering, approvals and retained draft", async () => {
+      await send(
+        page,
+        "Start with STREAM_START, list the numbers 1 through 120 one per line, and finish with STREAM_END. Do not use tools."
+      );
+      expect(await streaming.completion).toBeGreaterThan(1);
+      await expect(observer.getByText(/STREAM_START[\s\S]*STREAM_END/).last()).toBeVisible();
+      await observer.close();
+      await send(page, "Run the read-only shell command sleep 5, then reply BEFORE_STEER. Do not change any files.");
+      await expect(page.getByRole("status", { name: "Pocket activity" })).toContainText("Running commands");
+      await send(page, "Steering update: reply exactly STEER_OK instead.");
+
+      if (process.env.CODEX_TEST_ACTIVE_MODE === "queue") {
+        await expect(page.getByText("Queued", { exact: true })).toBeVisible();
+        await expect(page.getByText("BEFORE_STEER", { exact: true })).toBeVisible();
       }
 
-      const style = getComputedStyle(input);
-      const textCenter =
-        input.getBoundingClientRect().top +
-        Number(style.paddingTop.replace("px", "")) +
-        Number(style.lineHeight.replace("px", "")) / 2;
-      const buttonBounds = button.getBoundingClientRect();
+      await expect(page.getByText("STEER_OK", { exact: true })).toBeVisible();
+      await page.reload();
+      await expect(page.getByText("STEER_OK", { exact: true })).toBeVisible();
+      await expect(page.getByText("Connected", { exact: true })).toBeVisible();
+      await send(
+        page,
+        "Approval check: run mkdir -p approval-probe in the current test directory using exec_command with sandbox_permissions=require_escalated and justification 'May I create the test folder?'. Ask for approval first. After success reply exactly APPROVAL_OK."
+      );
+      await expect(page.getByText("Approval needed", { exact: true })).toBeVisible();
+      await page.getByRole("button", { name: "Approve once", exact: true }).click();
+      await expect(page.getByText("APPROVAL_OK", { exact: true })).toBeVisible();
+      await page.getByRole("textbox", { name: "Message Pocket" }).fill("A draft that survives reload");
+      await page.reload();
+      await expect(page.getByRole("textbox", { name: "Message Pocket" })).toHaveValue("A draft that survives reload");
 
-      return Math.abs(textCenter - (buttonBounds.top + buttonBounds.height / 2));
+      return await page.locator(".composer").evaluate((composer) => {
+        const input = composer.querySelector("textarea");
+        const button = composer.querySelector("button[type=submit]");
+
+        const style = input ? getComputedStyle(input) : null;
+        const buttonBounds = button?.getBoundingClientRect();
+
+        if (!input || !style || !buttonBounds) {
+          throw new Error("Composer controls are missing.");
+        }
+
+        return Math.abs(
+          input.getBoundingClientRect().top +
+            Number(style.paddingTop.replace("px", "")) +
+            Number(style.lineHeight.replace("px", "")) / 2 -
+            (buttonBounds.top + buttonBounds.height / 2)
+        );
+      });
     });
 
     expect(centerDifference).toBeLessThanOrEqual(1);
