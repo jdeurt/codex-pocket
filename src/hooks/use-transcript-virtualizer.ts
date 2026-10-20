@@ -23,6 +23,33 @@ export interface TranscriptLayout {
 }
 
 /**
+Preserve the native end position when its following viewport changes height.
+@param instance - Existing TanStack owner of the transcript's measurements and scrolling.
+@param onRect - Native callback that adopts the next viewport rectangle.
+@returns Cleanup for the native viewport observer.
+*/
+const observeTranscriptRect: MessageVirtualizer["options"]["observeElementRect"] = (instance, onRect) =>
+  observeElementRect(instance, (rect) => {
+    const previousHeight = instance.scrollRect?.height;
+    const shouldPreserveEnd =
+      instance.options.anchorTo === "end" &&
+      instance.options.followOnAppend &&
+      previousHeight !== undefined &&
+      previousHeight > 0 &&
+      previousHeight !== rect.height &&
+      Math.max(instance.getTotalSize() - previousHeight - (instance.scrollOffset ?? 0), 0) <=
+        instance.options.scrollEndThreshold &&
+      (instance.targetWindow?.visualViewport?.scale ?? 1) === 1;
+
+    // Decide against the previous viewport before the native callback replaces it.
+    onRect(rect);
+
+    if (shouldPreserveEnd) {
+      instance.scrollToEnd();
+    }
+  });
+
+/**
 Copy native virtual items and scalar measurements into a React render snapshot.
 @param virtualizer - Existing TanStack instance that owns all measurement and scrolling.
 @returns A detached layout snapshot for external-store subscribers.
@@ -109,7 +136,7 @@ export function useTranscriptVirtualizer(
     };
     const virtualizer = new Virtualizer<HTMLDivElement, HTMLElement>({
       observeElementOffset,
-      observeElementRect,
+      observeElementRect: observeTranscriptRect,
       scrollToFn: elementScroll,
       ...options,
       onChange: publish,
@@ -121,7 +148,7 @@ export function useTranscriptVirtualizer(
       configure: (nextOptions: MessageOptions, nextAdjust: typeof adjust) => {
         virtualizer.setOptions({
           observeElementOffset,
-          observeElementRect,
+          observeElementRect: observeTranscriptRect,
           scrollToFn: elementScroll,
           ...nextOptions,
           onChange: (instance, sync) => {

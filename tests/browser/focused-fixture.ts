@@ -1,7 +1,56 @@
+import { type AgentCatalog, type AgentEntry, type AgentTranscript } from "../../src/lib/agents";
 import { type CDPSession, type Locator, type Page, expect } from "@playwright/test";
 import { focusedSnapshot } from "../fixtures/focused-transcript";
 
 const MIN_TRANSCRIPT_HEIGHT = 1000;
+const focusedAgent: AgentEntry = {
+  id: "focused-agent",
+  parentId: "focused-scroll-fixture",
+  name: "Focus fixture agent",
+  source: "native",
+  harness: "codex",
+  status: "running",
+  preview: "Offline focus verification",
+};
+const focusedAgents: AgentCatalog = {
+  agents: [focusedAgent],
+  warnings: [],
+  updatedAt: 1,
+};
+const focusedAgentTranscript: AgentTranscript = {
+  agent: focusedAgent,
+  state: { ...focusedSnapshot, threadId: focusedAgent.id, activeTurnId: undefined },
+  history: "available",
+  updatedAt: 1,
+};
+
+/**
+Emit a keyboard-like visual resize without changing the browser's layout viewport.
+@param page - Browser with an available native or emulated visual viewport.
+@param height - Visible viewport height after the keyboard transition.
+@param [offsetTop] - Visible viewport pan from the layout viewport's top edge.
+@param [scale] - Native pinch scale, with one representing an unzoomed viewport.
+@returns Completion of the browser's resize and scroll event dispatch.
+*/
+export async function setVisualViewport(page: Page, height: number, offsetTop = 0, scale = 1) {
+  await page.evaluate(
+    (values) => {
+      const viewport = globalThis.visualViewport;
+
+      if (!viewport) {
+        throw new Error("Visual viewport is unavailable");
+      }
+
+      for (const [name, value] of Object.entries(values)) {
+        Object.defineProperty(viewport, name, { configurable: true, value });
+      }
+
+      viewport.dispatchEvent(new Event("resize"));
+      viewport.dispatchEvent(new Event("scroll"));
+    },
+    { height, offsetTop, scale }
+  );
+}
 
 /**
 Selects the real parent transcript viewport for focus and native scroll checks.
@@ -65,7 +114,12 @@ Mounts the real focused chat with one canonical offline snapshot and blocked API
 */
 export async function mountFocusedChat(page: Page) {
   // No route can send a message or touch the running Pocket service.
-  await page.route("**/api/**", (route) => route.fulfill({ json: {} }));
+  await page.route("**/api/**", (route) => {
+    const url = new URL(route.request().url());
+    const agents = url.searchParams.has("agent") ? focusedAgentTranscript : focusedAgents;
+
+    return route.fulfill({ json: url.pathname === "/api/agents" ? agents : {} });
+  });
   await page.addInitScript((state) => {
     /**
     Replays a single canonical snapshot through the browser's native event dispatch.
