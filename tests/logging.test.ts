@@ -39,36 +39,74 @@ async function writeRecords(directory: string, retention: number) {
   await finished(stream);
 }
 
+/**
+Decode native JSON lines only after the segment passes metadata checks.
+@param file - Private segment whose permissions and size have been checked.
+@returns Boundary-normalized records in file order.
+*/
+async function readLogRecords(file: string) {
+  const contents = await readFile(file, "utf8");
+
+  return contents
+    .trim()
+    .split("\n")
+    .map((line) => object(JSON.parse(line)));
+}
+
+/**
+Validate one segment before decoding its recorded JSON lines.
+@param directory - Private log directory.
+@param name - Native rotated segment name.
+@returns Parsed records from the validated segment.
+*/
+async function readPrivateLog(directory: string, name: string) {
+  const file = path.join(directory, name);
+  const info = await stat(file);
+
+  assert.equal(info.mode & PERMISSION_MASK, PRIVATE_FILE_MODE);
+  assert.ok(info.size <= MAX_BYTES);
+
+  return await readLogRecords(file);
+}
+
+/**
+Read all rotated segments and verify complete redacted record delivery.
+@param directory - Private directory after the rotating stream has closed.
+@returns Completion of filename, permission, size and record assertions.
+*/
+async function assertRotatedRecords(directory: string) {
+  const records: Record<string, unknown>[] = [];
+
+  const names = await readdir(directory);
+
+  assert.ok(names.length > 1);
+
+  for (const name of names) {
+    assert.match(name, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\.jsonl$/);
+    records.push(...(await readPrivateLog(directory, name)));
+  }
+
+  assert.equal(records.length, RECORDS);
+  assert.ok(records.every((record) => record.password === "[REDACTED]"));
+}
+
+/**
+Require the configured file count after the retention stream closes.
+@param directory - Completed private retention replay directory.
+@returns Completion of the native directory count assertion.
+*/
+async function assertRetainedFiles(directory: string) {
+  const files = await readdir(directory);
+
+  assert.equal(files.length, KEEP_RECENT);
+}
+
 await test("size rotation preserves whole JSON records in private files named with ISO creation timestamps", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "pocket-logs-"));
 
   try {
-    const records: Record<string, unknown>[] = [];
-
     await writeRecords(directory, KEEP_ALL);
-    const names = await readdir(directory);
-
-    assert.ok(names.length > 1);
-
-    for (const name of names) {
-      assert.match(name, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\.jsonl$/);
-      const file = path.join(directory, name);
-      const info = await stat(file);
-
-      assert.equal(info.mode & PERMISSION_MASK, PRIVATE_FILE_MODE);
-      assert.ok(info.size <= MAX_BYTES);
-      const contents = await readFile(file, "utf8");
-
-      records.push(
-        ...contents
-          .trim()
-          .split("\n")
-          .map((line) => object(JSON.parse(line)))
-      );
-    }
-
-    assert.equal(records.length, RECORDS);
-    assert.ok(records.every((record) => record.password === "[REDACTED]"));
+    await assertRotatedRecords(directory);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
@@ -79,9 +117,7 @@ await test("retention keeps only the configured number of recent log files", asy
 
   try {
     await writeRecords(directory, KEEP_RECENT);
-    const files = await readdir(directory);
-
-    assert.equal(files.length, KEEP_RECENT);
+    await assertRetainedFiles(directory);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }

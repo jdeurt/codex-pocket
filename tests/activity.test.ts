@@ -5,6 +5,17 @@ import { reduceEvent } from "../src/server/reducer";
 import test from "node:test";
 import { visibleSnapshot } from "../src/server/visible-snapshot";
 
+/**
+Verify that the public projection keeps the activity label without private command data.
+@param state - Current native reducer state after the command-start event.
+*/
+function assertPrivateActivity(state: Parameters<typeof visibleSnapshot>[0]) {
+  const visible = visibleSnapshot(state);
+
+  assert.equal(visible.activity, "Reading files");
+  assert.equal(JSON.stringify(visible).includes("private"), false);
+}
+
 await test("activity summarizes structured actions without leaking paths, commands or tool arguments", () => {
   const command: Item = { id: "command", type: "commandExecution", command: "private command" };
 
@@ -92,10 +103,7 @@ await test("live activity follows the latest event in this turn, survives reload
   reduceEvent(state, { method: "item/started", params: { threadId: "thread", turnId: "turn", item } });
   assert.equal(currentActivity(state), "Reading files");
   assert.equal(currentActivity({ ...state, activity: undefined }), "Reading files");
-  const visible = visibleSnapshot(state);
-
-  assert.equal(visible.activity, "Reading files");
-  assert.equal(JSON.stringify(visible).includes("private"), false);
+  assertPrivateActivity(state);
   reduceEvent(state, {
     method: "item/mcpToolCall/progress",
     params: { threadId: "other", turnId: "turn", message: "private" },
