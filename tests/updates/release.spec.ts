@@ -161,10 +161,13 @@ test.describe("controlled transport failures", () => {
   test("a pending upload settles before adopting the new release", async ({ page }) => {
     const gate = Promise.withResolvers<undefined>();
     const upload = Promise.withResolvers<undefined>();
+    const payload = Buffer.from("Do not interrupt my upload.");
 
     await page.route("**/api/uploads**", async (route) => {
-      const response = await route.fetch();
+      // WebKit interception omits File-backed XHR bodies; forward the selected original bytes explicitly.
+      const response = await route.fetch({ postData: payload });
 
+      expect(response.ok()).toBe(true);
       upload.resolve(undefined);
       await gate.promise;
       await route.fulfill({ response });
@@ -173,7 +176,7 @@ test.describe("controlled transport failures", () => {
     await page.getByLabel("Choose attachments").setInputFiles({
       name: "still-uploading.txt",
       mimeType: "text/plain",
-      buffer: Buffer.from("Do not interrupt my upload."),
+      buffer: payload,
     });
     await upload.promise;
     await host.stop();
