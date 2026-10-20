@@ -49,7 +49,7 @@ function waitFor(target: Bridge, isSatisfied: (state: Snapshot) => boolean, labe
       }
 
       clearTimeout(pending.timer);
-      target.off("snapshot", inspect);
+      target.snapshots.removeEventListener("snapshot", inspect);
 
       if (isSatisfied(target.snapshot)) {
         resolve();
@@ -59,10 +59,10 @@ function waitFor(target: Bridge, isSatisfied: (state: Snapshot) => boolean, labe
     }
 
     pending.timer = setTimeout(() => {
-      target.off("snapshot", inspect);
+      target.snapshots.removeEventListener("snapshot", inspect);
       reject(new Error(`Timed out waiting for ${label}`));
     }, TURN_TIMEOUT_MS);
-    target.on("snapshot", inspect);
+    target.snapshots.addEventListener("snapshot", inspect);
     inspect();
   });
 }

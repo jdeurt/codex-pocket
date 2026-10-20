@@ -3,7 +3,10 @@ import { type Data, type PendingRequest, type Thread, type Turn, object, string 
 import { refreshCodexHistory, visiblePreview } from "./agent-history";
 import { type SidePocket } from "./delegations";
 import { bridge } from "./bridge";
+import { codexActivity } from "../lib/codex";
 import { readClaude } from "./agent-claude";
+
+export { codexParent } from "../lib/codex";
 
 const LAST_MESSAGE = -1;
 
@@ -25,18 +28,6 @@ export interface AgentRecord {
   ancestryKnown?: boolean;
   claudeParent?: string | null;
   fileRevision?: string;
-}
-
-/**
-Resolve native Codex ancestry from explicit parent metadata rather than prompt text.
-@param thread - Normalized native thread, including its SDK source metadata.
-@returns Native parent identity, or an empty string when no ancestry is supplied.
-*/
-export function codexParent(thread: CodexThread) {
-  const source = object(thread.source);
-  const agent = object(source.subAgent);
-
-  return string(thread.parentThreadId) || string(object(agent.thread_spawn).parent_thread_id);
 }
 
 /**
@@ -82,13 +73,9 @@ Prefer current native activity and system errors before saved-turn terminal stat
 @returns Existing read-only catalog status.
 */
 export function nativeStatus(thread: CodexThread, turns: Turn[]): AgentStatus {
-  const status = object(thread.status);
+  const status = codexActivity(object(thread.status));
 
-  if (status.type === "active") {
-    return Array.isArray(status.activeFlags) && status.activeFlags.length > 0 ? "waiting" : "running";
-  }
-
-  return status.type === "systemError" ? "failed" : settledStatus(turns, status.type);
+  return status === "idle" || status === "unknown" ? settledStatus(turns, status) : status;
 }
 
 /**

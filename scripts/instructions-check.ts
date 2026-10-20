@@ -2,6 +2,7 @@ import { type Thread, initialSnapshot, object } from "../src/lib/protocol";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { pocketInstructions, resumePocket } from "../src/server/pocket-runtime";
 import { CodexRpc } from "../src/server/rpc";
+import { RpcNotificationEvent } from "../src/server/rpc-events";
 import assert from "node:assert/strict";
 import { configSchema } from "../src/server/config";
 import { createHash } from "node:crypto";
@@ -57,7 +58,9 @@ async function checkInstructions() {
       return;
     }
 
-    const disconnected = new Promise((resolve) => rpc.once("disconnect", resolve));
+    const disconnected = new Promise((resolve) => {
+      rpc.addEventListener("disconnect", resolve, { once: true });
+    });
 
     rpc.close();
     await disconnected;
@@ -65,20 +68,21 @@ async function checkInstructions() {
 
   async function check(stage: string) {
     const replies: string[] = [];
-    const listener = (event: { method: string; params: Record<string, unknown> }) => {
-      const item = object(event.params.item);
+    const listener = (event: Event) => {
+      const notification = event instanceof RpcNotificationEvent ? event.notification : undefined;
+      const item = object(notification?.params.item);
 
-      if (event.method === "item/completed" && item.type === "agentMessage" && typeof item.text === "string") {
+      if (notification?.method === "item/completed" && item.type === "agentMessage" && typeof item.text === "string") {
         replies.push(item.text);
       }
     };
 
-    rpc.on("event", listener);
+    rpc.addEventListener("event", listener);
 
     try {
       await seedThread(rpc, config.threadId, "Reply with the configured integration marker only. Do not use tools.");
     } finally {
-      rpc.off("event", listener);
+      rpc.removeEventListener("event", listener);
     }
 
     assert.deepEqual(replies, [marker]);
