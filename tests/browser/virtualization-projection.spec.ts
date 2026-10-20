@@ -27,10 +27,12 @@ async function expectSharedProjection(page: Page) {
   await expect(files.getByText("text/plain", { exact: true })).toBeVisible();
   await expect(files.getByText("· 7 B", { exact: true })).toBeVisible();
   await expect(fileRow.locator("a, button, img, [download]")).toHaveCount(0);
+  await expect(fileRow.locator('[data-slot="bubble-content"] > p, .markdown')).toHaveCount(0);
   await expect(
     page.locator('[data-transcript-row="visibility/restart"] [data-system-event="pocket-restarted"]')
   ).toBeVisible();
   await expect(page.getByRole("img", { name: "Output image", exact: true })).toHaveJSProperty("complete", true);
+  await expect(page.locator('[data-transcript-row="visibility/output-only"] .markdown')).toHaveCount(0);
 }
 
 test("shared projected history preserves one scroller, media, pending drafts and streaming", async ({ page }) => {

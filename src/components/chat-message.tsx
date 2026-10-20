@@ -8,19 +8,7 @@ import { FileAttachments } from "./file-attachments";
 import { Markdown } from "./markdown";
 import { SystemEvent } from "./system-event";
 import { ToolMessage } from "./tool-message";
-
-function messageText(item: Item) {
-  if (item.type === "agentMessage") {
-    return string(item.text);
-  }
-
-  return Array.isArray(item.content)
-    ? item.content
-        .map((part) => string(object(part).text))
-        .filter(Boolean)
-        .join("\n")
-    : "";
-}
+import { messageText } from "@/lib/turn-messages";
 
 function uploadedFiles(item: Item) {
   const files = Array.isArray(item.attachments) ? (item.attachments as FileAttachment[]) : [];
@@ -38,6 +26,7 @@ export function ChatMessage({ item }: { item: Item }) {
   }
 
   const { files, layout } = uploadedFiles(item);
+  const text = messageText(item);
 
   return (
     <Message align={item.type === "userMessage" ? "end" : "start"}>
@@ -63,13 +52,17 @@ export function ChatMessage({ item }: { item: Item }) {
                 ))}
               </AttachmentGroup>
             )}
-            {item.type === "userMessage" ? (
-              <p className="whitespace-pre-wrap">{messageText(item)}</p>
-            ) : (
-              <Markdown imageBase={string(item.imageBase) || undefined} allowCopyActions={item.type === "agentMessage"}>
-                {messageText(item)}
-              </Markdown>
-            )}
+            {text.trim().length > 0 &&
+              (item.type === "userMessage" ? (
+                <p className="whitespace-pre-wrap">{text}</p>
+              ) : (
+                <Markdown
+                  imageBase={string(item.imageBase) || undefined}
+                  allowCopyActions={item.type === "agentMessage"}
+                >
+                  {text}
+                </Markdown>
+              ))}
           </BubbleContent>
         </Bubble>
       </MessageContent>

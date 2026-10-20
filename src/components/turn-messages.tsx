@@ -36,6 +36,10 @@ function CompletedActivity({ items }: { items: Item[] }) {
 }
 
 export function TurnMessages({ entries }: { entries: TurnEntry[] }) {
+  if (entries.length === 0) {
+    return null;
+  }
+
   return (
     <div className="turn-messages">
       {entries.map((entry) =>
