@@ -1,109 +1,48 @@
-import { chmodSync, mkdirSync } from "node:fs";
+import { type Schedule, scheduleDatabase, scheduleInput, schedulePatch, scheduleSchema } from "./schedule-db";
 import { nextOccurrence, normalizeCalendar } from "./calendar";
-import Database from "better-sqlite3";
+import type Database from "better-sqlite3";
+import { ScheduleRuns } from "./schedule-runs";
 import { localDirectory } from "./local-state";
 import { log } from "./logging";
-import path from "node:path";
 import { z } from "zod";
 
-const BUSY_TIMEOUT_MS = 1000;
 const DUE_BATCH_SIZE = 20;
-const MAX_TITLE_LENGTH = 160;
-const MAX_BODY_LENGTH = 32_768;
-const MAX_CALENDAR_LENGTH = 16_384;
-const PRIVATE_FILE_MODE = 0o600;
-export const scheduleInput = z
-  .object({
-    title: z.string().trim().min(1).max(MAX_TITLE_LENGTH),
-    body: z.string().trim().min(1).max(MAX_BODY_LENGTH),
-    calendar: z.string().min(1).max(MAX_CALENDAR_LENGTH),
-    active: z.boolean().default(true),
-  })
-  .strict();
-export const schedulePatch = scheduleInput
-  .omit({ active: true })
-  .partial()
-  .extend({ active: z.boolean().optional() })
-  .strict()
-  .refine((value) => Object.keys(value).length > 0, "Provide at least one change.");
-export const scheduleSchema = z.object({
-  id: z.string(),
-  threadId: z.string(),
-  title: z.string(),
-  body: z.string(),
-  calendar: z.string(),
-  active: z.number().int(),
-  nextRun: z.number().nullable(),
-  revision: z.number().int(),
-  createdAt: z.number(),
-  updatedAt: z.number(),
-});
 
-export type Schedule = z.infer<typeof scheduleSchema>;
-const storedRun = z.object({
-  id: z.string(),
-  scheduleId: z.string(),
-  threadId: z.string(),
-  title: z.string(),
-  body: z.string(),
-  scheduledAt: z.number(),
-  status: z.enum(["pending", "dispatching", "queued", "sent", "unknown", "cancelled"]),
-  error: z.string().nullable(),
-});
+export { type Schedule, type ScheduledRun, scheduleInput, schedulePatch, scheduleSchema } from "./schedule-db";
 
-export type ScheduledRun = z.infer<typeof storedRun>;
-
+/**
+Own parent-scoped schedule definitions and their concrete persisted occurrence resource.
+*/
 export class ScheduleStore {
   private db: Database.Database;
 
+  readonly occurrences: ScheduleRuns;
+
+  /**
+Acquire private schedule persistence and bind its occurrence owner without starting dispatch.
+@param directory - Private state directory for this schedule owner.
+*/
   constructor(directory: string) {
-    mkdirSync(directory, { recursive: true, mode: 0o700 });
-    const filename = path.join(directory, "schedules.sqlite");
-
-    this.db = new Database(filename, { timeout: BUSY_TIMEOUT_MS });
-    chmodSync(filename, PRIVATE_FILE_MODE);
-    this.db.pragma("journal_mode = WAL");
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS schedules (
-        id TEXT PRIMARY KEY, threadId TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL,
-        calendar TEXT NOT NULL, active INTEGER NOT NULL, nextRun INTEGER, revision INTEGER NOT NULL,
-        createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL
-      );
-      CREATE INDEX IF NOT EXISTS schedules_due ON schedules(threadId, active, nextRun);
-      CREATE TABLE IF NOT EXISTS scheduled_runs (
-        id TEXT PRIMARY KEY, scheduleId TEXT NOT NULL, threadId TEXT NOT NULL, title TEXT NOT NULL,
-        body TEXT NOT NULL, scheduledAt INTEGER NOT NULL, status TEXT NOT NULL, error TEXT,
-        UNIQUE(scheduleId, scheduledAt)
-      );
-      CREATE INDEX IF NOT EXISTS scheduled_runs_thread ON scheduled_runs(threadId, status);
-    `);
+    this.db = scheduleDatabase(directory);
+    this.occurrences = new ScheduleRuns(this.db);
   }
 
-  list(threadId: string) {
-    return z
-      .array(scheduleSchema)
-      .parse(this.db.prepare("SELECT * FROM schedules WHERE threadId = ? ORDER BY createdAt, id").all(threadId));
-  }
-
-  get(threadId: string, id: string) {
-    const row = this.db.prepare("SELECT * FROM schedules WHERE threadId = ? AND id = ?").get(threadId, id);
-
-    if (!row) {
-      throw new Error("Schedule not found in this Pocket chat.");
-    }
-
-    return scheduleSchema.parse(row);
-  }
-
-  async create(threadId: string, input: unknown, now = Date.now()) {
-    const value = scheduleInput.parse(input);
-    const calendar = normalizeCalendar(value.calendar);
-    const nextRun = await nextOccurrence(calendar, now);
-
-    if (value.active && nextRun === null) {
-      throw new Error("This event has no future occurrences. Choose a future DTSTART or recurrence.");
-    }
-
+  /**
+Persist a validated schedule only after its native recurrence and active-state guards succeed.
+@param threadId - Owning parent conversation identity.
+@param value - Validated creation input from the shared schedule schema.
+@param calendar - Normalized recurrence text already checked by the native calendar boundary.
+@param nextRun - Computed next occurrence, or null for a permitted inactive schedule.
+@param now - Original creation epoch captured by the public operation.
+@returns Persisted normalized schedule with its new stable identity.
+*/
+  private insertSchedule(
+    threadId: string,
+    value: z.infer<typeof scheduleInput>,
+    calendar: string,
+    nextRun: number | null,
+    now: number
+  ) {
     const row: Schedule = {
       ...value,
       calendar,
@@ -126,14 +65,14 @@ export class ScheduleStore {
     return row;
   }
 
-  async update(threadId: string, id: string, input: unknown, expectedRevision?: number, now = Date.now()) {
-    const patch = schedulePatch.parse(input);
-    const previous = this.get(threadId, id);
-
-    if (expectedRevision !== undefined && expectedRevision !== previous.revision) {
-      throw new Error("Schedule changed. Read it again before updating.");
-    }
-
+  /**
+Compute only the recurrence changes required by a validated, revision-checked patch.
+@param previous - Existing parent-owned schedule read before asynchronous recurrence work.
+@param patch - Validated partial input retaining omitted field semantics.
+@param now - Original update epoch captured by the public operation.
+@returns Persisted updated schedule after recurrence and compare-and-swap checks.
+*/
+  private async applyPatch(previous: Schedule, patch: z.infer<typeof schedulePatch>, now: number) {
     const calendar = patch.calendar === undefined ? previous.calendar : normalizeCalendar(patch.calendar);
     const active = patch.active === undefined ? previous.active : Number(patch.active);
     const nextRun =
@@ -145,6 +84,27 @@ export class ScheduleStore {
       throw new Error("This event has no future occurrences.");
     }
 
+    return this.persistPatch(previous, patch, calendar, active, nextRun, now);
+  }
+
+  /**
+Apply a normalized patch only while the original persisted revision still matches.
+@param previous - Original parent-owned schedule whose revision guards the write.
+@param patch - Validated partial input.
+@param calendar - Normalized retained or replacement recurrence.
+@param active - Existing integer active-state representation.
+@param nextRun - Retained or recomputed next occurrence, including legitimate null.
+@param now - Original update epoch.
+@returns Persisted updated schedule, or the existing concurrent-change error.
+*/
+  private persistPatch(
+    previous: Schedule,
+    patch: z.infer<typeof schedulePatch>,
+    calendar: string,
+    active: number,
+    nextRun: number | null,
+    now: number
+  ) {
     const row: Schedule = {
       ...previous,
       ...patch,
@@ -170,25 +130,119 @@ export class ScheduleStore {
     return row;
   }
 
+  /**
+Acknowledge deletion only after the native transaction cancels its still-pending occurrences.
+@param threadId - Owning parent identity used for diagnostics.
+@param id - Deleted schedule identity.
+@param result - Native SQLite result of cancelling only pending occurrences.
+@returns Existing deletion acknowledgement retaining historical and in-flight delivery limitations.
+*/
+  private deletionReceipt(threadId: string, id: string, result: Database.RunResult) {
+    log().info({ threadId, id, cancelledPending: result.changes }, "schedule.deleted");
+
+    return {
+      id,
+      deleted: true,
+      cancelledPending: result.changes,
+      note: "Already accepted or in-flight messages cannot be withdrawn. Historical markers are retained.",
+    };
+  }
+
+  /**
+Read normalized schedule definitions belonging to one parent conversation.
+@param threadId - Owning parent conversation identity.
+@returns Validated schedules in deterministic creation order.
+*/
+  list(threadId: string) {
+    return z
+      .array(scheduleSchema)
+      .parse(this.db.prepare("SELECT * FROM schedules WHERE threadId = ? ORDER BY createdAt, id").all(threadId));
+  }
+
+  /**
+Require a validated schedule under the exact parent scope.
+@param threadId - Owning parent identity.
+@param id - Schedule identity requested in that parent.
+@returns Normalized persisted schedule or the existing ownership error.
+*/
+  get(threadId: string, id: string) {
+    const row = this.db.prepare("SELECT * FROM schedules WHERE threadId = ? AND id = ?").get(threadId, id);
+
+    if (!row) {
+      throw new Error("Schedule not found in this Pocket chat.");
+    }
+
+    return scheduleSchema.parse(row);
+  }
+
+  /**
+Validate input and native recurrence before allocating and persisting a schedule identity.
+@param threadId - Owning parent conversation identity.
+@param input - Untrusted creation input.
+@param now - Creation epoch, defaulting to the native current time.
+@returns New persisted schedule after active schedules are shown to have a future occurrence.
+*/
+  async create(threadId: string, input: unknown, now = Date.now()) {
+    const value = scheduleInput.parse(input);
+    const calendar = normalizeCalendar(value.calendar);
+    const nextRun = await nextOccurrence(calendar, now);
+
+    if (nextRun === null && value.active) {
+      throw new Error("This event has no future occurrences. Choose a future DTSTART or recurrence.");
+    }
+
+    return this.insertSchedule(threadId, value, calendar, nextRun, now);
+  }
+
+  /**
+Validate parent ownership and the expected revision before asynchronous recurrence work.
+@param threadId - Owning parent identity.
+@param id - Schedule identity in that parent.
+@param input - Untrusted partial update input.
+@param expectedRevision - Optional caller revision checked before recurrence evaluation.
+@param now - Update epoch, defaulting to native current time.
+@returns Updated schedule with its original identity and incremented persisted revision.
+*/
+  async update(threadId: string, id: string, input: unknown, expectedRevision?: number, now = Date.now()) {
+    const patch = schedulePatch.parse(input);
+    const previous = this.get(threadId, id);
+
+    if (expectedRevision !== undefined && expectedRevision !== previous.revision) {
+      throw new Error("Schedule changed. Read it again before updating.");
+    }
+
+    return this.applyPatch(previous, patch, now);
+  }
+
+  /**
+Atomically remove an owned definition and cancel only its still-pending occurrences.
+@param threadId - Owning parent identity.
+@param id - Owned schedule identity.
+@returns Deletion acknowledgement retaining historical and already accepted delivery records.
+*/
   delete(threadId: string, id: string) {
     return this.db.transaction(() => {
       this.get(threadId, id);
       this.db.prepare("DELETE FROM schedules WHERE threadId=? AND id=?").run(threadId, id);
-      const result = this.db
-        .prepare("UPDATE scheduled_runs SET status='cancelled' WHERE threadId=? AND scheduleId=? AND status='pending'")
-        .run(threadId, id);
 
-      log().info({ threadId, id, cancelledPending: result.changes }, "schedule.deleted");
-
-      return {
+      return this.deletionReceipt(
+        threadId,
         id,
-        deleted: true,
-        cancelledPending: result.changes,
-        note: "Already accepted or in-flight messages cannot be withdrawn. Historical markers are retained.",
-      };
+        this.db
+          .prepare(
+            "UPDATE scheduled_runs SET status='cancelled' WHERE threadId=? AND scheduleId=? AND status='pending'"
+          )
+          .run(threadId, id)
+      );
     })();
   }
 
+  /**
+Read the bounded earliest due active schedules for one parent.
+@param threadId - Owning parent identity.
+@param now - Current epoch boundary used for due selection.
+@returns Validated due schedule definitions within the existing dispatch batch limit.
+*/
   due(threadId: string, now: number) {
     return z
       .array(scheduleSchema)
@@ -199,78 +253,9 @@ export class ScheduleStore {
       );
   }
 
-  claim(schedule: Schedule, nextRun: number | null, now: number) {
-    const scheduledAt = schedule.nextRun;
-
-    if (scheduledAt === null) {
-      throw new Error("A schedule without a next occurrence cannot be claimed.");
-    }
-
-    return this.db.transaction(() => {
-      const updated = this.db
-        .prepare(
-          "UPDATE schedules SET nextRun=?, active=?, revision=revision+1, updatedAt=? WHERE id=? AND threadId=? AND revision=? AND active=1 AND nextRun=?"
-        )
-        .run(
-          nextRun,
-          Number(nextRun !== null),
-          now,
-          schedule.id,
-          schedule.threadId,
-          schedule.revision,
-          schedule.nextRun
-        );
-
-      if (!updated.changes) {
-        return;
-      }
-
-      const run: ScheduledRun = {
-        id: crypto.randomUUID(),
-        scheduleId: schedule.id,
-        threadId: schedule.threadId,
-        title: schedule.title,
-        body: schedule.body,
-        scheduledAt,
-        status: "pending",
-        error: null,
-      };
-
-      this.db
-        .prepare(
-          "INSERT INTO scheduled_runs VALUES (@id,@scheduleId,@threadId,@title,@body,@scheduledAt,@status,@error)"
-        )
-        .run(run);
-      log().info({ run }, "schedule.due");
-
-      return run;
-    })();
-  }
-
-  runs(threadId: string) {
-    return z
-      .array(storedRun)
-      .parse(this.db.prepare("SELECT * FROM scheduled_runs WHERE threadId=? ORDER BY scheduledAt, id").all(threadId));
-  }
-
-  setRun(id: string, status: ScheduledRun["status"], error: string | null = null) {
-    this.db.prepare("UPDATE scheduled_runs SET status=?, error=? WHERE id=?").run(status, error, id);
-    log().info({ id, status, error }, "schedule.delivery");
-  }
-
-  recover(threadId: string) {
-    this.db
-      .prepare("UPDATE scheduled_runs SET status='pending' WHERE threadId=? AND status='dispatching'")
-      .run(threadId);
-  }
-
-  beginRun(id: string) {
-    return (
-      this.db.prepare("UPDATE scheduled_runs SET status='dispatching' WHERE id=? AND status='pending'").run(id)
-        .changes > 0
-    );
-  }
-
+  /**
+Release this owner's native schedule database handle.
+*/
   close() {
     this.db.close();
   }
@@ -280,16 +265,22 @@ declare global {
   var codexPocketSchedules: ScheduleStore | undefined;
 }
 
-export function schedules() {
-  const existing = globalThis.codexPocketSchedules;
-
-  if (existing) {
-    return existing;
-  }
-
+/**
+Acquire and register the process's private schedule owner on first use.
+@returns Newly registered concrete schedule store.
+*/
+function createScheduleStore() {
   const store = new ScheduleStore(localDirectory());
 
   Object.defineProperty(globalThis, "codexPocketSchedules", { value: store, configurable: true });
 
   return store;
+}
+
+/**
+Reuse the process's existing private schedule owner or create it lazily.
+@returns Process-local schedule persistence owner.
+*/
+export function schedules() {
+  return globalThis.codexPocketSchedules ?? createScheduleStore();
 }

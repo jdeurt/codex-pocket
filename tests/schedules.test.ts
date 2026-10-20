@@ -84,19 +84,19 @@ await test("schedule CRUD is scoped, revision checked, durable and owner private
     store = new ScheduleStore(directory);
     assert.equal(store.get("thread-a", job.id).revision, resumed.revision);
     assert.equal(store.due("thread-a", FIRST).length, 1);
-    const run = store.claim(resumed, null, FIRST);
+    const run = store.occurrences.claim(resumed, null, FIRST);
 
     assert.ok(run);
     assert.equal(store.get("thread-a", job.id).active, 0);
-    assert.equal(store.claim(resumed, null, FIRST), undefined);
-    assert.equal(store.beginRun(run.id), true);
-    store.recover("thread-a");
-    assert.equal(store.runs("thread-a")[0].status, "pending");
-    store.setRun(run.id, "sent");
+    assert.equal(store.occurrences.claim(resumed, null, FIRST), undefined);
+    assert.equal(store.occurrences.begin(run.id), true);
+    store.occurrences.recover("thread-a");
+    assert.equal(store.occurrences.list("thread-a")[0].status, "pending");
+    store.occurrences.setStatus(run.id, "sent");
     store.delete("thread-a", job.id);
     assert.equal(store.list("thread-a").length, 0);
-    assert.equal(store.runs("thread-a")[0].title, "Paused check");
-    assert.equal(store.runs("thread-a")[0].status, "sent");
+    assert.equal(store.occurrences.list("thread-a")[0].title, "Paused check");
+    assert.equal(store.occurrences.list("thread-a")[0].status, "sent");
     await assert.rejects(() => store.create("thread-a", input, FIRST + DAY_MS), /no future/);
   } finally {
     store.close();

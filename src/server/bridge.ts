@@ -287,7 +287,7 @@ export class Bridge extends EventEmitter {
     if (this.config) {
       this.snapshot.scheduled = Object.fromEntries(
         schedules()
-          .runs(this.config.threadId)
+          .occurrences.list(this.config.threadId)
           .filter((run) => run.status !== "cancelled")
           .map((run) => [run.id, { title: run.title, scheduledAt: run.scheduledAt }])
       );

@@ -34,7 +34,7 @@ Claim due occurrences and disable invalid recurrences before refreshing the pare
       try {
         const next = await nextOccurrence(schedule.calendar, now);
 
-        this.store.claim(schedule, next, now);
+        this.store.occurrences.claim(schedule, next, now);
       } catch (error) {
         log().error({ id: schedule.id, error }, "schedule.recurrence_failed");
         await this.store.update(this.threadId, schedule.id, { active: false }, schedule.revision);
@@ -51,17 +51,17 @@ Dispatch one persisted occurrence and retain the bridge's existing delivery stat
   private async dispatchRun(run: ScheduledRun) {
     const delivered = await this.bridge.send(run.id, run.body);
 
-    this.store.setRun(run.id, delivered.status === "sending" ? "unknown" : delivered.status);
+    this.store.occurrences.setStatus(run.id, delivered.status === "sending" ? "unknown" : delivered.status);
   }
 
   /**
 Dispatch persisted pending occurrences serially through the parent's idempotent receipt boundary.
 */
   private async dispatch() {
-    const pending = this.store.runs(this.threadId).filter((entry) => ["pending", "queued"].includes(entry.status));
+    const pending = this.store.occurrences.list(this.threadId).filter((entry) => ["pending", "queued"].includes(entry.status));
 
     for (const run of pending) {
-      if (run.status === "pending" && !this.store.beginRun(run.id)) {
+      if (run.status === "pending" && !this.store.occurrences.begin(run.id)) {
         continue;
       }
 
@@ -69,7 +69,7 @@ Dispatch persisted pending occurrences serially through the parent's idempotent 
         await this.dispatchRun(run);
       } catch (error) {
         // Bridge persists uncertain sends; retrying this same ID only reads that receipt.
-        this.store.setRun(run.id, "pending", error instanceof Error ? error.message : String(error));
+        this.store.occurrences.setStatus(run.id, "pending", error instanceof Error ? error.message : String(error));
         break;
       }
     }
@@ -79,7 +79,7 @@ Dispatch persisted pending occurrences serially through the parent's idempotent 
 Recover interrupted occurrence records and acquire the existing unrefed polling timer.
 */
   start() {
-    this.store.recover(this.threadId);
+    this.store.occurrences.recover(this.threadId);
     this.timer = setInterval(() => void this.tick(), INTERVAL_MS);
     this.timer.unref();
     void this.tick();
