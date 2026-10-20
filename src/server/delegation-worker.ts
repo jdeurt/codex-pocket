@@ -9,6 +9,7 @@ import { localDirectory } from "./local-state";
 import { log } from "./logging";
 import { object } from "../lib/protocol";
 import path from "node:path";
+import { sessionAttachment } from "./session-adoption";
 
 const RECOVERY_INTERVAL_MS = 30_000;
 
@@ -121,7 +122,12 @@ export class DelegationWorker {
     const { sessionStarted } = object(JSON.parse(child.metadata));
     const adapter = (this.options.createAdapter ?? createAdapter)(child.harness, {
       config: this.config,
-      child: { ...child, policy, ...(typeof sessionStarted === "boolean" && { sessionStarted }) },
+      child: {
+        ...child,
+        policy,
+        attachment: sessionAttachment(child.metadata),
+        ...(typeof sessionStarted === "boolean" && { sessionStarted }),
+      },
       parentTools: parentToolServer(child.id, command.id),
       callbacks: {
         request: (request) => this.questions.request(child, request),

@@ -7,6 +7,7 @@ import {
 } from "./delegation-data";
 import { delegationDatabase, lastCommandStatus } from "./delegation-db";
 import { DelegateReportStore } from "./delegate-report-store";
+import { DelegationAdoptions } from "./delegation-adoptions";
 import { DelegationMailbox } from "./delegation-mail";
 import { DelegationNotifications } from "./delegation-notifications";
 import { DelegationQueue } from "./delegation-queue";
@@ -40,6 +41,8 @@ export class DelegationStore {
 
   readonly queue: DelegationQueue;
 
+  readonly adoptions: DelegationAdoptions;
+
   /**
 Read the newest persisted command outcome for one parent-owned child.
 @param parentId - Recorded parent scope.
@@ -58,6 +61,7 @@ Acquire private persistence, committed-change hints and concrete mailbox and que
     this.reports = new DelegateReportStore(this.db);
     this.mail = new DelegationMailbox(this.db, this.notifications.changed);
     this.queue = new DelegationQueue(this.db, this, this.notifications);
+    this.adoptions = new DelegationAdoptions(this.db, this);
   }
 
   /**

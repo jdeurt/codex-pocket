@@ -1,11 +1,13 @@
 import { type AgentEntry, type AgentStatus, agentStatusSchema } from "../lib/agents";
 import { type Data, type PendingRequest, type Thread, type Turn, object, string } from "../lib/protocol";
 import { refreshCodexHistory, visiblePreview } from "./agent-history";
+import { CodexRpc } from "./rpc";
 import { type SidePocket } from "./delegations";
 import { bridge } from "./bridge";
 import { codexActivity } from "../lib/codex";
 import { parentReaders } from "./pocket-readers";
 import { readClaude } from "./agent-claude";
+import { sessionAttachment } from "./session-adoption";
 
 export { codexParent } from "../lib/codex";
 
@@ -165,9 +167,9 @@ export function observeCodex(record: AgentRecord) {
 Read native thread metadata and refresh its full cached history without resuming work.
 @param record - Scoped discovery record receiving normalized history and metadata.
 @param sessionId - Native session identity already checked by the hydration owner.
+@param rpc - Native reader connected to the correct owning server.
 */
-async function readCodex(record: AgentRecord, sessionId: string) {
-  const rpc = (parentReaders.get(record.owner ?? "") ?? bridge).agentReader();
+async function readCodexWithClient(record: AgentRecord, sessionId: string, rpc: CodexRpc) {
   const { thread } = await rpc.request("thread/read", {
     threadId: sessionId,
     includeTurns: false,
@@ -178,6 +180,41 @@ async function readCodex(record: AgentRecord, sessionId: string) {
   Object.assign(record.agent, observedMetadata({ model: thread.model, effort: thread.reasoningEffort }));
 
   observeCodex(record);
+}
+
+/**
+Read live history from the owning socket without resuming or modifying the thread.
+@param record - Parent-scoped adopted agent.
+@param sessionId - Exact adopted native session.
+@param socketPath - Original owning server's socket.
+*/
+async function readAttachedCodex(record: AgentRecord, sessionId: string, socketPath: string) {
+  const rpc = new CodexRpc();
+
+  try {
+    await rpc.connectSocket(socketPath);
+    await readCodexWithClient(record, sessionId, rpc);
+  } finally {
+    await rpc.shutdown();
+  }
+
+  if (!["closing", "closed"].includes(record.pocket?.status ?? "")) {
+    record.agent.status = nativeStatus(record.thread ?? { id: sessionId, turns: [] }, record.turns ?? []);
+  }
+}
+
+/**
+Choose the stored owning connection for adopted live sessions and the parent reader otherwise.
+@param record - Scoped agent with validated durable ownership.
+@param sessionId - Native thread to display.
+@returns Completion of the canonical native history read.
+*/
+function readCodex(record: AgentRecord, sessionId: string) {
+  const attachment = record.pocket ? sessionAttachment(record.pocket.metadata) : undefined;
+
+  return attachment
+    ? readAttachedCodex(record, sessionId, attachment.socketPath)
+    : readCodexWithClient(record, sessionId, (parentReaders.get(record.owner ?? "") ?? bridge).agentReader());
 }
 
 /**
@@ -207,7 +244,7 @@ export async function hydrateAgent(record: AgentRecord) {
   } catch {
     record.historyError = true;
 
-    if (!record.pocket) {
+    if (!record.pocket || sessionAttachment(record.pocket.metadata)) {
       record.agent.status = "unknown";
     }
   }

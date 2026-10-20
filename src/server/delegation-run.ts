@@ -1,6 +1,7 @@
 import type { DelegationCommand, DelegationStore, SidePocket } from "./delegations";
 import type { HarnessAdapter, HarnessResult } from "./harness/types";
 import { log } from "./logging";
+import { sessionAttachment } from "./session-adoption";
 
 /**
 Owns one claimed command from native session opening through confirmed process cleanup.
@@ -95,10 +96,26 @@ export class DelegationRun {
   }
 
   /**
+  Dispatch observation receipts only to watch-capable adapters; never turn them into prompts.
+  @returns The native assignment or the existing turn's observed result.
+  */
+  private startCommand() {
+    const attachment = sessionAttachment(this.child.metadata);
+
+    if (attachment?.watchCommandId !== this.command.id) {
+      return this.adapter.run(this.command.id, this.command.body);
+    }
+
+    return attachment.turnId && this.adapter.watch
+      ? this.adapter.watch(attachment.turnId)
+      : Promise.reject(new Error("This adapter cannot observe the existing turn. Nothing was sent."));
+  }
+
+  /**
   Publish readiness after the native assignment starts and fence completion against active deliveries.
   */
   private async runTurn() {
-    const result = this.adapter.run(this.command.id, this.command.body);
+    const result = this.startCommand();
 
     this.ready.resolve(true);
 

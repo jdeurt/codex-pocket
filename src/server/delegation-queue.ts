@@ -4,6 +4,7 @@ import type Database from "better-sqlite3";
 import { type DelegationNotifications } from "./delegation-notifications";
 import { type DelegationStore } from "./delegations";
 import { commandText } from "./delegation-input";
+import { sessionAttachment } from "./session-adoption";
 import { z } from "zod";
 
 export const MAX_CONCURRENT_CHILDREN = 8;
@@ -49,8 +50,10 @@ Insert a validated new command only after retry and child-state guards succeed.
     const id = crypto.randomUUID();
     const commands = this.list(parentId, childId);
     const child = this.store.get(parentId, childId);
+    const watchId = sessionAttachment(child.metadata)?.watchCommandId;
     const current =
       commands.find((entry) => entry.status === "running") ??
+      commands.find((entry) => entry.id === watchId && entry.status === "queued") ??
       (child.sessionId ? undefined : commands.find((entry) => entry.key === "initial" && entry.status === "queued"));
     const target = mode === "steer" ? current : undefined;
 
@@ -85,7 +88,9 @@ Claim the oldest queued command while the caller holds the immediate capacity tr
 */
   private claimNext(parentId: string, childId: string) {
     const queued = this.list(parentId, childId).filter((entry) => entry.status === "queued");
-    const command = queued.find((entry) => entry.mode === "steer") ?? queued.at(0);
+    const watchId = sessionAttachment(this.store.get(parentId, childId).metadata)?.watchCommandId;
+    const command =
+      queued.find((entry) => entry.id === watchId) ?? queued.find((entry) => entry.mode === "steer") ?? queued.at(0);
 
     if (!command) {
       return;

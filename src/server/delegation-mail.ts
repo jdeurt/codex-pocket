@@ -152,12 +152,18 @@ Read ordered undelivered reports only for their recorded parent.
   }
 
   /**
-Persist the parent's acknowledged or uncertain delivery status for one report.
+Persist a changed delivery receipt and notify observers without waking them for identical retries.
 @param id - Persisted parent-report identity.
 @param status - Delivery status returned by the parent receipt boundary.
 */
   delivered(id: string, status: "queued" | "sent" | "unknown") {
-    this.db.prepare("UPDATE delegation_mail SET delivery=? WHERE id=?").run(status, id);
+    const result = this.db
+      .prepare("UPDATE delegation_mail SET delivery=? WHERE id=? AND delivery!=?")
+      .run(status, id, status);
+
+    if (result.changes > 0) {
+      this.changed();
+    }
   }
 
   /**

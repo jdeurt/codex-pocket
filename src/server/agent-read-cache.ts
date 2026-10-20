@@ -5,6 +5,7 @@ import { agentRevision } from "./agent-revision";
 import { bridge } from "./bridge";
 import { codexPreview } from "./agent-history";
 import { isActiveAgent } from "../lib/agents";
+import { sessionAttachment } from "./session-adoption";
 
 const LIVE_REFRESH_MS = 2000;
 const MAX_TRANSCRIPTS = 12;
@@ -15,6 +16,15 @@ interface CachedRead {
   agent: AgentRecord["agent"];
   turns?: Turn[];
   historyError?: boolean;
+}
+
+/**
+Identify live attachments whose owner can change independently of Pocket's persisted status.
+@param record - Scoped agent record.
+@returns Whether live socket reads must expire even while the stored child is idle.
+*/
+function isAttached(record: AgentRecord) {
+  return !!record.pocket && !!sessionAttachment(record.pocket.metadata);
 }
 
 /**
@@ -91,7 +101,7 @@ Check whether a native revision and cached read remain reusable.
       (!saved.historyError || Date.now() - saved.at < LIVE_REFRESH_MS) &&
       (isImage ||
         (record.agent.harness === "claude" && Boolean(record.fileRevision)) ||
-        ["idle", "completed", "failed", "closed"].includes(record.agent.status) ||
+        (!isAttached(record) && ["idle", "completed", "failed", "closed"].includes(record.agent.status)) ||
         Date.now() - saved.at < LIVE_REFRESH_MS)
     );
   }
@@ -113,6 +123,10 @@ Project validated cached metadata, preview and turns onto a discovery record.
       ["idle", "unknown"].includes(record.agent.status) &&
       ["completed", "failed", "closed"].includes(saved.agent.status)
     ) {
+      record.agent.status = saved.agent.status;
+    }
+
+    if (isAttached(record) && !["closing", "closed"].includes(record.pocket?.status ?? "")) {
       record.agent.status = saved.agent.status;
     }
 
@@ -173,7 +187,7 @@ Read a lightweight Codex preview or hydrate Claude's saved history.
 @param revision - Revision to associate with the resulting preview.
 */
   private async readPreview(record: AgentRecord, revision: string) {
-    if (record.agent.harness === "claude" || !record.sessionId) {
+    if (record.agent.harness === "claude" || !record.sessionId || isAttached(record)) {
       await this.full(record, false, 1);
 
       return;

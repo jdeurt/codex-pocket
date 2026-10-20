@@ -2,6 +2,7 @@ import { delegationBody, delegationInput, delegationKey, delegations } from "../
 import { type McpServer } from "@modelcontextprotocol/server";
 import { findClaudeBinary } from "../src/server/harness/claude-binary";
 import { harnessCapabilities } from "../src/server/harness/types";
+import { resumeSidePocket } from "./adoption-tools";
 import { toolResult } from "../src/server/mcp-result";
 import { z } from "zod";
 
@@ -164,7 +165,7 @@ export function registerDelegationTools(server: McpServer, owner: string) {
     "side_pocket_close",
     {
       description:
-        "Close this Side Pocket's actual harness process and cancel queued work. Keep its ID, title and saved history for later resumption. Returns after the host confirms closure.",
+        "Close this Side Pocket's owned harness process (or detach from an adopted external server without interrupting it) and cancel queued work. Keep its ID, title and saved history for later resumption. Returns after the host confirms closure.",
       inputSchema: idSchema,
     },
     ({ id }) => toolResult(() => closeChild(owner, id))
@@ -173,9 +174,9 @@ export function registerDelegationTools(server: McpServer, owner: string) {
     "side_pocket_resume",
     {
       description:
-        "Reopen a closed Side Pocket's saved session for follow-up messages. Use side_pocket_send to assign the next work; inspect history first if its previous outcome was unknown.",
+        "Reopen a saved Side Pocket, or reconnect an adopted live session to observe its owner's current turn without replaying input. Use side_pocket_send to assign the next work; inspect history first if its previous outcome was unknown.",
       inputSchema: idSchema,
     },
-    ({ id }) => toolResult(() => delegations().resume(owner, id))
+    ({ id }) => toolResult(() => resumeSidePocket(owner, id))
   );
 }

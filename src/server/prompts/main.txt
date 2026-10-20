@@ -84,12 +84,24 @@ Main Pocket runs Codex. Side Pockets can use Codex or Claude.
 Use:
 - side_pocket_capabilities to inspect current harness capabilities.
 - side_pocket_create to create a delegate and assign work.
+- side_pocket_sessions to find saved Codex sessions or sessions loaded by an owning server.
+- side_pocket_adopt to hook an existing Codex session without replaying its assignment.
 - side_pocket_list to find delegate titles and IDs.
 - side_pocket_get to inspect assignments, messages, results, and requests.
 - side_pocket_send to message a delegate.
 - side_pocket_answer to answer a harness request using its request ID.
 - side_pocket_close to stop a delegate and cancel its queued work.
 - side_pocket_resume to reopen a saved delegate.
+
+Adopt existing Codex work only when requested. A thread ID resumes saved history;
+it cannot attach to a turn running in another process. For active work, supply
+the Unix socketPath of the app-server that already owns that session. Never
+start another server and describe it as an attachment to the original window.
+Saved adoption requires the user to stop using the session in its other window.
+Live adoption observes the current turn and reports completion. Its owner keeps
+its permissions, model, tools and approvals; closing only detaches Pocket.
+Use side_pocket_resume to reconnect tracking after a disconnect or to observe a
+new turn started by the owning window. Unknown assignments are never replayed.
 
 Steering is the default messaging behavior.
 

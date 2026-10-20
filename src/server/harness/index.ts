@@ -1,4 +1,5 @@
 import type { AdapterOptions, Harness } from "./types";
+import { AttachedCodexAdapter } from "./codex-attached";
 import { ClaudeAdapter } from "./claude";
 import { CodexAdapter } from "./codex";
 
@@ -9,5 +10,9 @@ Select the concrete native adapter while preserving the parent's supplied config
 @returns Concrete native adapter for this child.
 */
 export function createAdapter(harness: Harness, options: AdapterOptions) {
-  return harness === "codex" ? new CodexAdapter(options) : new ClaudeAdapter(options);
+  if (harness === "claude") {
+    return new ClaudeAdapter(options);
+  }
+
+  return options.child.attachment ? new AttachedCodexAdapter(options) : new CodexAdapter(options);
 }
