@@ -137,6 +137,12 @@ export function createConfig(options: { typed?: boolean; tsconfigRootDir?: strin
     ).map((entry) => ({ ...entry, files: options.typed && !("files" in entry && entry.files) ? files : tsFiles })),
     { files: ["**/*.{cjs,cts}"], languageOptions: { sourceType: "commonjs" } },
     {
+      files: ["tests/browser/**/*.ts"],
+      languageOptions: {
+        globals: { Event: "readonly", CustomEvent: "readonly", MessageEvent: "readonly", TextEncoder: "readonly" },
+      },
+    },
+    {
       files,
       languageOptions: {
         globals: { console: "readonly", Bun: "readonly", process: "readonly", Buffer: "readonly" },
