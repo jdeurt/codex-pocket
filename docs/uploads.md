@@ -2,7 +2,7 @@
 
 Use the paperclip beside Send to choose multiple images or files. Selected files appear above the composer with upload progress, retry, and remove controls. Send supports files alone or files with text. A successful queued/sent acknowledgement clears the selection; uncertain delivery preserves the same message ID for retry. The existing desktop Enter, mobile newline, Shift+Enter, and IME behavior is preserved.
 
-Draft cards show aligned file details and status with symmetric horizontal padding. Sent uploads appear as full-width file rows with a file icon, filename, type, and size. Uploaded image/file rows have no image preview or download action. File rows and the following message text use 16px external gaps; metadata and control padding stay compact. Unrelated assistant image output keeps its existing image preview.
+Draft cards show aligned file details and status with symmetric horizontal padding. Sent uploads appear as file rows that fill the existing message bubble's interior, with a file icon, filename, type, and size. File-only and text-with-file messages retain the normal fit-content bubble sizing and 80% maximum width. Uploaded image/file rows have no image preview or download action. File rows and the following message text use 16px external gaps; metadata and control padding stay compact. Unrelated assistant image output keeps its existing image preview.
 
 The visible button is keyboard and screen reader accessible. The compact attachment strip follows familiar [mobile attachment patterns](https://screensdesign.com/explore/ui-elements/file-attachments/). It does not depend on a hidden gesture.
 
