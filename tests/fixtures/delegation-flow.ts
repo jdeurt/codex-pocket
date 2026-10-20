@@ -5,10 +5,12 @@ import {
   delegationCommandSchema,
   sidePocketSchema,
 } from "../../src/server/delegation-data";
+import { type HostEvent, type HostReply, hostPacketSchema } from "./delegation-protocol";
 import { mkdtemp, rm } from "node:fs/promises";
 import { Client } from "@modelcontextprotocol/client";
 import { DelegationStore } from "../../src/server/delegations";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
+import { type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { dataSchema } from "../../src/lib/protocol";
 import { once } from "node:events";
@@ -26,6 +28,9 @@ export const LOST_NOTIFICATION_RECOVERY_MS = 1000;
 export const LAST_INDEX = -1;
 export const THREE_MORE_STARTS = 3;
 
+/**
+Owns one fake host's IPC correlation, event wakeups and diagnostic stream.
+*/
 class Peer {
   private listeners = new Set<() => void>();
 
@@ -33,26 +38,21 @@ class Peer {
 
   private pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
 
-  readonly events: Message[] = [];
+  readonly events: HostEvent[] = [];
 
+  /**
+  Subscribes to this owned child's native diagnostics and IPC responses.
+  @param child - Fake host created by this fixture's private fork operation.
+  */
   constructor(readonly child: ChildProcess) {
+    child.stderr?.on("data", (data: Buffer) => process.stderr.write(data));
     child.on("message", (input: unknown) => {
-      const message = dataSchema.parse(input);
+      const message = hostPacketSchema.parse(input);
 
-      if (message.event) {
+      if ("event" in message) {
         this.events.push(message);
-      }
-
-      const pending = this.pending.get(Number(message.id));
-
-      if (pending) {
-        this.pending.delete(Number(message.id));
-
-        if (message.error) {
-          pending.reject(new Error(JSON.stringify(message.error)));
-        } else {
-          pending.resolve(message.result);
-        }
+      } else {
+        this.resolvePending(message);
       }
 
       for (const listener of this.listeners) {
@@ -61,9 +61,54 @@ class Peer {
     });
   }
 
+  /**
+  Resolves the matching control request after recording any incoming simulator event.
+  @param message - Normalized IPC record from the owned fake host.
+  */
+  private resolvePending(message: HostReply) {
+    const id = message.id;
+    const pending = id === undefined ? undefined : this.pending.get(id);
+
+    if (id === undefined || !pending) {
+      return;
+    }
+
+    this.pending.delete(message.id ?? NaN);
+
+    if (message.error) {
+      pending.reject(new Error(JSON.stringify(message.error)));
+    } else {
+      pending.resolve(message.result);
+    }
+  }
+
+  /**
+  Calls a durable child mutation and validates the returned canonical child record.
+  @param method - Child creation, close, resume or answer-and-close operation.
+  @param args - Domain input validated by the real durable store.
+  @returns Canonical child record after the persisted operation.
+  */
   call(method: "create" | "createAndCrash" | "close" | "resume" | "answerAndClose", args: Message): Promise<SidePocket>;
+  /**
+  Claims the oldest eligible command through the actual durable queue.
+  @param method - Native simulator claim operation.
+  @param args - Parent-scoped child target.
+  @returns Claimed canonical command, or undefined when nothing can be claimed.
+  */
   call(method: "claim", args: Message): Promise<DelegationCommand | undefined>;
+  /**
+  Calls a simulator control while leaving its heterogeneous response unknown.
+  @param method - Native simulator operation selected by the workflow.
+  @param args - Optional control fields.
+  @returns Unknown control response, or rejection for a host-reported error.
+  */
   call(method: string, args?: Message): Promise<unknown>;
+  /**
+  Correlates the IPC reply and normalizes durable child and command results by their real schemas.
+  @param method - Native simulator operation selected by the workflow.
+  @param args - Control or persisted domain input fields.
+  @returns Validated durable result or unknown control response.
+  */
   async call(method: string, args: Message = {}): Promise<unknown> {
     const id = ++this.sequence;
 
@@ -81,7 +126,13 @@ class Peer {
       : result;
   }
 
-  until(isSatisfied: (events: Message[]) => boolean, timeoutMs = WAIT_MS) {
+  /**
+  Waits for recorded process events without polling and removes its wakeup subscription on settlement.
+  @param isSatisfied - Predicate over recorded simulator events.
+  @param timeoutMs - Maximum wait before reporting the full captured event history.
+  @returns Completion once the expected native event sequence has arrived.
+  */
+  until(isSatisfied: (events: HostEvent[]) => boolean, timeoutMs = WAIT_MS) {
     return new Promise<void>((resolve, reject) => {
       const resources: { timer?: NodeJS.Timeout } = {};
       const check = () => {
@@ -103,18 +154,38 @@ class Peer {
     });
   }
 
+  /**
+  Selects actual simulated command-start events in their arrival order.
+  @returns Recorded native starts, including harness and command identities.
+  */
   starts() {
     return this.events.filter((entry) => entry.event === "started");
   }
 }
 
-export async function fixture(t: { after: (callback: () => Promise<void>) => void }) {
+/**
+Requests host shutdown and joins its native process exit.
+@param entry - Still-connected fake host owned by the fixture.
+@returns Completion of confirmed host exit.
+*/
+async function stopPeer(entry: Peer) {
+  const exited = once(entry.child, "exit");
+
+  entry.child.send({ method: "stop" });
+  await exited;
+}
+
+/**
+Creates durable private state and registers cleanup for every fake host and MCP client.
+@param t - Native Node integration context owning cleanup after this flow.
+@returns Private store and scoped native host/MCP launch operations.
+*/
+export async function fixture(t: TestContext) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "pocket-worker-flow-"));
   const store = new DelegationStore(directory);
   const peers: Peer[] = [];
   const clients: Client[] = [];
 
-  store.saveParent(owner, { cwd: directory, policy: { sandbox: "danger-full-access", approval: "never" } });
   const env = {
     ...Object.fromEntries(
       Object.entries(process.env).filter(
@@ -134,7 +205,6 @@ export async function fixture(t: { after: (callback: () => Promise<void>) => voi
       stdio: ["ignore", "ignore", "pipe", "ipc"],
     });
 
-    child.stderr?.on("data", (data: Buffer) => process.stderr.write(data));
     const result = new Peer(child);
 
     peers.push(result);
@@ -159,6 +229,8 @@ export async function fixture(t: { after: (callback: () => Promise<void>) => voi
     return client;
   };
 
+  store.saveParent(owner, { cwd: directory, policy: { sandbox: "danger-full-access", approval: "never" } });
+
   t.after(async () => {
     for (const client of clients) {
       await client.close();
@@ -169,10 +241,7 @@ export async function fixture(t: { after: (callback: () => Promise<void>) => voi
         continue;
       }
 
-      const exited = once(entry.child, "exit");
-
-      entry.child.send({ method: "stop" });
-      await exited;
+      await stopPeer(entry);
     }
 
     store.close();
@@ -182,20 +251,43 @@ export async function fixture(t: { after: (callback: () => Promise<void>) => voi
   return { store, directory, peer, mcp };
 }
 
-export const assignment = (key: string, harness = "codex", body = key) => ({
-  title: key,
-  body,
-  harness,
-  idempotencyKey: key,
-});
-export const tool = async (client: Client, name: string, args: Message) => {
+/**
+Builds a concrete idempotent assignment for a fake delegation workflow.
+@param key - Stable creation key and display title.
+@param harness - Native harness selected by the workflow.
+@param body - Assignment text, defaulting to its creation key.
+@returns Canonical assignment fields supplied to the real delegation boundary.
+*/
+export function assignment(key: string, harness = "codex", body = key) {
+  return {
+    title: key,
+    body,
+    harness,
+    idempotencyKey: key,
+  };
+}
+
+/**
+Calls a real MCP tool and validates its application result as a record.
+@param client - Owned native stdio MCP client.
+@param name - Registered tool name.
+@param args - Tool input validated by the real server's domain schema.
+@returns Normalized application record; MCP errors fail the integration assertion.
+*/
+export async function tool(client: Client, name: string, args: Message) {
   const result = await client.callTool({ name, arguments: args });
 
   assert.equal(result.isError, undefined, JSON.stringify(result));
 
   return dataSchema.parse(toolJson(result));
-};
+}
 
+/**
+Subscribes to real durable store notifications until the expected outcome is observed.
+@param store - Private durable delegation owner.
+@param isSatisfied - Predicate reading the expected persisted outcome.
+@returns Completion of the expected durable transition, bounded by the fixture timeout.
+*/
 export function state(store: DelegationStore, isSatisfied: () => boolean) {
   return new Promise<void>((resolve, reject) => {
     const resources: { timer?: NodeJS.Timeout; unsubscribe?: () => void } = {};
