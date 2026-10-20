@@ -76,7 +76,7 @@ const constOnTop: Rule.RuleModule = {
     docs: { description: "Keep const and let declarations in separate groups at the beginning of their scope." },
     schema: [],
     messages: {
-      move: "Declare this variable at the top of its scope, before executable statements.",
+      move: "Declare this variable at the top of its scope, before executable statements. If initialization depends on earlier work, split the phases into functions and pass the required state explicitly.",
       group: "Keep {{kind}} declarations in one group. Do not interleave const and let declarations.",
     },
   },
