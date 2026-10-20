@@ -2,14 +2,13 @@
 import { type QueuedMessage, type Snapshot, initialSnapshot, snapshotSchema } from "@/lib/protocol";
 import { clientError, reportClient } from "@/lib/client-logging";
 import { type FileAttachment } from "@/lib/attachments";
+import { SnapshotConnection } from "@/lib/snapshot-connection";
 import { ZodError } from "zod";
 import { markNewContent } from "@/lib/new-content";
-import { pocketUrl } from "@/lib/pockets";
 import { reconcileDeliveries } from "@/lib/deliveries";
 import { useSyncExternalStore } from "react";
 
 const listeners = new Set<() => void>();
-const RECONNECT_DELAY_MS = 3000;
 const initial = { state: initialSnapshot, connected: false };
 const store: {
   current: typeof initial;
@@ -106,51 +105,27 @@ Open the shared parent event stream and own its reconnect and wake listeners.
 */
 function start() {
   let lastSummary = "";
-  let source: EventSource | undefined;
-  let retry: ReturnType<typeof setTimeout> | undefined;
 
-  const connect = () => {
-    reportClient("sse.connecting");
-    source?.close();
-    clearTimeout(retry);
-    source = new EventSource(pocketUrl("/api/events"));
-    source.addEventListener("message", (event: MessageEvent<string>) => {
-      const state = eventSnapshot(event.data);
+  const connection = new SnapshotConnection(
+    (text) => {
+      const state = eventSnapshot(text);
 
       if (!state) {
-        return;
+        return false;
       }
 
       lastSummary = logSnapshotSummary(state, lastSummary);
       publish(state, true);
 
-      if (state.connection !== "disconnected") {
-        return;
-      }
-
-      source?.close();
-      retry = setTimeout(connect, RECONNECT_DELAY_MS);
-    });
-    source.addEventListener("error", () => {
-      reportClient("sse.error", { readyState: source?.readyState, connection: store.latestState.connection }, "error");
+      return state.connection === "disconnected";
+    },
+    () => {
       publish(store.latestState, false);
-    });
-  };
-  const wake = () => {
-    if (document.visibilityState === "visible") {
-      connect();
     }
-  };
-
-  connect();
-  globalThis.addEventListener("online", connect);
-  document.addEventListener("visibilitychange", wake);
+  );
 
   return () => {
-    clearTimeout(retry);
-    source?.close();
-    globalThis.removeEventListener("online", connect);
-    document.removeEventListener("visibilitychange", wake);
+    connection.stop();
   };
 }
 

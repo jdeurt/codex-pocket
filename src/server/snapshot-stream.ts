@@ -92,7 +92,7 @@ export class SnapshotStream {
     this.controller = controller;
     this.heartbeat = setInterval(() => {
       if (!this.isClosed) {
-        controller.enqueue(this.encoder.encode(": keepalive\n\n"));
+        controller.enqueue(this.encoder.encode("event: heartbeat\ndata: {}\n\n"));
       }
     }, HEARTBEAT_MS);
     this.bridge.snapshots.addEventListener("snapshot", this.changed);

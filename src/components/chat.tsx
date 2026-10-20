@@ -6,9 +6,9 @@ import { type DraftAttachment, useAttachments } from "@/hooks/use-attachments";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } from "@/components/ui/input-group";
 import { clientError, reportClient } from "@/lib/client-logging";
+import { isDraftSaved, useDraft, useRecoveredDraft } from "@/hooks/use-draft";
 import { stageMessage, updateDelivery, useThread } from "@/hooks/use-thread";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useDraft, useRecoveredDraft } from "@/hooks/use-draft";
 import { AgentBrowser } from "./agent-browser";
 import { AgentNavigationContext } from "@/lib/agent-navigation-context";
 import { ComposerAttachments } from "./composer-attachments";
@@ -19,6 +19,7 @@ import { PocketMenu } from "./pocket-menu";
 import { connectionStatus } from "@/lib/connection-status";
 import { modelDescription } from "@/lib/model-description";
 import { post } from "@/lib/client-api";
+import { useAppUpdate } from "@/hooks/use-app-update";
 import { useComposerViewport } from "@/hooks/use-composer-viewport";
 import { usePathname } from "next/navigation";
 
@@ -84,6 +85,14 @@ export function Chat() {
     />
   );
 
+  useAppUpdate(
+    () =>
+      !sending &&
+      !pocketsOpen &&
+      state.queue.every((message) => !(message.status === "unknown" || message.status === "sending")) &&
+      isDraftSaved(draft) &&
+      attachments.canReload()
+  );
   useComposerViewport(textarea);
 
   useRecoveredDraft(attachments.pending, draft, sending, setDraft);

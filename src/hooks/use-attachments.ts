@@ -77,6 +77,7 @@ export function useAttachments(parent?: string) {
   const scope = useRef<string | undefined>(undefined);
   const uploads = useRef(new Map<string, AbortController>());
   const writes = useRef<Promise<void>>(Promise.resolve());
+  const isPersisted = useRef(true);
 
   function update(value: SavedDraft) {
     current.current = value;
@@ -85,12 +86,22 @@ export function useAttachments(parent?: string) {
 
   function persist(value: SavedDraft) {
     const owner = scope.current;
+    const pending = owner
+      ? persistDraftAfter(writes.current, owner, value)
+      : Promise.reject(new Error("Wait for the conversation to connect."));
 
-    if (!owner) {
-      return Promise.reject(new Error("Wait for the conversation to connect."));
-    }
+    isPersisted.current = false;
 
-    writes.current = persistDraftAfter(writes.current, owner, value);
+    writes.current = pending;
+    void pending
+      .then(() => {
+        if (writes.current === pending) {
+          isPersisted.current = true;
+        }
+      })
+      .catch(() => {
+        // Keep automatic refresh blocked while the only copy is in memory.
+      });
 
     return writes.current;
   }
@@ -263,6 +274,7 @@ export function useAttachments(parent?: string) {
 
   return {
     ...state,
+    canReload: () => isPersisted.current && uploads.current.size === 0,
     ready: loadedParent === parent && !!parent,
     error,
     add,
