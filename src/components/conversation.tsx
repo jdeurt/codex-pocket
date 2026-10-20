@@ -120,7 +120,7 @@ export function Conversation({
       aria-atomic="true"
     >
       <ActivitySpinner />
-      {activity && <span>{activity}</span>}
+      {activity && <span className="min-w-0 truncate">{activity}</span>}
     </div>
   ) : null;
 
