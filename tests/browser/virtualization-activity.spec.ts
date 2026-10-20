@@ -41,7 +41,7 @@ async function painted(page: Page) {
     ]
       .map((item) => item.getBoundingClientRect())
       .filter((box) => box.bottom > bounds.top && box.top < bounds.bottom)
-      .sort((left, right) => left.top - right.top);
+      .toSorted((left, right) => left.top - right.top);
     const anchor = leaves.find((item) => {
       const box = item.getBoundingClientRect();
 
@@ -93,7 +93,6 @@ test("a thousand activity messages stay virtualized through scrolling, media gro
 }, info) => {
   const counts: number[] = [];
 
-  await page.emulateMedia({ reducedMotion: "reduce" });
   const details: Item[] = Array.from({ length: 1200 }, (_, index) => ({
     id: `detail-${String(index)}`,
     type: "agentMessage",
@@ -113,49 +112,63 @@ test("a thousand activity messages stay virtualized through scrolling, media gro
     ],
   };
   const state: Snapshot = { ...initialSnapshot, connection: "connected", turns: [turn] };
-  const writes = await mount(page, state);
+  const writes = await test.step("Mount saved activity with reduced motion", async () => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
+
+    return await mount(page, state);
+  });
   const scroller = await page.locator(viewport).elementHandle();
 
-  await page.getByRole("textbox", { name: "Message Pocket" }).fill("Keep the parent draft");
-  await page.getByRole("button", { name: "Show activity", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Hide activity", exact: true })).toHaveAttribute(
-    "aria-expanded",
-    "true"
-  );
+  const anchor = await test.step("Open and scroll activity before sampling its settled reader anchor", async () => {
+    const settled = await test.step("Open and scroll activity, then wait for native scrolling to settle", async () => {
+      await page.getByRole("textbox", { name: "Message Pocket" }).fill("Keep the parent draft");
+      await page.getByRole("button", { name: "Show activity", exact: true }).click();
+      await expect(page.getByRole("button", { name: "Hide activity", exact: true })).toHaveAttribute(
+        "aria-expanded",
+        "true"
+      );
 
-  for (const fraction of Object.values(SCROLL_STOPS)) {
-    await scroll(page, fraction);
-    const frame = await painted(page);
+      for (const fraction of Object.values(SCROLL_STOPS)) {
+        const frame = await test.step(`Scroll activity to ${String(fraction)}`, async () => {
+          await scroll(page, fraction);
 
-    counts.push(frame.count);
-  }
+          return await painted(page);
+        });
 
-  await page.locator(viewport).evaluate(
-    (element) =>
-      new Promise<void>((resolve) => {
-        let previous = element.scrollTop;
-        let stable = 0;
+        counts.push(frame.count);
+      }
 
-        const frame = () => {
-          stable = Math.abs(element.scrollTop - previous) < 1 ? stable + 1 : 0;
-          previous = element.scrollTop;
+      await page.locator(viewport).evaluate(
+        (element, stableFrames) =>
+          new Promise<void>((resolve) => {
+            let previous = element.scrollTop;
+            let stable = 0;
 
-          if (stable > STABLE_FRAMES) {
-            resolve();
-          } else {
+            const frame = () => {
+              stable = Math.abs(element.scrollTop - previous) < 1 ? stable + 1 : 0;
+              previous = element.scrollTop;
+
+              if (stable > stableFrames) {
+                resolve();
+              } else {
+                globalThis.requestAnimationFrame(frame);
+              }
+            };
+
             globalThis.requestAnimationFrame(frame);
-          }
-        };
+          }),
+        STABLE_FRAMES
+      );
 
-        globalThis.requestAnimationFrame(frame);
-      })
-  );
-  const { anchor } = await painted(page);
+      return await painted(page);
+    });
 
-  if (!anchor) {
-    throw new Error("Missing activity reader anchor");
-  }
+    if (!settled.anchor) {
+      throw new Error("Missing activity reader anchor");
+    }
 
+    return settled.anchor;
+  });
   const expectAnchor = async () => {
     await expect
       .poll(() =>

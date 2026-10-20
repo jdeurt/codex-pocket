@@ -88,8 +88,8 @@ test("activity disclosure keeps shared outer gaps and hit target through expansi
   const scroller = page.locator('[data-slot="message-scroller-viewport"]');
   const show = page.getByRole("button", { name: "Show activity", exact: true });
   const hide = page.getByRole("button", { name: "Hide activity", exact: true });
-  const gapErrors = (isExpanded: boolean) =>
-    scroller.evaluate(
+  const gapErrors = async (isExpanded: boolean) => {
+    const measurement = await scroller.evaluate(
       (element, { open, count }) => {
         const control = element.querySelector('[data-slot="trace-collapsible-trigger"]');
         const previous = element.querySelector(
@@ -101,80 +101,99 @@ test("activity disclosure keeps shared outer gaps and hit target through expansi
         const details = [...element.querySelectorAll(':scope [data-message-id^="detail-"] .markdown > :first-child')];
 
         if (!control || !previous || !final || !status || !transcript || (open && details.length !== count)) {
-          return [Infinity];
+          return null;
         }
 
-        const expected = Number(
-          globalThis.getComputedStyle(transcript).getPropertyValue("--message-block-gap").trim().replace(/px$/, "")
-        );
-        const boxes = [previous, control, ...(open ? details : []), final, status].map((item) =>
-          item.getBoundingClientRect()
-        );
+        return {
+          expected: Number(
+            globalThis.getComputedStyle(transcript).getPropertyValue("--message-block-gap").trim().replace(/px$/, "")
+          ),
+          boxes: [previous, control, ...(open ? details : []), final, status].map((item) => {
+            const box = item.getBoundingClientRect();
 
-        return boxes.slice(1).map((box, index) => Math.abs(box.top - boxes[index].bottom - expected));
+            return { top: box.top, bottom: box.bottom };
+          }),
+        };
       },
       { open: isExpanded, count: ACTIVITY_MESSAGES }
     );
 
-  await scroller.evaluate((element) => {
-    element.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
-    element.scrollBy({ top: -100, behavior: "instant" });
+    return measurement
+      ? measurement.boxes
+          .slice(1)
+          .map((box, index) => Math.abs(box.top - measurement.boxes[index].bottom - measurement.expected))
+      : [Infinity];
+  };
+
+  const before = await test.step("Position the collapsed disclosure and sample its actual hit target", async () => {
+    await scroller.evaluate((element) => {
+      element.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+      element.scrollBy({ top: -100, behavior: "instant" });
+    });
+
+    await expect(show).toHaveAttribute("aria-expanded", "false");
+    await expect.poll(async () => Math.max(...(await gapErrors(false)))).toBeLessThan(1);
+
+    return await show.boundingBox();
   });
+  const activationY = await test.step("Require the native hit target before pointer activation", async () => {
+    if (!before) {
+      throw new Error("Missing activity control box");
+    }
 
-  await expect(show).toHaveAttribute("aria-expanded", "false");
-  await expect.poll(async () => Math.max(...(await gapErrors(false)))).toBeLessThan(1);
-  const before = await show.boundingBox();
+    expect(before.height).toBeGreaterThanOrEqual(MIN_HIT_TARGET);
+    await show.evaluate((control, missingGap) => {
+      control.addEventListener(
+        "pointerdown",
+        () => {
+          const viewport = control.closest('[data-slot="message-scroller-viewport"]');
 
-  if (!before) {
-    throw new Error("Missing activity control box");
-  }
+          control.dataset.activationY = String(control.getBoundingClientRect().y);
 
-  expect(before.height).toBeGreaterThanOrEqual(MIN_HIT_TARGET);
-  await show.evaluate((control, missingGap) => {
-    control.addEventListener(
-      "pointerdown",
-      () => {
-        control.dataset.activationY = String(control.getBoundingClientRect().y);
-        const viewport = control.closest('[data-slot="message-scroller-viewport"]');
+          control.dataset.activationGap = String(
+            viewport ? viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight : missingGap
+          );
+        },
+        { once: true }
+      );
+    }, MISSING_GAP);
+    await show.click();
 
-        control.dataset.activationGap = String(
-          viewport ? viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight : missingGap
-        );
-      },
-      { once: true }
-    );
-  }, MISSING_GAP);
-  await show.click();
-  const activationY = Number(await hide.getAttribute("data-activation-y"));
-
-  expect(Number(await hide.getAttribute("data-activation-gap"))).toBeGreaterThan(MIN_READER_GAP);
-  await expect(hide).toHaveAttribute("aria-expanded", "true");
-  await expect.poll(async () => Math.max(...(await gapErrors(true)))).toBeLessThan(1);
-  const expandedBox = await hide.boundingBox();
-
-  expect(expandedBox?.height).toBeGreaterThanOrEqual(MIN_HIT_TARGET);
-  await expect
-    .poll(async () => {
-      const current = await hide.boundingBox();
-
-      return current ? Math.abs(current.y - activationY) : Infinity;
-    })
-    .toBeLessThan(ANCHOR_TOLERANCE);
-  await scroller.evaluate((element) => {
-    element.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
-    element.scrollTop = 0;
+    return Number(await hide.getAttribute("data-activation-y"));
   });
-  await expect(hide).toHaveCount(0);
-  await scroller.evaluate((element) => {
-    element.scrollTop = element.scrollHeight;
+  const expandedBox = await test.step("Verify shared gaps after actual disclosure activation", async () => {
+    expect(Number(await hide.getAttribute("data-activation-gap"))).toBeGreaterThan(MIN_READER_GAP);
+    await expect(hide).toHaveAttribute("aria-expanded", "true");
+    await expect.poll(async () => Math.max(...(await gapErrors(true)))).toBeLessThan(1);
+
+    return await hide.boundingBox();
   });
-  await expect(hide).toHaveAttribute("aria-expanded", "true");
-  await expect.poll(async () => Math.max(...(await gapErrors(true)))).toBeLessThan(1);
-  expect(await page.locator("[data-transcript-row]").count()).toBeLessThan(MAX_MOUNTED_ROWS);
-  await hide.click();
-  await expect(show).toHaveAttribute("aria-expanded", "false");
-  await expect.poll(async () => Math.max(...(await gapErrors(false)))).toBeLessThan(1);
-  const collapsedBox = await show.boundingBox();
+  const collapsedBox = await test.step("Retain the disclosure anchor through recycling and collapse", async () => {
+    expect(expandedBox?.height).toBeGreaterThanOrEqual(MIN_HIT_TARGET);
+    await expect
+      .poll(async () => {
+        const current = await hide.boundingBox();
+
+        return current ? Math.abs(current.y - activationY) : Infinity;
+      })
+      .toBeLessThan(ANCHOR_TOLERANCE);
+    await scroller.evaluate((element) => {
+      element.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+      element.scrollTop = 0;
+    });
+    await expect(hide).toHaveCount(0);
+    await scroller.evaluate((element) => {
+      element.scrollTop = element.scrollHeight;
+    });
+    await expect(hide).toHaveAttribute("aria-expanded", "true");
+    await expect.poll(async () => Math.max(...(await gapErrors(true)))).toBeLessThan(1);
+    expect(await page.locator("[data-transcript-row]").count()).toBeLessThan(MAX_MOUNTED_ROWS);
+    await hide.click();
+    await expect(show).toHaveAttribute("aria-expanded", "false");
+    await expect.poll(async () => Math.max(...(await gapErrors(false)))).toBeLessThan(1);
+
+    return await show.boundingBox();
+  });
 
   expect(collapsedBox?.height).toBeGreaterThanOrEqual(MIN_HIT_TARGET);
   expect(writes).toEqual([]);

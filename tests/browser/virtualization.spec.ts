@@ -1,10 +1,10 @@
-import { type Page, expect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
+import { expectAnchor, hasVisibleCoverage, scrollToFraction, settledAnchor, viewport } from "./virtualization-measure";
 import { mount, publish } from "./virtualization-fixture";
 import { readFile, writeFile } from "node:fs/promises";
 import { type Snapshot } from "../../src/lib/protocol";
 import { history } from "../fixtures/virtualized-history";
 
-const REQUIRED_STABLE_FRAMES = 8;
 const MIN_MOUNTED_ROWS = 150;
 const SCROLL_STOPS = {
   middle: 0.5,
@@ -32,122 +32,7 @@ const APPEND_COUNT = 30;
 
 const LAST_MOUNTED_ROW = -1;
 const MAX_MOUNTED_ROWS = 250;
-const viewport = '[data-slot="message-scroller-viewport"]';
 const row = "[data-transcript-row]";
-const pixelTolerance = 3;
-
-/**
-Checks actual mounted row bounds for uncovered regions inside the transcript viewport.
-@param page - Browser containing the offline virtualized transcript.
-@returns Whether painted rows cover the visible viewport.
-*/
-async function hasVisibleCoverage(page: Page) {
-  return page.locator(viewport).evaluate((element) => {
-    const TOP_GAP = 32;
-    const BOTTOM_GAP = 64;
-    const LAST_ROW = -1;
-    const bounds = element.getBoundingClientRect();
-    const visible = [
-      ...element.querySelectorAll<HTMLElement>(
-        ':scope [data-transcript-row]:not([data-activity-row]), :scope [data-activity-row] [data-slot="trace-collapsible-trigger"]'
-      ),
-    ]
-      .map((item) => item.getBoundingClientRect())
-      .filter((item) => item.bottom > bounds.top && item.top < bounds.bottom);
-
-    return (
-      visible.length > 0 &&
-      visible[0].top <= bounds.top + TOP_GAP &&
-      (visible.at(LAST_ROW)?.bottom ?? 0) >= bounds.bottom - BOTTOM_GAP
-    );
-  });
-}
-
-/**
-Dispatches pointer activity before positioning the standard native transcript scroller.
-@param page - Browser containing the mounted transcript.
-@param fraction - Requested fraction of the available scroll range.
-@returns Completion of the native scroll input.
-*/
-async function scrollToFraction(page: Page, fraction: number) {
-  await page.locator(viewport).evaluate((element, part) => {
-    element.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
-    element.scrollTop = (element.scrollHeight - element.clientHeight) * part;
-  }, fraction);
-  await expect.poll(() => hasVisibleCoverage(page)).toBe(true);
-}
-
-/**
-Captures the first visible non-activity transcript row and its viewport offset.
-@param page - Browser containing the mounted transcript.
-@returns Visible row identity and vertical offset.
-*/
-async function visibleAnchor(page: Page) {
-  return page.locator(viewport).evaluate((element) => {
-    const top = element.getBoundingClientRect().top;
-    const item = [...element.querySelectorAll<HTMLElement>("[data-transcript-row]:not([data-activity-row])")].find(
-      (candidate) => candidate.getBoundingClientRect().bottom > top
-    );
-
-    if (!item?.dataset.transcriptRow) {
-      throw new Error("No visible transcript anchor");
-    }
-
-    return { id: item.dataset.transcriptRow, top: item.getBoundingClientRect().top - top };
-  });
-}
-
-/**
-Waits for browser animation frames before sampling a stable transcript anchor.
-@param page - Browser containing the mounted transcript.
-@returns Anchor identity and offset after browser layout settles.
-*/
-async function settledAnchor(page: Page) {
-  await page.locator(viewport).evaluate(
-    (element) =>
-      new Promise<void>((resolve) => {
-        let last = element.scrollTop;
-        let stableFrames = 0;
-
-        const sample = () => {
-          stableFrames = Math.abs(element.scrollTop - last) < 1 ? stableFrames + 1 : 0;
-          last = element.scrollTop;
-
-          if (stableFrames >= REQUIRED_STABLE_FRAMES) {
-            resolve();
-          } else {
-            globalThis.requestAnimationFrame(sample);
-          }
-        };
-
-        globalThis.requestAnimationFrame(sample);
-      })
-  );
-
-  return visibleAnchor(page);
-}
-
-/**
-Waits until the saved visible row returns to its prior native viewport offset.
-@param page - Browser containing the mounted transcript.
-@param anchor - Previously sampled row identity and vertical offset.
-@returns Completion of the retained-anchor assertion.
-*/
-async function expectAnchor(page: Page, anchor: { id: string; top: number }) {
-  await expect
-    .poll(async () => {
-      return page.locator(viewport).evaluate((element, saved) => {
-        const message = [...element.querySelectorAll<HTMLElement>("[data-transcript-row]")].find(
-          (candidate) => candidate.dataset.transcriptRow === saved.id
-        );
-
-        return message
-          ? Math.abs(message.getBoundingClientRect().top - element.getBoundingClientRect().top - saved.top)
-          : Infinity;
-      }, anchor);
-    })
-    .toBeLessThan(pixelTolerance);
-}
 
 test("large single-turn history stays bounded through rapid scrollbar, wheel and keyboard scrolling", async ({
   page,
@@ -181,12 +66,12 @@ test("large single-turn history stays bounded through rapid scrollbar, wheel and
   await page.keyboard.press("PageUp");
   await expect.poll(() => hasVisibleCoverage(page)).toBe(true);
   // Consecutive scrollbar teleports without waiting for layout between jumps.
-  await page.locator(viewport).evaluate(async (element) => {
-    for (const part of Object.values(ACTIVITY_STOPS)) {
+  await page.locator(viewport).evaluate(async (element, stops) => {
+    for (const part of stops) {
       element.scrollTop = (element.scrollHeight - element.clientHeight) * part;
       await new Promise(globalThis.requestAnimationFrame);
     }
-  });
+  }, Object.values(ACTIVITY_STOPS));
   await expect.poll(() => hasVisibleCoverage(page)).toBe(true);
   await page.screenshot({ path: `.local/virtualization-${info.project.name}-history.png` });
   await page.getByRole("button", { name: "Jump to latest message" }).click();
@@ -204,35 +89,50 @@ test("prepend, streaming, append and steering preserve the reader anchor and fol
   const stream = { id: "stream", type: "agentMessage", text: "Streaming start" };
   const afterSteer = { id: "after-steer", type: "agentMessage", text: "After steering" };
 
-  await mount(page, state);
-  await scrollToFraction(page, PREPEND_FRACTION);
-  let anchor = await settledAnchor(page);
+  const initialAnchor = await test.step("Mount history and capture the native reader anchor", async () => {
+    await mount(page, state);
+    await scrollToFraction(page, PREPEND_FRACTION);
 
-  state.turns[0].items.unshift(...history(PREPEND_COUNT, -PREPEND_COUNT).turns[0].items);
-  await publish(page, state);
-  await expectAnchor(page, anchor);
-  const { promise: imageReady, resolve: releaseImage } = Promise.withResolvers<boolean>();
+    return await settledAnchor(page);
+  });
+  const { promise: imageReady, resolve: releaseImage } =
+    await test.step("Prepend history without moving the reader before deferring media", async () => {
+      state.turns[0].items.unshift(...history(PREPEND_COUNT, -PREPEND_COUNT).turns[0].items);
+      await publish(page, state);
+      await expectAnchor(page, initialAnchor);
+
+      return Promise.withResolvers<boolean>();
+    });
   const delayedImage = await readFile("public/icon-192.png");
 
-  await page.route("**/api/images?item=anchor-growth*", async (route) => {
-    await imageReady;
-    await route.fulfill({ contentType: "image/png", body: delayedImage });
-  });
-  const anchorIndex = state.turns[0].items.findIndex((item) => anchor.id.endsWith(`/${item.id}`));
+  const anchorIndex = await test.step("Install the delayed image response before locating the saved row", async () => {
+    await page.route("**/api/images?item=anchor-growth*", async (route) => {
+      await imageReady;
+      await route.fulfill({ contentType: "image/png", body: delayedImage });
+    });
 
-  state.turns[0].items[anchorIndex - 2].images = [
-    { source: "/api/images?item=anchor-growth", alt: "Image above reader" },
-  ];
-  await publish(page, state);
-  await expectAnchor(page, anchor);
-  // Let the size tree and initial scroll correction settle before pixels arrive.
-  await settledAnchor(page);
-  await settledAnchor(page);
-  await page.locator(viewport).evaluate((element) => {
-    element.scrollBy({ top: 200, behavior: "auto" });
+    return state.turns[0].items.findIndex((item) => initialAnchor.id.endsWith(`/${item.id}`));
   });
-  anchor = await settledAnchor(page);
-  releaseImage(true);
+  const anchor = await test.step("Capture reader position before releasing the deferred media bytes", async () => {
+    try {
+      state.turns[0].items[anchorIndex - 2].images = [
+        { source: "/api/images?item=anchor-growth", alt: "Image above reader" },
+      ];
+      await publish(page, state);
+      await expectAnchor(page, initialAnchor);
+      // Let the size tree and initial scroll correction settle before pixels arrive.
+      await settledAnchor(page);
+      await settledAnchor(page);
+      await page.locator(viewport).evaluate((element) => {
+        element.scrollBy({ top: 200, behavior: "auto" });
+      });
+
+      return await settledAnchor(page);
+    } finally {
+      releaseImage(true);
+    }
+  });
+
   await expect(page.getByRole("img", { name: "Image above reader", exact: true })).toHaveJSProperty("complete", true);
   await expectAnchor(page, anchor);
 
@@ -254,10 +154,22 @@ test("prepend, streaming, append and steering preserve the reader anchor and fol
   await expectAnchor(page, anchor);
   await page.getByRole("button", { name: "Jump to latest message" }).click();
   await expect(page.locator('[data-message-id="steer"]')).toBeVisible();
+  await expect(page.getByRole("button", { name: "Jump to latest message" })).toHaveCount(0);
+  await expect
+    .poll(() =>
+      page.locator(viewport).evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)
+    )
+    .toBeLessThan(END_TOLERANCE);
 
   state.turns[0].items.push(afterSteer);
   await publish(page, state);
   await expect(page.locator('[data-message-id="after-steer"]')).toBeVisible();
+  await expect(page.getByRole("button", { name: "Jump to latest message" })).toHaveCount(0);
+  await expect
+    .poll(() =>
+      page.locator(viewport).evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)
+    )
+    .toBeLessThan(END_TOLERANCE);
   afterSteer.text += "\n\nFollow this growing response. ".repeat(STEER_PARAGRAPHS);
   await publish(page, state);
   await expect
@@ -274,26 +186,29 @@ test("empty and short chats preserve drafts, activity, images, selection and red
   const preview = page.getByRole("button", { name: "Preview image: Virtualized image" });
   const code = page.locator('[data-message-id="activity-final"] [data-slot="code-block-content"]');
 
-  await page.emulateMedia({ reducedMotion: "reduce" });
-  const state: Snapshot = { ...history(), turns: [] };
+  const state: Snapshot = { ...history(0), turns: [] };
+  const anchor = await test.step("Retain the empty-chat draft through queue and short-history updates", async () => {
+    await page.emulateMedia({ reducedMotion: "reduce" });
 
-  await mount(page, state);
-  await page.getByRole("textbox", { name: "Message Pocket" }).fill("Preserved first draft");
-  state.queue = [{ id: "first-queued", text: "Queued first message.\n".repeat(QUEUED_LINES), status: "sending" }];
-  await publish(page, state);
-  await expect(page.locator('[data-message-id="first-queued"]')).toBeVisible();
-  await expect
-    .poll(() =>
-      page.locator(viewport).evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)
-    )
-    .toBeLessThan(OFFSET_TOLERANCE);
-  state.queue = [];
-  state.turns = history(HISTORY_COUNT).turns;
-  await publish(page, state);
-  await expect(page.getByRole("textbox", { name: "Message Pocket" })).toHaveValue("Preserved first draft");
-  await expect(page.locator(row)).toHaveCount(HISTORY_COUNT);
-  await scrollToFraction(page, PARENT_SCROLL_FRACTION);
-  const anchor = await settledAnchor(page);
+    await mount(page, state);
+    await page.getByRole("textbox", { name: "Message Pocket" }).fill("Preserved first draft");
+    state.queue = [{ id: "first-queued", text: "Queued first message.\n".repeat(QUEUED_LINES), status: "sending" }];
+    await publish(page, state);
+    await expect(page.locator('[data-message-id="first-queued"]')).toBeVisible();
+    await expect
+      .poll(() =>
+        page.locator(viewport).evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)
+      )
+      .toBeLessThan(OFFSET_TOLERANCE);
+    state.queue = [];
+    state.turns = history(HISTORY_COUNT).turns;
+    await publish(page, state);
+    await expect(page.getByRole("textbox", { name: "Message Pocket" })).toHaveValue("Preserved first draft");
+    await expect(page.locator(row)).toHaveCount(HISTORY_COUNT);
+    await scrollToFraction(page, PARENT_SCROLL_FRACTION);
+
+    return await settledAnchor(page);
+  });
   const scroller = await page.locator(viewport).elementHandle();
 
   state.turns[0].items.push(...history(APPEND_COUNT, HISTORY_COUNT).turns[0].items);

@@ -109,7 +109,7 @@ export function useTranscriptVirtualizer(
 
     return {
       virtualizer,
-      configure: (nextOptions: MessageOptions, nextAdjust: typeof adjust) => {
+      configure: (nextOptions: MessageOptions, nextAdjust: typeof adjust, renderedLayout: TranscriptLayout) => {
         virtualizer.setOptions({
           observeElementOffset,
           observeElementRect,
@@ -121,6 +121,13 @@ export function useTranscriptVirtualizer(
           },
         });
         virtualizer.shouldAdjustScrollPositionOnItemSizeChange = nextAdjust;
+        publish(virtualizer);
+
+        // Native anchor/follow updates require the new sizer to be committed.
+        if (state.layout !== renderedLayout) {
+          return;
+        }
+
         virtualizer._willUpdate();
         publish(virtualizer);
       },
@@ -139,7 +146,7 @@ export function useTranscriptVirtualizer(
 
   useLayoutEffect(() => virtualizer._didMount(), [virtualizer]);
   useLayoutEffect(() => {
-    store.configure(options, adjust);
+    store.configure(options, adjust, layout);
   });
 
   return { virtualizer, layout };
