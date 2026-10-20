@@ -42,7 +42,7 @@ export async function readBody(request: Request) {
   const chunks: Uint8Array[] = [];
   let size = 0;
 
-  while (true) {
+  for (;;) {
     const { done, value } = await reader.read();
 
     if (done) {

@@ -28,7 +28,7 @@ const root = process.cwd();
 const logs = path.join(root, ".local", "logs");
 const agents = path.join(homedir(), "Library", "LaunchAgents");
 const plist = path.join(agents, `${label}.plist`);
-const domain = `gui/${userId}`;
+const domain = `gui/${String(userId)}`;
 const target = `${domain}/${label}`;
 const searchPath = [
   ...new Set([path.dirname(process.execPath), ...(process.env.PATH ?? "/usr/bin:/bin").split(path.delimiter)]),
@@ -74,7 +74,9 @@ for (let attempt = 0; ; attempt += 1) {
   }
 
   if (result.status !== RETRYABLE_BOOTSTRAP_STATUS || attempt >= BOOTSTRAP_RETRY_LIMIT) {
-    throw new Error(result.stderr || result.error?.message || "Could not start Pocket's login service.");
+    throw new Error(
+      result.stderr.length > 0 ? result.stderr : (result.error?.message ?? "Could not start Pocket's login service.")
+    );
   }
 
   await setTimeout(SERVICE_RETRY_MS);

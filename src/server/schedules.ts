@@ -26,28 +26,30 @@ export const schedulePatch = scheduleInput
   .extend({ active: z.boolean().optional() })
   .strict()
   .refine((value) => Object.keys(value).length > 0, "Provide at least one change.");
-export interface Schedule {
-  id: string;
-  threadId: string;
-  title: string;
-  body: string;
-  calendar: string;
-  active: number;
-  nextRun: number | null;
-  revision: number;
-  createdAt: number;
-  updatedAt: number;
-}
-export interface ScheduledRun {
-  id: string;
-  scheduleId: string;
-  threadId: string;
-  title: string;
-  body: string;
-  scheduledAt: number;
-  status: "pending" | "dispatching" | "queued" | "sent" | "unknown" | "cancelled";
-  error: string | null;
-}
+const storedSchedule = z.object({
+  id: z.string(),
+  threadId: z.string(),
+  title: z.string(),
+  body: z.string(),
+  calendar: z.string(),
+  active: z.number().int(),
+  nextRun: z.number().nullable(),
+  revision: z.number().int(),
+  createdAt: z.number(),
+  updatedAt: z.number(),
+});
+export type Schedule = z.infer<typeof storedSchedule>;
+const storedRun = z.object({
+  id: z.string(),
+  scheduleId: z.string(),
+  threadId: z.string(),
+  title: z.string(),
+  body: z.string(),
+  scheduledAt: z.number(),
+  status: z.enum(["pending", "dispatching", "queued", "sent", "unknown", "cancelled"]),
+  error: z.string().nullable(),
+});
+export type ScheduledRun = z.infer<typeof storedRun>;
 
 export class ScheduleStore {
   private db: Database.Database;
@@ -73,19 +75,18 @@ export class ScheduleStore {
     `);
   }
   list(threadId: string) {
-    return this.db
-      .prepare("SELECT * FROM schedules WHERE threadId = ? ORDER BY createdAt, id")
-      .all(threadId) as Schedule[];
+    return z
+      .array(storedSchedule)
+      .parse(this.db.prepare("SELECT * FROM schedules WHERE threadId = ? ORDER BY createdAt, id").all(threadId));
   }
   get(threadId: string, id: string) {
-    const row = this.db.prepare("SELECT * FROM schedules WHERE threadId = ? AND id = ?").get(threadId, id) as
-      Schedule | undefined;
+    const row = this.db.prepare("SELECT * FROM schedules WHERE threadId = ? AND id = ?").get(threadId, id);
 
     if (!row) {
       throw new Error("Schedule not found in this Pocket chat.");
     }
 
-    return row;
+    return storedSchedule.parse(row);
   }
   async create(threadId: string, input: unknown, now = Date.now()) {
     const value = scheduleInput.parse(input);
@@ -177,11 +178,21 @@ export class ScheduleStore {
     })();
   }
   due(threadId: string, now: number) {
-    return this.db
-      .prepare("SELECT * FROM schedules WHERE threadId=? AND active=1 AND nextRun<=? ORDER BY nextRun LIMIT ?")
-      .all(threadId, now, DUE_BATCH_SIZE) as Schedule[];
+    return z
+      .array(storedSchedule)
+      .parse(
+        this.db
+          .prepare("SELECT * FROM schedules WHERE threadId=? AND active=1 AND nextRun<=? ORDER BY nextRun LIMIT ?")
+          .all(threadId, now, DUE_BATCH_SIZE)
+      );
   }
   claim(schedule: Schedule, nextRun: number | null, now: number) {
+    const scheduledAt = schedule.nextRun;
+
+    if (scheduledAt === null) {
+      throw new Error("A schedule without a next occurrence cannot be claimed.");
+    }
+
     return this.db.transaction(() => {
       const updated = this.db
         .prepare(
@@ -207,7 +218,7 @@ export class ScheduleStore {
         threadId: schedule.threadId,
         title: schedule.title,
         body: schedule.body,
-        scheduledAt: schedule.nextRun as number,
+        scheduledAt,
         status: "pending",
         error: null,
       };
@@ -222,9 +233,9 @@ export class ScheduleStore {
     })();
   }
   runs(threadId: string) {
-    return this.db
-      .prepare("SELECT * FROM scheduled_runs WHERE threadId=? ORDER BY scheduledAt, id")
-      .all(threadId) as ScheduledRun[];
+    return z
+      .array(storedRun)
+      .parse(this.db.prepare("SELECT * FROM scheduled_runs WHERE threadId=? ORDER BY scheduledAt, id").all(threadId));
   }
   setRun(id: string, status: ScheduledRun["status"], error: string | null = null) {
     this.db.prepare("UPDATE scheduled_runs SET status=?, error=? WHERE id=?").run(status, error, id);
@@ -251,12 +262,14 @@ declare global {
 }
 
 export function schedules() {
-  if (!globalThis.codexPocketSchedules) {
-    Object.defineProperty(globalThis, "codexPocketSchedules", {
-      value: new ScheduleStore(localDirectory()),
-      configurable: true,
-    });
+  const existing = globalThis.codexPocketSchedules;
+
+  if (existing) {
+    return existing;
   }
 
-  return globalThis.codexPocketSchedules as ScheduleStore;
+  const store = new ScheduleStore(localDirectory());
+  Object.defineProperty(globalThis, "codexPocketSchedules", { value: store, configurable: true });
+
+  return store;
 }

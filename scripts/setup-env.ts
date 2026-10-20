@@ -48,7 +48,7 @@ export async function saveSetupEnvironment(file: string, values: Record<string, 
   try {
     source = await readFile(file, "utf8");
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
       throw error;
     }
   }

@@ -15,11 +15,12 @@ const origin = setupOrigin(process.env.POCKET_ORIGIN ?? "");
 const requestedThreadId = process.env.POCKET_THREAD_ID ?? process.env.CODEX_THREAD_ID;
 const envPath = path.resolve(".env.local");
 
+const serverArgs: unknown = JSON.parse(process.env.CODEX_SERVER_ARGS ?? '["app-server","--listen","stdio://"]');
 const config = configSchema.parse({
-  threadId: requestedThreadId || "setup",
+  threadId: requestedThreadId?.length ? requestedThreadId : "setup",
   cwd: process.env.CODEX_CWD ?? path.join(homedir(), "Developer"),
   codexBinary: process.env.CODEX_BINARY ?? "codex",
-  serverArgs: JSON.parse(process.env.CODEX_SERVER_ARGS ?? '["app-server","--listen","stdio://"]'),
+  serverArgs,
 });
 
 async function saveEnvironment(threadId: string) {

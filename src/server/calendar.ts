@@ -60,7 +60,7 @@ function validateRule(line: string) {
     .slice(line.indexOf(":") + 1)
     .split(";")
     .map((part) => part.split("="));
-  const rule = Object.fromEntries(parts);
+  const rule = new Map(parts.map(([key, value]) => [key, value]));
 
   if (
     new Set(parts.map(([key]) => key)).size !== parts.length ||
@@ -75,23 +75,27 @@ function validateRule(line: string) {
     }
   }
 
-  if (rule.COUNT && rule.UNTIL) {
+  if (rule.has("COUNT") && rule.has("UNTIL")) {
     throw new Error("RRULE cannot contain both COUNT and UNTIL.");
   }
 
   for (const field of ["COUNT", "INTERVAL"]) {
-    if (rule[field] !== undefined && (!/^\d+$/.test(rule[field]) || Number(rule[field]) < 1)) {
+    const value = rule.get(field);
+
+    if (value !== undefined && (!/^\d+$/.test(value) || Number(value) < 1)) {
       throw new Error(`${field} must be a positive integer.`);
     }
   }
 
-  if (!rule.UNTIL) {
+  const until = rule.get("UNTIL");
+
+  if (!until) {
     return;
   }
 
-  validateDate(rule.UNTIL);
+  validateDate(until);
 
-  if (!rule.UNTIL.endsWith("Z")) {
+  if (!until.endsWith("Z")) {
     throw new Error("UNTIL must be a UTC date-time ending in Z.");
   }
 }
@@ -115,7 +119,7 @@ export function normalizeCalendar(input: string) {
   }
 
   const wrapped = /^BEGIN:/i.test(unfolded) ? unfolded : `BEGIN:VEVENT\n${unfolded}\nEND:VEVENT`;
-  const root = new ICAL.Component(ICAL.parse(wrapped));
+  const root = ICAL.Component.fromString(wrapped);
   const events = root.name === "vcalendar" ? root.getAllSubcomponents("vevent") : [root];
 
   if (
@@ -143,10 +147,14 @@ export function normalizeCalendar(input: string) {
     if (TIME_PROPERTIES.has(property.name)) {
       const line = property.toICALString();
       const separator = line.indexOf(":");
-      const zone = property.getParameter("tzid");
+      const zone: unknown = property.getParameter("tzid");
+
+      if (zone !== undefined && typeof zone !== "string") {
+        throw new Error("TZID must be a single IANA timezone name.");
+      }
 
       if (zone) {
-        new Intl.DateTimeFormat("en", { timeZone: String(zone) });
+        new Intl.DateTimeFormat("en", { timeZone: zone });
       }
 
       for (const value of line.slice(separator + 1).split(",")) {
@@ -210,9 +218,9 @@ export async function nextOccurrence(calendar: string, after: number): Promise<n
           throw new Error("Calendar returned an invalid next occurrence.");
         }
 
-        resolve(value as number | null);
+        resolve(value);
       } catch (error) {
-        reject(error);
+        reject(error instanceof Error ? error : new Error("Invalid calendar response.", { cause: error }));
       }
     });
     child.stdin.end(JSON.stringify({ calendar, after }));

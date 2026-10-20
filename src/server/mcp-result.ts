@@ -1,6 +1,6 @@
 import { log } from "./logging";
 
-export async function toolResult(operation: () => unknown | Promise<unknown>) {
+export async function toolResult(operation: () => unknown) {
   try {
     const value = await operation();
 

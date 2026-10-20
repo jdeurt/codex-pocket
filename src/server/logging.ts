@@ -12,6 +12,8 @@ const LOG_NAME = /^\d{4}-\d{2}-\d{2}T[\d:.]+Z\.jsonl$/;
 const SECRET_KEY =
   /^(?:authorization|cookie|set-cookie|password|secret|token|access_token|refresh_token|api[_-]?key|privateKey|auth|p256dh)$/i;
 
+export function redactLog(value: Record<string, unknown>): Record<string, unknown>;
+export function redactLog(value: unknown): unknown;
 export function redactLog(value: unknown): unknown {
   const normalized = value instanceof Error ? pino.stdSerializers.err(value) : value;
 
@@ -23,21 +25,24 @@ export function redactLog(value: unknown): unknown {
     return normalized.map((entry) => redactLog(entry));
   }
 
-  return normalized && typeof normalized === "object"
-    ? Object.fromEntries(
-        Object.entries(normalized).map(([key, entry]) => {
-          const image = (normalized as Record<string, unknown>).type;
-          const binary =
-            typeof entry === "string" &&
-            ((image === "imageGeneration" && key === "result") || (image === "image" && key === "data"));
+  if (!(normalized && typeof normalized === "object")) {
+    return normalized;
+  }
 
-          return [
-            key,
-            SECRET_KEY.test(key) ? "[REDACTED]" : binary ? { imageBytesBase64Length: entry.length } : redactLog(entry),
-          ];
-        })
-      )
-    : normalized;
+  const image = "type" in normalized ? normalized.type : undefined;
+
+  return Object.fromEntries<unknown>(
+    Object.entries(normalized).map(([key, entry]) => {
+      const binary =
+        typeof entry === "string" &&
+        ((image === "imageGeneration" && key === "result") || (image === "image" && key === "data"));
+
+      return [
+        key,
+        SECRET_KEY.test(key) ? "[REDACTED]" : binary ? { imageBytesBase64Length: entry.length } : redactLog(entry),
+      ];
+    })
+  );
 }
 
 export function createRotatingLogStream(directory: string, maxBytes = DEFAULT_MAX_BYTES, maxFiles = DEFAULT_MAX_FILES) {
@@ -56,14 +61,14 @@ export function createRotatingLogStream(directory: string, maxBytes = DEFAULT_MA
     let filename: string;
     let descriptor: number;
 
-    while (true) {
+    for (;;) {
       filename = path.join(directory, `${new Date(createdAt).toISOString()}.jsonl`);
 
       try {
         descriptor = openSync(/* turbopackIgnore: true */ filename, "wx", PRIVATE_FILE_MODE);
         break;
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
+        if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) {
           throw error;
         }
 
@@ -80,7 +85,7 @@ export function createRotatingLogStream(directory: string, maxBytes = DEFAULT_MA
       try {
         unlinkSync(path.join(directory, name));
       } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+        if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
           throw error;
         }
       }
@@ -110,7 +115,7 @@ export function createRotatingLogStream(directory: string, maxBytes = DEFAULT_MA
           file = open();
           write();
         } catch (error) {
-          callback(error as Error);
+          callback(error instanceof Error ? error : new Error("Could not rotate the log.", { cause: error }));
         }
       });
     },
@@ -130,25 +135,29 @@ declare global {
 }
 
 export function log() {
-  if (!globalThis.codexPocketLogger) {
-    const directory = process.env.CODEX_POCKET_LOG_DIR ?? path.join(localDirectory(), "logs");
-    const stream = createRotatingLogStream(
-      directory,
-      Number(process.env.CODEX_POCKET_LOG_MAX_BYTES ?? DEFAULT_MAX_BYTES),
-      Number(process.env.CODEX_POCKET_LOG_MAX_FILES ?? DEFAULT_MAX_FILES)
-    );
-    stream.on("error", (error) => process.stderr.write(`Pocket log writer failed: ${error.message}\n`));
-    const logger = pino(
-      {
-        name: "pocket",
-        level: process.env.CODEX_POCKET_LOG_LEVEL ?? "debug",
-        timestamp: pino.stdTimeFunctions.isoTime,
-        formatters: { log: (fields) => redactLog(fields) as Record<string, unknown> },
-      },
-      stream
-    );
-    Object.defineProperty(globalThis, "codexPocketLogger", { value: logger, configurable: true });
+  const existing = globalThis.codexPocketLogger;
+
+  if (existing) {
+    return existing;
   }
 
-  return globalThis.codexPocketLogger as pino.Logger;
+  const directory = process.env.CODEX_POCKET_LOG_DIR ?? path.join(localDirectory(), "logs");
+  const stream = createRotatingLogStream(
+    directory,
+    Number(process.env.CODEX_POCKET_LOG_MAX_BYTES ?? DEFAULT_MAX_BYTES),
+    Number(process.env.CODEX_POCKET_LOG_MAX_FILES ?? DEFAULT_MAX_FILES)
+  );
+  stream.on("error", (error) => process.stderr.write(`Pocket log writer failed: ${error.message}\n`));
+  const logger = pino(
+    {
+      name: "pocket",
+      level: process.env.CODEX_POCKET_LOG_LEVEL ?? "debug",
+      timestamp: pino.stdTimeFunctions.isoTime,
+      formatters: { log: (fields) => redactLog(fields) },
+    },
+    stream
+  );
+  Object.defineProperty(globalThis, "codexPocketLogger", { value: logger, configurable: true });
+
+  return logger;
 }

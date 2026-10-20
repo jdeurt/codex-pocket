@@ -83,11 +83,13 @@ declare global {
   var codexPocketNotificationPresence: NotificationPresence | undefined;
 }
 
+const presence = globalThis.codexPocketNotificationPresence ?? new NotificationPresence();
+
 if (!globalThis.codexPocketNotificationPresence) {
   Object.defineProperty(globalThis, "codexPocketNotificationPresence", {
-    value: new NotificationPresence(),
+    value: presence,
     configurable: true,
   });
 }
 
-export const notificationPresence = globalThis.codexPocketNotificationPresence as NotificationPresence;
+export const notificationPresence = presence;
