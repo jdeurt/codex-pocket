@@ -54,14 +54,13 @@ await test("legacy phase-less history keeps its last reply, and commentary-only 
     items: items.filter((item) => item.type === "agentMessage").map((item) => ({ ...item, phase: null })),
   };
   const entries = turnMessages(legacy, false);
+  const final = items.at(LAST_ITEM_INDEX);
 
   assert.equal(entries.at(LAST_ITEM_INDEX)?.kind, "message");
   assert.equal(
     entries.some((entry) => entry.kind === "message" && entry.item.id === "final"),
     true
   );
-  const final = items.at(LAST_ITEM_INDEX);
-
   assert.ok(final);
 
   assert.equal(
@@ -75,13 +74,12 @@ await test("legacy phase-less history keeps its last reply, and commentary-only 
 await test("uninterrupted activity still collapses with the final answer outside", () => {
   const ordinary = { ...turn, items: items.filter((item) => item.id !== "steering") };
   const entries = turnMessages(ordinary, false);
+  const activity = entries[1];
 
   assert.deepEqual(
     entries.map((entry) => entry.kind),
     ["message", "activity", "message", "message"]
   );
-  const activity = entries[1];
-
   assert.ok(activity.kind === "activity");
   assert.deepEqual(
     activity.items.map((item) => item.id),
@@ -90,11 +88,16 @@ await test("uninterrupted activity still collapses with the final answer outside
   assert.equal(entries.at(LAST_ITEM_INDEX)?.kind, "message");
 });
 
-await test("each repeated interruption fixes all preceding updates in their chronological positions", () => {
+/**
+Builds the repeated-interruption fixture only after requiring its original final reply.
+@returns Canonical turn retaining every earlier item and the same final reply.
+*/
+function repeatedInterruption(): Turn {
   const final = items.at(LAST_ITEM_INDEX);
 
   assert.ok(final);
-  const repeated: Turn = {
+
+  return {
     ...turn,
     items: [
       ...items.slice(0, LAST_ITEM_INDEX),
@@ -103,6 +106,10 @@ await test("each repeated interruption fixes all preceding updates in their chro
       final,
     ],
   };
+}
+
+await test("each repeated interruption fixes all preceding updates in their chronological positions", () => {
+  const repeated = repeatedInterruption();
   const entries = turnMessages(repeated, false);
 
   assert.deepEqual(

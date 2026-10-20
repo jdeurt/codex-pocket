@@ -5,10 +5,14 @@ import path from "node:path";
 import test from "node:test";
 import { tmpdir } from "node:os";
 
+const modeMask = 0o777;
+const privateMode = 0o600;
+
 await test("local setup needs no remote origin, while phone origins must be canonical HTTPS addresses", () => {
+  const insecure = new URL("https://example.com");
+
   assert.equal(setupOrigin(""), undefined);
   assert.equal(setupOrigin("  "), undefined);
-  const insecure = new URL("https://example.com");
 
   insecure.protocol = "http:";
   assert.throws(() => setupOrigin(insecure.href));
@@ -36,29 +40,44 @@ await test("configuration reruns keep chat identity, secrets and process setting
   assert.throws(() => formatEnvironment(first, { CODEX_THREAD_ID: "one\ntwo" }));
 });
 
+/**
+Checks that repeated native setup saves retain both selected environment values.
+@param file - Private environment file written by the real setup operations.
+*/
+async function assertRetainedEnvironment(file: string) {
+  const contents = await readFile(file, "utf8");
+
+  assert.ok(contents.includes("CODEX_THREAD_ID='saved'"));
+  assert.ok(contents.includes("CODEX_CWD='/work'"));
+}
+
+/**
+Checks native file permissions and neighboring queued state after setup writes complete.
+@param file - Written private environment file.
+@param directory - Private workflow directory containing the untouched outbox neighbor.
+*/
+async function assertPrivateSetup(file: string, directory: string) {
+  const fileStat = await stat(file);
+  const neighbors = await readdir(directory);
+
+  assert.equal(fileStat.mode & modeMask, privateMode);
+  assert.deepEqual(
+    neighbors.toSorted((a, b) => a.localeCompare(b)),
+    [".env.local", "outbox.json"]
+  );
+  assert.equal(await readFile(path.join(directory, "outbox.json"), "utf8"), "keep queued delivery");
+}
+
 await test("setup atomically writes an owner-private env file without altering neighboring state", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "pocket-setup-"));
   const file = path.join(directory, ".env.local");
-  const modeMask = 0o777;
-  const privateMode = 0o600;
 
   try {
     await writeFile(path.join(directory, "outbox.json"), "keep queued delivery");
     await saveSetupEnvironment(file, { CODEX_THREAD_ID: "saved" });
     await saveSetupEnvironment(file, { CODEX_CWD: "/work" });
-    const contents = await readFile(file, "utf8");
-
-    assert.ok(contents.includes("CODEX_THREAD_ID='saved'"));
-    assert.ok(contents.includes("CODEX_CWD='/work'"));
-    const fileStat = await stat(file);
-    const neighbors = await readdir(directory);
-
-    assert.equal(fileStat.mode & modeMask, privateMode);
-    assert.deepEqual(
-      neighbors.toSorted((a, b) => a.localeCompare(b)),
-      [".env.local", "outbox.json"]
-    );
-    assert.equal(await readFile(path.join(directory, "outbox.json"), "utf8"), "keep queued delivery");
+    await assertRetainedEnvironment(file);
+    await assertPrivateSetup(file, directory);
   } finally {
     await rm(directory, { recursive: true, force: true });
   }
