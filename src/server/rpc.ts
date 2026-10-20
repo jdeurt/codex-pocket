@@ -1,4 +1,3 @@
-import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { type Data, object, rpcEventSchema, string } from "../lib/protocol";
 import { RpcDiagnosticEvent, RpcDisconnectEvent, RpcNotificationEvent } from "./rpc-events";
 import {
@@ -13,11 +12,9 @@ import {
   type turnResponseSchema,
   type turnsPageSchema,
 } from "./rpc-protocol";
+import { RpcLineEvent, RpcTransport } from "./rpc-transport";
 import { type Config } from "./config";
-import { createInterface } from "node:readline";
 import { log } from "./logging";
-import { pocketServerArgs } from "./pocket-runtime";
-import { waitForProcessExit } from "./harness/process";
 import { type z } from "zod";
 
 export { RpcError } from "./rpc-protocol";
@@ -32,39 +29,54 @@ interface PendingResponse {
   startedAt: number;
 }
 
-// One process, one newline-delimited JSON-RPC connection. Never spawn a shell.
+// One owned JSON-RPC connection, over stdio or the existing owner's Unix socket.
 /**
-Own one child process and its newline-delimited JSON-RPC connection.
+Correlate validated native requests over one owned connection.
 */
 export class CodexRpc extends EventTarget {
-  private child?: ChildProcessWithoutNullStreams;
+  private transport = new RpcTransport();
 
   private sequence = 0;
 
   private pending = new Map<number, PendingResponse>();
 
   /**
-  Log and write one native protocol message without spawning a shell.
+  Bind transport frames and failures before opening any native connection.
+  */
+  constructor() {
+    super();
+    this.transport.addEventListener("line", (event) => {
+      if (event instanceof RpcLineEvent) {
+        this.line(event.line);
+      }
+    });
+    this.transport.addEventListener("diagnostic", (event) => {
+      if (event instanceof RpcDiagnosticEvent) {
+        this.dispatchEvent(new RpcDiagnosticEvent(event.text));
+      }
+    });
+    this.transport.addEventListener("disconnect", (event) => {
+      if (!(event instanceof RpcDisconnectEvent)) {
+        return;
+      }
+
+      for (const pending of this.pending.values()) {
+        clearTimeout(pending.timer);
+        pending.reject(event.error);
+      }
+
+      this.pending.clear();
+      this.dispatchEvent(new RpcDisconnectEvent(event.error));
+    });
+  }
+
+  /**
+  Write one native protocol message through the owned connection.
   @param message - Protocol request, response or notification.
   */
   private write(message: unknown) {
     log().debug({ message }, "codex.rpc.out");
-    this.child?.stdin.write(JSON.stringify(message) + "\n");
-  }
-
-  /**
-  Start the configured native transport and retain its process handle.
-  @param config - Validated native launch configuration.
-  @param profile - Whether Pocket's native server arguments are required.
-  @returns The spawned native child with piped streams.
-  */
-  private spawn(config: Config, profile: "pocket" | "bare") {
-    const args = profile === "pocket" ? pocketServerArgs(config) : config.serverArgs;
-
-    log().info({ binary: config.codexBinary, args, cwd: config.cwd, threadId: config.threadId }, "codex.spawn");
-    this.child = spawn(config.codexBinary, args, { cwd: config.cwd, shell: false });
-
-    return this.child;
+    this.transport.write(message);
   }
 
   /**
@@ -155,43 +167,6 @@ export class CodexRpc extends EventTarget {
   }
 
   /**
-  Bind stdout, stderr and terminal process events to one idempotent connection lifetime.
-  @param child - Native process owned by this connection.
-  */
-  private observe(child: ChildProcessWithoutNullStreams) {
-    let isClosed = false;
-
-    const lines = createInterface({ input: child.stdout });
-    const close = (error: Error) => {
-      if (isClosed) {
-        return;
-      }
-
-      isClosed = true;
-      log().error({ error }, "codex.disconnected");
-      lines.close();
-
-      for (const pending of this.pending.values()) {
-        clearTimeout(pending.timer);
-        pending.reject(error);
-      }
-
-      this.pending.clear();
-      this.child = undefined;
-      this.dispatchEvent(new RpcDisconnectEvent(error));
-    };
-
-    lines.on("line", (line) => {
-      this.line(line);
-    });
-    child.stderr.on("data", (data: unknown) => this.dispatchEvent(new RpcDiagnosticEvent(String(data))));
-    child.once("error", close);
-    child.once("exit", (code, signal) => {
-      close(new Error(`Codex disconnected: ${JSON.stringify({ code, signal })}`));
-    });
-  }
-
-  /**
   Allocate an identity and reject uncertain requests when acknowledgement expires.
   @param method - Native JSON-RPC method.
   @param params - Native request parameters.
@@ -223,11 +198,22 @@ export class CodexRpc extends EventTarget {
   }
 
   /**
+  Initialize a connected native protocol client.
+  */
+  private async initialize() {
+    await this.request("initialize", {
+      clientInfo: { name: "codex_pocket", title: "Pocket", version: "0.1.0" },
+      capabilities: { experimentalApi: true },
+    });
+    this.write({ method: "initialized" });
+  }
+
+  /**
   Check whether the native child still accepts requests.
   @returns Whether this connection has a live child.
   */
   get running() {
-    return !!this.child && this.child.exitCode === null && !this.child.killed;
+    return this.transport.running;
   }
 
   /**
@@ -235,7 +221,7 @@ export class CodexRpc extends EventTarget {
   @returns The native process ID while connected.
   */
   get pid() {
-    return this.child?.pid;
+    return this.transport.pid;
   }
 
   /**
@@ -244,14 +230,17 @@ export class CodexRpc extends EventTarget {
   @param profile - Whether to include Pocket's native server arguments.
   */
   async connect(config: Config, profile: "pocket" | "bare" = "pocket") {
-    const child = this.spawn(config, profile);
+    this.transport.connect(config, profile);
+    await this.initialize();
+  }
 
-    this.observe(child);
-    await this.request("initialize", {
-      clientInfo: { name: "codex_pocket", title: "Pocket", version: "0.1.0" },
-      capabilities: { experimentalApi: true },
-    });
-    this.write({ method: "initialized" });
+  /**
+  Attach to an external app-server over its existing local Unix socket.
+  @param filename - Absolute socket path owned by that server.
+  */
+  async connectSocket(filename: string) {
+    await this.transport.connectSocket(filename);
+    await this.initialize();
   }
 
   /**
@@ -333,16 +322,13 @@ export class CodexRpc extends EventTarget {
   Request termination of the current native child.
   */
   close() {
-    this.child?.kill("SIGTERM");
+    this.transport.close();
   }
 
   /**
   Terminate the current child and await its observed process exit.
   */
   async shutdown() {
-    const child = this.child;
-
-    this.close();
-    await waitForProcessExit(child);
+    await this.transport.shutdown();
   }
 }

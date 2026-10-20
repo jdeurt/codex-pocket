@@ -168,6 +168,21 @@ Deliver pending scripted server requests before finishing the turn.
   }
 
   /**
+  Release a deliberately held scenario to test attachment and completion races.
+  @param turnId - Existing simulated turn to finish without another native input.
+  */
+  release(turnId: string) {
+    const entry = this.pending.get(turnId);
+
+    if (!entry) {
+      throw new Error("No held turn exists with this ID");
+    }
+
+    entry.scenario.hold = false;
+    this.advance(turnId);
+  }
+
+  /**
 Apply conditional steering or interrupt the existing active turn.
 @param method - turn/steer or turn/interrupt.
 @param params - Native conditional identity and input.

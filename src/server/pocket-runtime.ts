@@ -26,6 +26,8 @@ export function pocketServerArgs(config: Config) {
     "mcp_servers.pocket.default_tools_approval_mode": "approve",
     "mcp_servers.pocket.env.CODEX_POCKET_STATE_DIR": localDirectory(),
     "mcp_servers.pocket.env.POCKET_THREAD_ID": config.threadId,
+    "mcp_servers.pocket.env.POCKET_CODEX_BINARY": config.codexBinary,
+    "mcp_servers.pocket.env.POCKET_CODEX_SERVER_ARGS": JSON.stringify(config.serverArgs),
     "mcp_servers.pocket.env.POCKET_ID": config.pocketId ?? "main",
     "mcp_servers.pocket.env.POCKET_MAIN_THREAD_ID": config.threadId,
     "mcp_servers.pocket.env.POCKET_SERVER_ORIGIN":

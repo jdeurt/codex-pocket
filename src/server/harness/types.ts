@@ -1,5 +1,6 @@
 import type { Data, Item } from "../../lib/protocol";
 import type { Config } from "../config";
+import type { SessionAttachment } from "../session-adoption";
 
 export type Harness = "codex" | "claude";
 export interface ParentPolicy {
@@ -19,6 +20,7 @@ export interface ChildContext {
   model?: string | null;
   effort?: string | null;
   policy: ParentPolicy;
+  attachment?: SessionAttachment;
 }
 export interface HarnessRequest {
   id: string;
@@ -47,6 +49,7 @@ export type SteeringResult =
 export interface HarnessAdapter {
   open(): Promise<string>;
   run(id: string, text: string): Promise<HarnessResult>;
+  watch?(turnId: string): Promise<HarnessResult>;
   steer(id: string, text: string): Promise<SteeringResult>;
   history(): Promise<HarnessMessage[]>;
   interrupt(): Promise<void>;
@@ -64,6 +67,7 @@ export const harnessCapabilities = {
   codex: {
     steering: "Native turn/steer with expectedTurnId; acknowledgement confirms acceptance, not consumption",
     savedSessions: true,
+    adoption: "Existing saved Codex threads; live attachment requires the owning app-server Unix socket",
     queuedFollowups: true,
     interrupt: true,
     questions: true,

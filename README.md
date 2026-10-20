@@ -138,6 +138,8 @@ The parent has these tools:
 | Tool                       | Purpose                                                                        |
 | -------------------------- | ------------------------------------------------------------------------------ |
 | `side_pocket_capabilities` | Check harness availability and supported behavior                              |
+| `side_pocket_sessions`     | Discover saved Codex sessions or list sessions loaded by an owning server      |
+| `side_pocket_adopt`        | Track an existing Codex session without replaying its original work            |
 | `side_pocket_create`       | Choose a harness, title and body; optionally choose a folder, model and effort |
 | `side_pocket_list`         | Look up titles, IDs, saved sessions and lifecycle states                       |
 | `side_pocket_get`          | Inspect a child's messages, delivery results and pending harness requests      |
@@ -156,6 +158,16 @@ Delegate reports reach the parent through its durable outbox, waking it when idl
 Delegation dispatch and delivery wake on local filesystem notifications shared by the host and MCP processes. Enqueue, child mail, harness requests/answers, cancellation, closure and completion publish a coalesced hint after the SQLite transaction commits. Startup scans persisted work, and child process exit wakes dispatch as soon as a slot is free. The host reconciles every 30 seconds to cover lost filesystem notifications, a writer exiting between commit and notification, and pending parent delivery retries. SQLite claims and stable message IDs remain authoritative; the notification file contains no work payload. A slow parent delivery or child shutdown does not block other dispatch or answer handling. The close tool waits for closure notifications with a final state check at its 15-second deadline.
 
 State and delivery history live in owner-private `~/.pocket/data/delegations.sqlite` with SQLite WAL. Keep it and its `-wal`/`-shm` files across deployments, along with the harnesses' native saved-session storage. If Pocket stops during a child send, that outcome becomes unknown and the parent receives a recovery report. Inspect the saved history before resuming and sending continuation instructions; uncertain work is not replayed automatically. Pending parent reports retain stable delivery IDs across restarts. Logs use `side_pocket.*` events alongside normal RPC and outbox diagnostics.
+
+### Hook an existing Codex session
+
+Ask Pocket to find your saved Codex sessions, then adopt the selected thread ID under a name. It appears in the existing Agents view with its original transcript. Adoption does not send an assignment; subsequent messages resume that same session with delegate tracking and normal completion reports. Stop using a saved session in its other window before handing it to Pocket. A thread ID cannot prove that another process has stopped using it.
+
+For a session actively running elsewhere, provide the **absolute Unix socket path of its owning Codex app-server** as `socketPath` to `side_pocket_adopt`. The server must already have the thread loaded. Pocket subscribes to the original session, watches the current turn, and reports its result without starting another turn. This uses the [official app-server Unix WebSocket transport and thread subscription API](https://learn.chatgpt.com/docs/app-server). An app-server can expose this transport with `--listen unix:///absolute/path/codex.sock`; starting a new server does not expose a session already running in a different server or an ordinary standalone CLI process.
+
+Live attachment keeps the owner's model, permissions, tools and approval handling. It does not inject `message_parent` into that external session; Pocket sends the observed completion report itself. Corrections use native conditional steering while that turn is tracked. Later assignments go through the same owner. Closing a live attachment cancels Pocket's queued work and disconnects its socket without interrupting or archiving the original session. An unavailable owner causes an explicit failure, never a saved-copy fallback.
+
+After a disconnect, or to observe another turn started in the original window, use `side_pocket_resume`. Pocket checks the same owner and tracks its current turn without replaying uncertain input. Sessions already tracked by another Side Pocket, and main Pocket sessions, cannot be adopted again. Adoption retries use the same `idempotencyKey`.
 
 ## Images
 

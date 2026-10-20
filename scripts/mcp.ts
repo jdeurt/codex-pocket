@@ -1,6 +1,7 @@
 import { scheduleInput, schedulePatch, schedules } from "../src/server/schedules";
 import { McpServer } from "@modelcontextprotocol/server";
 import { log } from "../src/server/logging";
+import { registerAdoptionTools } from "./adoption-tools";
 import { registerDelegationTools } from "./delegation-tools";
 import { registerSessionTools } from "./session-tools";
 import { registerSpinnerTools } from "./spinner-tools";
@@ -67,6 +68,7 @@ function start(owner: string) {
       );
 
       registerDelegationTools(server, owner);
+      registerAdoptionTools(server, owner);
       registerSpinnerTools(server, owner);
       registerSessionTools(server);
 
