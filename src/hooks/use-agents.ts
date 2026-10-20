@@ -7,15 +7,15 @@ const REQUEST_TIMEOUT_MS = 10_000;
 
 // Keep the last good read through reconnects, and never show another agent's data
 // while its replacement request is loading. Polling cannot dispatch harness work.
-export function useAgentRead<T>(url: string, schema: { parse: (value: unknown) => T }, enabled = true) {
+export function useAgentRead<T>(url: string, schema: { parse: (value: unknown) => T }, isEnabled = true) {
   const [result, setResult] = useState<{ url: string; data?: T; error?: string }>({ url });
 
   useEffect(() => {
-    if (!enabled) {
+    if (!isEnabled) {
       return;
     }
 
-    let stopped = false;
+    let isStopped = false;
     let timer: ReturnType<typeof setTimeout>;
     let controller: AbortController | undefined;
 
@@ -43,11 +43,11 @@ export function useAgentRead<T>(url: string, schema: { parse: (value: unknown) =
 
         const data = schema.parse(await response.json());
 
-        if (!stopped && controller === active) {
+        if (!isStopped && controller === active) {
           setResult({ url, data });
         }
       } catch (error) {
-        if (!stopped && controller === active) {
+        if (!isStopped && controller === active) {
           setResult((previous) => ({
             url,
             data: previous.url === url ? previous.data : undefined,
@@ -62,7 +62,7 @@ export function useAgentRead<T>(url: string, schema: { parse: (value: unknown) =
       } finally {
         clearTimeout(timeout);
 
-        if (!stopped && controller === active) {
+        if (!isStopped && controller === active) {
           timer = setTimeout(() => void read(), POLL_MS);
         }
       }
@@ -83,13 +83,13 @@ export function useAgentRead<T>(url: string, schema: { parse: (value: unknown) =
     document.addEventListener("visibilitychange", wake);
 
     return () => {
-      stopped = true;
+      isStopped = true;
       clearTimeout(timer);
       controller?.abort();
       globalThis.removeEventListener("online", wake);
       document.removeEventListener("visibilitychange", wake);
     };
-  }, [url, schema, enabled]);
+  }, [url, schema, isEnabled]);
 
   return result.url === url ? result : { url };
 }

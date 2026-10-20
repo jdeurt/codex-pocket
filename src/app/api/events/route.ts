@@ -17,7 +17,7 @@ export async function GET(request: Request) {
     return errorResponse(error, HTTP_FORBIDDEN);
   }
 
-  let cleanup: ((closeStream: boolean) => void) | undefined;
+  let cleanup: ((shouldCloseStream: boolean) => void) | undefined;
 
   const connectionId = crypto.randomUUID();
 
@@ -27,10 +27,10 @@ export async function GET(request: Request) {
       const encoder = new TextEncoder();
       const abort = () => cleanup?.(true);
 
-      let closed = false;
+      let isClosed = false;
 
       const send = (state: Snapshot) => {
-        if (closed) {
+        if (isClosed) {
           return;
         }
 
@@ -39,22 +39,22 @@ export async function GET(request: Request) {
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(visible)}\n\n`));
       };
       const heartbeat = setInterval(() => {
-        if (!closed) {
+        if (!isClosed) {
           controller.enqueue(encoder.encode(": keepalive\n\n"));
         }
       }, HEARTBEAT_MS);
-      const dispose = (closeStream: boolean) => {
-        if (closed) {
+      const dispose = (shouldCloseStream: boolean) => {
+        if (isClosed) {
           return;
         }
 
-        closed = true;
+        isClosed = true;
         log().info({ connectionId }, "sse.closed");
         clearInterval(heartbeat);
         bridge.off("snapshot", send);
         request.signal.removeEventListener("abort", abort);
 
-        if (closeStream) {
+        if (shouldCloseStream) {
           controller.close();
         }
       };

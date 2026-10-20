@@ -23,7 +23,7 @@ export async function GET(request: Request) {
     return errorResponse(new Error("Invalid notification device."));
   }
 
-  let cleanup: ((close: boolean) => void) | undefined;
+  let cleanup: ((shouldClose: boolean) => void) | undefined;
 
   const stream = new ReadableStream({
     start(controller) {
@@ -39,14 +39,14 @@ export async function GET(request: Request) {
       }, HEARTBEAT_MS);
       const abort = () => cleanup?.(true);
 
-      let closed = false;
+      let isClosed = false;
 
       cleanup = (close) => {
-        if (closed) {
+        if (isClosed) {
           return;
         }
 
-        closed = true;
+        isClosed = true;
         clearInterval(heartbeat);
         disconnect();
         request.signal.removeEventListener("abort", abort);

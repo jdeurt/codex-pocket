@@ -18,10 +18,20 @@ const alertVariants = cva(
   }
 );
 
+/**
+Present an accessible alert with the selected semantic severity and caller content.
+@param props - Native attributes, children and the declared appearance or composition options.
+@returns The composed element with caller props and classes preserved.
+*/
 function Alert({ className, variant, ...props }: React.ComponentProps<"div"> & VariantProps<typeof alertVariants>) {
   return <div data-slot="alert" role="alert" className={cn(alertVariants({ variant }), className)} {...props} />;
 }
 
+/**
+Keep an alert heading aligned with its surrounding severity treatment.
+@param props - Native attributes, children and the declared appearance or composition options.
+@returns The composed element with caller props and classes preserved.
+*/
 function AlertTitle({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -35,6 +45,11 @@ function AlertTitle({ className, ...props }: React.ComponentProps<"div">) {
   );
 }
 
+/**
+Lay out alert details with the shared muted text and link treatment.
+@param props - Native attributes, children and the declared appearance or composition options.
+@returns The composed element with caller props and classes preserved.
+*/
 function AlertDescription({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -48,8 +63,4 @@ function AlertDescription({ className, ...props }: React.ComponentProps<"div">) 
   );
 }
 
-function AlertAction({ className, ...props }: React.ComponentProps<"div">) {
-  return <div data-slot="alert-action" className={cn("absolute top-2 right-2", className)} {...props} />;
-}
-
-export { Alert, AlertAction, AlertDescription, AlertTitle };
+export { Alert, AlertDescription, AlertTitle };

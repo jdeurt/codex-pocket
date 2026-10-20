@@ -15,19 +15,19 @@ export const longName =
 export const replayImage =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAPAAAACgCAIAAAC9uXYyAAAACXBIWXMAAAPoAAAD6AG1e1JrAAADQUlEQVR4nO3WgQnAAAwCwa76g3SHjtwxAnLgAEEf49P7EQdaweA5v4A4EKBBwIE0NAhaf4kmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAjmHTA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6Q/gBTZKAi/7jQtEAAAAASUVORK5CYII=";
 
-export function replayThreads(settled = false, revision = 1) {
+export function replayThreads(isSettled = false, revision = 1) {
   return [
     {
       id: "native-codex",
       parentThreadId: replayParent,
       name: longName,
-      status: settled ? { type: "idle" } : { type: "active", activeFlags: [] },
+      status: isSettled ? { type: "idle" } : { type: "active", activeFlags: [] },
     },
     {
       id: "native-grandchild",
       parentThreadId: "native-codex",
       name: "Nested Codex research",
-      status: settled ? { type: "idle" } : { type: "active", activeFlags: ["waitingOnApproval"] },
+      status: isSettled ? { type: "idle" } : { type: "active", activeFlags: ["waitingOnApproval"] },
     },
     {
       id: "side-codex",
@@ -112,13 +112,13 @@ export function replayTurns(id: string, stage = "initial"): Turn[] {
     ];
   }
 
-  const active =
+  const isActive =
     ["native-codex", "native-grandchild", "side-native", "stale-codex"].includes(id) && stage !== "settled";
 
   const current: Turn[] = [
     {
       id: `${id}-turn`,
-      status: active ? "inProgress" : "completed",
+      status: isActive ? "inProgress" : "completed",
       items: [
         { id: `${id}-u`, type: "userMessage", content: [{ type: "text", text: "Read the full saved conversation." }] },
         {

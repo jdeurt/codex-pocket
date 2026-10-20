@@ -38,14 +38,23 @@ export class DelegationMailbox {
     private changed: () => void
   ) {}
 
-  record(parentId: string, childId: string, sourceId: string, kind: string, payload: unknown, notify = true) {
+  record(parentId: string, childId: string, sourceId: string, kind: string, payload: unknown, shouldNotify = true) {
     const id = `${delegationMessagePrefix}${crypto.randomUUID()}`;
 
     this.db
       .prepare(`INSERT OR IGNORE INTO delegation_mail VALUES (?,?,?,?,?,?,?,?)`)
-      .run(id, childId, parentId, sourceId, kind, JSON.stringify(payload), notify ? "pending" : "local", Date.now());
+      .run(
+        id,
+        childId,
+        parentId,
+        sourceId,
+        kind,
+        JSON.stringify(payload),
+        shouldNotify ? "pending" : "local",
+        Date.now()
+      );
 
-    if (notify) {
+    if (shouldNotify) {
       this.changed();
     }
 
@@ -124,7 +133,7 @@ export class DelegationMailbox {
     return id;
   }
 
-  requests(parentId: string, childId: string, pendingOnly = false) {
+  requests(parentId: string, childId: string, isPendingOnly = false) {
     return z
       .array(delegationRequestSchema)
       .parse(
@@ -132,7 +141,7 @@ export class DelegationMailbox {
           .prepare(
             "SELECT * FROM delegation_requests WHERE parentId=? AND childId=? AND (?=0 OR status='pending') ORDER BY createdAt"
           )
-          .all(parentId, childId, Number(pendingOnly))
+          .all(parentId, childId, Number(isPendingOnly))
       );
   }
 

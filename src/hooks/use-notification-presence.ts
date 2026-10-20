@@ -12,7 +12,7 @@ export function useNotificationPresence(endpoint: string) {
       return;
     }
 
-    let active = true;
+    let isActive = true;
     let source: EventSource | undefined;
     let deviceId = "";
 
@@ -23,7 +23,7 @@ export function useNotificationPresence(endpoint: string) {
     const connect = () => {
       close();
 
-      if (!active || !deviceId || document.visibilityState !== "visible") {
+      if (!isActive || !deviceId || document.visibilityState !== "visible") {
         return;
       }
 
@@ -56,7 +56,7 @@ export function useNotificationPresence(endpoint: string) {
     globalThis.addEventListener("offline", close);
 
     return () => {
-      active = false;
+      isActive = false;
       close();
       document.removeEventListener("visibilitychange", connect);
       globalThis.removeEventListener("pageshow", connect);

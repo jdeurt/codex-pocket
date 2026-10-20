@@ -22,6 +22,10 @@ function hasMessage(text: string, files: DraftAttachment[]) {
   return (!!text.trim() || files.length > 0) && files.every((entry) => !!entry.uploaded);
 }
 
+/**
+Compose the active parent conversation, durable draft, uploads and message delivery controls.
+@returns The parent chat and its existing navigation, notices and composer.
+*/
 export function Chat() {
   const { state, connected: streamConnected } = useThread();
   const [draft, setDraft] = useDraft();
@@ -54,14 +58,14 @@ export function Chat() {
     }
   }, []);
 
-  const connected = streamConnected && state.connection === "connected";
+  const isConnected = streamConnected && state.connection === "connected";
   const status = connectionStatus(state, streamConnected);
 
   async function send() {
     const text = draft.trim();
     const files = attachments.files.flatMap((entry) => (entry.uploaded ? [entry.uploaded] : []));
 
-    if (!hasMessage(text, attachments.files) || sending || !connected || !attachments.ready) {
+    if (!hasMessage(text, attachments.files) || sending || !isConnected || !attachments.ready) {
       return;
     }
 
@@ -206,7 +210,7 @@ export function Chat() {
                     size="icon-sm"
                     className="send-button"
                     aria-label="Send message"
-                    disabled={!hasMessage(draft, attachments.files) || sending || !connected || !attachments.ready}
+                    disabled={!hasMessage(draft, attachments.files) || sending || !isConnected || !attachments.ready}
                   >
                     <ArrowUpIcon />
                   </InputGroupButton>

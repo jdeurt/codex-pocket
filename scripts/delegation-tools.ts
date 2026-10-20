@@ -17,7 +17,7 @@ async function closeChild(owner: string, id: string) {
       clearTimeout(resources.timer);
       resources.unsubscribe?.();
     };
-    const check = () => {
+    const isSatisfied = () => {
       const child = store.get(owner, id);
 
       if (child.status === "closed") {
@@ -30,10 +30,10 @@ async function closeChild(owner: string, id: string) {
       return false;
     };
 
-    resources.unsubscribe = store.subscribe(check);
+    resources.unsubscribe = store.subscribe(isSatisfied);
     resources.timer = setTimeout(() => {
       // A final read covers a lost close notification without another poller.
-      if (check()) {
+      if (isSatisfied()) {
         return;
       }
 
@@ -47,7 +47,7 @@ async function closeChild(owner: string, id: string) {
 
     try {
       store.closeChild(owner, id);
-      check();
+      isSatisfied();
     } catch (error) {
       cleanup();
       reject(error instanceof Error ? error : new Error("Operation failed.", { cause: error }));

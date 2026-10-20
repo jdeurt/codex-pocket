@@ -39,19 +39,19 @@ process.env.CODEX_CWD = project;
 process.env.CODEX_SERVER_ARGS = '["app-server","--listen","stdio://"]';
 let bridge = new Bridge();
 
-function waitFor(target: Bridge, check: (state: Snapshot) => boolean, label: string) {
+function waitFor(target: Bridge, isSatisfied: (state: Snapshot) => boolean, label: string) {
   return new Promise<void>((resolve, reject) => {
     const pending: { timer?: NodeJS.Timeout } = {};
 
     function inspect() {
-      if (!check(target.snapshot) && !target.snapshot.error) {
+      if (!isSatisfied(target.snapshot) && !target.snapshot.error) {
         return;
       }
 
       clearTimeout(pending.timer);
       target.off("snapshot", inspect);
 
-      if (check(target.snapshot)) {
+      if (isSatisfied(target.snapshot)) {
         resolve();
       } else {
         reject(new Error(`${label}: ${target.snapshot.error ?? "Unknown error"}`));

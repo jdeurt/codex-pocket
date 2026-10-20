@@ -24,8 +24,8 @@ const questionsAnswer = z.object({ answers: z.record(z.string(), z.string()) }).
 export function claudeOptions(
   options: AdapterOptions,
   sessionId: string,
-  resume: boolean,
-  nativeRequest?: (id: string, waiting: boolean) => void
+  shouldResume: boolean,
+  nativeRequest?: (id: string, isWaiting: boolean) => void
 ): Options {
   const { child, callbacks, parentTools } = options;
   const inheritedEffort = child.effort ?? child.policy.effort;
@@ -34,7 +34,7 @@ export function claudeOptions(
   return {
     ...claudePermissions(child.policy),
     cwd: child.cwd,
-    ...(resume ? { resume: sessionId } : { sessionId }),
+    ...(shouldResume ? { resume: sessionId } : { sessionId }),
     ...((child.model ?? process.env.POCKET_CLAUDE_MODEL) && { model: child.model ?? process.env.POCKET_CLAUDE_MODEL }),
     ...(effort && { effort: z.enum(["low", "medium", "high", "xhigh", "max"]).parse(effort) }),
     pathToClaudeCodeExecutable: requireClaudeBinary(),
@@ -59,13 +59,13 @@ export function claudeOptions(
               }
 
               const data = object(input.tool_input);
-              const question = input.tool_name === "AskUserQuestion";
+              const isQuestion = input.tool_name === "AskUserQuestion";
 
-              if (question && input.agent_id) {
+              if (isQuestion && input.agent_id) {
                 nativeRequest?.(input.agent_id, true);
               }
 
-              const updatedInput = question
+              const updatedInput = isQuestion
                 ? {
                     ...data,
                     ...questionsAnswer.parse(
@@ -79,7 +79,7 @@ export function claudeOptions(
                   }
                 : data;
 
-              if (question && input.agent_id) {
+              if (isQuestion && input.agent_id) {
                 nativeRequest?.(input.agent_id, false);
               }
 

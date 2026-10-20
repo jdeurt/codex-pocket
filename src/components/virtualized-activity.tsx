@@ -16,6 +16,11 @@ import { useTranscriptVirtualizer } from "@/hooks/use-transcript-virtualizer";
 
 export type ActivityMeasurements = Map<string, VirtualItem[]>;
 
+/**
+Measure nested activity messages while the outer TanStack list owns navigation and following.
+@param props - Stable group identity, native items, shared viewport and saved measurements.
+@returns The existing bounded virtual activity list.
+*/
 function ActivityMessages({
   id,
   turnId,
@@ -74,6 +79,16 @@ function ActivityMessages({
     }
   );
 
+  const measure = useCallback(
+    (element: HTMLElement | null) => {
+      if (!suspended) {
+        virtualizer.measureElement(element);
+      }
+    },
+    [virtualizer, suspended]
+  );
+  const rows = layout.rows;
+
   useLayoutEffect(() => {
     const element = content.current;
     const scroller = viewport.current;
@@ -89,17 +104,6 @@ function ActivityMessages({
       measurements.set(id, virtualizer.takeSnapshot());
     };
   }, [virtualizer, id, measurements]);
-
-  const measure = useCallback(
-    (element: HTMLElement | null) => {
-      if (!suspended) {
-        virtualizer.measureElement(element);
-      }
-    },
-    [virtualizer, suspended]
-  );
-
-  const rows = layout.rows;
 
   return (
     <div ref={content} data-activity-virtualizer={id} style={{ height: layout.size, position: "relative" }}>
@@ -127,6 +131,11 @@ function ActivityMessages({
   );
 }
 
+/**
+Compose activity disclosure with its measured inner transcript and native open state.
+@param props - Group identity, items, disclosure callbacks, viewport and suspension state.
+@returns The existing expandable activity panel.
+*/
 export function VirtualizedActivity({
   id,
   turnId,

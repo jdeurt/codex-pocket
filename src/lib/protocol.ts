@@ -67,18 +67,38 @@ export const initialSnapshot: Snapshot = {
   scheduled: {},
 };
 
+/**
+Check for a non-null record without accepting arrays as protocol objects.
+@param value - Unchecked value from a protocol or storage boundary.
+@returns Whether string-keyed fields can be inspected safely.
+*/
 export function isData(value: unknown): value is Data {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
 
+/**
+Normalize an unchecked record while keeping all of its field values unknown.
+@param value - Possible protocol object.
+@returns The original record, or an empty object for another value kind.
+*/
 export function object(value: unknown): Data {
   return isData(value) ? value : {};
 }
 
+/**
+Read optional protocol text without coercing non-text values.
+@param value - Unchecked field proposed as text.
+@returns The original string, or an empty string.
+*/
 export function string(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
 
+/**
+Serialize display data with stable indentation and an empty fallback for missing JSON.
+@param value - JSON-compatible protocol value to display.
+@returns Formatted JSON, or an empty string when serialization produces no text.
+*/
 export function pretty(value: unknown): string {
   return z
     .string()
@@ -87,11 +107,14 @@ export function pretty(value: unknown): string {
 }
 
 export const dataSchema = z.record(z.string(), z.unknown());
+const itemImageSchema = z.object({ source: z.string(), alt: z.string().optional() });
+const noticeSchema = z.object({ id: z.string(), title: z.string(), detail: z.string() });
+const scheduledTurnSchema = z.object({ title: z.string(), scheduledAt: z.number() });
 export const itemSchema: z.ZodType<Item> = z.looseObject({
   id: z.string(),
   type: z.string(),
   attachments: z.array(fileAttachmentSchema).optional(),
-  images: z.array(z.object({ source: z.string(), alt: z.string().optional() })).optional(),
+  images: z.array(itemImageSchema).optional(),
 });
 export const turnSchema: z.ZodType<Turn> = z.looseObject({
   id: z.string(),
@@ -135,7 +158,7 @@ export const snapshotSchema: z.ZodType<Snapshot> = z.object({
   restartEvents: z.array(restartEventSchema).optional(),
   queue: z.array(queuedMessageSchema),
   requests: z.array(pendingRequestSchema),
-  notices: z.array(z.object({ id: z.string(), title: z.string(), detail: z.string() })),
-  scheduled: z.record(z.string(), z.object({ title: z.string(), scheduledAt: z.number() })),
+  notices: z.array(noticeSchema),
+  scheduled: z.record(z.string(), scheduledTurnSchema),
   error: z.string().optional(),
 });

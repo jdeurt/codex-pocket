@@ -32,7 +32,7 @@ function readLayout(virtualizer: MessageVirtualizer): TranscriptLayout {
   };
 }
 
-function sameRows(previous: VirtualItem[], next: VirtualItem[]) {
+function hasSameRows(previous: VirtualItem[], next: VirtualItem[]) {
   return (
     previous.length === next.length &&
     previous.every((row, index) => {
@@ -64,7 +64,7 @@ export function useTranscriptVirtualizer(
       const previous = state.layout;
 
       if (
-        sameRows(previous.rows, next.rows) &&
+        hasSameRows(previous.rows, next.rows) &&
         next.size === previous.size &&
         next.offset === previous.offset &&
         next.height === previous.height &&

@@ -6,6 +6,11 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { type Question } from "@/lib/questions";
 
+/**
+Render one question using its declared text, secret or option input behavior.
+@param props - Question definition, current value and the callback that owns its update.
+@returns The existing labeled native question control.
+*/
 function QuestionField({
   question,
   value,
@@ -60,6 +65,11 @@ function QuestionField({
   );
 }
 
+/**
+Collect and submit answers for the current native question set.
+@param props - Normalized questions, sending state and the caller-owned submission callback.
+@returns The current question fields and submit control.
+*/
 export function QuestionForm({
   questions,
   sending,

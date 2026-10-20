@@ -1,5 +1,11 @@
 import { type QueuedMessage, type Snapshot, string } from "./protocol";
 
+/**
+Merge local deliveries with server state and remove messages confirmed in the transcript.
+@param state - Current normalized server snapshot, left unchanged.
+@param pending - Locally retained deliveries, left unchanged.
+@returns A new snapshot and pending list with confirmed client IDs removed.
+*/
 export function reconcileDeliveries(state: Snapshot, pending: QueuedMessage[]) {
   const confirmed = new Set(
     state.turns.flatMap((turn) =>

@@ -6,7 +6,7 @@ import { isRecoveryMessageId } from "./recovery";
 import { projectRestarts } from "./restart-events";
 import { toolTrace } from "./tool-trace";
 
-const internal = (id: unknown) => isRecoveryMessageId(id) || string(id).startsWith(delegationMessagePrefix);
+const isInternal = (id: unknown) => isRecoveryMessageId(id) || string(id).startsWith(delegationMessagePrefix);
 
 // Only messages and explicitly projected display items leave the computer.
 export function visibleSnapshot(state: Snapshot, options: { tools?: boolean } = {}): Snapshot {
@@ -18,7 +18,7 @@ export function visibleSnapshot(state: Snapshot, options: { tools?: boolean } = 
     notices: [],
     scheduled: {},
     restartEvents: undefined,
-    queue: state.queue.filter((message) => !scheduled.has(message.id) && !internal(message.id)),
+    queue: state.queue.filter((message) => !scheduled.has(message.id) && !isInternal(message.id)),
     turns: projectRestarts(state).map((turn) => ({
       ...turn,
       items: turn.items.flatMap<Item>((item) => {
@@ -26,7 +26,7 @@ export function visibleSnapshot(state: Snapshot, options: { tools?: boolean } = 
           return { id: item.id, type: item.type };
         }
 
-        if (item.type === "userMessage" && (scheduled.has(string(item.clientId)) || internal(item.clientId))) {
+        if (item.type === "userMessage" && (scheduled.has(string(item.clientId)) || isInternal(item.clientId))) {
           return [];
         }
 

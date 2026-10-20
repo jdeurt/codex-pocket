@@ -11,40 +11,51 @@ const processors = plugins.map((list) =>
 const caches = [new Map<string, boolean>(), new Map<string, boolean>()];
 const MAX_CACHED_SOURCES = 4096;
 
-export const markdownPlugins = (allowCopyActions: boolean) => plugins[Number(allowCopyActions)];
+/**
+Select the same remark plugins used by output detection and Markdown rendering.
+@param shouldAllowCopyActions - Whether explicit assistant copy fences are actionable.
+@returns The shared plugin list for the requested mode.
+*/
+export const markdownPlugins = (shouldAllowCopyActions: boolean) => plugins[Number(shouldAllowCopyActions)];
 
 // Match ReactMarkdown's output tree, including its literal display of raw HTML.
 // Definitions can have nonblank source without producing any rendered node.
-export function hasMarkdownOutput(source: string, allowCopyActions = false) {
-  if (!source.trim()) {
-    return false;
-  }
+/**
+Check parser-derived output and retain a bounded cache of visible sources.
+@param source - Complete or streaming Markdown source to inspect.
+@param [shouldAllowCopyActions] - Whether assistant-only copy markers participate in parsing.
+@returns Whether ReactMarkdown can produce a visible node for this source.
+*/
+export function hasMarkdownOutput(source: string, shouldAllowCopyActions = false) {
+  if (source.trim()) {
+    const mode = Number(shouldAllowCopyActions);
+    const cache = caches[mode];
 
-  const mode = Number(allowCopyActions);
-  const cache = caches[mode];
+    let visible = cache.get(source);
 
-  let visible = cache.get(source);
+    if (visible === undefined) {
+      const processor = processors[mode];
+      const tree = processor.runSync(processor.parse(source), source);
 
-  if (visible === undefined) {
-    const processor = processors[mode];
-    const tree = processor.runSync(processor.parse(source), source);
-
-    visible = tree.children.some(
-      (node) => node.type === "element" || ((node.type === "text" || node.type === "raw") && !!node.value.trim())
-    );
-  }
-
-  // Reuse recent sources across snapshots without retaining ASTs.
-  cache.delete(source);
-  cache.set(source, visible);
-
-  if (cache.size > MAX_CACHED_SOURCES) {
-    const oldest = cache.keys().next().value;
-
-    if (oldest !== undefined) {
-      cache.delete(oldest);
+      visible = tree.children.some(
+        (node) => node.type === "element" || ((node.type === "text" || node.type === "raw") && !!node.value.trim())
+      );
     }
+
+    // Reuse recent sources across snapshots without retaining ASTs.
+    cache.delete(source);
+    cache.set(source, visible);
+
+    if (cache.size > MAX_CACHED_SOURCES) {
+      const oldest = cache.keys().next().value;
+
+      if (oldest !== undefined) {
+        cache.delete(oldest);
+      }
+    }
+
+    return visible;
   }
 
-  return visible;
+  return false;
 }

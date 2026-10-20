@@ -6,8 +6,8 @@ import { renderImage } from "@/server/images";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-async function parent(request: Request, mutation = false) {
-  await guard(request, mutation, "application/octet-stream");
+async function parent(request: Request, isMutation = false) {
+  await guard(request, isMutation, "application/octet-stream");
 
   if (request.headers.get("sec-fetch-site") === "cross-site") {
     throw new Error("Files are available only inside Pocket.");

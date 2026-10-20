@@ -12,6 +12,11 @@ import type { Item } from "@/lib/protocol";
 import type { TurnEntry } from "@/lib/turn-messages";
 import { useState } from "react";
 
+/**
+Keep completed commentary in the existing animated activity disclosure.
+@param props - Ordered normalized commentary items owned by this completed group.
+@returns The native activity disclosure with its canonical message rows.
+*/
 function CompletedActivity({ items }: { items: Item[] }) {
   const [open, setOpen] = useState(false);
 
@@ -35,6 +40,11 @@ function CompletedActivity({ items }: { items: Item[] }) {
   );
 }
 
+/**
+Render canonical message and activity entries without applying a second source filter.
+@param props - Ordered entries from the shared turn-message projection.
+@returns The matching rows, or null when no entry is renderable.
+*/
 export function TurnMessages({ entries }: { entries: TurnEntry[] }) {
   if (entries.length === 0) {
     return null;

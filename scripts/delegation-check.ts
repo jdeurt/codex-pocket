@@ -53,28 +53,28 @@ let worker = new DelegationWorker(store, parent, config);
 async function waitForCompletion() {
   const deadline = Date.now() + CHECK_TIMEOUT_MS;
 
-  let finished = false;
+  let isFinished = false;
 
   while (Date.now() < deadline) {
-    const reply = parent.snapshot.turns
+    const isReply = parent.snapshot.turns
       .flatMap((turn) => turn.items)
       .some((item) => item.type === "agentMessage" && string(item.text).includes("DELEGATION_CHECK_OK"));
     const children = store.list(thread.id);
 
     if (
-      reply &&
+      isReply &&
       !parent.snapshot.activeTurnId &&
       children.length === EXPECTED_CHILDREN &&
       children.every((child) => child.status === "closed")
     ) {
-      finished = true;
+      isFinished = true;
       break;
     }
 
     await setTimeout(POLL_MS);
   }
 
-  assert.equal(finished, true, JSON.stringify(store.list(thread.id).map(({ title, status }) => ({ title, status }))));
+  assert.equal(isFinished, true, JSON.stringify(store.list(thread.id).map(({ title, status }) => ({ title, status }))));
 }
 
 async function verifyChildren() {
@@ -99,11 +99,11 @@ async function verifyChildren() {
   return children;
 }
 
-async function waitUntil(check: () => Promise<boolean>, label: string) {
+async function waitUntil(isSatisfied: () => Promise<boolean>, label: string) {
   const deadline = Date.now() + ACTIVE_CLOSE_TIMEOUT_MS;
 
   while (Date.now() < deadline) {
-    if (await check()) {
+    if (await isSatisfied()) {
       return;
     }
 
@@ -113,7 +113,7 @@ async function waitUntil(check: () => Promise<boolean>, label: string) {
   throw new Error(`Timed out waiting for ${label}`);
 }
 
-async function fileExists(file: string) {
+async function doesFileExist(file: string) {
   try {
     await access(file);
 
@@ -135,7 +135,7 @@ async function verifyActiveClose() {
       "active-close",
       `Run this shell command in the foreground: printf STARTED > '${marker}'; sleep 30; printf LATE > '${late}'. This tests interrupting an active command. Use no other tools and send no parent messages.`
     );
-    await waitUntil(() => fileExists(marker), "active child command");
+    await waitUntil(() => doesFileExist(marker), "active child command");
     const metadata = z.object({ pid: z.number() }).parse(JSON.parse(store.get(thread.id, child.id).metadata));
 
     store.closeChild(thread.id, child.id);

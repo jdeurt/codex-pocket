@@ -103,11 +103,11 @@ test("tool-managed GIF animates in grayscale across desktop/mobile, persists thr
   expect(publicPreference).not.toContain("private-upload");
   expect(publicPreference).not.toContain("saved");
 
-  for (const mobile of [false, true]) {
+  for (const isMobile of [false, true]) {
     const context = await browser.newContext({
-      viewport: mobile ? { width: 390, height: 844 } : { width: 1100, height: 800 },
-      isMobile: mobile,
-      hasTouch: mobile,
+      viewport: isMobile ? { width: 390, height: 844 } : { width: 1100, height: 800 },
+      isMobile: isMobile,
+      hasTouch: isMobile,
       reducedMotion: "no-preference",
     });
     const page = await context.newPage();
@@ -134,7 +134,7 @@ test("tool-managed GIF animates in grayscale across desktop/mobile, persists thr
       expect(customPosition.slot.width).toBe(SLOT_EDGE);
       expect(customPosition.slot.height).toBe(SLOT_EDGE);
       await animatedGrayscale(page);
-      await page.screenshot({ path: `.local/spinner-${browserName}-${mobile ? "phone" : "desktop"}.png` });
+      await page.screenshot({ path: `.local/spinner-${browserName}-${isMobile ? "phone" : "desktop"}.png` });
       await page.reload();
       await expect(slot.locator("img")).toBeVisible();
       expect(await alignment(page)).toEqual(customPosition);
@@ -211,7 +211,7 @@ test("tool-managed GIF animates in grayscale across desktop/mobile, persists thr
       expect(rows.filter((value) => Math.abs(value - background) > BACKGROUND_TOLERANCE).length).toBeLessThanOrEqual(
         MAX_RENDERED_ROWS
       );
-      await checkSpinnerTone(page, main, server.directory, `${browserName}-${mobile ? "phone" : "desktop"}`, () =>
+      await checkSpinnerTone(page, main, server.directory, `${browserName}-${isMobile ? "phone" : "desktop"}`, () =>
         captureSlot(page)
       );
       expect(await alignment(page)).toEqual(customPosition);

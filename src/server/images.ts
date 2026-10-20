@@ -45,14 +45,14 @@ async function inputImage(source: string, cwd: string) {
   return readFile(/* turbopackIgnore: true */ filename);
 }
 
-export async function renderImage(source: string, cwd: string, thumbnail: boolean) {
+export async function renderImage(source: string, cwd: string, isThumbnail: boolean) {
   const input = await inputImage(source, cwd);
 
   if (input.length > MAX_INPUT_BYTES) {
     throw new Error("Image exceeds 25 MiB.");
   }
 
-  const key = createHash("sha256").update(input).update(String(thumbnail)).digest("hex");
+  const key = createHash("sha256").update(input).update(String(isThumbnail)).digest("hex");
   const cached = cache.get(key);
 
   if (cached) {
@@ -69,11 +69,11 @@ export async function renderImage(source: string, cwd: string, thumbnail: boolea
     throw new Error("This file is not a supported raster image.");
   }
 
-  const size = thumbnail ? THUMBNAIL_SIZE : PREVIEW_SIZE;
+  const size = isThumbnail ? THUMBNAIL_SIZE : PREVIEW_SIZE;
   const bytes = await image
     .rotate()
     .resize({ width: size, height: size, fit: "inside", withoutEnlargement: true })
-    .webp({ quality: thumbnail ? THUMBNAIL_QUALITY : PREVIEW_QUALITY })
+    .webp({ quality: isThumbnail ? THUMBNAIL_QUALITY : PREVIEW_QUALITY })
     .toBuffer();
   const rendered = { bytes, etag: `"${key}"` };
 
@@ -96,7 +96,7 @@ export async function renderImage(source: string, cwd: string, thumbnail: boolea
       source: source.startsWith("data:") ? "inline image" : source,
       inputBytes: input.length,
       outputBytes: bytes.length,
-      thumbnail,
+      thumbnail: isThumbnail,
     },
     "image.rendered"
   );

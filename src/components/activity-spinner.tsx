@@ -15,27 +15,31 @@ const subscribeMotion = (callback: () => void) => {
     media.removeEventListener("change", callback);
   };
 };
-const reducedMotion = () => globalThis.matchMedia(motionQuery).matches;
-const staticMotion = () => true;
+const isReducedMotion = () => globalThis.matchMedia(motionQuery).matches;
+const isStaticMotion = () => true;
 
+/**
+Display the selected custom spinner with reduced-motion and reconnect-safe preference updates.
+@returns The custom image or native fallback loading indicator.
+*/
 export function ActivitySpinner() {
   const filterId = `spinner-tone-${useId().replaceAll(":", "")}`;
   const [current, setCurrent] = useState<SpinnerPreference["current"]>(null);
   const [loaded, setLoaded] = useState("");
   const [failed, setFailed] = useState("");
-  const reduce = useSyncExternalStore(subscribeMotion, reducedMotion, staticMotion);
+  const isReduce = useSyncExternalStore(subscribeMotion, isReducedMotion, isStaticMotion);
 
   useEffect(() => {
     const abort = new AbortController();
 
-    let refreshing = false;
+    let isRefreshing = false;
 
     const refresh = async () => {
-      if (document.hidden || refreshing || abort.signal.aborted) {
+      if (document.hidden || isRefreshing || abort.signal.aborted) {
         return;
       }
 
-      refreshing = true;
+      isRefreshing = true;
 
       try {
         const response = await fetch("/api/spinner", { cache: "no-store", signal: abort.signal });
@@ -48,7 +52,7 @@ export function ActivitySpinner() {
       } catch {
         // Keep the last preference through a transient disconnect; initial state is the SVG.
       } finally {
-        refreshing = false;
+        isRefreshing = false;
       }
     };
     const visible = () => void refresh();
@@ -64,7 +68,7 @@ export function ActivitySpinner() {
     };
   }, []);
 
-  const showImage = current && !reduce && failed !== current.id;
+  const showImage = current && !isReduce && failed !== current.id;
 
   return (
     <span className="custom-activity-spinner-slot" aria-hidden="true" data-activity-spinner="">

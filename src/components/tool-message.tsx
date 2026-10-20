@@ -9,6 +9,11 @@ import {
 } from "./ui/trace";
 import { ChatImage } from "./chat-image";
 
+/**
+Present shared native tool text, errors and image output without executing display data.
+@param props - Normalized tool-trace item from the shared native adapter.
+@returns The existing activity line and optional expandable output.
+*/
 export function ToolMessage({ item }: { item: Item }) {
   const status =
     item.status === "failed"

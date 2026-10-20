@@ -64,8 +64,8 @@ test.beforeEach(async ({ page }) => {
     .toBeGreaterThan(MIN_TRANSCRIPT_HEIGHT);
 });
 
-async function scrollWithWheel(page: Page, target: Locator, delta: number, mobileWebkit: boolean) {
-  if (mobileWebkit) {
+async function scrollWithWheel(page: Page, target: Locator, delta: number, isMobileWebkit: boolean) {
+  if (isMobileWebkit) {
     // Playwright cannot inject wheel/swipe scrolling in mobile WebKit.
     await target.evaluate((element, amount) => {
       element.scrollBy(0, amount);
@@ -81,9 +81,9 @@ test("focused composer contains page scrolling and preserves transcript and text
   browserName,
   isMobile,
 }, info) => {
-  const mobileWebkit = browserName === "webkit" && isMobile;
+  const isMobileWebkit = browserName === "webkit" && isMobile;
 
-  if (mobileWebkit) {
+  if (isMobileWebkit) {
     info.annotations.push({
       type: "limit",
       description: "Mobile WebKit scrolling uses DOM offsets; native wheel/swipes unsupported by Playwright.",
@@ -107,23 +107,23 @@ test("focused composer contains page scrolling and preserves transcript and text
   });
   const before = await scrollTop(page);
 
-  await scrollWithWheel(page, scroller(page), -TRANSCRIPT_WHEEL_DELTA, mobileWebkit);
+  await scrollWithWheel(page, scroller(page), -TRANSCRIPT_WHEEL_DELTA, isMobileWebkit);
   await expect.poll(() => scrollTop(page)).toBeLessThan(before - MIN_TRANSCRIPT_TRAVEL);
   await expect(input(page)).toBeFocused();
   await assertDocumentStable(page);
 
-  await scrollWithWheel(page, page.locator(".chat-header"), HEADER_WHEEL_DELTA, mobileWebkit);
+  await scrollWithWheel(page, page.locator(".chat-header"), HEADER_WHEEL_DELTA, isMobileWebkit);
   await assertDocumentStable(page);
   expect(await page.locator(".composer-wrap").evaluate((element) => element.getBoundingClientRect().bottom)).toBe(
     composerBottom
   );
 
   // Overscroll at both transcript boundaries must not chain to the document.
-  for (const end of [false, true]) {
+  for (const isEnd of [false, true]) {
     await scroller(page).evaluate((element, atEnd) => {
       element.scrollTop = atEnd ? element.scrollHeight : 0;
-    }, end);
-    await scrollWithWheel(page, scroller(page), end ? BOUNDARY_WHEEL_DELTA : -BOUNDARY_WHEEL_DELTA, mobileWebkit);
+    }, isEnd);
+    await scrollWithWheel(page, scroller(page), isEnd ? BOUNDARY_WHEEL_DELTA : -BOUNDARY_WHEEL_DELTA, isMobileWebkit);
     await assertDocumentStable(page);
   }
 
@@ -138,7 +138,7 @@ test("focused composer contains page scrolling and preserves transcript and text
   await input(page).evaluate((element) => {
     element.scrollTop = 0;
   });
-  await scrollWithWheel(page, input(page), EDITOR_WHEEL_DELTA, mobileWebkit);
+  await scrollWithWheel(page, input(page), EDITOR_WHEEL_DELTA, isMobileWebkit);
   await expect.poll(() => input(page).evaluate((element) => element.scrollTop)).toBeGreaterThan(MIN_EDITOR_TRAVEL);
   await assertDocumentStable(page);
 

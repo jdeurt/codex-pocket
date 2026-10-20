@@ -100,22 +100,23 @@ export class DelegationWorker {
   }
 
   private complete(child: SidePocket, command: DelegationCommand, result: HarnessResult) {
-    const closing = this.store.get(child.parentId, child.id).status === "closing";
-    const notify = !closing && (!this.store.mail.hasMessage(child.id, command.id) || result.status !== "completed");
+    const isClosing = this.store.get(child.parentId, child.id).status === "closing";
+    const shouldNotify =
+      !isClosing && (!this.store.mail.hasMessage(child.id, command.id) || result.status !== "completed");
 
     this.store.recordResult(
       command,
-      closing ? "cancelled" : result.status === "failed" ? "failed" : "completed",
+      isClosing ? "cancelled" : result.status === "failed" ? "failed" : "completed",
       JSON.stringify(result),
-      notify ? { sourceId: `result:${command.id}`, kind: "completion", payload: result } : undefined
+      shouldNotify ? { sourceId: `result:${command.id}`, kind: "completion", payload: result } : undefined
     );
-    log().info({ childId: child.id, commandId: command.id, result, closing }, "side_pocket.completed");
+    log().info({ childId: child.id, commandId: command.id, result, closing: isClosing }, "side_pocket.completed");
   }
 
   private async execute(child: SidePocket, command: DelegationCommand, adapter: HarnessAdapter) {
     // Reserve the active slot before even a synchronous adapter can finish.
     await Promise.resolve();
-    let sending = false;
+    let isSending = false;
 
     try {
       const sessionId = await adapter.open();
@@ -132,19 +133,19 @@ export class DelegationWorker {
         return;
       }
 
-      sending = true;
+      isSending = true;
       const result = await adapter.run(command.id, command.body);
 
       this.complete(child, command, result);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      const closing = this.store.get(child.parentId, child.id).status === "closing";
+      const isClosing = this.store.get(child.parentId, child.id).status === "closing";
 
       this.store.recordResult(
         command,
-        closing ? "cancelled" : sending ? "unknown" : "failed",
+        isClosing ? "cancelled" : isSending ? "unknown" : "failed",
         message,
-        closing
+        isClosing
           ? undefined
           : { sourceId: `error:${command.id}`, kind: "failure", payload: { message, commandId: command.id } }
       );

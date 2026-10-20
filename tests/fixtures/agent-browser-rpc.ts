@@ -221,10 +221,10 @@ createInterface({ input: process.stdin }).on("line", (line) => {
 
   try {
     const result = response({ method: request.method }, params, state);
-    const history =
+    const isHistory =
       request.params.threadId !== replayParent && ["thread/turns/list", "thread/items/list"].includes(request.method);
 
-    if (!history) {
+    if (!isHistory) {
       emit({ id: request.id, result });
 
       return;

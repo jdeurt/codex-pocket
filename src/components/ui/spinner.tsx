@@ -1,5 +1,10 @@
 import { cn } from "cn";
 
+/**
+Render the existing accessible SVG loading indicator and its shared animation.
+@param props - Native SVG attributes and classes; the indicator supplies its own circle.
+@returns A status SVG containing the existing animated circle.
+*/
 function Spinner({ className, ...props }: React.ComponentProps<"svg">) {
   return (
     <svg

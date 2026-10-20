@@ -36,7 +36,7 @@ const viewport = '[data-slot="message-scroller-viewport"]';
 const row = "[data-transcript-row]";
 const pixelTolerance = 3;
 
-async function visibleCoverage(page: Page) {
+async function hasVisibleCoverage(page: Page) {
   return page.locator(viewport).evaluate((element) => {
     const TOP_GAP = 32;
     const BOTTOM_GAP = 64;
@@ -63,7 +63,7 @@ async function scrollToFraction(page: Page, fraction: number) {
     element.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
     element.scrollTop = (element.scrollHeight - element.clientHeight) * part;
   }, fraction);
-  await expect.poll(() => visibleCoverage(page)).toBe(true);
+  await expect.poll(() => hasVisibleCoverage(page)).toBe(true);
 }
 
 async function visibleAnchor(page: Page) {
@@ -149,10 +149,10 @@ test("large single-turn history stays bounded through rapid scrollbar, wheel and
     await page.mouse.wheel(0, -WHEEL_DELTA);
   }
 
-  await expect.poll(() => visibleCoverage(page)).toBe(true);
+  await expect.poll(() => hasVisibleCoverage(page)).toBe(true);
   await page.locator(viewport).focus();
   await page.keyboard.press("PageUp");
-  await expect.poll(() => visibleCoverage(page)).toBe(true);
+  await expect.poll(() => hasVisibleCoverage(page)).toBe(true);
   // Consecutive scrollbar teleports without waiting for layout between jumps.
   await page.locator(viewport).evaluate(async (element) => {
     for (const part of Object.values(ACTIVITY_STOPS)) {
@@ -160,7 +160,7 @@ test("large single-turn history stays bounded through rapid scrollbar, wheel and
       await new Promise(globalThis.requestAnimationFrame);
     }
   });
-  await expect.poll(() => visibleCoverage(page)).toBe(true);
+  await expect.poll(() => hasVisibleCoverage(page)).toBe(true);
   await page.screenshot({ path: `.local/virtualization-${info.project.name}-history.png` });
   await page.getByRole("button", { name: "Jump to latest message" }).click();
   await expect(page.locator('[data-message-id="message-1199"]')).toBeVisible();

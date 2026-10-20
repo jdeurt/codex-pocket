@@ -52,11 +52,11 @@ export function useAttachments(parent?: string) {
     }
 
     scope.current = parent;
-    let active = true;
+    let isActive = true;
 
     void savedDraft(parent)
       .then((value) => {
-        if (!active) {
+        if (!isActive) {
           return;
         }
 
@@ -69,7 +69,7 @@ export function useAttachments(parent?: string) {
         setLoadedParent(parent);
       })
       .catch((error_: unknown) => {
-        if (!active) {
+        if (!isActive) {
           return;
         }
 
@@ -79,7 +79,7 @@ export function useAttachments(parent?: string) {
     const activeUploads = uploads.current;
 
     return () => {
-      active = false;
+      isActive = false;
 
       for (const controller of activeUploads.values()) {
         controller.abort();

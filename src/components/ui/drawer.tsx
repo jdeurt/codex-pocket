@@ -13,6 +13,11 @@ interface DrawerContextProps {
 
 const DrawerContext = React.createContext<DrawerContextProps | null>(null);
 
+/**
+Read the configuration supplied by the nearest owning drawer.
+@returns Its swipe, modal and snap-point settings.
+@throws {Error} If the component is mounted outside a Drawer.
+*/
 function useDrawer() {
   const context = React.useContext(DrawerContext);
 
@@ -23,6 +28,11 @@ function useDrawer() {
   return context;
 }
 
+/**
+Provide shared swipe configuration while retaining native modal and snap-point behavior.
+@param props - Native attributes, children and the declared appearance or composition options.
+@returns The composed element with caller props and classes preserved.
+*/
 function Drawer({
   modal = true,
   showSwipeHandle = false,
@@ -51,18 +61,38 @@ function Drawer({
   );
 }
 
+/**
+Forward native drawer opening behavior to the caller-rendered trigger.
+@param props - Native attributes, children and the declared appearance or composition options.
+@returns The composed element with caller props and classes preserved.
+*/
 function DrawerTrigger({ ...props }: DrawerPrimitive.Trigger.Props) {
   return <DrawerPrimitive.Trigger data-slot="drawer-trigger" {...props} />;
 }
 
+/**
+Mount drawer layers in the native portal without changing their ownership.
+@param props - Native attributes, children and the declared appearance or composition options.
+@returns The composed element with caller props and classes preserved.
+*/
 function DrawerPortal({ ...props }: DrawerPrimitive.Portal.Props) {
   return <DrawerPrimitive.Portal data-slot="drawer-portal" {...props} />;
 }
 
+/**
+Forward native drawer dismissal behavior to its close control.
+@param props - Native attributes, children and the declared appearance or composition options.
+@returns The composed element with caller props and classes preserved.
+*/
 function DrawerClose({ ...props }: DrawerPrimitive.Close.Props) {
   return <DrawerPrimitive.Close data-slot="drawer-close" {...props} />;
 }
 
+/**
+Render the existing modal backdrop with swipe-progress and snap-point styling.
+@param props - Native attributes, children and the declared appearance or composition options.
+@returns The composed element with caller props and classes preserved.
+*/
 function DrawerOverlay({ className, ...props }: DrawerPrimitive.Backdrop.Props) {
   return (
     <DrawerPrimitive.Backdrop
@@ -76,6 +106,11 @@ function DrawerOverlay({ className, ...props }: DrawerPrimitive.Backdrop.Props) 
   );
 }
 
+/**
+Render the decorative swipe handle without adding it to the accessibility tree.
+@param props - Native attributes, children and the declared appearance or composition options.
+@returns The composed element with caller props and classes preserved.
+*/
 function DrawerSwipeHandle({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -99,6 +134,11 @@ const drawerContentVariants = cva("", {
   },
 });
 
+/**
+Compose the native viewport and popup using the owning drawer configuration.
+@param props - Native attributes, children and the declared appearance or composition options.
+@returns The composed element with caller props and classes preserved.
+*/
 function DrawerContent({
   className,
   children,
@@ -166,29 +206,11 @@ function DrawerContent({
   );
 }
 
-function DrawerHeader({ className, ...props }: React.ComponentProps<"div">) {
-  return (
-    <div
-      data-slot="drawer-header"
-      className={cn(
-        "flex shrink-0 flex-col gap-0.5 p-4 pb-0 group-data-[swipe-axis=y]/drawer-popup:text-center md:gap-0.5 md:text-left",
-        className
-      )}
-      {...props}
-    />
-  );
-}
-
-function DrawerFooter({ className, ...props }: React.ComponentProps<"div">) {
-  return (
-    <div
-      data-slot="drawer-footer"
-      className={cn("mt-auto flex shrink-0 flex-col gap-2 p-4 pt-0", className)}
-      {...props}
-    />
-  );
-}
-
+/**
+Provide the native accessible drawer title with the shared heading treatment.
+@param props - Native attributes, children and the declared appearance or composition options.
+@returns The composed element with caller props and classes preserved.
+*/
 function DrawerTitle({ className, ...props }: DrawerPrimitive.Title.Props) {
   return (
     <DrawerPrimitive.Title
@@ -199,6 +221,11 @@ function DrawerTitle({ className, ...props }: DrawerPrimitive.Title.Props) {
   );
 }
 
+/**
+Provide the native accessible drawer description with the shared text treatment.
+@param props - Native attributes, children and the declared appearance or composition options.
+@returns The composed element with caller props and classes preserved.
+*/
 function DrawerDescription({ className, ...props }: DrawerPrimitive.Description.Props) {
   return (
     <DrawerPrimitive.Description
@@ -214,8 +241,6 @@ export {
   DrawerClose,
   DrawerContent,
   DrawerDescription,
-  DrawerFooter,
-  DrawerHeader,
   DrawerOverlay,
   DrawerPortal,
   DrawerSwipeHandle,

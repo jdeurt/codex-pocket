@@ -32,6 +32,11 @@ const PADDING_END = 32;
 const LAST_ITEM = -1;
 const ACTIVITY_LOOKAHEAD_VIEWPORTS = 3;
 
+/**
+Render and measure one canonical transcript row with its native virtual position.
+@param props - Canonical row, TanStack measurement and the existing viewport/activity callbacks.
+@returns The matching measured message or activity row.
+*/
 function TranscriptEntry({
   row,
   virtualRow,
@@ -77,13 +82,18 @@ function TranscriptEntry({
 }
 
 function transcriptRange(rows: Row[], expanded: Set<string>, range: Range) {
-  const nested = rows
+  const isNested = rows
     .slice(Math.max(range.startIndex - 1, 0), range.endIndex + 1)
     .some((row) => row.entry.kind === "activity" && expanded.has(row.id) && row.entry.items.length > FORWARD_MESSAGES);
 
-  return messageRange(range, nested ? FORWARD_MESSAGES : INITIAL_MESSAGE_WINDOW);
+  return messageRange(range, isNested ? FORWARD_MESSAGES : INITIAL_MESSAGE_WINDOW);
 }
 
+/**
+Keep interactive pending controls mounted at the standard transcript tail.
+@param props - Message count, native visible rows, footer measurement and existing controls.
+@returns The existing measured footer container.
+*/
 function TranscriptFooter({
   count,
   messages,
@@ -99,7 +109,7 @@ function TranscriptFooter({
   measure: (element: HTMLElement | null) => void;
   children: ReactNode;
 }) {
-  const includesTail = count === 0 || messages.at(LAST_ITEM)?.index === count - 1;
+  const hasTail = count === 0 || messages.at(LAST_ITEM)?.index === count - 1;
 
   return (
     <div
@@ -108,8 +118,8 @@ function TranscriptFooter({
       data-slot="transcript-footer"
       className={`message-flow w-full min-w-0 ${count > 0 ? "[&:not(:empty)]:pt-(--message-block-gap)" : ""}`}
       style={{
-        position: includesTail ? "static" : "absolute",
-        transform: includesTail ? undefined : `translateY(${String((footerRow?.start ?? 0) - blockStart)}px)`,
+        position: hasTail ? "static" : "absolute",
+        transform: hasTail ? undefined : `translateY(${String((footerRow?.start ?? 0) - blockStart)}px)`,
       }}
     >
       {children}
@@ -117,6 +127,11 @@ function TranscriptFooter({
   );
 }
 
+/**
+Delegate transcript measurement, anchoring and append following to TanStack.
+@param props - Canonical rows, pending controls and covered-parent suspension state.
+@returns The existing measured rows and jump-to-latest control.
+*/
 function MeasuredTranscript({
   rows,
   footer,
@@ -287,6 +302,11 @@ function MeasuredTranscript({
   );
 }
 
+/**
+Own the standard message-scroller viewport for canonical virtualized turn rows.
+@param props - Canonical turns, pending controls and covered-parent suspension state.
+@returns The existing transcript provider and viewport.
+*/
 export function VirtualizedTranscript({
   turns,
   children,

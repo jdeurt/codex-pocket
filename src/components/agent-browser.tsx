@@ -1,5 +1,5 @@
 "use client";
-import { type AgentCatalog, type AgentEntry, activeAgent, agentCatalogSchema } from "@/lib/agents";
+import { type AgentCatalog, type AgentEntry, agentCatalogSchema, isActiveAgent } from "@/lib/agents";
 import { useContext, useEffect, useRef, useState } from "react";
 import { ActivityIndicatorContext } from "@/lib/activity-indicator-context";
 import { ActivityRow } from "./activity-row";
@@ -8,20 +8,25 @@ import { AgentList } from "./agent-list";
 import { Dialog } from "@base-ui/react/dialog";
 import { useAgentRead } from "@/hooks/use-agents";
 
-function useAgentCatalog(open: boolean) {
+function useAgentCatalog(isOpen: boolean) {
   const overview = useAgentRead("/api/agents", agentCatalogSchema);
-  const detail = useAgentRead("/api/agents?view=list", agentCatalogSchema, open);
+  const detail = useAgentRead("/api/agents?view=list", agentCatalogSchema, isOpen);
   const data =
     overview.data && (!detail.data || overview.data.updatedAt > detail.data.updatedAt) ? overview.data : detail.data;
 
   return {
     data,
-    error: open ? (detail.error ?? overview.error) : overview.error,
-    count: overview.error ? 0 : (data?.agents.filter(activeAgent).length ?? 0),
+    error: isOpen ? (detail.error ?? overview.error) : overview.error,
+    count: overview.error ? 0 : (data?.agents.filter(isActiveAgent).length ?? 0),
   };
 }
 
-export function AgentBrowser({ onOpenChange }: { onOpenChange: (open: boolean) => void }) {
+/**
+Browse scoped read-only agents while retaining row focus and parent navigation.
+@param props - Parent callback notified when the agent panel opens or closes.
+@returns The existing activity trigger and agent dialog.
+*/
+export function AgentBrowser({ onOpenChange }: { onOpenChange: (isOpen: boolean) => void }) {
   const indicator = useContext(ActivityIndicatorContext);
   const [open, setOpen] = useState(false);
   const { data, error, count } = useAgentCatalog(open);
@@ -35,7 +40,7 @@ export function AgentBrowser({ onOpenChange }: { onOpenChange: (open: boolean) =
     open
       ? visit.entries
           .entries()
-          .map(([id, agent]) => [id, activeAgent(agent) ? { ...agent, status: "unknown" as const } : agent])
+          .map(([id, agent]) => [id, isActiveAgent(agent) ? { ...agent, status: "unknown" as const } : agent])
       : []
   );
 
@@ -107,7 +112,7 @@ export function AgentBrowser({ onOpenChange }: { onOpenChange: (open: boolean) =
             entries={entries
               .values()
               .toArray()
-              .sort((a, b) => Number(activeAgent(b)) - Number(activeAgent(a)) || a.name.localeCompare(b.name))}
+              .sort((a, b) => Number(isActiveAgent(b)) - Number(isActiveAgent(a)) || a.name.localeCompare(b.name))}
             hidden={!!selected}
             error={error}
             warnings={data?.warnings ?? []}

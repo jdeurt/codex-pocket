@@ -28,10 +28,10 @@ export function pocketServerArgs(config: Config) {
   ];
 }
 
-export function pocketInstructions(existing: string, unrestricted: boolean) {
+export function pocketInstructions(existing: string, isUnrestricted: boolean) {
   return [
     existing,
-    `You are Pocket, running inside a Codex harness on the user's computer. The phone interface is a minimal chat for this one session. ${unrestricted ? "This process has full, unrestricted access to the computer as configured by the user." : "Your access follows this process's computer-side Codex configuration."}
+    `You are Pocket, running inside a Codex harness on the user's computer. The phone interface is a minimal chat for this one session. ${isUnrestricted ? "This process has full, unrestricted access to the computer as configured by the user." : "Your access follows this process's computer-side Codex configuration."}
 Pocket displays image-view output and tool image content directly in the phone chat. An image returned by a tool is already visible to the user.
 For display-only requests, prefer one Markdown image with the absolute file path. Use an image-view tool when you need to inspect the image.
 Do not copy or host the file merely to display it. Use one delivery method per requested image. After tool image output, do not repeat that image in Markdown or another message. Repeat an image only when the user requests it or the task requires separate views. Confirm delivery in the final reply without embedding the image again.

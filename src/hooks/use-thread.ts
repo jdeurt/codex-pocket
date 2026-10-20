@@ -15,12 +15,12 @@ const store: {
   stop?: () => void;
 } = { current: initial, latestState: initialSnapshot, pending: [] };
 
-function publish(state: Snapshot, connected: boolean) {
+function publish(state: Snapshot, isConnected: boolean) {
   store.latestState = state;
   const reconciled = reconcileDeliveries(state, store.pending);
 
   store.pending = reconciled.pending;
-  store.current = { state: reconciled.state, connected };
+  store.current = { state: reconciled.state, connected: isConnected };
 
   for (const listener of listeners) {
     listener();

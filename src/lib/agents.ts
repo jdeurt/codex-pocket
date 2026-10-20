@@ -51,9 +51,25 @@ export const agentTranscriptSchema = z.object({
   warning: z.string().optional(),
   updatedAt: z.number(),
 }) satisfies z.ZodType<AgentTranscript>;
-export const activeAgent = (agent: AgentEntry) => agent.status === "running" || agent.status === "waiting";
+/**
+Identify agents that are running or waiting for human input.
+@param agent - Normalized entry from scoped agent discovery.
+@returns Whether it contributes to the active-agent indicator.
+*/
+export const isActiveAgent = (agent: AgentEntry) => agent.status === "running" || agent.status === "waiting";
+
+/**
+Describe an agent's origin and harness for its discovery row.
+@param agent - Normalized entry whose source and harness are known.
+@returns The source and harness names separated by a middle dot.
+*/
 export const agentSource = (agent: AgentEntry) =>
   `${agent.source === "side-pocket" ? "Side Pocket" : "Native agent"} · ${agent.harness === "codex" ? "Codex" : "Claude Code"}`;
+/**
+Translate native status into the label shown in the agent browser.
+@param status - Normalized discovery status, including unavailable status.
+@returns Its user-visible label.
+*/
 export const agentStatus = (status: AgentStatus) =>
   ({
     running: "Running",

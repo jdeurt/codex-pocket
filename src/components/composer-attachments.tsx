@@ -4,6 +4,11 @@ import { Button } from "./ui/button";
 import type { DraftAttachment } from "@/hooks/use-attachments";
 import { fileSize } from "@/lib/attachments";
 
+/**
+Present selected upload progress and expose caller-owned retry/removal actions.
+@param props - Draft files, disabled state and callbacks that own each upload operation.
+@returns The current composer attachment list.
+*/
 export function ComposerAttachments({
   files,
   disabled,

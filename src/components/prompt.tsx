@@ -7,6 +7,11 @@ import { QuestionForm } from "./question-form";
 import { questionsSchema } from "@/lib/questions";
 import { useState } from "react";
 
+/**
+Display native approval details using the shared code-block presentation.
+@param props - Normalized pending native request whose arguments remain display data.
+@returns The approval description and exact request details.
+*/
 function ApprovalDetails({ request }: { request: PendingRequest }) {
   return (
     <>
@@ -26,6 +31,11 @@ function ApprovalDetails({ request }: { request: PendingRequest }) {
   );
 }
 
+/**
+Present the native approval choices and caller-owned response state.
+@param props - Pending request, sending state and the callback that sends its answer.
+@returns The existing approval controls.
+*/
 function Approval({
   request,
   sending,
@@ -35,7 +45,7 @@ function Approval({
   sending: boolean;
   submit: (result: unknown) => Promise<void>;
 }) {
-  const permission = request.method === "item/permissions/requestApproval";
+  const isPermission = request.method === "item/permissions/requestApproval";
   const decisions = request.params.availableDecisions;
   const canAccept = !Array.isArray(decisions) || decisions.includes("accept");
   const canDecline = !Array.isArray(decisions) || decisions.includes("decline");
@@ -48,14 +58,17 @@ function Approval({
         {canDecline && (
           <Button
             disabled={sending}
-            onClick={() => void submit(permission ? { allow: false } : { decision: "decline" })}
+            onClick={() => void submit(isPermission ? { allow: false } : { decision: "decline" })}
             variant="outline"
           >
             Decline
           </Button>
         )}
         {canAccept && (
-          <Button disabled={sending} onClick={() => void submit(permission ? { allow: true } : { decision: "accept" })}>
+          <Button
+            disabled={sending}
+            onClick={() => void submit(isPermission ? { allow: true } : { decision: "accept" })}
+          >
             Approve once
           </Button>
         )}
@@ -64,6 +77,11 @@ function Approval({
   );
 }
 
+/**
+Select user-input questions or native approval controls for a pending request.
+@param props - Normalized request and the callback that owns sending its answer.
+@returns The matching existing request form.
+*/
 export function Prompt({
   request,
   answer,

@@ -2,6 +2,11 @@
 import { type FileAttachment, fileSize } from "@/lib/attachments";
 import { FileIcon } from "lucide-react";
 
+/**
+Render durable file metadata as noninteractive full-width attachment rows.
+@param props - Normalized attachment metadata supplied by the shared protocol schema.
+@returns Static file rows, or null for an empty list.
+*/
 export function FileAttachments({ files }: { files: FileAttachment[] }) {
   if (files.length === 0) {
     return null;

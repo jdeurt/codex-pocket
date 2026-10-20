@@ -9,7 +9,7 @@ import {
   observeCodex,
   observedMetadata,
 } from "./agent-sources";
-import { type AgentStatus, activeAgent, agentStatusSchema } from "../lib/agents";
+import { type AgentStatus, agentStatusSchema, isActiveAgent } from "../lib/agents";
 import { type SidePocket, delegations } from "./delegations";
 import { object, string } from "../lib/protocol";
 import { readConfig } from "./config";
@@ -106,10 +106,10 @@ export async function discoverAgents(owner: string, previous = new Map<string, A
     warnings.push("Codex discovery is unavailable. Reconnecting automatically.");
   }
 
-  let progress = true;
+  let isProgress = true;
 
-  while (progress) {
-    progress = false;
+  while (isProgress) {
+    isProgress = false;
 
     const pendingParents = parents.values().toArray();
 
@@ -121,7 +121,7 @@ export async function discoverAgents(owner: string, previous = new Map<string, A
       scanned.add(parent);
 
       for (const child of delegations().list(parent)) {
-        progress = attachPocket(tree, child, parent) || progress;
+        isProgress = attachPocket(tree, child, parent) || isProgress;
       }
     }
 
@@ -151,7 +151,7 @@ export async function discoverAgents(owner: string, previous = new Map<string, A
       });
       sessions.set(`codex:${thread.id}`, id);
       parents.add(thread.id);
-      progress = true;
+      isProgress = true;
     }
   }
 
@@ -186,7 +186,7 @@ export async function discoverAgents(owner: string, previous = new Map<string, A
         .values()
         .map((record) => record.agent)
         .toArray()
-        .sort((a, b) => Number(activeAgent(b)) - Number(activeAgent(a)) || a.name.localeCompare(b.name)),
+        .sort((a, b) => Number(isActiveAgent(b)) - Number(isActiveAgent(a)) || a.name.localeCompare(b.name)),
       warnings: [...new Set(warnings)],
       updatedAt: Date.now(),
     },

@@ -11,14 +11,14 @@ export function isRecoveryMessageId(id: unknown): boolean {
 
 export function recoveryReceipt(turns: Turn[], receipts: Receipt[]): Receipt | undefined {
   const hasHistory = turns.some((turn) => turn.items.length > 0);
-  const pending = receipts.some((receipt) => isRecoveryMessageId(receipt.id) && receipt.status !== "sent");
+  const isPending = receipts.some((receipt) => isRecoveryMessageId(receipt.id) && receipt.status !== "sent");
 
-  return hasHistory && !pending
+  return hasHistory && !isPending
     ? { id: `${RECOVERY_ID_PREFIX}${crypto.randomUUID()}`, text: RECOVERY_PROMPT, status: "queued" }
     : undefined;
 }
 
-export function queueRecovery(state: Snapshot, receipts: Receipt[]) {
+export function isQueueRecovery(state: Snapshot, receipts: Receipt[]) {
   const recovery = recoveryReceipt(state.turns, receipts);
 
   if (!recovery) {

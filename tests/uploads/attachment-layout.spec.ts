@@ -234,10 +234,10 @@ test("read-only child cards stay noninteractive while unrelated assistant images
   ];
 
   await page.route("**/api/agents**", async (route) => {
-    const child = new URL(route.request().url()).searchParams.has("agent");
+    const isChild = new URL(route.request().url()).searchParams.has("agent");
 
     await route.fulfill({
-      json: child
+      json: isChild
         ? {
             agent,
             history: "available",

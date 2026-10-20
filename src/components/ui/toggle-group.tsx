@@ -18,6 +18,11 @@ const ToggleGroupContext = React.createContext<
   orientation: "horizontal",
 });
 
+/**
+Provide shared toggle appearance and spacing while preserving native selection behavior.
+@param props - Native attributes, children and the declared appearance or composition options.
+@returns The composed element with caller props and classes preserved.
+*/
 function ToggleGroup({
   className,
   variant,
@@ -53,6 +58,11 @@ function ToggleGroup({
   );
 }
 
+/**
+Merge inherited group appearance with one native toggle option.
+@param props - Native attributes, children and the declared appearance or composition options.
+@returns The composed element with caller props and classes preserved.
+*/
 function ToggleGroupItem({
   className,
   children,

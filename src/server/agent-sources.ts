@@ -1,4 +1,4 @@
-import { type AgentEntry, type AgentStatus, activeAgent, agentStatusSchema } from "../lib/agents";
+import { type AgentEntry, type AgentStatus, agentStatusSchema, isActiveAgent } from "../lib/agents";
 import { type ClaudeMessage, claudeTranscript } from "./harness/transcript";
 import { type Data, type PendingRequest, type Thread, type Turn, object, string } from "../lib/protocol";
 import { getSessionInfo, getSessionMessages, getSubagentMessages, listSubagents } from "@anthropic-ai/claude-agent-sdk";
@@ -88,13 +88,13 @@ export async function codexThreads(): Promise<CodexThread[]> {
   const rpc = bridge.agentReader();
   const threads: CodexThread[] = [];
 
-  for (const archived of [false, true]) {
+  for (const isArchived of [false, true]) {
     let cursor: string | null = null;
 
     do {
       const page: { data: CodexThread[]; nextCursor: string | null } = await rpc.request("thread/list", {
         sourceKinds: ["subAgent"],
-        archived,
+        archived: isArchived,
         limit: 100,
         cursor,
       });
@@ -231,10 +231,10 @@ export async function claudeChildren(
   const result: AgentRecord[] = [];
   const known = new Map<string, string>();
 
-  let progress = true;
+  let isProgress = true;
 
-  while (progress) {
-    progress = false;
+  while (isProgress) {
+    isProgress = false;
 
     for (const [id, transcript] of messages) {
       if (known.has(id)) {
@@ -253,7 +253,7 @@ export async function claudeChildren(
       const agentId = `claude:${parent.sessionId ?? ""}:${id}`;
 
       known.set(id, agentId);
-      progress = true;
+      isProgress = true;
       const invocation = transcript.find((message) => message.parent_tool_use_id)?.parent_tool_use_id;
       const parentTurns = ancestor ? claudeTranscript(messages.get(ancestor) ?? []) : (parent.turns ?? []);
       // SDK subagent IDs and parent_agent_id establish ancestry, never prompt text.
@@ -289,7 +289,7 @@ export function observeClaudeChild(parent: AgentRecord, child: AgentRecord) {
   if (!(
     status.success &&
     ["running", "waiting", "completed", "failed", "closed"].includes(status.data) &&
-    (!activeAgent({ ...child.agent, status: status.data }) || activeAgent(parent.agent))
+    (!isActiveAgent({ ...child.agent, status: status.data }) || isActiveAgent(parent.agent))
   )) {
     return;
   }

@@ -34,8 +34,8 @@ const STOP_INTERVAL_MS = 250;
 const MAX_TCP_PORT = 65_535;
 const NPM_CLI = path.resolve(path.dirname(process.execPath), "../lib/node_modules/npm/bin/npm-cli.js");
 
-const interactive = !options.includes("--yes") && process.stdin.isTTY;
-const prompt = interactive ? createInterface({ input: process.stdin, output: process.stdout }) : undefined;
+const isInteractive = !options.includes("--yes") && process.stdin.isTTY;
+const prompt = isInteractive ? createInterface({ input: process.stdin, output: process.stdout }) : undefined;
 const domain = `gui/${process.getuid()}`;
 const target = `${domain}/dev.pocket.web`;
 
@@ -139,9 +139,9 @@ async function portAvailable(port) {
 }
 
 async function stopService(port) {
-  const present = spawnSync("/bin/launchctl", ["print", target], { stdio: "ignore" }).status === 0;
+  const isPresent = spawnSync("/bin/launchctl", ["print", target], { stdio: "ignore" }).status === 0;
 
-  if (present) {
+  if (isPresent) {
     const plist = path.join(homedir(), "Library/LaunchAgents/dev.pocket.web.plist");
     const location = spawnSync("/usr/bin/plutil", ["-extract", "WorkingDirectory", "raw", "-o", "-", plist], {
       encoding: "utf8",
@@ -160,7 +160,7 @@ async function stopService(port) {
       return;
     }
 
-    if (!present || attempt === STOP_RETRIES) {
+    if (!isPresent || attempt === STOP_RETRIES) {
       throw new Error(`Port ${port} is in use. Stop the application using that port, then run this installer again.`);
     }
 
@@ -230,7 +230,7 @@ async function install() {
   const login = spawnSync(codex, ["login", "status"], { stdio: "ignore" });
 
   if (login.status !== 0) {
-    if (!interactive) {
+    if (!isInteractive) {
       throw new Error("Sign in to Codex on this Mac, then rerun the installer without --yes for guided setup.");
     }
 
@@ -260,7 +260,7 @@ async function install() {
   console.info(`\nPocket is installed and starts at login. Open ${origin || `http://127.0.0.1:${port}`}`);
   console.info("Configuration: .env.local   State and logs: .local/");
 
-  if (interactive) {
+  if (isInteractive) {
     spawnSync("/usr/bin/open", [origin || `http://127.0.0.1:${port}`], { stdio: "ignore" });
   }
 }

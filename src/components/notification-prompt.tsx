@@ -33,6 +33,10 @@ async function prepareRegistration() {
   }
 }
 
+/**
+Present native notification permission and subscription status without automatic permission requests.
+@returns The existing permission prompt and status controls, or no prompt when dismissed.
+*/
 export function NotificationPrompt() {
   const [status, setStatus] = useState<Status>("loading");
   const [error, setError] = useState("");

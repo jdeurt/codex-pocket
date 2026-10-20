@@ -33,13 +33,13 @@ export function redactLog(value: unknown): unknown {
 
   return Object.fromEntries<unknown>(
     Object.entries(normalized).map(([key, entry]) => {
-      const binary =
+      const isBinary =
         typeof entry === "string" &&
         ((image === "imageGeneration" && key === "result") || (image === "image" && key === "data"));
 
       return [
         key,
-        SECRET_KEY.test(key) ? "[REDACTED]" : binary ? { imageBytesBase64Length: entry.length } : redactLog(entry),
+        SECRET_KEY.test(key) ? "[REDACTED]" : isBinary ? { imageBytesBase64Length: entry.length } : redactLog(entry),
       ];
     })
   );

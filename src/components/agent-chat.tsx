@@ -6,17 +6,23 @@ import { Button } from "./ui/button";
 import { Conversation } from "./conversation";
 import { useAgentRead } from "@/hooks/use-agents";
 
+/**
+Read a selected agent transcript without enabling mutation or model execution.
+@param props - Selected normalized agent and the callback that returns to the list.
+@returns The centered agent header and read-only conversation.
+*/
 export function AgentChat({ agent, back }: { agent: AgentEntry; back: () => void }) {
   const { data, error } = useAgentRead(`/api/agents?agent=${encodeURIComponent(agent.id)}`, agentTranscriptSchema);
   const heading = useRef<HTMLHeadingElement>(null);
 
-  useEffect(() => {
-    heading.current?.focus();
-  }, [agent.id]);
   const current = data?.agent ?? agent;
   const metadata = [current.model, current.reasoningEffort ? `${current.reasoningEffort} reasoning` : undefined]
     .filter(Boolean)
     .join(" · ");
+
+  useEffect(() => {
+    heading.current?.focus();
+  }, [agent.id]);
 
   return (
     <div className="agent-chat">

@@ -167,10 +167,10 @@ export class CodexAdapter implements HarnessAdapter {
   }
 
   private async answerRequest(request: PendingRequest) {
-    const question = request.method === "item/tool/requestUserInput";
+    const isQuestion = request.method === "item/tool/requestUserInput";
     const answer = await this.options.callbacks.request({
       id: String(request.id),
-      kind: question ? "question" : request.method.endsWith("requestApproval") ? "approval" : "unsupported",
+      kind: isQuestion ? "question" : request.method.endsWith("requestApproval") ? "approval" : "unsupported",
       method: request.method,
       input: request.params,
     });

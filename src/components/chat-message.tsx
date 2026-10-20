@@ -1,5 +1,5 @@
 import { Bubble, BubbleContent } from "@/components/ui/bubble";
-import { type Item, object, string } from "@/lib/protocol";
+import { type Item, string } from "@/lib/protocol";
 import { Message, MessageContent } from "@/components/ui/message";
 import { hasMessageText, messageText } from "@/lib/turn-messages";
 import { AttachmentGroup } from "@/components/ui/attachment";
@@ -9,20 +9,21 @@ import { Markdown } from "./markdown";
 import { SystemEvent } from "./system-event";
 import { ToolMessage } from "./tool-message";
 
+/**
+Keep durable file metadata ahead of native image-only attachment fallback.
+@param props - Normalized message item with optional files or image sources.
+@returns Static file rows or image attachments without duplicate upload previews.
+*/
 function MessageAttachments({ item }: { item: Item }) {
   const files = item.attachments ?? [];
 
   return (
     <>
       <FileAttachments files={files} />
-      {files.length === 0 && Array.isArray(item.images) && item.images.length > 0 && (
+      {files.length === 0 && item.images && item.images.length > 0 && (
         <AttachmentGroup layout="wrap" className="chat-images">
           {item.images.map((image) => (
-            <ChatImage
-              key={string(object(image).source)}
-              source={string(object(image).source)}
-              alt={string(object(image).alt) || "Image from Pocket"}
-            />
+            <ChatImage key={image.source} source={image.source} alt={image.alt || "Image from Pocket"} />
           ))}
         </AttachmentGroup>
       )}
@@ -30,15 +31,12 @@ function MessageAttachments({ item }: { item: Item }) {
   );
 }
 
-export function ChatMessage({ item }: { item: Item }) {
-  if (item.type === "pocketRestart") {
-    return <SystemEvent />;
-  }
-
-  if (item.type === "toolTrace") {
-    return <ToolMessage item={item} />;
-  }
-
+/**
+Render ordinary message text and attachments through the shared bubble and Markdown components.
+@param props - Normalized transcript item from the shared protocol boundary.
+@returns The matching shared message presentation.
+*/
+function MessageBubble({ item }: { item: Item }) {
   const text = messageText(item);
 
   return (
@@ -69,4 +67,17 @@ export function ChatMessage({ item }: { item: Item }) {
       </MessageContent>
     </Message>
   );
+}
+
+/**
+Dispatch restart notes, normalized tool traces and ordinary conversation messages.
+@param props - Normalized transcript item from the shared protocol boundary.
+@returns The matching shared message presentation.
+*/
+export function ChatMessage({ item }: { item: Item }) {
+  if (item.type === "pocketRestart") {
+    return <SystemEvent />;
+  }
+
+  return item.type === "toolTrace" ? <ToolMessage item={item} /> : <MessageBubble item={item} />;
 }

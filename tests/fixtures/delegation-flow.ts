@@ -81,11 +81,11 @@ class Peer {
       : result;
   }
 
-  until(predicate: (events: Message[]) => boolean, timeoutMs = WAIT_MS) {
+  until(isSatisfied: (events: Message[]) => boolean, timeoutMs = WAIT_MS) {
     return new Promise<void>((resolve, reject) => {
       const resources: { timer?: NodeJS.Timeout } = {};
       const check = () => {
-        if (!predicate(this.events)) {
+        if (!isSatisfied(this.events)) {
           return;
         }
 
@@ -195,11 +195,11 @@ export const tool = async (client: Client, name: string, args: Message) => {
   return dataSchema.parse(toolJson(result));
 };
 
-export function state(store: DelegationStore, predicate: () => boolean) {
+export function state(store: DelegationStore, isSatisfied: () => boolean) {
   return new Promise<void>((resolve, reject) => {
     const resources: { timer?: NodeJS.Timeout; unsubscribe?: () => void } = {};
     const check = () => {
-      if (!predicate()) {
+      if (!isSatisfied()) {
         return;
       }
 

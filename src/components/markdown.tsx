@@ -9,10 +9,20 @@ import { CopyAction } from "./copy-action";
 import { Table } from "@/components/ui/table";
 import { imageUrl } from "@/lib/images";
 
+/**
+Avoid a second native pre wrapper around the shared code-block renderer.
+@param props - Native pre children supplied by react-markdown.
+@returns The unchanged children as a fragment.
+*/
 function MarkdownPre({ children }: ComponentProps<"pre">) {
   return <>{children}</>;
 }
 
+/**
+Select explicit copy actions or ordinary inline/block code from parser-owned node data.
+@param props - Native code props and react-markdown AST metadata.
+@returns The exact copy action or existing code presentation.
+*/
 function MarkdownCode({ children, className, node }: ComponentProps<"code"> & ExtraProps) {
   const copyText = node?.properties["data-pocket-copy-text"];
 

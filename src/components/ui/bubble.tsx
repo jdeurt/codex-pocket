@@ -4,10 +4,6 @@ import { cn } from "cn";
 import { mergeProps } from "@base-ui/react/merge-props";
 import { useRender } from "@base-ui/react/use-render";
 
-function BubbleGroup({ className, ...props }: React.ComponentProps<"div">) {
-  return <div data-slot="bubble-group" className={cn("flex min-w-0 flex-col gap-2", className)} {...props} />;
-}
-
 const bubbleVariants = cva(
   "group/bubble relative flex w-fit max-w-[80%] min-w-0 flex-col gap-1 group-data-[align=end]/message:self-end data-[align=end]:self-end data-[variant=ghost]:max-w-full",
   {
@@ -35,6 +31,11 @@ const bubbleVariants = cva(
   }
 );
 
+/**
+Render a message surface with its declared alignment, variant and size.
+@param props - Native attributes, children and the declared appearance or composition options.
+@returns The composed element with caller props and classes preserved.
+*/
 function Bubble({
   variant = "default",
   align = "start",
@@ -55,6 +56,11 @@ function Bubble({
   );
 }
 
+/**
+Merge caller content into the bubble body while preserving custom render composition.
+@param props - Native attributes, children and the declared appearance or composition options.
+@returns The composed element with caller props and classes preserved.
+*/
 function BubbleContent({ className, render, ...props }: useRender.ComponentProps<"div">) {
   return useRender({
     defaultTagName: "div",
@@ -74,44 +80,4 @@ function BubbleContent({ className, render, ...props }: useRender.ComponentProps
   });
 }
 
-const bubbleReactionsVariants = cva(
-  "absolute z-10 flex w-fit shrink-0 items-center justify-center gap-1 rounded-full bg-muted px-1.5 py-0.5 text-sm ring-3 ring-card has-[button]:p-0",
-  {
-    variants: {
-      side: {
-        top: "top-0 -translate-y-3/4",
-        bottom: "bottom-0 translate-y-3/4",
-      },
-      align: {
-        start: "left-3",
-        end: "right-3",
-      },
-    },
-    defaultVariants: {
-      side: "bottom",
-      align: "end",
-    },
-  }
-);
-
-function BubbleReactions({
-  side = "bottom",
-  align = "end",
-  className,
-  ...props
-}: React.ComponentProps<"div"> & {
-  align?: "start" | "end";
-  side?: "top" | "bottom";
-}) {
-  return (
-    <div
-      data-slot="bubble-reactions"
-      data-align={align}
-      data-side={side}
-      className={cn(bubbleReactionsVariants({ side, align }), className)}
-      {...props}
-    />
-  );
-}
-
-export { Bubble, BubbleContent, BubbleGroup, BubbleReactions };
+export { Bubble, BubbleContent };

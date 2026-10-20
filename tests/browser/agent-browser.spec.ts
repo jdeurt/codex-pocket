@@ -1,5 +1,5 @@
 import { HTTP_FORBIDDEN, HTTP_NOT_FOUND } from "../../src/lib/constants";
-import { activeAgent, agentCatalogSchema, agentTranscriptSchema } from "../../src/lib/agents";
+import { agentCatalogSchema, agentTranscriptSchema, isActiveAgent } from "../../src/lib/agents";
 import { claudeSession, longName } from "../fixtures/agent-browser-data";
 import { expect, test } from "@playwright/test";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
@@ -27,16 +27,16 @@ async function ids() {
   return z.record(z.string(), z.string()).parse(JSON.parse(await readFile(`${directory}/ids.json`, "utf8")));
 }
 
-async function lifecycle(settled = false) {
+async function lifecycle(isSettled = false) {
   const entries = await ids();
   const db = new Database(`${directory}/state/delegations.sqlite`);
 
   db.prepare("UPDATE side_pockets SET status=? WHERE id=?").run(
-    settled ? "idle" : "waiting",
+    isSettled ? "idle" : "waiting",
     entries["Codex Side Pocket"]
   );
   db.prepare("UPDATE side_pockets SET status=? WHERE id=?").run(
-    settled ? "idle" : "running",
+    isSettled ? "idle" : "running",
     entries["Claude Side Pocket"]
   );
   db.prepare("UPDATE delegation_requests SET status='pending' WHERE childId=?").run(entries["Codex Side Pocket"]);
@@ -78,7 +78,7 @@ test("offline replay: scoped discovery, complete normalized histories and GET-on
   expect(catalog.ok()).toBeTruthy();
   const data = agentCatalogSchema.parse(await catalog.json());
 
-  expect(data.agents.filter(activeAgent)).toHaveLength(ACTIVE_COUNT);
+  expect(data.agents.filter(isActiveAgent)).toHaveLength(ACTIVE_COUNT);
   expect(data.agents.filter((agent) => agent.name === "Codex Side Pocket")).toHaveLength(1);
   expect(data.agents.some((agent) => /PRIVATE|Duplicate/.test(agent.name))).toBeFalsy();
   expect(data.agents.find((agent) => agent.id === "codex:native-grandchild")?.parentId).toBe("codex:native-codex");

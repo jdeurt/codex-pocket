@@ -18,13 +18,24 @@ export const fileAttachmentSchema = z.object({
 
 export type FileAttachment = z.infer<typeof fileAttachmentSchema>;
 
-export const attachmentUrl = (id: string, preview = false) =>
-  `/api/uploads?id=${encodeURIComponent(id)}${preview ? "&preview=1" : ""}`;
+/**
+Build a URL for an existing upload or its preview representation.
+@param id - Durable upload identifier returned by the server.
+@param [isPreview] - Whether the endpoint should return a preview.
+@returns The encoded same-origin upload URL.
+*/
+export const attachmentUrl = (id: string, isPreview = false) =>
+  `/api/uploads?id=${encodeURIComponent(id)}${isPreview ? "&preview=1" : ""}`;
 
+/**
+Format attachment bytes using the existing binary KB and MB thresholds.
+@param bytes - File length in bytes.
+@returns A compact byte, rounded KB, or one-decimal MB label.
+*/
 export function fileSize(bytes: number) {
-  return bytes < KIB
-    ? `${String(bytes)} B`
-    : bytes < MIB
-      ? `${String(Math.ceil(bytes / KIB))} KB`
-      : `${(bytes / MIB).toFixed(1)} MB`;
+  if (bytes < KIB) {
+    return `${String(bytes)} B`;
+  }
+
+  return bytes < MIB ? `${String(Math.ceil(bytes / KIB))} KB` : `${(bytes / MIB).toFixed(1)} MB`;
 }

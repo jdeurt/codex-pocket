@@ -15,6 +15,11 @@ import { VirtualizedTranscript } from "./virtualized-transcript";
 import { post } from "@/lib/client-api";
 import { turnMessages } from "@/lib/turn-messages";
 
+/**
+Select setup, loading or empty-state content for a conversation.
+@param props - Connection state, emptiness, read-only mode and its empty-history message.
+@returns The matching existing empty-state row, or null when messages are present.
+*/
 function ConversationEmpty({
   connection,
   empty,
@@ -55,6 +60,11 @@ function ConversationEmpty({
   ) : null;
 }
 
+/**
+Compose canonical turn entries with standard transcript virtualization and current activity.
+@param props - Normalized snapshot, read-only options, activity control and covered-parent suspension.
+@returns The transcript, pending requests and existing conversation notices.
+*/
 export function Conversation({
   state,
   readOnly = false,
@@ -76,9 +86,9 @@ export function Conversation({
 
     return entries.length > 0 ? { id: turn.id, entries } : [];
   });
-  const thinking = !!state.activeTurnId && state.requests.length === 0;
+  const isThinking = !!state.activeTurnId && state.requests.length === 0;
   const activity = state.activity ?? "Considering options";
-  const indicator = thinking ? (
+  const indicator = isThinking ? (
     <div
       className="activity-indicator"
       role="status"
@@ -140,7 +150,7 @@ export function Conversation({
       {activityControl ? (
         <ActivityIndicatorContext.Provider value={indicator}>{activityControl}</ActivityIndicatorContext.Provider>
       ) : (
-        thinking && <ActivityRow>{indicator}</ActivityRow>
+        isThinking && <ActivityRow>{indicator}</ActivityRow>
       )}
     </VirtualizedTranscript>
   );

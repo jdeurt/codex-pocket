@@ -93,7 +93,7 @@ test("activity disclosure keeps shared outer gaps and hit target through expansi
     element.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
     element.scrollBy({ top: -100, behavior: "instant" });
   });
-  const gapErrors = (expanded: boolean) =>
+  const gapErrors = (isExpanded: boolean) =>
     scroller.evaluate(
       (element, { open, count }) => {
         const control = element.querySelector('[data-slot="trace-collapsible-trigger"]');
@@ -118,7 +118,7 @@ test("activity disclosure keeps shared outer gaps and hit target through expansi
 
         return boxes.slice(1).map((box, index) => Math.abs(box.top - boxes[index].bottom - expected));
       },
-      { open: expanded, count: ACTIVITY_MESSAGES }
+      { open: isExpanded, count: ACTIVITY_MESSAGES }
     );
 
   await expect(show).toHaveAttribute("aria-expanded", "false");

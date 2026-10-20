@@ -5,7 +5,7 @@ const FOREGROUND_PROBE_TIMEOUT_MS = 1500;
 type Probe = (challengeId: string) => void;
 interface Challenge {
   deviceId: string;
-  finish: (visible: boolean) => void;
+  finish: (isVisible: boolean) => void;
 }
 
 export const notificationDeviceId = (endpoint: string) => createHash("sha256").update(endpoint).digest("hex");
@@ -63,10 +63,10 @@ export class NotificationPresence {
         this.challenges.delete(challengeId);
         resolve(false);
       }, FOREGROUND_PROBE_TIMEOUT_MS);
-      const finish = (visible: boolean) => {
+      const finish = (isVisible: boolean) => {
         clearTimeout(timer);
         this.challenges.delete(challengeId);
-        resolve(visible);
+        resolve(isVisible);
       };
 
       this.challenges.set(challengeId, { deviceId, finish });

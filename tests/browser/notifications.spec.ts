@@ -54,14 +54,14 @@ test("notification presence follows foreground visibility, page restoration and 
           return connection;
         },
       });
-      let visible = true;
+      let isVisible = true;
 
-      Object.defineProperty(document, "visibilityState", { get: () => (visible ? "visible" : "hidden") });
+      Object.defineProperty(document, "visibilityState", { get: () => (isVisible ? "visible" : "hidden") });
       Object.defineProperty(globalThis, "pocketPresenceCount", {
         get: () => sources.filter((source) => !source.closed).length,
       });
       globalThis.addEventListener("pocket-visibility", (event) => {
-        visible = event instanceof CustomEvent && event.detail === true;
+        isVisible = event instanceof CustomEvent && event.detail === true;
         document.dispatchEvent(new Event("visibilitychange"));
       });
       globalThis.addEventListener("pocket-probe", () => {

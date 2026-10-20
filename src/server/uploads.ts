@@ -43,8 +43,8 @@ function directory(parent: string, id: string) {
   return path.join(localDirectory(), "uploads", createHash("sha256").update(parent).digest("hex"), id);
 }
 
-export function uploadPath(parent: string, file: FileAttachment, image = false) {
-  return path.join(directory(parent, file.id), image ? "image.png" : "original");
+export function uploadPath(parent: string, file: FileAttachment, isImage = false) {
+  return path.join(directory(parent, file.id), isImage ? "image.png" : "original");
 }
 
 export async function getUpload(parent: string, id: string): Promise<StoredUpload> {
@@ -156,7 +156,7 @@ async function commitUpload(parent: string, pending: string, file: StoredUpload)
   }
 }
 
-function validName(value: string) {
+function isValidName(value: string) {
   if (value === "." || value === "..") {
     return false;
   }
@@ -172,7 +172,7 @@ function validName(value: string) {
   return true;
 }
 
-function imageUpload(name: string, mediaType: string) {
+function isImageUpload(name: string, mediaType: string) {
   return (
     rasterTypes.has(mediaType) ||
     (mediaType === "application/octet-stream" && /\.(?:png|jpe?g|webp|gif|avif|hei[cf]|tiff?)$/i.test(name))
@@ -186,7 +186,7 @@ export async function saveUpload(parent: string, id: string, request: Request) {
     .string()
     .min(1)
     .max(MAX_NAME_LENGTH)
-    .refine(validName, "Choose a file with a valid name.")
+    .refine(isValidName, "Choose a file with a valid name.")
     .parse(url.searchParams.get("name"));
   const requestedType = url.searchParams.get("type");
   const mediaType = z
@@ -198,7 +198,7 @@ export async function saveUpload(parent: string, id: string, request: Request) {
 
   try {
     const { size, sha256 } = await writeBytes(request, pending);
-    const kind = imageUpload(name, mediaType) ? "image" : "file";
+    const kind = isImageUpload(name, mediaType) ? "image" : "file";
     const file: StoredUpload = { id, name, size, mediaType, kind, sha256 };
     const existing = storedUploadSchema
       .nullable()
@@ -282,9 +282,9 @@ export function projectAttachments(state: Snapshot, receipts: Receipt[]) {
 }
 
 export function assertMessageContent(receipt: Receipt, text: string, ids: string[]) {
-  const sameFiles = JSON.stringify(receipt.attachments?.map((file) => file.id) ?? []) === JSON.stringify(ids);
+  const hasSameFiles = JSON.stringify(receipt.attachments?.map((file) => file.id) ?? []) === JSON.stringify(ids);
 
-  if (receipt.text !== text || !sameFiles) {
+  if (receipt.text !== text || !hasSameFiles) {
     throw new Error("Message ID already belongs to different content.");
   }
 }

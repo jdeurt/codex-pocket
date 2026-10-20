@@ -49,9 +49,9 @@ export async function deliverMessage(rpc: CodexRpc, config: Config, state: Snaps
       threadId: config.threadId,
       includeTurns: true,
     });
-    const active = thread.turns.some((turn) => turn.status === "inProgress");
+    const isActive = thread.turns.some((turn) => turn.status === "inProgress");
 
-    if (active) {
+    if (isActive) {
       throw error;
     }
 

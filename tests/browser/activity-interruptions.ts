@@ -32,8 +32,8 @@ export async function checkActivityInterruptions(page: Page) {
     "INTERRUPT_FINAL",
   ];
 
-  for (const reload of [false, true]) {
-    if (reload) {
+  for (const isReload of [false, true]) {
+    if (isReload) {
       await page.reload();
     }
 

@@ -8,7 +8,7 @@ import { drainReceipts } from "./bridge-delivery";
 import { loadHistory } from "./history";
 import { log } from "./logging";
 import { notifyTurnComplete } from "./push";
-import { queueRecovery } from "./recovery";
+import { isQueueRecovery } from "./recovery";
 import { recordRestart } from "./restart-events";
 import { reduceEvent } from "./reducer";
 import { resolveDesktopReplies } from "./desktop";
@@ -173,7 +173,7 @@ export class Bridge extends EventEmitter {
 
     this.snapshot.restartEvents = await recordRestart(this.snapshot);
 
-    if (queueRecovery(this.snapshot, this.receipts)) {
+    if (isQueueRecovery(this.snapshot, this.receipts)) {
       await this.persist();
     }
 

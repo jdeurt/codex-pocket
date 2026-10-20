@@ -1,6 +1,6 @@
 import { type AgentRecord, hydrateAgent, nativeStatus, observedMetadata } from "./agent-sources";
 import { type Turn } from "../lib/protocol";
-import { activeAgent } from "../lib/agents";
+import { isActiveAgent } from "../lib/agents";
 import { agentRead } from "./agent-read-pool";
 import { agentRevision } from "./agent-revision";
 import { bridge } from "./bridge";
@@ -26,11 +26,11 @@ export class AgentReadCache {
 
   private pending = new Map<string, Promise<void>>();
 
-  private fresh(record: AgentRecord, saved: CachedRead | undefined, revision: string, image = false) {
+  private fresh(record: AgentRecord, saved: CachedRead | undefined, revision: string, isImage = false) {
     return (
       saved?.revision === revision &&
       (!saved.historyError || Date.now() - saved.at < LIVE_REFRESH_MS) &&
-      (image ||
+      (isImage ||
         (record.agent.harness === "claude" && Boolean(record.fileRevision)) ||
         ["idle", "completed", "failed", "closed"].includes(record.agent.status) ||
         Date.now() - saved.at < LIVE_REFRESH_MS)
@@ -59,19 +59,19 @@ export class AgentReadCache {
     record.historyError = record.discoveryError === true ? true : saved.historyError;
   }
 
-  private remember(record: AgentRecord, revision: string, full: boolean) {
+  private remember(record: AgentRecord, revision: string, isFull: boolean) {
     record.agent.previewState = record.historyError ? "unavailable" : record.agent.preview ? undefined : "empty";
     const value: CachedRead = {
       revision,
       at: Date.now(),
       agent: { ...record.agent },
       historyError: record.historyError,
-      ...(full && { turns: record.turns ?? [] }),
+      ...(isFull && { turns: record.turns ?? [] }),
     };
 
     this.previews.set(record.agent.id, { ...value, turns: undefined });
 
-    if (!full) {
+    if (!isFull) {
       return;
     }
 
@@ -110,7 +110,7 @@ export class AgentReadCache {
 
       record.agent.preview = value.preview;
 
-      if (!record.pocket && !activeAgent(record.agent) && !record.observedStatus) {
+      if (!record.pocket && !isActiveAgent(record.agent) && !record.observedStatus) {
         record.agent.status = nativeStatus(record.thread ?? { id: record.sessionId, turns: [] }, value.turns);
       }
 
@@ -166,7 +166,7 @@ export class AgentReadCache {
     await this.coalesce(`preview:${record.agent.id}`, () => this.readPreview(record, revision));
   }
 
-  async full(record: AgentRecord, image = false, priority = 0) {
+  async full(record: AgentRecord, isImage = false, priority = 0) {
     if (priority === 0) {
       this.selected = record.agent.id;
     }
@@ -174,7 +174,7 @@ export class AgentReadCache {
     const revision = await agentRevision(record);
     const saved = this.transcripts.get(record.agent.id);
 
-    if (!this.fresh(record, saved, revision, image)) {
+    if (!this.fresh(record, saved, revision, isImage)) {
       await this.coalesce(`full:${record.agent.id}`, () => this.readFull(record, revision, priority));
     }
 

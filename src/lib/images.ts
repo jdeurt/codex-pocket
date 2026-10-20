@@ -1,69 +1,130 @@
 import { type Item, object, string } from "./protocol";
 
-export function itemImageSources(item: Item): string[] {
-  if (item.type === "imageGeneration") {
-    const saved = string(item.savedPath);
-    const result = string(item.result);
+/**
+Select native content according to the normalized item's protocol envelope.
+@param item - Transcript item whose native fields remain unchecked.
+@returns Its content field, or an empty list for non-content item kinds.
+*/
+function imageContent(item: Item): unknown {
+  switch (item.type) {
+    case "mcpToolCall": {
+      return object(item.result).content;
+    }
 
-    return saved ? [saved] : result ? [result.startsWith("data:") ? result : `data:image/png;base64,${result}`] : [];
+    case "dynamicToolCall": {
+      return item.contentItems;
+    }
+
+    case "functionCallOutput": {
+      return item.output;
+    }
+
+    default: {
+      return ["userMessage", "agentMessage", "imageOutput"].includes(item.type) ? item.content : [];
+    }
   }
-
-  if (item.type === "imageView") {
-    return string(item.path) ? [string(item.path)] : [];
-  }
-
-  const content =
-    item.type === "mcpToolCall"
-      ? object(item.result).content
-      : item.type === "dynamicToolCall"
-        ? item.contentItems
-        : item.type === "functionCallOutput"
-          ? item.output
-          : ["userMessage", "agentMessage", "imageOutput"].includes(item.type)
-            ? item.content
-            : [];
-  const sources = Array.isArray(content)
-    ? content.flatMap((part) => {
-        const value = object(part);
-        const type = string(value.type);
-
-        if (type === "localImage") {
-          return string(value.path);
-        }
-
-        if (type === "image") {
-          return typeof value.data === "string" &&
-            typeof value.mimeType === "string" &&
-            value.mimeType.startsWith("image/")
-            ? `data:${value.mimeType};base64,${value.data}`
-            : string(value.url);
-        }
-
-        if (["inputImage", "input_image"].includes(type)) {
-          return string(value.imageUrl) || string(value.image_url);
-        }
-
-        if (type === "resource") {
-          const resource = object(value.resource);
-
-          return typeof resource.mimeType === "string" &&
-            resource.mimeType.startsWith("image/") &&
-            typeof resource.blob === "string"
-            ? `data:${resource.mimeType};base64,${resource.blob}`
-            : [];
-        }
-
-        return [];
-      })
-    : [];
-
-  return [...new Set(sources.filter(Boolean))];
 }
 
+/**
+Normalize the supported native image-part shapes at the shared transcript boundary.
+@param part - Unchecked MCP or native input content part.
+@returns Its image path, URL or inline data, otherwise an empty string.
+*/
+function contentImageSource(part: unknown): string {
+  const value = object(part);
+  const type = string(value.type);
+
+  switch (type) {
+    case "localImage": {
+      return string(value.path);
+    }
+
+    case "image": {
+      return typeof value.data === "string" && typeof value.mimeType === "string" && value.mimeType.startsWith("image/")
+        ? `data:${value.mimeType};base64,${value.data}`
+        : string(value.url);
+    }
+
+    case "inputImage":
+    case "input_image": {
+      return string(value.imageUrl) || string(value.image_url);
+    }
+
+    case "resource": {
+      const resource = object(value.resource);
+
+      return typeof resource.mimeType === "string" &&
+        resource.mimeType.startsWith("image/") &&
+        typeof resource.blob === "string"
+        ? `data:${resource.mimeType};base64,${resource.blob}`
+        : "";
+    }
+
+    default: {
+      return "";
+    }
+  }
+}
+
+/**
+Prefer a saved generated image path, falling back to the native inline PNG result.
+@param saved - Native saved path, or an empty string.
+@param result - Native data URL or unprefixed base64 PNG bytes.
+@returns The single available source, or an empty list.
+*/
+function generatedImageSources(saved: string, result: string) {
+  if (saved) {
+    return [saved];
+  }
+
+  if (!result) {
+    return [];
+  }
+
+  return [result.startsWith("data:") ? result : `data:image/png;base64,${result}`];
+}
+
+/**
+Collect native image sources once for both message rendering and guarded image reads.
+@param item - Normalized transcript item with preserved native content fields.
+@returns Unique nonempty sources in protocol order.
+*/
+export function itemImageSources(item: Item): string[] {
+  switch (item.type) {
+    case "imageGeneration": {
+      return generatedImageSources(string(item.savedPath), string(item.result));
+    }
+
+    case "imageView": {
+      const path = string(item.path);
+
+      return path ? [path] : [];
+    }
+
+    default: {
+      const content = imageContent(item);
+      const sources = Array.isArray(content) ? content.map((part) => contentImageSource(part)).filter(Boolean) : [];
+
+      return [...new Set(sources)];
+    }
+  }
+}
+
+/**
+Build an image route tied to a transcript item rather than exposing a local file path.
+@param itemId - Owning transcript item identifier.
+@param index - Zero-based position in the item's normalized image sources.
+@returns The encoded same-origin image URL.
+*/
 export function itemImageUrl(itemId: string, index: number) {
   return `/api/images?item=${encodeURIComponent(itemId)}&index=${String(index)}`;
 }
 
+/**
+Allow supported image URLs and route local paths through Pocket's guarded image endpoint.
+@param source - Native image path or candidate URL.
+@returns A safe display URL, or an empty string for blank or unsupported protocols.
+*/
 export function imageUrl(source: string) {
   if (!source.trim()) {
     return "";
@@ -82,6 +143,11 @@ export function imageUrl(source: string) {
     : `/api/images?path=${encodeURIComponent(source)}`;
 }
 
+/**
+Select a thumbnail only for Pocket endpoints that implement that representation.
+@param source - Already normalized display URL.
+@returns The thumbnail URL for local endpoints, otherwise the original URL.
+*/
 export const thumbnailUrl = (source: string) =>
   ["/api/images?", "/api/uploads?", "/api/agents?"].some((prefix) => source.startsWith(prefix))
     ? `${source}&thumbnail=1`

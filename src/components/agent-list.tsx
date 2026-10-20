@@ -5,6 +5,11 @@ import { Button } from "./ui/button";
 import { Dialog } from "@base-ui/react/dialog";
 import { type RefObject } from "react";
 
+/**
+Render scoped agent rows with retained focus handles and discovery warnings.
+@param props - Normalized entries, visibility, warnings, row refs and selection callback.
+@returns The existing agent list and its navigation controls.
+*/
 export function AgentList({
   entries,
   hidden,

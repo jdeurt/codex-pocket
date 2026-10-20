@@ -293,9 +293,9 @@ test("native browser clipboard receives the decoded text", async ({ page, contex
   }
 
   const { markdown, writes } = await showChat(page, marker(text));
-  const available = await page.evaluate(() => "clipboard" in navigator);
+  const isAvailable = await page.evaluate(() => "clipboard" in navigator);
 
-  test.skip(!available, "Native clipboard is unavailable in this browser environment.");
+  test.skip(!isAvailable, "Native clipboard is unavailable in this browser environment.");
   await markdown.getByRole("button", { name: "Copy text", exact: true }).click();
   await expect(markdown.getByRole("status")).toHaveText("Copied");
 

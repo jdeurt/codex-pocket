@@ -1,4 +1,4 @@
-import { type AgentTranscript, activeAgent } from "../lib/agents";
+import { type AgentTranscript, isActiveAgent } from "../lib/agents";
 import { initialSnapshot, object, string } from "../lib/protocol";
 import { AgentReadCache } from "./agent-read-cache";
 import { discoverAgents } from "./agent-catalog";
@@ -40,7 +40,7 @@ function preserveHistory(next: Discovery, saved?: Discovery) {
 
     const agent = {
       ...previous.agent,
-      status: activeAgent(previous.agent) ? ("unknown" as const) : previous.agent.status,
+      status: isActiveAgent(previous.agent) ? ("unknown" as const) : previous.agent.status,
     };
 
     next.records.set(id, { ...previous, agent, historyError: true, discoveryError: true });
@@ -80,7 +80,7 @@ export class AgentBrowser {
     return record;
   }
 
-  async catalog(owner: string, previews = false) {
+  async catalog(owner: string, isPreviews = false) {
     if (this.cached?.owner !== owner || Date.now() - this.cached.catalog.updatedAt >= REFRESH_MS) {
       this.refreshing ??= this.refresh(owner);
       await this.refreshing;
@@ -94,7 +94,7 @@ export class AgentBrowser {
 
     await Promise.all(records.map((record) => this.reads.project(record)));
 
-    if (previews) {
+    if (isPreviews) {
       for (const record of records) {
         void this.reads.warm(record);
       }
@@ -115,7 +115,7 @@ export class AgentBrowser {
       reasoningEffort: record.agent.reasoningEffort,
       turns: record.turns ?? [],
       requests: record.requests ?? [],
-      activeTurnId: activeAgent(record.agent)
+      activeTurnId: isActiveAgent(record.agent)
         ? record.turns?.findLast((turn) => turn.status === "inProgress")?.id
         : undefined,
     };
