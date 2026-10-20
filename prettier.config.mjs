@@ -1,4 +1,8 @@
-export default {
+// Shared repository and bundled Engineering defaults.
+/**
+@type {import("prettier").Options}
+*/
+const config = {
   printWidth: 120,
   tabWidth: 2,
   useTabs: false,
@@ -10,3 +14,5 @@ export default {
   endOfLine: "lf",
   overrides: [{ files: "*.toml", options: { plugins: ["prettier-plugin-toml"] } }],
 };
+
+export default config;
