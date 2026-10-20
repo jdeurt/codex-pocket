@@ -10,19 +10,13 @@ const acknowledgementSchema = z.object({ deviceId: deviceSchema, challengeId: z.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET(request: Request) {
-  try {
-    await guard(request);
-  } catch (error) {
-    return errorResponse(error, HTTP_FORBIDDEN);
-  }
-
-  const device = deviceSchema.safeParse(new URL(request.url).searchParams.get("device"));
-
-  if (!device.success) {
-    return errorResponse(new Error("Invalid notification device."));
-  }
-
+/**
+Binds one verified device to an abortable native challenge stream.
+@param request - Authorized request owning the stream's abort signal.
+@param deviceId - Validated notification device identifier.
+@returns Stream emitting challenges and heartbeat frames until disconnect.
+*/
+function presenceStream(request: Request, deviceId: string) {
   let cleanup: ((shouldClose: boolean) => void) | undefined;
 
   const stream = new ReadableStream({
@@ -31,7 +25,7 @@ export async function GET(request: Request) {
       const send = (text: string) => {
         controller.enqueue(encoder.encode(text));
       };
-      const disconnect = notificationPresence.connect(device.data, (challengeId) => {
+      const disconnect = notificationPresence.connect(deviceId, (challengeId) => {
         send(`event: probe\ndata: ${JSON.stringify({ challengeId })}\n\n`);
       });
       const heartbeat = setInterval(() => {
@@ -68,7 +62,22 @@ export async function GET(request: Request) {
     },
   });
 
-  return new Response(stream, {
+  return stream;
+}
+
+/**
+Validates the requested device before connecting it to foreground notification probes.
+@param request - Origin-authorized SSE request.
+@returns Private SSE response or invalid-device response.
+*/
+function presenceResponse(request: Request) {
+  const device = deviceSchema.safeParse(new URL(request.url).searchParams.get("device"));
+
+  if (!device.success) {
+    return errorResponse(new Error("Invalid notification device."));
+  }
+
+  return new Response(presenceStream(request, device.data), {
     headers: {
       ...noStore,
       "Cache-Control": "no-store, no-transform",
@@ -78,6 +87,26 @@ export async function GET(request: Request) {
   });
 }
 
+/**
+Opens a foreground-presence stream only after native host and origin authorization.
+@param request - Incoming SSE request with an optional device query.
+@returns Private challenge stream or the existing authorization/device error.
+*/
+export async function GET(request: Request) {
+  try {
+    await guard(request);
+  } catch (error) {
+    return errorResponse(error, HTTP_FORBIDDEN);
+  }
+
+  return presenceResponse(request);
+}
+
+/**
+Acknowledges a device challenge after same-origin mutation authorization.
+@param request - Native JSON request carrying the receiving device and challenge identities.
+@returns Whether the still-pending challenge belonged to that device.
+*/
 export async function POST(request: Request) {
   try {
     await guard(request, true);

@@ -16,6 +16,11 @@ export const viewport: Viewport = {
   interactiveWidget: "resizes-content",
 };
 
+/**
+Provides the shared document, theme and viewport shell for Pocket routes.
+@param { children } - Next route content mounted inside the shared document body.
+@returns Shared root document.
+*/
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className="dark">

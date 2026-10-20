@@ -5,6 +5,11 @@ import { z } from "zod";
 
 export const runtime = "nodejs";
 
+/**
+Submits a validated phone answer only after same-origin mutation authorization.
+@param request - Unread JSON request containing the pending native request identity and answer.
+@returns Existing acknowledgment or distinct authorization/answer-validation failure.
+*/
 export async function POST(request: Request) {
   try {
     await guard(request, true);

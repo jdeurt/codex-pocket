@@ -1,5 +1,9 @@
 import type { MetadataRoute } from "next";
 
+/**
+Describes Pocket's installed-app identity, start route and existing icon assets.
+@returns Next web-app manifest metadata.
+*/
 export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "Pocket",

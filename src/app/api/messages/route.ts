@@ -6,6 +6,11 @@ import { z } from "zod";
 
 export const runtime = "nodejs";
 
+/**
+Validates a phone message and attachment identities before submitting it to the native bridge.
+@param request - Unread same-origin JSON mutation request.
+@returns Canonical send receipt or existing authorization/validation failure.
+*/
 export async function POST(request: Request) {
   try {
     await guard(request, true);
