@@ -6,7 +6,8 @@ import sharp from "sharp";
 
 const GAP = 16;
 const VERTICAL_PADDING = 8;
-const directory = ".local/attachment-visual-review/verified";
+const BUBBLE_MAX_WIDTH = 0.8;
+const directory = ".local/attachment-visual-review/corrected-verified";
 const control = (action: string) =>
   writeFile(".local/uploads-replay/control.json", JSON.stringify({ id: crypto.randomUUID(), action }));
 
@@ -22,6 +23,12 @@ async function metrics(bubble: Locator) {
       return node;
     };
     const content = query('[data-slot="bubble-content"]');
+    const parent = element.parentElement;
+
+    if (!parent) {
+      throw new Error("Message bubble has no parent.");
+    }
+
     const group = query('[aria-label="Attachments"]', content);
     const rows = [...group.children] as HTMLElement[];
     const text = content.querySelector<HTMLElement>(":scope > p");
@@ -32,11 +39,14 @@ async function metrics(bubble: Locator) {
 
     return {
       itemGap: rows[1].getBoundingClientRect().top - first.bottom,
-      textGap: text ? text.getBoundingClientRect().top - group.getBoundingClientRect().bottom : null,
+      textGap: text?.textContent ? text.getBoundingClientRect().top - group.getBoundingClientRect().bottom : null,
       iconInset: icon.left - first.left,
       iconTextGap: name.left - icon.right,
       widths: rows.map((row) => row.getBoundingClientRect().width),
       groupWidth: group.getBoundingClientRect().width,
+      bubbleWidth: element.getBoundingClientRect().width,
+      availableWidth: parent.getBoundingClientRect().width,
+      nameTruncated: query("span[title]", rows[0]).scrollWidth > query("span[title]", rows[0]).clientWidth,
       // CSS dimensions carry units; coercion must parse their numeric prefix.
       // eslint-disable-next-line unicorn/prefer-number-coercion
       contentWidth: content.clientWidth - Number.parseFloat(style.paddingLeft) - Number.parseFloat(style.paddingRight),
@@ -46,7 +56,7 @@ async function metrics(bubble: Locator) {
   });
 }
 
-test("real uploads render symmetric draft cards and full-width static sent rows with exact 16px gaps", async ({
+test("real uploads fill the original bubble interior with static file rows and exact 16px gaps", async ({
   page,
 }, info) => {
   const png = await sharp({ create: { width: 80, height: 60, channels: 3, background: "#e38c39" } })
@@ -56,7 +66,7 @@ test("real uploads render symmetric draft cards and full-width static sent rows 
   await expect(page.getByRole("button", { name: "Attach images or files", exact: true })).toBeEnabled();
   await control("complete");
   await expect(page.locator("header [role=status]")).toHaveText("Connected");
-  const name = `${info.project.name}-a-long-image-filename-for-overflow.png`;
+  const name = `${info.project.name}-a-long-image-filename-that-extends-beyond-the-desktop-text-area-and-must-truncate.png`;
   const document = `${info.project.name}-a-long-document-filename-for-overflow.xlsx`;
   await page.locator('input[type="file"]').setInputFiles([
     { name, mimeType: "image/png", buffer: png },
@@ -119,6 +129,8 @@ test("real uploads render symmetric draft cards and full-width static sent rows 
   expect(layout.iconInset).toBe(GAP);
   expect(layout.iconTextGap).toBe(GAP);
   expect(layout.groupWidth).toBeGreaterThan(0);
+  expect(layout.bubbleWidth).toBeLessThanOrEqual(layout.availableWidth * BUBBLE_MAX_WIDTH + 1);
+  expect(layout.nameTruncated).toBeTruthy();
   expect(layout.widths.every((width) => width === layout.groupWidth && width === layout.contentWidth)).toBeTruthy();
   expect(layout.margins).toEqual([
     ["0px", "0px"],
@@ -157,6 +169,35 @@ test("real uploads render symmetric draft cards and full-width static sent rows 
   );
   expect(projected.images).toBeUndefined();
   await expect(bubble.locator("img, a, button")).toHaveCount(0);
+  await control("complete");
+  await expect(page.locator("header [role=status]")).toHaveText("Connected");
+
+  // File-only messages keep the same bubble sizing, rather than stretching the parent.
+  await page.locator('input[type="file"]').setInputFiles([
+    { name: `file-only-${name}`, mimeType: "image/png", buffer: png },
+    { name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("notes") },
+  ]);
+  await expect(selected.getByText("Ready to send", { exact: true })).toHaveCount(2);
+  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await expect(selected).toHaveCount(0);
+  const fileOnly = page.locator('[data-slot="bubble"][data-delivery="sent"]').filter({ hasText: `file-only-${name}` });
+  await expect(fileOnly).toBeVisible();
+  await expect
+    .poll(() => metrics(fileOnly))
+    .toMatchObject({ itemGap: GAP, textGap: null, iconInset: GAP, iconTextGap: GAP, overflow: false });
+  const fileOnlyLayout = await metrics(fileOnly);
+  expect(fileOnlyLayout.bubbleWidth).toBeLessThanOrEqual(fileOnlyLayout.availableWidth * BUBBLE_MAX_WIDTH + 1);
+  expect(fileOnlyLayout.groupWidth).toBeGreaterThan(0);
+  expect(
+    fileOnlyLayout.widths.every((width) => width === fileOnlyLayout.groupWidth && width === fileOnlyLayout.contentWidth)
+  ).toBeTruthy();
+  expect(fileOnlyLayout.nameTruncated).toBeTruthy();
+  await expect(fileOnly.locator("img, a, button, [role=button], [download]")).toHaveCount(0);
+  await page.screenshot({ path: `${directory}/${info.project.name}-file-only.png` });
+  await writeFile(
+    `${directory}/${info.project.name}-file-only-measurements.json`,
+    JSON.stringify(fileOnlyLayout, null, 2)
+  );
   await control("complete");
 });
 
