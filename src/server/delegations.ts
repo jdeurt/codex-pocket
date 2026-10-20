@@ -6,6 +6,7 @@ import {
   storedPocketSchema,
 } from "./delegation-data";
 import { delegationDatabase, lastCommandStatus } from "./delegation-db";
+import { DelegateSummaryStore } from "./delegate-summary-store";
 import { DelegationMailbox } from "./delegation-mail";
 import { DelegationNotifications } from "./delegation-notifications";
 import { DelegationQueue } from "./delegation-queue";
@@ -35,6 +36,8 @@ export class DelegationStore {
 
   readonly mail: DelegationMailbox;
 
+  readonly summaries: DelegateSummaryStore;
+
   readonly queue: DelegationQueue;
 
   /**
@@ -52,6 +55,7 @@ Acquire private persistence, committed-change hints and concrete mailbox and que
   constructor(directory: string) {
     this.db = delegationDatabase(directory);
     this.notifications = new DelegationNotifications(directory);
+    this.summaries = new DelegateSummaryStore(this.db, this.notifications.changed);
     this.mail = new DelegationMailbox(this.db, this.notifications.changed);
     this.queue = new DelegationQueue(this.db, this, this.notifications);
   }

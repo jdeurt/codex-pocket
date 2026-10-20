@@ -4,6 +4,7 @@ import { Message, MessageContent } from "@/components/ui/message";
 import { hasMessageText, messageText } from "@/lib/turn-messages";
 import { AttachmentGroup } from "@/components/ui/attachment";
 import { ChatImage } from "./chat-image";
+import { DelegateReport } from "./delegate-report";
 import { FileAttachments } from "./file-attachments";
 import { Markdown } from "./markdown";
 import { SystemEvent } from "./system-event";
@@ -79,6 +80,10 @@ Dispatch restart notes, normalized tool traces and ordinary conversation message
 @returns The matching shared message presentation.
 */
 export function ChatMessage({ item }: { item: Item }) {
+  if (item.type === "delegateReport" && item.delegateReport) {
+    return <DelegateReport report={item.delegateReport} />;
+  }
+
   if (item.type === "pocketRestart") {
     return <SystemEvent />;
   }

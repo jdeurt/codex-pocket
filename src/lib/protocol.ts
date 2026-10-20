@@ -1,4 +1,5 @@
 import { type FileAttachment, fileAttachmentSchema } from "./attachments";
+import { type DelegateReport, delegateReportSchema } from "./delegate-reports";
 import { z } from "zod";
 
 // Forward-compatible subset of Codex app-server v2, checked against CLI 0.163.
@@ -8,6 +9,7 @@ export type Data = Record<string, unknown>;
 export type Item = Data & {
   id: string;
   type: string;
+  delegateReport?: DelegateReport;
   attachments?: FileAttachment[];
   images?: { source: string; alt?: string }[];
 };
@@ -113,6 +115,7 @@ const scheduledTurnSchema = z.object({ title: z.string(), scheduledAt: z.number(
 export const itemSchema: z.ZodType<Item> = z.looseObject({
   id: z.string(),
   type: z.string(),
+  delegateReport: delegateReportSchema.optional(),
   attachments: z.array(fileAttachmentSchema).optional(),
   images: z.array(itemImageSchema).optional(),
 });

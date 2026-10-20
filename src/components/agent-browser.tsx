@@ -1,6 +1,6 @@
 "use client";
 import { type AgentCatalog, type AgentEntry, agentCatalogSchema, isActiveAgent } from "@/lib/agents";
-import { useContext, useEffect, useRef, useState } from "react";
+import { type RefObject, useContext, useEffect, useRef, useState } from "react";
 import { ActivityIndicatorContext } from "@/lib/activity-indicator-context";
 import { ActivityRow } from "./activity-row";
 import { AgentChat } from "./agent-chat";
@@ -41,11 +41,21 @@ Browse scoped read-only agents while retaining row focus and parent navigation.
 @param props - Parent callback notified when the agent panel opens or closes.
 @returns The existing activity trigger and agent dialog.
 */
-export function AgentBrowser({ onOpenChange }: { onOpenChange: (isOpen: boolean) => void }) {
+export function AgentBrowser({
+  open,
+  selectedId,
+  onSelect,
+  returnFocus,
+  onOpenChange,
+}: {
+  open: boolean;
+  selectedId: string | null;
+  onSelect: (id: string | null) => void;
+  returnFocus: RefObject<HTMLElement | null>;
+  onOpenChange: (isOpen: boolean) => void;
+}) {
   const indicator = useContext(ActivityIndicatorContext);
-  const [open, setOpen] = useState(false);
   const { data, error, count } = useAgentCatalog(open);
-  const [selected, setSelected] = useState<AgentEntry | null>(null);
   const rows = useRef(new Map<string, HTMLButtonElement>());
   const [visit, setVisit] = useState<{ data?: AgentCatalog; entries: Map<string, AgentEntry> }>({ entries: new Map() });
   const lastSelected = useRef<string | null>(null);
@@ -69,35 +79,41 @@ export function AgentBrowser({ onOpenChange }: { onOpenChange: (isOpen: boolean)
   }
 
   function back() {
-    lastSelected.current = selected?.id ?? null;
-    setSelected(null);
+    if (returnFocus.current) {
+      onOpenChange(false);
+      onSelect(null);
+
+      return;
+    }
+
+    lastSelected.current = selectedId;
+    onSelect(null);
   }
 
   useEffect(() => {
-    if (!selected && open && lastSelected.current) {
+    if (!selectedId && open && lastSelected.current) {
       rows.current.get(lastSelected.current)?.focus();
     }
-  }, [open, selected]);
+  }, [open, selectedId]);
 
   return (
     <Dialog.Root
       open={open}
       onOpenChange={(next, details) => {
-        if (!next && selected && details.reason === "escape-key") {
+        if (!next && selectedId && details.reason === "escape-key") {
           details.cancel();
           back();
 
           return;
         }
 
-        setOpen(next);
         onOpenChange(next);
 
         if (next) {
           return;
         }
 
-        setSelected(null);
+        onSelect(null);
         setVisit({ data, entries: new Map() });
       }}
     >
@@ -113,7 +129,16 @@ export function AgentBrowser({ onOpenChange }: { onOpenChange: (isOpen: boolean)
       )}
       <Dialog.Portal>
         <Dialog.Backdrop className="agents-backdrop" />
-        <Dialog.Popup className="agents-panel" finalFocus={agentTriggerFocus}>
+        <Dialog.Popup
+          className="agents-panel"
+          finalFocus={() => {
+            const target = returnFocus.current;
+
+            returnFocus.current = null;
+
+            return target?.isConnected ? target : agentTriggerFocus();
+          }}
+        >
           <Dialog.Title className="sr-only">Agents</Dialog.Title>
           <Dialog.Description className="sr-only">
             Agents working in this parent chat. Open an agent to read its conversation.
@@ -123,13 +148,15 @@ export function AgentBrowser({ onOpenChange }: { onOpenChange: (isOpen: boolean)
               .values()
               .toArray()
               .toSorted((a, b) => Number(isActiveAgent(b)) - Number(isActiveAgent(a)) || a.name.localeCompare(b.name))}
-            hidden={!!selected}
+            hidden={!!selectedId}
             error={error}
             warnings={data?.warnings ?? []}
             rows={rows}
-            select={setSelected}
+            select={(agent) => {
+              onSelect(agent.id);
+            }}
           />
-          {selected && <AgentChat key={selected.id} agent={entries.get(selected.id) ?? selected} back={back} />}
+          {selectedId && <AgentChat key={selectedId} id={selectedId} agent={entries.get(selectedId)} back={back} />}
         </Dialog.Popup>
       </Dialog.Portal>
     </Dialog.Root>

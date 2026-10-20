@@ -7,7 +7,8 @@ import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } from "@/components/ui/input-group";
 import { clientError, reportClient } from "@/lib/client-logging";
 import { stageMessage, updateDelivery, useThread } from "@/hooks/use-thread";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { AgentNavigationContext } from "@/lib/agent-navigation-context";
 import { AgentBrowser } from "./agent-browser";
 import { ComposerAttachments } from "./composer-attachments";
 import { Conversation } from "./conversation";
@@ -39,6 +40,13 @@ export function Chat() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [agentsOpen, setAgentsOpen] = useState(false);
+  const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
+  const agentReturnFocus = useRef<HTMLElement | null>(null);
+  const openAgent = useCallback((id: string, trigger: HTMLButtonElement) => {
+    agentReturnFocus.current = trigger;
+    setSelectedAgent(id);
+    setAgentsOpen(true);
+  }, []);
   const messageId = useRef<string | null>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
 
@@ -122,121 +130,131 @@ export function Chat() {
   }
 
   return (
-    <main className="chat-shell">
-      <header className="chat-header">
-        <span className="header-balance" aria-hidden="true" />
-        <div className="thread-heading">
-          <h1>Pocket</h1>
-          <p>
-            <span aria-label="Model and reasoning effort">{modelDescription(state)}</span>
-            <span aria-hidden="true"> · </span>
-            <span role="status">{status}</span>
-          </p>
-        </div>
-        <span className="header-balance" aria-hidden="true" />
-      </header>
-      <Conversation
-        state={state}
-        suspended={agentsOpen}
-        activityControl={<AgentBrowser onOpenChange={setAgentsOpen} />}
-      />
-      <footer className="composer-wrap">
-        <NotificationPrompt />
-        {(error || attachments.error || state.error) && (
-          <Alert variant="destructive" className="mb-3">
-            <AlertDescription>{error || attachments.error || state.error}</AlertDescription>
-          </Alert>
-        )}
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            void send();
-          }}
-        >
-          <FieldGroup>
-            <Field>
-              <ComposerAttachments
-                files={attachments.files}
-                disabled={sending}
-                remove={async (id) => {
-                  messageId.current = null;
-                  await attachments.remove(id);
-                }}
-                retry={attachments.retry}
-              />
-              <input
-                ref={filePicker}
-                type="file"
-                multiple
-                hidden
-                aria-label="Choose attachments"
-                disabled={sending || !attachments.ready || state.connection === "unconfigured"}
-                onChange={(event) => {
-                  const files = [...(event.target.files ?? [])];
-
-                  event.target.value = "";
-                  messageId.current = null;
-                  void attachments.add(files);
-                }}
-              />
-              <FieldLabel className="sr-only" htmlFor="message">
-                Message Pocket
-              </FieldLabel>
-              <InputGroup className="composer">
-                <InputGroupTextarea
-                  ref={textarea}
-                  id="message"
-                  placeholder="Message Pocket…"
-                  value={draft}
-                  rows={1}
-                  maxLength={32_000}
-                  disabled={state.connection === "unconfigured" || sending}
-                  onChange={(event) => {
-                    setDraft(event.target.value);
+    <AgentNavigationContext value={openAgent}>
+      <main className="chat-shell">
+        <header className="chat-header">
+          <span className="header-balance" aria-hidden="true" />
+          <div className="thread-heading">
+            <h1>Pocket</h1>
+            <p>
+              <span aria-label="Model and reasoning effort">{modelDescription(state)}</span>
+              <span aria-hidden="true"> · </span>
+              <span role="status">{status}</span>
+            </p>
+          </div>
+          <span className="header-balance" aria-hidden="true" />
+        </header>
+        <Conversation
+          state={state}
+          suspended={agentsOpen}
+          activityControl={
+            <AgentBrowser
+              open={agentsOpen}
+              selectedId={selectedAgent}
+              onSelect={setSelectedAgent}
+              returnFocus={agentReturnFocus}
+              onOpenChange={setAgentsOpen}
+            />
+          }
+        />
+        <footer className="composer-wrap">
+          <NotificationPrompt />
+          {(error || attachments.error || state.error) && (
+            <Alert variant="destructive" className="mb-3">
+              <AlertDescription>{error || attachments.error || state.error}</AlertDescription>
+            </Alert>
+          )}
+          <form
+            onSubmit={(event) => {
+              event.preventDefault();
+              void send();
+            }}
+          >
+            <FieldGroup>
+              <Field>
+                <ComposerAttachments
+                  files={attachments.files}
+                  disabled={sending}
+                  remove={async (id) => {
                     messageId.current = null;
+                    await attachments.remove(id);
                   }}
-                  onKeyDown={(event) => {
-                    if (!(
-                      event.key === "Enter" &&
-                      !event.shiftKey &&
-                      !event.nativeEvent.isComposing &&
-                      globalThis.matchMedia("(pointer: fine)").matches
-                    )) {
-                      return;
-                    }
+                  retry={attachments.retry}
+                />
+                <input
+                  ref={filePicker}
+                  type="file"
+                  multiple
+                  hidden
+                  aria-label="Choose attachments"
+                  disabled={sending || !attachments.ready || state.connection === "unconfigured"}
+                  onChange={(event) => {
+                    const files = [...(event.target.files ?? [])];
 
-                    event.preventDefault();
-                    void send();
+                    event.target.value = "";
+                    messageId.current = null;
+                    void attachments.add(files);
                   }}
                 />
-                <InputGroupAddon align="inline-end">
-                  <InputGroupButton
-                    type="button"
-                    size="icon-sm"
-                    className="min-h-11 min-w-11"
-                    aria-label="Attach images or files"
-                    title="Attach images or files"
-                    disabled={sending || !attachments.ready || state.connection === "unconfigured"}
-                    onClick={() => filePicker.current?.click()}
-                  >
-                    <PaperclipIcon aria-hidden="true" />
-                  </InputGroupButton>
-                  <InputGroupButton
-                    type="submit"
-                    variant="default"
-                    size="icon-sm"
-                    className="send-button"
-                    aria-label="Send message"
-                    disabled={!hasMessage(draft, attachments.files) || sending || !isConnected || !attachments.ready}
-                  >
-                    <ArrowUpIcon />
-                  </InputGroupButton>
-                </InputGroupAddon>
-              </InputGroup>
-            </Field>
-          </FieldGroup>
-        </form>
-      </footer>
-    </main>
+                <FieldLabel className="sr-only" htmlFor="message">
+                  Message Pocket
+                </FieldLabel>
+                <InputGroup className="composer">
+                  <InputGroupTextarea
+                    ref={textarea}
+                    id="message"
+                    placeholder="Message Pocket…"
+                    value={draft}
+                    rows={1}
+                    maxLength={32_000}
+                    disabled={state.connection === "unconfigured" || sending}
+                    onChange={(event) => {
+                      setDraft(event.target.value);
+                      messageId.current = null;
+                    }}
+                    onKeyDown={(event) => {
+                      if (!(
+                        event.key === "Enter" &&
+                        !event.shiftKey &&
+                        !event.nativeEvent.isComposing &&
+                        globalThis.matchMedia("(pointer: fine)").matches
+                      )) {
+                        return;
+                      }
+
+                      event.preventDefault();
+                      void send();
+                    }}
+                  />
+                  <InputGroupAddon align="inline-end">
+                    <InputGroupButton
+                      type="button"
+                      size="icon-sm"
+                      className="min-h-11 min-w-11"
+                      aria-label="Attach images or files"
+                      title="Attach images or files"
+                      disabled={sending || !attachments.ready || state.connection === "unconfigured"}
+                      onClick={() => filePicker.current?.click()}
+                    >
+                      <PaperclipIcon aria-hidden="true" />
+                    </InputGroupButton>
+                    <InputGroupButton
+                      type="submit"
+                      variant="default"
+                      size="icon-sm"
+                      className="send-button"
+                      aria-label="Send message"
+                      disabled={!hasMessage(draft, attachments.files) || sending || !isConnected || !attachments.ready}
+                    >
+                      <ArrowUpIcon />
+                    </InputGroupButton>
+                  </InputGroupAddon>
+                </InputGroup>
+              </Field>
+            </FieldGroup>
+          </form>
+        </footer>
+      </main>
+    </AgentNavigationContext>
   );
 }
