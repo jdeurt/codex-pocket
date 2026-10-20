@@ -1,5 +1,6 @@
 // OFFLINE REPLAY ONLY. These are synthetic harness wire records, not live results.
 import type { Turn } from "../../src/lib/protocol";
+import { replayToolOutputs } from "./agent-tool-output";
 
 export const replayParent = "replay-parent";
 export const claudeSession = "11111111-1111-4111-8111-111111111111";
@@ -45,6 +46,7 @@ export function replayThreads(settled = false, revision = 1) {
       status: { type: "notLoaded" },
     },
     { id: "done-codex", parentThreadId: replayParent, name: "Finished research", status: { type: "idle" } },
+    { id: "tool-codex", parentThreadId: replayParent, name: "Saved Codex tool transcript", status: { type: "idle" } },
     { id: "failed-codex", parentThreadId: replayParent, name: "Failed research", status: { type: "systemError" } },
     {
       id: "unrelated",
@@ -87,6 +89,20 @@ export function replayTurns(id: string, stage = "initial"): Turn[] {
 
   if (id === "missing-session") {
     throw new Error("Synthetic saved history unavailable");
+  }
+
+  if (id === "tool-codex") {
+    return [
+      {
+        id: `${id}-turn`,
+        status: "completed",
+        items: [
+          { id: `${id}-u`, type: "userMessage", content: [{ type: "text", text: "Read saved tool outputs." }] },
+          ...replayToolOutputs(id, replayImage),
+          { id: `${id}-a`, type: "agentMessage", phase: "final_answer", text: "Saved tool output transcript" },
+        ],
+      },
+    ];
   }
 
   const active =

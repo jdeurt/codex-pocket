@@ -6,6 +6,7 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import Database from "better-sqlite3";
 import { checkAgentCache } from "./agent-cache";
 import { checkAgentScroll } from "./agent-scroll";
+import { checkAgentTools } from "./agent-tools";
 import { checkAgentUploads } from "./agent-uploads";
 
 // OFFLINE whole-flow replay: real Next routes, SQLite, JSON-RPC transport, Claude
@@ -52,6 +53,13 @@ test("offline replay: discovery stays light, unchanged history is cached, change
 
 test("offline replay: parent uploads and centered header survive read-only child navigation", async ({ page }) => {
   await checkAgentUploads(page);
+});
+
+test("offline replay: MCP and dynamic saved output, errors and images use shared read-only traces", async ({
+  page,
+  request,
+}) => {
+  await checkAgentTools(page, request);
 });
 
 test("offline replay: scoped discovery, complete normalized histories and GET-only routes", async ({

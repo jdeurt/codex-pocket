@@ -4,6 +4,7 @@ import { currentActivity } from "./activity";
 import { delegationMessagePrefix } from "./delegation-mail";
 import { isRecoveryMessageId } from "./recovery";
 import { projectRestarts } from "./restart-events";
+import { toolTrace } from "./tool-trace";
 
 const internal = (id: unknown) => isRecoveryMessageId(id) || string(id).startsWith(delegationMessagePrefix);
 
@@ -56,29 +57,11 @@ export function visibleSnapshot(state: Snapshot, options: { tools?: boolean } = 
           };
         }
 
-        if (
-          options.tools &&
-          ["toolTrace", "commandExecution", "mcpToolCall", "dynamicToolCall", "fileChange", "webSearch"].includes(
-            item.type
-          )
-        ) {
+        const tool = options.tools ? toolTrace(item) : undefined;
+
+        if (tool) {
           return {
-            id: item.id,
-            type: "toolTrace",
-            tool:
-              string(item.tool) ||
-              (
-                {
-                  commandExecution: "Command",
-                  mcpToolCall: "Tool call",
-                  dynamicToolCall: "Tool call",
-                  fileChange: "File changes",
-                  webSearch: "Web search",
-                } as Record<string, string>
-              )[item.type] ||
-              "Tool",
-            status: string(item.status),
-            text: string(item.text) || string(item.aggregatedOutput),
+            ...tool,
             ...(images.length > 0 && { images }),
           };
         }
