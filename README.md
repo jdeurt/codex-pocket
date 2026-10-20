@@ -1,8 +1,10 @@
 # Pocket
 
-A small phone interface for one Codex thread running on your computer. Messages stream live. Tool activity appears as a small muted spinner. Sends appear immediately in a muted bubble and become solid when Codex acknowledges them. Codex can ask questions and request approvals in the conversation.
+A small phone interface for Codex conversations running on your computer. Messages stream live. Tool activity appears as a small muted spinner. Sends appear immediately in a muted bubble and become solid when Codex acknowledges them. Codex can ask questions and request approvals in the conversation.
 
-Built with Next.js, Tailwind CSS and shadcn/ui. Session selection and behavior belong to the computer; the phone has a conversation and a send button.
+Built with Next.js, Tailwind CSS and shadcn/ui. Native permissions and configuration belong to the computer; the phone manages named conversations and messages.
+
+Open the top-left **Pockets** menu to create named conversations, see their current work, and switch between them. Each Pocket keeps its own history, draft, reading position, and background work. See [named Pockets and deletion behavior](docs/NAMED_POCKETS.md).
 
 ## Install on a Mac
 
@@ -49,7 +51,7 @@ Pocket listens on `http://127.0.0.1:3000`. Use an HTTPS reverse proxy or tunnel 
 
 Set `POCKET_ORIGIN=https://pocket.example.com` when running the installer, or add that origin to `CODEX_ALLOWED_ORIGINS` in `.env.local` and restart. Origins have no path, query or fragment. Local setup works without a phone address. Open the HTTPS address on the phone and add Pocket to the Home Screen for PWA notifications.
 
-Access to that address grants control of the configured Codex conversation. Use your proxy or network’s access controls for the intended operators; Pocket has no separate account system. The Mac must be awake and its user logged in.
+Access to that address grants control of the configured Codex conversations. Use your proxy or network’s access controls for the intended operators; Pocket has no separate account system. The Mac must be awake and its user logged in.
 
 ## Operate and update
 

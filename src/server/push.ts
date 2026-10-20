@@ -4,6 +4,8 @@ import { type NotificationPayload } from "../lib/notification-payload";
 import { type Turn } from "../lib/protocol";
 import { log } from "./logging";
 import { notificationPresence } from "./notification-presence";
+import { pocketHref } from "../lib/pockets";
+import { pocketStore } from "./pocket-store";
 import { readConfig } from "./config";
 import { visibleTurn } from "./visible-snapshot";
 import webpush from "web-push";
@@ -283,6 +285,18 @@ async function notifyVisible(threadId: string, turn: Turn, notification: Notific
   await deliverCompletion(delivery, threadId, turn, completionPayload(notification));
 }
 
+/** Resolve a completion link without changing another tab's selected Pocket.
+@param threadId - Native owner of the completed turn.
+@returns The saved conversation route, or the original home link.
+*/
+function notificationPocketUrl(threadId: string) {
+  const pocket = pocketStore()
+    .list()
+    .find((entry) => entry.threadId === threadId);
+
+  return pocket ? pocketHref(pocket.id) : "/";
+}
+
 /**
 Require visible assistant output before claiming any durable push receipt.
 @param threadId - Exact owning parent.
@@ -291,7 +305,10 @@ Require visible assistant output before claiming any durable push receipt.
 export async function notifyTurnComplete(threadId: string, turn: Turn) {
   const notification = completionNotification(threadId, turn);
 
-  if (notification) {
-    await notifyVisible(threadId, turn, notification);
+  if (!notification) {
+    return;
   }
+
+  notification.url = notificationPocketUrl(threadId);
+  await notifyVisible(threadId, turn, notification);
 }

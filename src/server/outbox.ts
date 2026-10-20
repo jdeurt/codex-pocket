@@ -32,10 +32,13 @@ function ownedReceipts(outbox: z.infer<typeof outboxSchema>, threadId: string) {
 /**
 Restore saved receipts and preserve interrupted sends as unknown without replay.
 @param threadId - Configured parent that must own any undelivered messages.
+@param pocketId - Optional named-Pocket private namespace.
 @returns Restored receipts scoped to this parent.
 */
-export async function restoreReceipts(threadId: string) {
-  const outbox = outboxSchema.parse(await readLocal("outbox.json", { threadId, receipts: [] }));
+export async function restoreReceipts(threadId: string, pocketId?: string) {
+  const outbox = outboxSchema.parse(
+    await readLocal(pocketId ? `pockets/${pocketId}/outbox.json` : "outbox.json", { threadId, receipts: [] })
+  );
 
   const receipts = ownedReceipts(outbox, threadId);
 
@@ -52,9 +55,10 @@ export async function restoreReceipts(threadId: string) {
 Persist unresolved and attachment receipts while bounding plain completed history.
 @param threadId - Parent conversation owning these receipts.
 @param receipts - Current ordered delivery records.
+@param pocketId - Optional named-Pocket private namespace.
 @returns Exact retained receipt list written to private storage.
 */
-export async function persistReceipts(threadId: string, receipts: Receipt[]) {
+export async function persistReceipts(threadId: string, receipts: Receipt[], pocketId?: string) {
   const recent = [
     // Attachment receipts also hold the saved message's display metadata.
     ...receipts.filter((r) => r.status === "sent" && r.attachments?.length),
@@ -62,7 +66,7 @@ export async function persistReceipts(threadId: string, receipts: Receipt[]) {
     ...receipts.filter((r) => r.status !== "sent"),
   ];
 
-  await writeLocal("outbox.json", { threadId, receipts: recent });
+  await writeLocal(pocketId ? `pockets/${pocketId}/outbox.json` : "outbox.json", { threadId, receipts: recent });
 
   return recent;
 }

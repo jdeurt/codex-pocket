@@ -25,12 +25,15 @@ Call only this main Pocket's typed control route; never open another native conn
 */
 export async function callSession(settings?: z.infer<typeof sessionSettingsSchema>) {
   const origin = sessionOrigin();
-  const response = await fetch(new URL("/api/session", origin), {
-    method: settings ? "POST" : "GET",
-    headers: { Origin: origin, "Content-Type": "application/json" },
-    body: settings ? JSON.stringify(settings) : undefined,
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-  });
+  const response = await fetch(
+    new URL(`/api/session?pocket=${encodeURIComponent(process.env.POCKET_ID ?? "main")}`, origin),
+    {
+      method: settings ? "POST" : "GET",
+      headers: { Origin: origin, "Content-Type": "application/json" },
+      body: settings ? JSON.stringify(settings) : undefined,
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    }
+  );
   const result = dataSchema.parse(await response.json());
 
   if (!response.ok) {

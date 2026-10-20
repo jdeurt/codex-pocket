@@ -11,7 +11,12 @@ Persist a restart boundary only after actual process resume hydrates visible his
 @returns Saved restart events scoped to this parent.
 */
 export async function recordRestart(state: Snapshot): Promise<RestartEvent[]> {
-  const saved = z.array(restartEventSchema).parse(await readLocal(STORE, []));
+  const file = state.threadId ? `restarts/${encodeURIComponent(state.threadId)}.json` : STORE;
+  const legacy = z
+    .array(restartEventSchema)
+    .parse(await readLocal(STORE, []))
+    .filter((event) => event.threadId === state.threadId);
+  const saved = z.array(restartEventSchema).parse(await readLocal(file, legacy));
   const turn = state.turns.findLast((entry) => entry.items.length > 0);
   const item = turn?.items.at(LAST_ITEM);
 
@@ -22,7 +27,7 @@ export async function recordRestart(state: Snapshot): Promise<RestartEvent[]> {
       threadId: state.threadId,
       after: { turnId: turn.id, itemId: item.id },
     });
-    await writeLocal(STORE, saved);
+    await writeLocal(file, saved);
   }
 
   return saved.filter((event) => event.threadId === state.threadId);

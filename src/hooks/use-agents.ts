@@ -2,6 +2,7 @@
 import { type Dispatch, type SetStateAction, useEffect, useState } from "react";
 import { HTTP_FORBIDDEN } from "@/lib/constants";
 import { type ZodType } from "zod";
+import { pocketUrl } from "@/lib/pockets";
 
 const POLL_MS = 2000;
 const REQUEST_TIMEOUT_MS = 10_000;
@@ -20,7 +21,7 @@ Read one scoped agent endpoint and validate its response with the shared protoco
 @returns The validated response, without dispatching harness work.
 */
 async function readAgentResponse<T>(url: string, schema: ZodType<T>, signal: AbortSignal) {
-  const response = await fetch(url, { cache: "no-store", signal });
+  const response = await fetch(pocketUrl(url), { cache: "no-store", signal });
 
   if (!response.ok) {
     throw new Error(

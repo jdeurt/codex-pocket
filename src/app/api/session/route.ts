@@ -1,5 +1,5 @@
 import { errorResponse, guard, noStore, readBody } from "@/server/http";
-import { bridge } from "@/server/bridge";
+import { requestBridge } from "@/server/named-pockets";
 import { sessionSettingsSchema } from "@/server/session-settings";
 
 export const runtime = "nodejs";
@@ -11,11 +11,24 @@ Validate and dispatch the allowed native settings mutation after HTTP authorizat
 @returns Effective settings response.
 */
 async function updateSettings(request: Request) {
+  const bridge = await requestBridge(request);
   const body = await readBody(request);
   const settings = sessionSettingsSchema.parse(body);
   const result = await bridge.session.update(settings);
 
   return Response.json(result, { headers: noStore });
+}
+
+/** Read the selected session only after HTTP authorization.
+@param request - Authorized Pocket selection.
+@returns Private native session information.
+*/
+async function sessionInfo(request: Request) {
+  const bridge = await requestBridge(request);
+
+  await bridge.ensureConnected();
+
+  return Response.json(bridge.session.info(), { headers: noStore });
 }
 
 /**
@@ -26,9 +39,8 @@ Inspect this Pocket's connected session without exposing arbitrary native RPC.
 export async function GET(request: Request) {
   try {
     await guard(request);
-    await bridge.ensureConnected();
 
-    return Response.json(bridge.session.info(), { headers: noStore });
+    return await sessionInfo(request);
   } catch (error) {
     return errorResponse(error);
   }

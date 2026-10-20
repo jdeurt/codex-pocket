@@ -11,7 +11,7 @@ import { type AgentStatus, agentStatusSchema, isActiveAgent } from "../lib/agent
 import { type SidePocket, delegations } from "./delegations";
 import { claudeChildren, observeClaudeChild } from "./agent-claude";
 import { object, string } from "../lib/protocol";
-import { readConfig } from "./config";
+import { configForOwner } from "./pocket-config";
 
 /**
 Normalize a persisted Side Pocket into a read-only discovery record.
@@ -177,10 +177,11 @@ function attachNativeThread(tree: DiscoveryTree, thread: CodexThread, parentId: 
 Retain native discovery outages as catalog warnings without revoking saved ownership.
 @param warnings - Catalog warnings receiving a native availability failure.
 @returns Lightweight native child threads, or an empty list while discovery is unavailable.
+@param owner - Verified parent owning the native reader.
 */
-async function availableCodexThreads(warnings: string[]) {
+async function availableCodexThreads(warnings: string[], owner: string) {
   try {
-    return await codexThreads();
+    return await codexThreads(owner);
   } catch {
     warnings.push("Codex discovery is unavailable. Reconnecting automatically.");
 
@@ -247,7 +248,7 @@ async function discoverConfigured(owner: string, cwd: string, previous: Map<stri
   const tree = { owner, records, sessions, parents };
   const scanned = new Set<string>();
   const warnings: string[] = [];
-  const native = await availableCodexThreads(warnings);
+  const native = await availableCodexThreads(warnings, owner);
 
   let hasProgress = true;
 
@@ -267,6 +268,10 @@ async function discoverConfigured(owner: string, cwd: string, previous: Map<stri
   }
 
   await discoverClaude(tree, previous, warnings);
+
+  for (const record of records.values()) {
+    record.owner = owner;
+  }
 
   return {
     owner,
@@ -290,9 +295,9 @@ Discover only configured-parent descendants and merge native and saved identitie
 @returns Scoped records and a sorted lightweight catalog with availability warnings.
 */
 export async function discoverAgents(owner: string, previous = new Map<string, AgentRecord>()) {
-  const config = await readConfig();
+  const config = await configForOwner(owner);
 
-  if (config?.threadId !== owner) {
+  if (config.threadId !== owner) {
     throw new Error("Parent chat is unavailable.");
   }
 

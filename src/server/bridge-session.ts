@@ -9,6 +9,7 @@ import { SessionControls } from "./session-controls";
 import { loadHistory } from "./history";
 import { log } from "./logging";
 import { recordRestart } from "./restart-events";
+import { requestFile } from "./request-files";
 import { resolveDesktopReplies } from "./desktop";
 import { resumePocket } from "./pocket-runtime";
 import { validateAnswer } from "./answers";
@@ -21,23 +22,14 @@ Coordinate native parent hydration, serialized operations and connection shutdow
 */
 export class Bridge {
   private rpc?: CodexRpc;
-
   private config?: Config;
-
   private connecting?: Promise<void>;
-
   private serial: Promise<unknown> = Promise.resolve();
-
   private messages: BridgeOutbox;
-
   private timer?: NodeJS.Timeout;
-
   private hydration?: RpcEvent[];
-
   private disposed = false;
-
   readonly snapshots = new BridgeSnapshots();
-
   readonly session = new SessionControls(
     this,
     (operation) => this.exclusive(operation),
@@ -48,31 +40,10 @@ export class Bridge {
 
   /**
   Bind durable receipt delivery to this bridge's canonical snapshot owner.
+  @param configured - Optional named-Pocket configuration, independent of the original environment.
   */
-  constructor() {
-    this.messages = new BridgeOutbox(this.snapshots);
-  }
-
-  /**
-  Serialize parent operations while allowing work after an earlier failure.
-  @param fn - Next parent operation in submission order.
-  @returns This operation's result without swallowing its failure.
-  */
-  private exclusive<T>(fn: () => Promise<T>): Promise<T> {
-    const previous = this.serial;
-    const result = (async () => {
-      try {
-        await previous;
-      } catch {
-        // A failed operation must not block the next one.
-      }
-
-      return fn();
-    })();
-
-    this.serial = result;
-
-    return result;
+  constructor(private configured?: Config) {
+    this.messages = new BridgeOutbox(this.snapshots, configured?.pocketId);
   }
 
   /**
@@ -94,7 +65,7 @@ export class Bridge {
   Resolve parent configuration before starting a native session.
   */
   private async openConnection() {
-    const config = await readConfig();
+    const config = this.configured ?? (await readConfig());
 
     if (!config) {
       this.snapshot.connection = "unconfigured";
@@ -148,7 +119,7 @@ export class Bridge {
       this.snapshot.error = event.error.message;
       this.snapshot.activeTurnId = undefined;
       this.snapshot.requests = [];
-      void writeLocal("requests.json", []).catch(console.error);
+      void writeLocal(requestFile(this.snapshot.threadId), []).catch(console.error);
       this.snapshots.publish(this.messages.entries);
     });
     // Diagnostics stay in the host terminal; they can contain local account details.
@@ -240,8 +211,29 @@ export class Bridge {
   }
 
   /**
-  Expose the canonical state owned by this bridge's snapshot publisher.
-  @returns The current mutable canonical parent state.
+  Serialize parent operations while allowing work after an earlier failure.
+  @param fn - Next parent operation in submission order.
+  @returns This operation's result without swallowing its failure.
+  */
+  exclusive<T>(fn: () => Promise<T>): Promise<T> {
+    const previous = this.serial;
+    const result = (async () => {
+      try {
+        await previous;
+      } catch {
+        // A failed operation must not block the next one.
+      }
+
+      return fn();
+    })();
+
+    this.serial = result;
+
+    return result;
+  }
+
+  /** Expose canonical parent state.
+  @returns The current mutable snapshot.
   */
   get snapshot(): Snapshot {
     return this.snapshots.state;
@@ -273,9 +265,8 @@ export class Bridge {
     }
   }
 
-  /**
-  Expose the existing connected transport for read-only agent inspection.
-  @returns The current hydrated native client.
+  /** Expose the connected transport for read-only inspection.
+  @returns The current hydrated client.
   */
   agentReader() {
     if (this.snapshot.connection !== "connected" || !this.rpc?.running) {
@@ -286,7 +277,7 @@ export class Bridge {
   }
 
   /**
-  Refresh pending schedule delivery metadata for the configured parent.
+  Refresh pending schedules for this parent.
   */
   refreshScheduled() {
     refreshSnapshotSchedules(this.snapshot, this.config);
@@ -329,13 +320,13 @@ export class Bridge {
 
       this.rpc.respond(id, validateAnswer(request, input));
       this.snapshot.requests = this.snapshot.requests.filter((r) => r.id !== id);
-      await writeLocal("requests.json", this.snapshot.requests);
+      await writeLocal(requestFile(this.snapshot.threadId), this.snapshot.requests);
       this.snapshots.publish(this.messages.entries);
     });
   }
 
   /**
-  Stop desktop polling, snapshot publication and the native child.
+  Stop polling, publication and the native child.
   */
   close() {
     this.disposed = true;

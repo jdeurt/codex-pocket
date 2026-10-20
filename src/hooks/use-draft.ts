@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useSyncExternalStore } from "react";
+import { selectedPocketId } from "@/lib/pockets";
 
 const memory = { draft: "" };
 const key = "codex-pocket-draft";
@@ -25,8 +26,10 @@ Read stored draft text, falling back to memory only when browser storage is unav
 @returns Stored text or null for a missing key, with memory used after a storage exception.
 */
 function storedDraftText() {
+  const storageKey = selectedPocketId() === "main" ? key : `${key}:${selectedPocketId()}`;
+
   try {
-    return localStorage.getItem(key);
+    return localStorage.getItem(storageKey);
   } catch {
     return memory.draft;
   }
@@ -49,10 +52,12 @@ Update the exact local draft and notify every active draft subscriber.
 @param value - New composer text, including its original whitespace.
 */
 const setDraft = (value: string) => {
+  const storageKey = selectedPocketId() === "main" ? key : `${key}:${selectedPocketId()}`;
+
   memory.draft = value;
 
   try {
-    localStorage.setItem(key, value);
+    localStorage.setItem(storageKey, value);
   } catch {
     /*
     Storage can be unavailable in private browsing.

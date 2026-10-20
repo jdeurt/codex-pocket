@@ -96,11 +96,10 @@ test("activity disclosure keeps shared outer gaps and hit target through expansi
           ':scope [data-message-id="before-control"] [data-slot="bubble-content"]'
         );
         const final = element.querySelector(':scope [data-message-id="after-control"] .markdown > :first-child');
-        const status = element.querySelector('[role="status"][aria-label="Pocket activity"]');
         const transcript = element.querySelector(".transcript");
         const details = [...element.querySelectorAll(':scope [data-message-id^="detail-"] .markdown > :first-child')];
 
-        if (!control || !previous || !final || !status || !transcript || (open && details.length !== count)) {
+        if (!control || !previous || !final || !transcript || (open && details.length !== count)) {
           return null;
         }
 
@@ -108,7 +107,7 @@ test("activity disclosure keeps shared outer gaps and hit target through expansi
           expected: Number(
             globalThis.getComputedStyle(transcript).getPropertyValue("--message-block-gap").trim().replace(/px$/, "")
           ),
-          boxes: [previous, control, ...(open ? details : []), final, status].map((item) => {
+          boxes: [previous, control, ...(open ? details : []), final].map((item) => {
             const box = item.getBoundingClientRect();
 
             return { top: box.top, bottom: box.bottom };

@@ -1,5 +1,6 @@
 import { errorResponse, guard, noStore } from "@/server/http";
 import { readFile } from "node:fs/promises";
+import { requestConfig } from "@/server/pocket-config";
 import { viewerFile } from "@/server/file-viewer";
 import { z } from "zod";
 
@@ -51,6 +52,7 @@ export async function GET(request: Request) {
     await guard(request);
 
     authorizeSite(request);
+    await requestConfig(request);
 
     return await fileResponse(new URL(request.url));
   } catch (error) {

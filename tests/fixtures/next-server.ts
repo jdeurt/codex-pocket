@@ -8,7 +8,7 @@ Create private Next build and type paths for one fixture server.
 @param name - Fixed fixture name used to separate concurrent test servers.
 @returns Environment settings for the generated build directory and TypeScript config.
 */
-export async function fixtureBuild(name: "browser" | "agents" | "uploads" | "spinner") {
+export async function fixtureBuild(name: "browser" | "agents" | "uploads" | "pockets" | "spinner") {
   const directory = path.resolve(".next/test-configs");
   const tsconfig = path.join(directory, `${name}.json`);
   const distDir = `.next/test-${name}`;
@@ -57,7 +57,7 @@ Run the real app with a fixture-owned build cache and forward its shutdown signa
 @param environment - Fake protocol and private state settings for this server.
 */
 export async function runNextFixture(
-  name: "browser" | "agents" | "uploads",
+  name: "browser" | "agents" | "uploads" | "pockets",
   origin: string,
   environment: Record<string, string>
 ): Promise<void> {

@@ -1,23 +1,23 @@
 import { errorResponse, guard } from "@/server/http";
-import { bridge } from "@/server/bridge";
 import { itemImageSources } from "@/lib/images";
-import { readConfig } from "@/server/config";
 import { renderImage } from "@/server/images";
+import { requestBridge } from "@/server/named-pockets";
+import { requestConfig } from "@/server/pocket-config";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
 Selects only an image belonging to the requested parent item, with the existing path fallback when no item is selected.
+@param request - Authorized parent selection.
 @param url - Parsed authorized image request.
 @param index - Requested image index, validated before rendering.
 @returns Selected native source, or no source when the item/image is unavailable.
 */
-function parentImageSource(url: URL, index: number) {
+async function parentImageSource(request: Request, url: URL, index: number) {
   const itemId = url.searchParams.get("item");
-  const item = itemId
-    ? bridge.snapshot.turns.flatMap((turn) => turn.items).find((entry) => entry.id === itemId)
-    : undefined;
+  const bridge = itemId ? await requestBridge(request) : undefined;
+  const item = bridge?.snapshot.turns.flatMap((turn) => turn.items).find((entry) => entry.id === itemId);
 
   if (itemId) {
     return item ? itemImageSources(item)[index] : undefined;
@@ -34,12 +34,8 @@ Renders an authorized parent image and retains conditional cache responses.
 @returns Private WebP response or unchanged-image status.
 */
 async function renderedImage(request: Request, url: URL, source: string) {
-  const config = await readConfig();
-  const { bytes, etag } = await renderImage(
-    source,
-    config?.cwd ?? process.cwd(),
-    url.searchParams.get("thumbnail") === "1"
-  );
+  const config = await requestConfig(request);
+  const { bytes, etag } = await renderImage(source, config.cwd, url.searchParams.get("thumbnail") === "1");
   const headers = {
     "Content-Type": "image/webp",
     "Cache-Control": "private, max-age=300",
@@ -61,7 +57,7 @@ Resolves and validates a parent image selection after request authorization.
 async function imageResponse(request: Request) {
   const url = new URL(request.url);
   const index = Number(url.searchParams.get("index") ?? 0);
-  const source = parentImageSource(url, index);
+  const source = await parentImageSource(request, url, index);
 
   if (!source || !Number.isSafeInteger(index) || index < 0) {
     throw new Error("Image is unavailable in this chat.");

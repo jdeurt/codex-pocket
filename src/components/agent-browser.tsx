@@ -117,16 +117,16 @@ export function AgentBrowser({
         setVisit({ data, entries: new Map() });
       }}
     >
-      {(count > 0 || indicator) && (
-        <ActivityRow>
-          {indicator}
-          {count > 0 && (
-            <Dialog.Trigger className="agents-trigger">
+      <ActivityRow>
+        {indicator}
+        {count > 0 && (
+          <Dialog.Trigger className="agents-trigger">
+            <span className="agents-label">
               {count} {count === 1 ? "agent" : "agents"}
-            </Dialog.Trigger>
-          )}
-        </ActivityRow>
-      )}
+            </span>
+          </Dialog.Trigger>
+        )}
+      </ActivityRow>
       <Dialog.Portal>
         <Dialog.Backdrop className="agents-backdrop" />
         <Dialog.Popup

@@ -126,7 +126,12 @@ Start one active turn and acknowledge it before streaming its output.
   start(params: Data) {
     const thread = this.store.get(params.threadId);
     const turn: Turn = { id: randomUUID(), status: "inProgress", items: [], error: null };
-    const user: Item = { id: randomUUID(), type: "userMessage", content: params.input };
+    const user: Item = {
+      id: randomUUID(),
+      type: "userMessage",
+      clientId: params.clientUserMessageId ?? null,
+      content: params.input,
+    };
 
     this.assertIdle(thread.turns);
 
@@ -182,7 +187,12 @@ Apply conditional steering or interrupt the existing active turn.
         throw new Error("expected turn does not match active turn");
       }
 
-      turn.items.push({ id: randomUUID(), type: "userMessage", content: array(params.input) });
+      turn.items.push({
+        id: randomUUID(),
+        type: "userMessage",
+        clientId: params.clientUserMessageId ?? null,
+        content: array(params.input),
+      });
 
       return { turnId: turn.id };
     }

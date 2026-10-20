@@ -11,3 +11,5 @@ export const SAFARI_WIDTH = 1024;
 export const SAFARI_HEIGHT = 768;
 export const PHONE = { viewport: { width: PHONE_WIDTH, height: PHONE_HEIGHT }, isMobile: true, hasTouch: true };
 export const DESKTOP = { viewport: { width: DESKTOP_WIDTH, height: DESKTOP_HEIGHT } };
+
+export const POCKETS_ORIGIN = "http://127.0.0.1:3467";

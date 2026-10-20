@@ -2,9 +2,11 @@ import { type Snapshot, initialSnapshot } from "../../src/lib/protocol";
 import { expect, test } from "@playwright/test";
 import { mount, publish } from "./virtualization-fixture";
 
+const STATUS_HEIGHT = 44;
+const INPUT_GAP = 10;
 const viewport = '[data-slot="message-scroller-viewport"]';
 
-test("visible message edges and pending status use one shared outer gap", async ({ page }) => {
+test("visible messages keep their shared outer gap while status stays in the composer", async ({ page }) => {
   const state: Snapshot = {
     ...initialSnapshot,
     connection: "connected",
@@ -44,10 +46,9 @@ test("visible message edges and pending status use one shared outer gap", async 
           last.dataset.variant === "secondary" ? '[data-slot="bubble-content"]' : ":scope .markdown > :first-child"
         );
         const queued = element.querySelector(':scope [data-message-id="gap-queued"] [data-slot="bubble-content"]');
-        const status = element.querySelector('[role="status"][aria-label="Pocket activity"]');
         const transcript = element.querySelector(".transcript");
 
-        if (!previous || !firstVisible || !visible || !status || !transcript) {
+        if (!previous || !firstVisible || !visible || !transcript) {
           return { expected: 0, gaps: [Infinity] };
         }
 
@@ -57,12 +58,7 @@ test("visible message edges and pending status use one shared outer gap", async 
           ),
           gaps: [
             firstVisible.getBoundingClientRect().top - previous.getBoundingClientRect().bottom,
-            ...(queued
-              ? [
-                  queued.getBoundingClientRect().top - visible.getBoundingClientRect().bottom,
-                  status.getBoundingClientRect().top - queued.getBoundingClientRect().bottom,
-                ]
-              : [status.getBoundingClientRect().top - visible.getBoundingClientRect().bottom]),
+            ...(queued ? [queued.getBoundingClientRect().top - visible.getBoundingClientRect().bottom] : []),
           ],
         };
       });
@@ -110,26 +106,15 @@ test("visible message edges and pending status use one shared outer gap", async 
   state.queue = [{ id: "gap-queued", text: "First queued bubble", status: "sent" }];
   await publish(page, state);
   await expect(page.getByRole("status", { name: "Pocket activity" })).toBeVisible();
+  await expect(page.locator(".transcript .activity-indicator")).toHaveCount(0);
+  await expect(page.locator(".composer-wrap .activity-row")).toHaveCSS("height", `${String(STATUS_HEIGHT)}px`);
   await expect
     .poll(() =>
-      page.locator('[data-message-id="gap-queued"] [data-slot="bubble-content"]').evaluate((queued) => {
-        const status = globalThis.document.querySelector('[role="status"][aria-label="Pocket activity"]');
-        const transcript = queued.closest(".transcript");
+      page.locator(".activity-row").evaluate((row) => {
+        const input = globalThis.document.querySelector(".composer");
 
-        return status && transcript
-          ? Math.abs(
-              status.getBoundingClientRect().top -
-                queued.getBoundingClientRect().bottom -
-                Number(
-                  globalThis
-                    .getComputedStyle(transcript)
-                    .getPropertyValue("--message-block-gap")
-                    .trim()
-                    .replace(/px$/, "")
-                )
-            )
-          : Infinity;
+        return (input?.getBoundingClientRect().top ?? 0) - row.getBoundingClientRect().bottom;
       })
     )
-    .toBeLessThan(1);
+    .toBe(INPUT_GAP);
 });

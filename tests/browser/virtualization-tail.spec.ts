@@ -10,6 +10,8 @@ import { viewport } from "./virtualization-measure";
 
 const LONG_STATUS_REPETITIONS = 4;
 const HIT_TARGET = 44;
+const COMPOSER_GAP = 10;
+const ALIGNMENT_TOLERANCE = 0.5;
 const ACTIVITY_COUNT = 120;
 const READER_DISTANCE = 200;
 
@@ -70,14 +72,14 @@ Measures the actual activity line and composer layout independently of virtual e
 */
 function tailGeometry(page: Page) {
   return page.locator(".activity-row").evaluate((row) => {
-    const scroller = row.closest('[data-slot="message-scroller-viewport"]');
+    const scroller = globalThis.document.querySelector('[data-slot="message-scroller-viewport"]');
     const composer = globalThis.document.querySelector(".composer-wrap");
-    const footer = row.closest('[data-slot="transcript-footer"]');
+    const input = globalThis.document.querySelector(".composer");
 
     return {
       rowHeight: row.getBoundingClientRect().height,
       rowTop: row.getBoundingClientRect().top,
-      footerHeight: footer?.getBoundingClientRect().height,
+      inputGap: (input?.getBoundingClientRect().top ?? 0) - row.getBoundingClientRect().bottom,
       viewportHeight: scroller?.getBoundingClientRect().height,
       composerTop: composer?.getBoundingClientRect().top,
     };
@@ -158,6 +160,18 @@ test("agent presence retains activity-line geometry and a mobile hit target", as
     return await agent.boundingBox();
   });
 
+  await expect
+    .poll(() =>
+      page.locator(".activity-row").evaluate((row) => {
+        const indicator = row.querySelector(".activity-indicator")?.getBoundingClientRect();
+        const label = row.querySelector(".agents-label")?.getBoundingClientRect();
+
+        return indicator && label
+          ? Math.abs(indicator.top + indicator.height / 2 - label.top - label.height / 2)
+          : Infinity;
+      })
+    )
+    .toBeLessThan(ALIGNMENT_TOLERANCE);
   expect(hitTarget?.height).toBeGreaterThanOrEqual(HIT_TARGET);
   expect(hitTarget?.width).toBeGreaterThanOrEqual(HIT_TARGET);
   await agent.click({ position: { x: 2, y: 2 } });
@@ -173,6 +187,11 @@ test("agent presence retains activity-line geometry and a mobile hit target", as
   await page.evaluate(() => globalThis.dispatchEvent(new Event("online")));
   await expect(agent).toHaveCount(0);
   await expect.poll(() => tailGeometry(page)).toEqual(original);
+  await publish(page, { ...state, activeTurnId: undefined });
+  await expect(page.getByRole("status", { name: "Pocket activity" })).toHaveCount(0);
+  await expect.poll(() => tailGeometry(page)).toEqual(original);
+  expect(original.rowHeight).toBe(HIT_TARGET);
+  expect(original.inputGap).toBe(COMPOSER_GAP);
   expect(writes).toEqual([]);
 });
 
