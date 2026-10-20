@@ -489,6 +489,10 @@
   padding-left: 1em;
   color: var(--muted-foreground);
 }
+.markdown [data-slot="table-container"] {
+  width: max-content;
+  border: 1px solid var(--border);
+}
 .markdown table {
   width: max-content;
   border-collapse: collapse;
@@ -497,8 +501,14 @@
 .markdown td {
   box-sizing: content-box;
   max-width: 24rem;
-  border: 1px solid var(--border);
   padding: 8px 12px;
+}
+.markdown tr > :not(:last-child) {
+  border-right: 1px solid var(--border);
+}
+.markdown thead tr > *,
+.markdown tbody tr:not(:last-child) > * {
+  border-bottom: 1px solid var(--border);
 }
 .markdown img {
   max-width: 100%;
