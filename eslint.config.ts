@@ -104,6 +104,7 @@ export const stylisticConflicts: Record<string, string> = {
   "@stylistic/arrow-parens": "Prettier arrowParens=always conflicts with as-needed parentheses.",
   "@stylistic/brace-style": "Prettier keeps else/catch/finally beside the closing brace; Stroustrup separates them.",
   "@stylistic/comma-dangle": "Prettier trailingComma=es5 omits function argument commas required by always-multiline.",
+  "@stylistic/indent": "Prettier owns indentation, including nested JSX callbacks and ternary branches.",
   "@stylistic/indent-binary-ops":
     "Prettier indents wrapped string concatenation arguments further than this rule allows.",
   "@stylistic/member-delimiter-style": "Prettier uses semicolons in TypeScript members, not none/comma delimiters.",
@@ -133,7 +134,7 @@ export function createConfig(options: { typed?: boolean; tsconfigRootDir?: strin
     ...(options.typed
       ? [...tseslint.configs.strictTypeChecked, ...tseslint.configs.stylisticTypeChecked]
       : [...tseslint.configs.strict, ...tseslint.configs.stylistic]
-    ).map((entry: Record<string, unknown>) => ({ ...entry, files: options.typed && !entry.files ? files : tsFiles })),
+    ).map((entry) => ({ ...entry, files: options.typed && !("files" in entry && entry.files) ? files : tsFiles })),
     { files: ["**/*.{cjs,cts}"], languageOptions: { sourceType: "commonjs" } },
     {
       files,
