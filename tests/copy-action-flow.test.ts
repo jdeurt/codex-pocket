@@ -20,6 +20,7 @@ const STAGES = ["initial", "restart", "reconnect"];
 await test("canonical main prompt retains copy guidance and existing instructions across fresh process reconnects without user-message injection", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "pocket-copy-prompt-flow-"));
   const oldState = process.env.CODEX_POCKET_STATE_DIR;
+
   process.env.CODEX_POCKET_STATE_DIR = directory;
   const log = path.join(directory, "rpc.jsonl");
   const config = configSchema.parse({
@@ -30,6 +31,7 @@ await test("canonical main prompt retains copy guidance and existing instruction
   });
   const existing = "Keep all existing configured instructions. ORIGINAL_PROMPT_SENTINEL";
   const instructions = pocketInstructions(existing, false);
+
   assert.ok(instructions.startsWith(existing + "\n\n"));
 
   for (const preserved of ["Pocket displays image-view output", "Use side_pocket_list", "schedule_create"]) {
@@ -63,8 +65,10 @@ await test("canonical main prompt retains copy guidance and existing instruction
       .trim()
       .split("\n")
       .map((line) => promptLogSchema.parse(JSON.parse(line)));
+
     assert.equal(new Set(messages.map((message) => message.pid)).size, STAGES.length);
     const sessions = messages.filter((message) => ["thread/start", "thread/resume"].includes(message.method));
+
     assert.equal(sessions.length, STAGES.length);
 
     for (const session of sessions) {

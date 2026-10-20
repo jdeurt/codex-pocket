@@ -14,9 +14,11 @@ if (!childId || !commandId) {
 
 const child = childId;
 const command = commandId;
+
 serveStdio(
   () => {
     const server = new McpServer({ name: "pocket_parent", version: "1.0.0" });
+
     server.registerTool(
       "message_parent",
       {

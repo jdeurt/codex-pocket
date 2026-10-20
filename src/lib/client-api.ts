@@ -5,6 +5,7 @@ async function request(path: string, options: RequestInit) {
   const requestId = crypto.randomUUID();
   const startedAt = performance.now();
   const headers = new Headers(options.headers);
+
   headers.set("X-Pocket-Request-Id", requestId);
   let response: Response;
 
@@ -16,6 +17,7 @@ async function request(path: string, options: RequestInit) {
   }
 
   const text = await response.text();
+
   let data: Record<string, unknown>;
 
   try {

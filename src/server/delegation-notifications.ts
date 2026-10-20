@@ -8,9 +8,13 @@ const SIGNAL_FILE = "delegations.notify";
 // Watch the directory so replacing the signal file cannot detach subscribers.
 export class DelegationNotifications {
   private listeners = new Set<() => void>();
+
   private watcher?: FSWatcher;
+
   private scheduled = false;
+
   private closed = false;
+
   changed = () => {
     if (this.scheduled || this.closed) {
       return;
@@ -35,12 +39,15 @@ export class DelegationNotifications {
       this.emit();
     });
   };
+
   constructor(private directory: string) {}
+
   private emit() {
     for (const listener of this.listeners) {
       listener();
     }
   }
+
   subscribe(listener: () => void) {
     this.listeners.add(listener);
 
@@ -72,6 +79,7 @@ export class DelegationNotifications {
       this.watcher = undefined;
     };
   }
+
   close() {
     this.closed = true;
     this.listeners.clear();

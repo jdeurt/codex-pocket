@@ -17,6 +17,7 @@ import { readConfig } from "./config";
 function pocketRecord(child: SidePocket, id: string, parentId: string): AgentRecord {
   const metadata = object(JSON.parse(child.metadata));
   const lastStatus = delegations().lastCommandStatus(child.parentId, child.id);
+
   let status: AgentStatus = ["running", "waiting", "idle", "closed"].includes(child.status)
     ? agentStatusSchema.parse(child.status)
     : "unknown";
@@ -70,6 +71,7 @@ function attachPocket(tree: DiscoveryTree, child: SidePocket, parent: string) {
     id,
     tree.sessions.get(`codex:${parent}`) ?? tree.sessions.get(`claude:${parent}`) ?? parent
   );
+
   tree.records.set(id, record);
   tree.sessions.set(key, id);
   tree.sessions.set(`${child.harness}:${child.id}`, id);
@@ -95,6 +97,7 @@ export async function discoverAgents(owner: string, previous = new Map<string, A
   const tree = { owner, records, sessions, parents };
   const scanned = new Set<string>();
   const warnings: string[] = [];
+
   let native: CodexThread[] = [];
 
   try {
@@ -130,6 +133,7 @@ export async function discoverAgents(owner: string, previous = new Map<string, A
       }
 
       const id = `codex:${thread.id}`;
+
       records.set(id, {
         agent: {
           id,

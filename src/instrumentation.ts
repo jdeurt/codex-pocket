@@ -7,6 +7,7 @@ export async function register() {
   }
 
   const { registerNode } = await import("./server/register");
+
   registerNode();
 }
 
@@ -16,5 +17,6 @@ export const onRequestError: Instrumentation.onRequestError = async (error, requ
   }
 
   const { log } = await import("./server/logging");
+
   log().error({ error, request, context }, "server.request_error");
 };

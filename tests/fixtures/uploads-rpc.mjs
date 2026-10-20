@@ -124,6 +124,7 @@ async function deliver(method, params) {
     clientId: params.clientUserMessageId,
     content: params.input,
   };
+
   let turn =
     method === "turn/steer"
       ? thread.turns.find((entry) => entry.id === params.expectedTurnId && entry.status === "inProgress")
@@ -188,6 +189,7 @@ for await (const line of createInterface({ input: process.stdin })) {
 
   try {
     const result = await execute(request.method, request.params ?? {});
+
     send({ id: request.id, result });
   } catch (error) {
     send({ id: request.id, error: { code: -32_000, message: error.message } });

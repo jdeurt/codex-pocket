@@ -25,6 +25,7 @@ serveStdio(
           "Manage schedules and Side Pockets for this main Pocket chat. Calendar is RFC 5545 DTSTART plus optional RRULE/RDATE/EXDATE, or a single VEVENT/VCALENDAR. Use UTC Z or IANA TZID. The schedule body is delivered to the agent when due; triggers are hidden from the phone chat. Active values in stored records are SQLite booleans (0/1), and dates are Unix milliseconds.",
       }
     );
+
     server.registerTool(
       "schedule_create",
       {

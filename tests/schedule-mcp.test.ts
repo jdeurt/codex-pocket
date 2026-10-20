@@ -31,9 +31,11 @@ await test("the bundled MCP process validates input and performs schedule CRUD o
   try {
     await client.connect(transport);
     const { tools } = await client.listTools();
+
     assert.equal(tools.length, TOOL_COUNT);
     const call = async (name: string, arguments_: Record<string, unknown>) => {
       const result = await client.callTool({ name, arguments: arguments_ });
+
       assert.equal(result.isError, undefined, JSON.stringify(result));
 
       return toolJson(result);
@@ -56,8 +58,10 @@ await test("the bundled MCP process validates input and performs schedule CRUD o
         expectedRevision: created.revision,
       })
     );
+
     assert.equal(updated.title, "Updated MCP check");
     const fetched = scheduleSchema.parse(await call("schedule_get", { id: created.id }));
+
     assert.equal(fetched.active, 0);
     const renamed = scheduleSchema.parse(
       await call("schedule_update", {
@@ -66,12 +70,14 @@ await test("the bundled MCP process validates input and performs schedule CRUD o
         expectedRevision: fetched.revision,
       })
     );
+
     assert.equal(renamed.active, 0);
     assert.equal(Array.isArray(await call("schedule_list", {})), true);
     const invalid = await client.callTool({
       name: "schedule_create",
       arguments: { title: "Invalid", body: "Nothing", calendar: "DTSTART:20260230T090000Z" },
     });
+
     assert.equal(invalid.isError, true);
     await call("schedule_delete", { id: created.id });
     assert.deepEqual(await call("schedule_list", {}), []);

@@ -2,6 +2,7 @@
 import { createInterface } from "node:readline";
 
 const turn = { id: "spinner-turn", status: "inProgress", items: [] };
+
 createInterface({ input: process.stdin }).on("line", (line) => {
   const { id, method } = JSON.parse(line);
 
@@ -19,5 +20,6 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     },
     "thread/turns/list": { data: [turn], nextCursor: null },
   };
+
   process.stdout.write(JSON.stringify({ id, result: results[method] ?? {} }) + "\n");
 });

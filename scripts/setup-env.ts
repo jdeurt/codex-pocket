@@ -36,6 +36,7 @@ export function formatEnvironment(source: string, values: Record<string, string>
 
     const entry = `${key}=${delimiter}${value.replaceAll("$", String.raw`\$`)}${delimiter}`;
     const pattern = new RegExp(`^${key}=.*$`, "m");
+
     source = pattern.test(source) ? source.replace(pattern, () => entry) : `${source.trimEnd()}\n${entry}\n`;
   }
 
@@ -54,6 +55,7 @@ export async function saveSetupEnvironment(file: string, values: Record<string, 
   }
 
   const temporary = `${file}.${crypto.randomUUID()}.tmp`;
+
   await writeFile(temporary, formatEnvironment(source, values), { mode: PRIVATE_FILE_MODE });
   await rename(temporary, file);
   await chmod(file, PRIVATE_FILE_MODE);

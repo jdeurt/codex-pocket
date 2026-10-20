@@ -15,6 +15,7 @@ export async function waitForProcessExit(child: ChildProcess | undefined) {
       child.off("error", finish);
       resolve();
     };
+
     pending.timer = setTimeout(() => child.kill("SIGKILL"), PROCESS_EXIT_TIMEOUT_MS);
     child.once("exit", finish);
     child.once("error", finish);

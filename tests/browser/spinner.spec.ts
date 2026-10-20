@@ -61,8 +61,10 @@ test("tool-managed GIF animates in grayscale across desktop/mobile, persists thr
   browserName,
 }) => {
   const main = server.main;
+
   assert.ok(main);
   const uploaded = path.join(server.directory, "private-upload-kirby.gif");
+
   await copyFile(path.resolve("tests/fixtures/spinners/kirbyjam.gif"), uploaded);
   const chosen = await main.call("spinner_set", { path: uploaded });
 
@@ -83,15 +85,20 @@ test("tool-managed GIF animates in grayscale across desktop/mobile, persists thr
   expect(response.headers.get("cache-control")).toBe("private, no-cache");
   expect(Buffer.from(await response.arrayBuffer())).toEqual(await readFile(uploaded));
   const response2 = await fetch(url, { headers: { "if-none-match": etag } });
+
   expect(response2.status).toBe(HTTP_NOT_MODIFIED);
   const response3 = await fetch(url, { headers: { "sec-fetch-site": "cross-site" } });
+
   expect(response3.status).toBe(HTTP_NOT_FOUND);
   const response4 = await fetch(`${origin}/api/spinner/not-a-managed-id`);
+
   expect(response4.status).toBe(HTTP_NOT_FOUND);
   const response5 = await fetch(`${origin}/api/spinner?path=${encodeURIComponent(uploaded)}`, { method: "POST" });
+
   expect(response5.status).toBe(HTTP_METHOD_NOT_ALLOWED);
   const response6 = await fetch(`${origin}/api/spinner`);
   const publicPreference = await response6.text();
+
   expect(publicPreference).not.toContain(server.directory);
   expect(publicPreference).not.toContain("private-upload");
   expect(publicPreference).not.toContain("saved");
@@ -104,12 +111,14 @@ test("tool-managed GIF animates in grayscale across desktop/mobile, persists thr
       reducedMotion: "no-preference",
     });
     const page = await context.newPage();
+
     await page.bringToFront();
 
     try {
       await ready(page);
       const slot = page.locator("[data-activity-spinner]");
       const img = slot.locator("img");
+
       await expect(img).toBeVisible();
       await expect
         .poll(() =>
@@ -121,6 +130,7 @@ test("tool-managed GIF animates in grayscale across desktop/mobile, persists thr
         )
         .toBe(SOURCE_GIF_WIDTH);
       const customPosition = await alignment(page);
+
       expect(customPosition.slot.width).toBe(SLOT_EDGE);
       expect(customPosition.slot.height).toBe(SLOT_EDGE);
       await animatedGrayscale(page);
@@ -140,6 +150,7 @@ test("tool-managed GIF animates in grayscale across desktop/mobile, persists thr
         })
       ).toBe("none");
       const still = await captureSlot(page);
+
       await new Promise((resolve) => setTimeout(resolve, STATIC_CAPTURE_DELAY_MS));
       expect(await captureSlot(page)).toEqual(still);
       expect(await alignment(page)).toEqual(customPosition);
@@ -158,11 +169,13 @@ test("tool-managed GIF animates in grayscale across desktop/mobile, persists thr
         })
       ).toBe("none");
       const spinnerLibrary7 = await main.call("spinner_status");
+
       expect(spinnerLibrary7.saved.some((asset) => asset.id === id)).toBe(true);
       await main.call("spinner_set", { path: uploaded });
       await expect(slot.locator("img")).toBeVisible();
 
       const wide = path.join(server.directory, "wide.png");
+
       await sharp({ create: { width: 160, height: 40, channels: 3, background: "red" } })
         .png()
         .toFile(wide);
@@ -191,6 +204,7 @@ test("tool-managed GIF animates in grayscale across desktop/mobile, persists thr
         { length: info.height },
         (_, row) => data[(row * info.width + Math.floor(info.width / 2)) * info.channels]
       );
+
       expect(rows.filter((value) => Math.abs(value - background) > BACKGROUND_TOLERANCE).length).toBeGreaterThanOrEqual(
         MIN_RENDERED_ROWS
       );
@@ -212,14 +226,17 @@ test("tool-managed GIF animates in grayscale across desktop/mobile, persists thr
   await stopSpinnerServer(server);
   await startSpinnerServer(server, origin);
   const spinnerLibrary8 = await main.call("spinner_status");
+
   expect(spinnerLibrary8.current?.id).toBe(id);
   const page = await browser.newPage({ reducedMotion: "no-preference" });
 
   try {
     await ready(page);
     const slot = page.locator("[data-activity-spinner]");
+
     await expect(slot.locator("img")).toHaveAttribute("src", `/api/spinner/${id}`);
     const position = await alignment(page);
+
     await rm(path.join(server.directory, "spinner-assets", id));
     await page.reload({ waitUntil: "domcontentloaded" });
     await expect(slot.locator('svg[data-slot="spinner"]')).toBeVisible();
@@ -230,6 +247,7 @@ test("tool-managed GIF animates in grayscale across desktop/mobile, persists thr
     await expect(slot.locator('svg[data-slot="spinner"]')).toBeVisible();
     expect(await alignment(page)).toEqual(position);
     const response9 = await fetch(url, { headers: { "if-none-match": etag } });
+
     expect(response9.status).toBe(HTTP_NOT_FOUND);
     expect(await readFile(uploaded)).toEqual(await readFile(path.resolve("tests/fixtures/spinners/kirbyjam.gif")));
   } finally {

@@ -102,6 +102,7 @@ test("a thousand activity messages stay virtualized through scrolling, media gro
   const state: Snapshot = { ...initialSnapshot, connection: "connected", turns: [turn] };
   const writes = await mount(page, state);
   const scroller = await page.locator(viewport).elementHandle();
+
   await page.getByRole("textbox", { name: "Message Pocket" }).fill("Keep the parent draft");
   await page.getByRole("button", { name: "Show activity", exact: true }).click();
   await expect(page.getByRole("button", { name: "Hide activity", exact: true })).toHaveAttribute(
@@ -113,6 +114,7 @@ test("a thousand activity messages stay virtualized through scrolling, media gro
   for (const fraction of Object.values(SCROLL_STOPS)) {
     await scroll(page, fraction);
     const frame = await painted(page);
+
     counts.push(frame.count);
   }
 
@@ -121,6 +123,7 @@ test("a thousand activity messages stay virtualized through scrolling, media gro
       new Promise<void>((resolve) => {
         let previous = element.scrollTop;
         let stable = 0;
+
         const frame = () => {
           stable = Math.abs(element.scrollTop - previous) < 1 ? stable + 1 : 0;
           previous = element.scrollTop;
@@ -131,6 +134,7 @@ test("a thousand activity messages stay virtualized through scrolling, media gro
             globalThis.requestAnimationFrame(frame);
           }
         };
+
         globalThis.requestAnimationFrame(frame);
       })
   );
@@ -156,6 +160,7 @@ test("a thousand activity messages stay virtualized through scrolling, media gro
       .toBeLessThan(OFFSET_TOLERANCE);
   };
   const index = turn.items.findIndex((item) => anchor.id.endsWith(`/${item.id}`));
+
   turn.items[index - 2].images = [{ source: "/api/images?item=reader-growth", alt: "Image above activity reader" }];
   await publish(page, state);
   await expect(page.getByRole("img", { name: "Image above activity reader" })).toHaveJSProperty("complete", true);

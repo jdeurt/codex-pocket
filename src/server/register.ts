@@ -24,9 +24,11 @@ export function registerNode() {
       }
 
       const scheduler = new Scheduler(schedules(), bridge, config.threadId);
+
       scheduler.start();
       await bridge.ensureConnected();
       const worker = new DelegationWorker(delegations(), bridge, config);
+
       worker.start();
       process.once("SIGTERM", () => void worker.stop());
       process.once("SIGINT", () => void worker.stop());

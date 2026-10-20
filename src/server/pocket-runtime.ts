@@ -73,6 +73,7 @@ export async function resumePocket(rpc: CodexRpc, config: Config) {
     readOnly: "read-only",
     workspaceWrite: "workspace-write",
   };
+
   delegations().saveParent(config.threadId, {
     cwd: config.cwd,
     policy: parentPolicy({

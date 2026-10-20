@@ -49,6 +49,7 @@ export async function flushClientLogs() {
 
   queue.sending = true;
   let delivered = false;
+
   const batch = queue.records.slice(0, BATCH_SIZE);
 
   try {
@@ -63,6 +64,7 @@ export async function flushClientLogs() {
     }
 
     const ids = new Set(batch.map((entry) => entry.id));
+
     queue.records = queue.records.filter((entry) => !ids.has(entry.id));
     persist();
     delivered = true;

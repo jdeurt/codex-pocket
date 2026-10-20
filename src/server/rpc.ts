@@ -32,7 +32,9 @@ export class RpcError extends Error {
 // One process, one newline-delimited JSON-RPC connection. Never spawn a shell.
 export class CodexRpc extends EventEmitter {
   private child?: ChildProcessWithoutNullStreams;
+
   private sequence = 0;
+
   private pending = new Map<
     number,
     {
@@ -43,23 +45,28 @@ export class CodexRpc extends EventEmitter {
       startedAt: number;
     }
   >();
+
   private write(message: unknown) {
     log().debug({ message }, "codex.rpc.out");
     this.child?.stdin.write(JSON.stringify(message) + "\n");
   }
+
   get running() {
     return !!this.child && this.child.exitCode === null && !this.child.killed;
   }
+
   get pid() {
     return this.child?.pid;
   }
 
   async connect(config: Config, profile: "pocket" | "bare" = "pocket") {
     const args = profile === "pocket" ? pocketServerArgs(config) : config.serverArgs;
+
     log().info({ binary: config.codexBinary, args, cwd: config.cwd, threadId: config.threadId }, "codex.spawn");
     this.child = spawn(config.codexBinary, args, { cwd: config.cwd, shell: false });
     const child = this.child;
     const lines = createInterface({ input: child.stdout });
+
     lines.on("line", (line) => {
       let message: Data;
 
@@ -105,10 +112,12 @@ export class CodexRpc extends EventEmitter {
 
         if (message.error) {
           const error = object(message.error);
+
           pending.reject(new RpcError(string(error.message), typeof error.code === "number" ? error.code : undefined));
         } else {
           try {
             const schema = rpcResponseSchemas.get(pending.method);
+
             pending.resolve(schema ? schema.parse(message.result) : message.result);
           } catch (error) {
             pending.reject(new Error(`Invalid ${pending.method} response.`, { cause: error }));
@@ -118,6 +127,7 @@ export class CodexRpc extends EventEmitter {
     });
     child.stderr.on("data", (data) => this.emit("diagnostic", String(data)));
     let closed = false;
+
     const close = (error: Error) => {
       if (closed) {
         return;
@@ -136,6 +146,7 @@ export class CodexRpc extends EventEmitter {
       this.child = undefined;
       this.emit("disconnect", error);
     };
+
     child.once("error", close);
     child.once("exit", (code, signal) => {
       close(new Error(`Codex disconnected: ${JSON.stringify({ code, signal })}`));
@@ -172,6 +183,7 @@ export class CodexRpc extends EventEmitter {
         // A late result cannot be safely associated with a subsequent send.
         this.close();
       }, ACKNOWLEDGEMENT_TIMEOUT_MS);
+
       this.pending.set(id, {
         resolve,
         reject,
@@ -182,14 +194,18 @@ export class CodexRpc extends EventEmitter {
       this.write({ id, method, params });
     });
   }
+
   respond(id: string | number, result: unknown) {
     this.write({ id, result });
   }
+
   close() {
     this.child?.kill("SIGTERM");
   }
+
   async shutdown() {
     const child = this.child;
+
     this.close();
     await waitForProcessExit(child);
   }

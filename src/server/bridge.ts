@@ -22,15 +22,25 @@ const DESKTOP_REPLY_INTERVAL_MS = 750;
 
 export class Bridge extends EventEmitter {
   private rpc?: CodexRpc;
+
   private config?: Config;
+
   private connecting?: Promise<void>;
+
   private serial: Promise<unknown> = Promise.resolve();
+
   private receipts: Receipt[] = [];
+
   private timer?: NodeJS.Timeout;
+
   private flushTimer?: NodeJS.Timeout;
+
   private hydration?: RpcEvent[];
+
   private disposed = false;
+
   snapshot: Snapshot = structuredClone(initialSnapshot);
+
   private exclusive<T>(fn: () => Promise<T>): Promise<T> {
     const previous = this.serial;
     const result = (async () => {
@@ -42,10 +52,12 @@ export class Bridge extends EventEmitter {
 
       return fn();
     })();
+
     this.serial = result;
 
     return result;
   }
+
   private publish() {
     projectAttachments(this.snapshot, this.receipts);
 
@@ -68,6 +80,7 @@ export class Bridge extends EventEmitter {
       this.emit("snapshot", this.snapshot);
     }, SNAPSHOT_THROTTLE_MS);
   }
+
   private async persist() {
     if (!this.config) {
       return;
@@ -77,6 +90,7 @@ export class Bridge extends EventEmitter {
     this.snapshot.queue = this.receipts.filter((r) => r.status !== "sent");
     this.publish();
   }
+
   private async connect() {
     try {
       await this.openConnection();
@@ -88,6 +102,7 @@ export class Bridge extends EventEmitter {
       throw error;
     }
   }
+
   private async openConnection() {
     const config = await readConfig();
 
@@ -109,6 +124,7 @@ export class Bridge extends EventEmitter {
     this.receipts = await restoreReceipts(config.threadId);
     await this.persist();
     const rpc = new CodexRpc();
+
     this.rpc = rpc;
     this.hydration = [];
     rpc.on("event", (event: RpcEvent) => {
@@ -141,12 +157,14 @@ export class Bridge extends EventEmitter {
     await rpc.connect(config);
     const resumed = await resumePocket(rpc, config);
     const { thread } = resumed;
+
     this.snapshot.model = resumed.model;
     this.snapshot.reasoningEffort = resumed.reasoningEffort;
     this.snapshot.title = thread.name?.length ? thread.name : "Pocket";
     this.snapshot.turns = await loadHistory(rpc, thread);
     this.snapshot.activeTurnId = this.snapshot.turns.findLast((t) => t.status === "inProgress")?.id;
     const events = this.hydration;
+
     this.hydration = undefined;
 
     for (const event of events) {
@@ -178,6 +196,7 @@ export class Bridge extends EventEmitter {
       this.fail(error);
     });
   }
+
   private event(event: RpcEvent) {
     if (event.params.threadId && event.params.threadId !== this.config?.threadId) {
       return;
@@ -198,6 +217,7 @@ export class Bridge extends EventEmitter {
         if (this.config && event.params.turn) {
           const completed = event.params.turn;
           const turn = this.snapshot.turns.find((entry) => entry.id === completed.id) ?? completed;
+
           void notifyTurnComplete(this.config.threadId, turn).catch(console.error);
         }
 
@@ -236,6 +256,7 @@ export class Bridge extends EventEmitter {
     this.snapshot.error = error instanceof Error ? error.message : String(error);
     this.publish();
   }
+
   async ensureConnected() {
     if (this.disposed) {
       throw new Error("Bridge has stopped.");
@@ -257,9 +278,11 @@ export class Bridge extends EventEmitter {
       this.connecting = undefined;
     }
   }
+
   agentReader() {
     return requireConnectedRpc(this.rpc, this.snapshot.connection === "connected");
   }
+
   refreshScheduled() {
     if (this.config) {
       this.snapshot.scheduled = Object.fromEntries(
@@ -270,6 +293,7 @@ export class Bridge extends EventEmitter {
       );
     }
   }
+
   async send(id: string, text: string, attachmentIds: string[] = []) {
     log().info({ id, text }, "message.received");
 
@@ -290,6 +314,7 @@ export class Bridge extends EventEmitter {
 
       const attachments = await resolveUploads(this.config.threadId, attachmentIds);
       const receipt: Receipt = { id, text, ...(attachments.length > 0 && { attachments }), status: "queued" };
+
       this.receipts.push(receipt);
       await this.persist();
       await this.drain();
@@ -298,6 +323,7 @@ export class Bridge extends EventEmitter {
       return { id, status: receipt.status };
     });
   }
+
   async answer(id: string | number, input: unknown) {
     return this.exclusive(async () => {
       const request = this.snapshot.requests.find((r) => r.id === id);
@@ -312,6 +338,7 @@ export class Bridge extends EventEmitter {
       this.publish();
     });
   }
+
   close() {
     this.disposed = true;
 

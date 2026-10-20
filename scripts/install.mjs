@@ -12,6 +12,7 @@ import { spawnSync } from "node:child_process";
 
 const root = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
 const options = process.argv.slice(2);
+
 process.chdir(root);
 
 if (process.platform !== "darwin" || process.getuid?.() === undefined) {
@@ -125,6 +126,7 @@ function configuredPort(saved) {
 async function portAvailable(port) {
   return new Promise((resolve, reject) => {
     const probe = createServer();
+
     probe.once("error", (error) => {
       if (error.code === "EADDRINUSE") {
         resolve(false);
@@ -188,6 +190,7 @@ async function install() {
   );
   const origin = setupOrigin(enteredOrigin === "-" ? "" : enteredOrigin) ?? "";
   const origins = new Set((saved.CODEX_ALLOWED_ORIGINS ?? "").split(",").filter(Boolean));
+
   origins.add(`http://localhost:${port}`);
   origins.add(`http://127.0.0.1:${port}`);
   const environment = {
@@ -197,6 +200,7 @@ async function install() {
     POCKET_ORIGIN: origin,
     POCKET_PORT: String(port),
   };
+
   delete environment.CODEX_THREAD_ID;
 
   if (!saved.CODEX_SERVER_ARGS && !process.env.CODEX_SERVER_ARGS) {
@@ -221,6 +225,7 @@ async function install() {
 
   await mkdir(cwd, { recursive: true });
   const codex = await findCodex(saved);
+
   environment.CODEX_BINARY = codex;
   const login = spawnSync(codex, ["login", "status"], { stdio: "ignore" });
 

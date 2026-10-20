@@ -168,6 +168,7 @@ export function normalizeCalendar(input: string) {
       lines.push(line);
     } else if (property.name === "rrule") {
       const line = property.toICALString();
+
       lines.push(line);
     }
   }
@@ -186,12 +187,15 @@ export async function nextOccurrence(calendar: string, after: number): Promise<n
       env: { ...process.env, TZ: "UTC" },
       stdio: ["pipe", "pipe", "pipe"],
     });
+
     let output = "";
     let diagnostic = "";
+
     const timer = setTimeout(() => {
       child.kill("SIGKILL");
       reject(new Error("Calendar recurrence took too long to evaluate. Simplify the rule."));
     }, CALCULATION_TIMEOUT_MS);
+
     child.stdout.on("data", (data) => {
       output += String(data);
     });

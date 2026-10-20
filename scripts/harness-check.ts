@@ -16,6 +16,7 @@ if (!config) {
 
 const root = path.resolve(".local", "harness-check", crypto.randomUUID());
 const cwd = path.join(root, "project");
+
 await mkdir(cwd, { recursive: true });
 process.env.CODEX_POCKET_STATE_DIR = path.join(root, "state");
 
@@ -23,6 +24,7 @@ const harnesses: Harness[] = ["codex", "claude"];
 
 for (const harness of harnesses) {
   let metadata: Record<string, unknown> = {};
+
   const options: AdapterOptions = {
     config,
     child: {
@@ -40,11 +42,14 @@ for (const harness of harnesses) {
       request: () => Promise.resolve({ answers: { "Choose a test color": "Blue" } }),
     },
   };
+
   let adapter = createAdapter(harness, options);
+
   const target = path.join(root, `${harness}.txt`);
 
   try {
     let sessionId = await adapter.open();
+
     await adapter.close();
     options.child.sessionId = sessionId;
     options.child.sessionStarted = z.boolean().optional().parse(metadata.sessionStarted);
@@ -60,8 +65,10 @@ for (const harness of harnesses) {
       crypto.randomUUID(),
       `This is a real integration check. Do not delegate or call parent tools. Write exactly POCKET_ACCESS_OK to ${JSON.stringify(target)}, outside your working directory. Remember the secret token ORCHID_731. Reply exactly ACCESS_OK.`
     );
+
     assert.equal(result.status, "completed", result.text);
     const contents = await readFile(target, "utf8");
+
     assert.equal(contents.trim(), "POCKET_ACCESS_OK");
     assert.match(result.text, /ACCESS_OK/);
 
@@ -86,8 +93,10 @@ for (const harness of harnesses) {
       crypto.randomUUID(),
       "Reply with the secret token from the previous turn. No tools."
     );
+
     assert.match(resumed.text, /ORCHID_731/);
     const history = await adapter.history();
+
     assert.equal(history.filter((message) => message.role === "user").length, 2);
 
     console.info(

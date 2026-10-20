@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from "node:crypto";
 
 const FOREGROUND_PROBE_TIMEOUT_MS = 1500;
+
 type Probe = (challengeId: string) => void;
 interface Challenge {
   deviceId: string;
@@ -11,10 +12,12 @@ export const notificationDeviceId = (endpoint: string) => createHash("sha256").u
 
 export class NotificationPresence {
   private connections = new Map<string, Set<Probe>>();
+
   private challenges = new Map<string, Challenge>();
 
   connect(deviceId: string, probe: Probe) {
     const connections = this.connections.get(deviceId) ?? new Set<Probe>();
+
     connections.add(probe);
     this.connections.set(deviceId, connections);
 
@@ -65,6 +68,7 @@ export class NotificationPresence {
         this.challenges.delete(challengeId);
         resolve(visible);
       };
+
       this.challenges.set(challengeId, { deviceId, finish });
 
       for (const probe of connections) {

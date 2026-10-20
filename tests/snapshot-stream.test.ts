@@ -30,5 +30,6 @@ await test("snapshot reads wait for a complete event across large fragmented UTF
 
 await test("snapshot reads reject an incomplete final frame instead of parsing a partial JSON chunk", async () => {
   const chunks = [new TextEncoder().encode('data: {"text":"not finished')];
+
   await assert.rejects(readSnapshot(stream(chunks)), /before a complete data event/);
 });

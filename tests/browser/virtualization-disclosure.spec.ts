@@ -31,9 +31,11 @@ test("ordinary activity expansion retains CSS animation and bounded rows", async
     ],
   });
   const composer = page.getByRole("textbox", { name: "Message Pocket" });
+
   await composer.fill("Keep my activity draft");
   await page.getByRole("button", { name: "Show activity", exact: true }).click();
   const hide = page.getByRole("button", { name: "Hide activity", exact: true });
+
   await expect(hide).toHaveAttribute("aria-expanded", "true");
   await expect(page.locator('[data-slot="trace-collapsible-content"]')).toHaveCSS("transition-duration", "0.2s");
   await expect(page.locator("[data-activity-virtualizer] [data-transcript-row]").first()).toBeVisible();
@@ -86,6 +88,7 @@ test("activity disclosure keeps shared outer gaps and hit target through expansi
   const scroller = page.locator('[data-slot="message-scroller-viewport"]');
   const show = page.getByRole("button", { name: "Show activity", exact: true });
   const hide = page.getByRole("button", { name: "Hide activity", exact: true });
+
   await scroller.evaluate((element) => {
     element.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
     element.scrollBy({ top: -100, behavior: "instant" });
@@ -117,6 +120,7 @@ test("activity disclosure keeps shared outer gaps and hit target through expansi
       },
       { open: expanded, count: ACTIVITY_MESSAGES }
     );
+
   await expect(show).toHaveAttribute("aria-expanded", "false");
   await expect.poll(async () => Math.max(...(await gapErrors(false)))).toBeLessThan(1);
   const before = await show.boundingBox();
@@ -132,6 +136,7 @@ test("activity disclosure keeps shared outer gaps and hit target through expansi
       () => {
         control.dataset.activationY = String(control.getBoundingClientRect().y);
         const viewport = control.closest('[data-slot="message-scroller-viewport"]');
+
         control.dataset.activationGap = String(
           viewport ? viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight : missingGap
         );
@@ -142,10 +147,12 @@ test("activity disclosure keeps shared outer gaps and hit target through expansi
   await show.click();
   const activationY = Number(await hide.getAttribute("data-activation-y"));
   const activationGap = Number(await hide.getAttribute("data-activation-gap"));
+
   expect(activationGap).toBeGreaterThan(MIN_READER_GAP);
   await expect(hide).toHaveAttribute("aria-expanded", "true");
   await expect.poll(async () => Math.max(...(await gapErrors(true)))).toBeLessThan(1);
   const expandedBox = await hide.boundingBox();
+
   expect(expandedBox?.height).toBeGreaterThanOrEqual(MIN_HIT_TARGET);
   await expect
     .poll(async () => {
@@ -169,6 +176,7 @@ test("activity disclosure keeps shared outer gaps and hit target through expansi
   await expect(show).toHaveAttribute("aria-expanded", "false");
   await expect.poll(async () => Math.max(...(await gapErrors(false)))).toBeLessThan(1);
   const collapsedBox = await show.boundingBox();
+
   expect(collapsedBox?.height).toBeGreaterThanOrEqual(MIN_HIT_TARGET);
   expect(writes).toEqual([]);
 });

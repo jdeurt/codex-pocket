@@ -10,6 +10,7 @@ await test("resume and new turns apply the computer's effective effort without o
   const rpc = new CodexRpc();
   const config = configSchema.parse({ threadId: "saved-thread", cwd: "/tmp" });
   const calls: { method: string; params: Record<string, unknown> }[] = [];
+
   t.mock.method(rpc, "request", (method: string, params: Record<string, unknown>) => {
     calls.push({ method, params });
 
@@ -32,8 +33,10 @@ await test("resume and new turns apply the computer's effective effort without o
   });
   const resumed = await resumePocket(rpc, config);
   const state = { ...structuredClone(initialSnapshot), reasoningEffort: resumed.reasoningEffort };
+
   await deliverMessage(rpc, config, state, { id: "message", text: "Hello", status: "sending" });
   const resume = calls.find((call) => call.method === "thread/resume")?.params;
+
   assert.deepEqual(resume?.config, { model_reasoning_effort: "medium" });
   assert.equal(resume.model, undefined);
   assert.equal(resume.approvalPolicy, undefined);

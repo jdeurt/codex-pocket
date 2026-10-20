@@ -66,12 +66,14 @@ test("real uploads fill the original bubble interior with static file rows and e
   const png = await sharp({ create: { width: 80, height: 60, channels: 3, background: "#e38c39" } })
     .png()
     .toBuffer();
+
   await page.goto("/");
   await expect(page.getByRole("button", { name: "Attach images or files", exact: true })).toBeEnabled();
   await control("complete");
   await expect(page.locator("header [role=status]")).toHaveText("Connected");
   const name = `${info.project.name}-a-long-image-filename-that-extends-beyond-the-desktop-text-area-and-must-truncate.png`;
   const document = `${info.project.name}-a-long-document-filename-for-overflow.xlsx`;
+
   await page.locator('input[type="file"]').setInputFiles([
     { name, mimeType: "image/png", buffer: png },
     {
@@ -81,6 +83,7 @@ test("real uploads fill the original bubble interior with static file rows and e
     },
   ]);
   const selected = page.getByRole("list", { name: "Selected attachments" });
+
   await expect(selected.getByText("Ready to send", { exact: true })).toHaveCount(2);
   await expect(selected.locator("img")).toHaveCount(0);
   const draft = await selected.evaluate((list) => {
@@ -104,6 +107,7 @@ test("real uploads fill the original bubble interior with static file rows and e
       aligned: [type, status].every((item) => item.getBoundingClientRect().left === text.getBoundingClientRect().left),
     };
   });
+
   expect(draft).toEqual({
     left: `${String(GAP)}px`,
     right: `${String(GAP)}px`,
@@ -115,11 +119,13 @@ test("real uploads fill the original bubble interior with static file rows and e
   await mkdir(directory, { recursive: true });
   await page.screenshot({ path: `${directory}/${info.project.name}-draft.png` });
   const message = `${info.project.name} text after the uploaded files`;
+
   await page.getByRole("textbox", { name: "Message Pocket" }).fill(message);
   await page.getByRole("button", { name: "Send message", exact: true }).click();
   await expect(selected).toHaveCount(0);
   const bubble = page.locator('[data-slot="bubble"][data-delivery="sent"]').filter({ hasText: message });
   const group = bubble.getByRole("list", { name: "Attachments", exact: true });
+
   await expect(group.getByRole("listitem")).toHaveCount(2);
   await expect(group.locator("img, a, button, [role=button], [download]")).toHaveCount(0);
   await expect(bubble.locator("img")).toHaveCount(0);
@@ -128,6 +134,7 @@ test("real uploads fill the original bubble interior with static file rows and e
     .poll(() => metrics(bubble))
     .toMatchObject({ itemGap: GAP, textGap: GAP, iconInset: GAP, iconTextGap: GAP, overflow: false });
   const layout = await metrics(bubble);
+
   expect(layout.itemGap).toBe(GAP);
   expect(layout.textGap).toBe(GAP);
   expect(layout.iconInset).toBe(GAP);
@@ -147,11 +154,14 @@ test("real uploads fill the original bubble interior with static file rows and e
   // A newer/stale wire projection must not reintroduce a second uploaded-image preview.
   await control("duplicate-image");
   let projected: Item | undefined;
+
   await expect
     .poll(async () => {
       const response = await fetch(new URL("/api/events", page.url()));
+
       assert.ok(response.body);
       const state = snapshotSchema.parse(await readSnapshot(response.body));
+
       projected = state.turns
         .flatMap((turn) => turn.items)
         .find(
@@ -180,11 +190,13 @@ test("real uploads fill the original bubble interior with static file rows and e
   await page.getByRole("button", { name: "Send message", exact: true }).click();
   await expect(selected).toHaveCount(0);
   const fileOnly = page.locator('[data-slot="bubble"][data-delivery="sent"]').filter({ hasText: `file-only-${name}` });
+
   await expect(fileOnly).toBeVisible();
   await expect
     .poll(() => metrics(fileOnly))
     .toMatchObject({ itemGap: GAP, textGap: null, iconInset: GAP, iconTextGap: GAP, overflow: false });
   const fileOnlyLayout = await metrics(fileOnly);
+
   expect(fileOnlyLayout.bubbleWidth).toBeLessThanOrEqual(fileOnlyLayout.availableWidth * BUBBLE_MAX_WIDTH + 1);
   expect(fileOnlyLayout.groupWidth).toBeGreaterThan(0);
   expect(
@@ -220,8 +232,10 @@ test("read-only child cards stay noninteractive while unrelated assistant images
     { id: crypto.randomUUID(), name: "saved-image.png", size: png.length, mediaType: "image/png", kind: "image" },
     { id: crypto.randomUUID(), name: "saved-file.txt", size: 7, mediaType: "text/plain", kind: "file" },
   ];
+
   await page.route("**/api/agents**", async (route) => {
     const child = new URL(route.request().url()).searchParams.has("agent");
+
     await route.fulfill({
       json: child
         ? {
@@ -259,8 +273,10 @@ test("read-only child cards stay noninteractive while unrelated assistant images
   await page.goto("/");
   await page.getByRole("button", { name: "1 agent", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Agents", exact: true });
+
   await dialog.getByRole("button", { name: /Read-only files/ }).click();
   const group = dialog.getByRole("list", { name: "Attachments", exact: true });
+
   await expect(group.getByRole("listitem")).toHaveCount(2);
   await expect(group.locator("img, a, button")).toHaveCount(0);
   await expect(dialog.locator('input[type="file"], textarea, form')).toHaveCount(0);

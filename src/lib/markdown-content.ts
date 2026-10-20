@@ -22,11 +22,13 @@ export function hasMarkdownOutput(source: string, allowCopyActions = false) {
 
   const mode = Number(allowCopyActions);
   const cache = caches[mode];
+
   let visible = cache.get(source);
 
   if (visible === undefined) {
     const processor = processors[mode];
     const tree = processor.runSync(processor.parse(source), source);
+
     visible = tree.children.some(
       (node) => node.type === "element" || ((node.type === "text" || node.type === "raw") && !!node.value.trim())
     );

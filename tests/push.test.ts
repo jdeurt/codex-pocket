@@ -18,6 +18,7 @@ import webpush from "web-push";
 
 function subscription(endpoint: string) {
   const key = createECDH("prime256v1");
+
   key.generateKeys();
   const AUTH_BYTES = 16;
 
@@ -30,22 +31,27 @@ function subscription(endpoint: string) {
 await test("push keys stay stable and concurrent subscription saves preserve both devices with private storage", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "pocket-push-"));
   const previous = process.env.CODEX_POCKET_STATE_DIR;
+
   process.env.CODEX_POCKET_STATE_DIR = directory;
 
   try {
     const keys = await Promise.all([pushPublicKey(), pushPublicKey()]);
+
     assert.equal(keys[0], keys[1]);
     const phone = subscription("https://push.example/phone");
     const tablet = subscription("https://push.example/tablet");
+
     await Promise.all([saveSubscription(phone), saveSubscription(tablet)]);
     await saveSubscription(phone);
     const file = path.join(directory, "push.json");
     const state = object(JSON.parse(await readFile(file, "utf8")));
+
     assert.deepEqual(state.subscriptions, [tablet, phone]);
     assert.equal(object(state.keys).publicKey, keys[0]);
     const PERMISSION_MASK = 0o777;
     const PRIVATE_FILE_MODE = 0o600;
     const info = await stat(file);
+
     assert.equal(info.mode & PERMISSION_MASK, PRIVATE_FILE_MODE);
   } finally {
     if (previous === undefined) {
@@ -60,6 +66,7 @@ await test("push keys stay stable and concurrent subscription saves preserve bot
 
 await test("subscriptions require HTTPS and browser encryption keys", () => {
   const valid = subscription("https://push.example/device");
+
   assert.deepEqual(subscriptionSchema.parse(valid), valid);
   assert.throws(() => subscriptionSchema.parse({ ...valid, endpoint: "http://push.example/device" }));
   assert.throws(() => subscriptionSchema.parse({ ...valid, keys: { auth: "bad", p256dh: "bad" } }));
@@ -75,6 +82,7 @@ await test("completion notifications contain the final reply, keep tap routing a
     ],
   };
   const notification = completionNotification("thread", turn);
+
   assert.equal(notification.title, "Pocket");
   assert.equal(notification.body, "A full response 👋");
   assert.equal(notification.url, "/");
@@ -102,11 +110,13 @@ await test("payloads retain full replies that fit and limit actual encrypted byt
     const turn: Turn = { id: "turn", status: "completed", items: [{ id: "reply", type: "agentMessage", text }] };
     const payload = completionPayload("thread", turn);
     const body = object(JSON.parse(payload)).body;
+
     assert.equal(typeof body, "string");
     assert.ok(text.startsWith(String(body)));
     assert.ok(!String(body).endsWith("…"));
     assert.ok(!String(body).includes("�"));
     const encrypted = webpush.generateRequestDetails(device, payload);
+
     assert.ok(Buffer.byteLength(encrypted.body) <= MAX_ENCRYPTED_BYTES);
 
     if (text === texts[0]) {
@@ -122,6 +132,7 @@ await test("delivery skips only the acknowledged foreground device, keeps backgr
   const previousState = process.env.CODEX_POCKET_STATE_DIR;
   const previousThread = process.env.CODEX_THREAD_ID;
   const previousOrigins = process.env.CODEX_ALLOWED_ORIGINS;
+
   process.env.CODEX_POCKET_STATE_DIR = directory;
   process.env.CODEX_THREAD_ID = "push-test";
   process.env.CODEX_ALLOWED_ORIGINS = "https://pocket.example";
@@ -131,6 +142,7 @@ await test("delivery skips only the acknowledged foreground device, keeps backgr
     notificationPresence.acknowledge(notificationDeviceId(phone.endpoint), challengeId);
   });
   const sent: { endpoint: string; body: unknown }[] = [];
+
   t.mock.method(webpush, "sendNotification", (...[device, payload]: Parameters<typeof webpush.sendNotification>) => {
     sent.push({ endpoint: device.endpoint, body: object(JSON.parse(String(payload))).body });
 
@@ -145,6 +157,7 @@ await test("delivery skips only the acknowledged foreground device, keeps backgr
       status: "completed",
       items: [{ id: "reply", type: "agentMessage", text: "Done" }],
     };
+
     await notifyTurnComplete("thread", turn);
     await notifyTurnComplete("thread", turn);
     assert.deepEqual(sent, [{ endpoint: tablet.endpoint, body: "Done" }]);

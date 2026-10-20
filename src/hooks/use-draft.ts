@@ -36,6 +36,7 @@ const setDraft = (value: string) => {
 
   globalThis.dispatchEvent(new Event(draftEvent));
 };
+
 export function useDraft() {
   const value = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 

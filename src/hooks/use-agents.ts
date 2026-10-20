@@ -9,6 +9,7 @@ const REQUEST_TIMEOUT_MS = 10_000;
 // while its replacement request is loading. Polling cannot dispatch harness work.
 export function useAgentRead<T>(url: string, schema: { parse: (value: unknown) => T }, enabled = true) {
   const [result, setResult] = useState<{ url: string; data?: T; error?: string }>({ url });
+
   useEffect(() => {
     if (!enabled) {
       return;
@@ -20,6 +21,7 @@ export function useAgentRead<T>(url: string, schema: { parse: (value: unknown) =
 
     async function read() {
       const active = new AbortController();
+
       controller = active;
       const timeout = setTimeout(() => {
         active.abort();
@@ -75,6 +77,7 @@ export function useAgentRead<T>(url: string, schema: { parse: (value: unknown) =
       controller?.abort();
       void read();
     };
+
     void read();
     globalThis.addEventListener("online", wake);
     document.addEventListener("visibilitychange", wake);

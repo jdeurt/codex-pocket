@@ -20,6 +20,7 @@ export function registerSpinnerTools(server: McpServer, owner: string) {
 
       return operation();
     });
+
   server.registerTool(
     "spinner_set",
     {

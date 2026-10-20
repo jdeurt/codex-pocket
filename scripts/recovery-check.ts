@@ -10,9 +10,11 @@ import path from "node:path";
 import { visibleSnapshot } from "../src/server/visible-snapshot";
 
 const TURN_TIMEOUT_MS = 120_000;
+
 nextEnv.loadEnvConfig(process.cwd());
 const directory = path.resolve(".local", "recovery-check", crypto.randomUUID());
 const project = path.join(directory, "project");
+
 await mkdir(project, { recursive: true });
 process.env.CODEX_POCKET_STATE_DIR = directory;
 const config = configSchema.parse({
@@ -21,6 +23,7 @@ const config = configSchema.parse({
   codexBinary: process.env.CODEX_BINARY ?? "codex",
 });
 const rpc = new CodexRpc();
+
 await rpc.connect(config);
 const { thread } = await rpc.request("thread/start", {
   cwd: project,
@@ -28,6 +31,7 @@ const { thread } = await rpc.request("thread/start", {
   approvalPolicy: "never",
   ephemeral: false,
 });
+
 await rpc.request("thread/name/set", { threadId: thread.id, name: "Pocket restart recovery integration check" });
 rpc.close();
 process.env.CODEX_THREAD_ID = thread.id;
@@ -94,6 +98,7 @@ async function restart(target: Bridge) {
   target.close();
   await waitFor(target, (state) => state.connection === "disconnected", "old process to exit");
   const next = new Bridge();
+
   await next.ensureConnected();
 
   return next;
@@ -134,6 +139,7 @@ try {
   );
   const previousSleeps = sleepCommands(bridge.snapshot);
   const EXPECTED_RECOVERY_STARTS = 2;
+
   bridge = await restart(bridge);
   await waitFor(
     bridge,

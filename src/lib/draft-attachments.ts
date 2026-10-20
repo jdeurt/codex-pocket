@@ -30,12 +30,14 @@ const storedDraftSchema = z.object({
   ),
   pending: z.object({ id: z.string(), text: z.string() }).optional(),
 });
+
 type StoredDraft = z.infer<typeof storedDraftSchema>;
 const uploadResponseSchema = z.object({ file: fileAttachmentSchema.optional(), error: z.string().optional() });
 
 function database() {
   return new Promise<IDBDatabase>((resolve, reject) => {
     const request = indexedDB.open("pocket-attachments", 1);
+
     request.onupgradeneeded = () => request.result.createObjectStore("drafts");
     request.onsuccess = () => {
       resolve(request.result);
@@ -64,9 +66,11 @@ export async function savedDraft(parent: string, value?: SavedDraft): Promise<Sa
       const transaction = db.transaction("drafts", value ? "readwrite" : "readonly");
       const store = transaction.objectStore("drafts");
       const request = stored ? store.put(stored, parent) : store.get(parent);
+
       transaction.oncomplete = () => {
         try {
           const data: unknown = request.result;
+
           resolve(storedDraftSchema.parse(stored ?? data ?? { files: [] }));
         } catch (error) {
           reject(new Error("Saved attachments could not be read.", { cause: error }));
@@ -75,6 +79,7 @@ export async function savedDraft(parent: string, value?: SavedDraft): Promise<Sa
       const failed = () => {
         reject(new Error("Couldn't save files on this device. Free up browser storage and try again."));
       };
+
       transaction.addEventListener("error", failed);
       transaction.addEventListener("abort", failed);
     });
@@ -95,6 +100,7 @@ export function uploadFile(entry: DraftAttachment, progress: (value: number) => 
   return new Promise<FileAttachment>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     const url = `/api/uploads?${new URLSearchParams({ id: entry.id, name: entry.file.name, type: entry.file.type || "application/octet-stream" })}`;
+
     xhr.open("PUT", url);
     xhr.setRequestHeader("Content-Type", "application/octet-stream");
     xhr.timeout = UPLOAD_TIMEOUT_MS;

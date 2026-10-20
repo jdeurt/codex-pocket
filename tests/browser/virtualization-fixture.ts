@@ -4,6 +4,7 @@ import { readFile } from "node:fs/promises";
 
 export async function mount(page: Page, state: Snapshot) {
   const writes: string[] = [];
+
   await page.route("**/api/**", (route) => {
     if (route.request().method() !== "GET" && !route.request().url().includes("/api/logs")) {
       writes.push(route.request().url());
@@ -12,14 +13,17 @@ export async function mount(page: Page, state: Snapshot) {
     return route.fulfill({ json: {} });
   });
   const image = await readFile("public/icon-192.png");
+
   await page.route("**/api/images?*", (route) => route.fulfill({ contentType: "image/png", body: image }));
   // The real Chat/useThread path, with no bridge, real transcript or sending.
   await page.addInitScript((snapshot) => {
     class FixtureSource extends EventTarget {
       readyState = 1;
+
       receive = (event: Event) => {
         this.emit(event instanceof MessageEvent ? event.data : undefined);
       };
+
       constructor() {
         super();
         globalThis.addEventListener("fixture-snapshot", this.receive);
@@ -27,11 +31,13 @@ export async function mount(page: Page, state: Snapshot) {
           this.emit(snapshot);
         });
       }
+
       emit(data: unknown) {
         if (this.readyState === 1) {
           this.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(data) }));
         }
       }
+
       close() {
         this.readyState = 2;
         globalThis.removeEventListener("fixture-snapshot", this.receive);

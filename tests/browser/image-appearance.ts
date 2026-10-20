@@ -3,6 +3,7 @@ import { type Locator, type Page, expect } from "@playwright/test";
 export async function checkImageAppearance(page: Page, turn: Locator, label: string) {
   const frame = turn.locator(".chat-image").first();
   const trigger = frame.getByRole("button", { name: /^Preview image:/ });
+
   await expect
     .poll(() => frame.locator("img").evaluate((image: HTMLImageElement) => image.naturalWidth))
     .toBeGreaterThan(0);
@@ -18,6 +19,7 @@ export async function checkImageAppearance(page: Page, turn: Locator, label: str
 
     expect(await frame.screenshot()).toEqual(before);
   };
+
   await trigger.hover();
   await unchanged();
   const box = await trigger.boundingBox();

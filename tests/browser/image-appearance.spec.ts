@@ -22,6 +22,7 @@ async function showImage(page: Page) {
       },
     ],
   };
+
   await page.route("**/api/events", (route) =>
     route.fulfill({ contentType: "text/event-stream", body: `data: ${JSON.stringify(state)}\n\n` })
   );

@@ -27,9 +27,11 @@ const LAST_INDEX = -1;
 
 const root = path.resolve(".local", "delegation-check", crypto.randomUUID());
 const cwd = path.join(root, "project");
+
 await mkdir(cwd, { recursive: true });
 process.env.CODEX_POCKET_STATE_DIR = path.join(root, "state");
 const setup = new CodexRpc();
+
 await setup.connect({ ...base, cwd }, "bare");
 const { thread } = await setup.request("thread/start", {
   cwd,
@@ -37,6 +39,7 @@ const { thread } = await setup.request("thread/start", {
   approvalPolicy: "never",
   ephemeral: false,
 });
+
 await setup.request("thread/name/set", { threadId: thread.id, name: "Pocket delegation integration check" });
 await setup.shutdown();
 process.env.CODEX_THREAD_ID = thread.id;
@@ -44,10 +47,12 @@ process.env.CODEX_CWD = cwd;
 const config = { ...base, threadId: thread.id, cwd };
 const parent = new Bridge();
 const store = delegations();
+
 let worker = new DelegationWorker(store, parent, config);
 
 async function waitForCompletion() {
   const deadline = Date.now() + CHECK_TIMEOUT_MS;
+
   let finished = false;
 
   while (Date.now() < deadline) {
@@ -77,6 +82,7 @@ async function verifyChildren() {
 
   for (const child of children) {
     const contents = await readFile(path.join(root, `${child.harness}.txt`), "utf8");
+
     assert.equal(contents.trim(), "BLUE");
     assert.equal(store.commands(thread.id, child.id).length, EXPECTED_COMMANDS);
     assert.equal(
@@ -86,6 +92,7 @@ async function verifyChildren() {
       true
     );
     const metadata = z.object({ pid: z.number() }).parse(JSON.parse(child.metadata));
+
     assert.throws(() => process.kill(metadata.pid, 0), { code: "ESRCH" });
   }
 
@@ -120,6 +127,7 @@ async function verifyActiveClose() {
   for (const child of store.list(thread.id)) {
     const marker = path.join(root, `${child.harness}-started`);
     const late = path.join(root, `${child.harness}-late`);
+
     store.resume(thread.id, child.id);
     store.send(
       thread.id,
@@ -129,6 +137,7 @@ async function verifyActiveClose() {
     );
     await waitUntil(() => fileExists(marker), "active child command");
     const metadata = z.object({ pid: z.number() }).parse(JSON.parse(store.get(thread.id, child.id).metadata));
+
     store.closeChild(thread.id, child.id);
     await waitUntil(() => Promise.resolve(store.get(thread.id, child.id).status === "closed"), "process closure");
     assert.throws(() => process.kill(metadata.pid, 0), { code: "ESRCH" });
@@ -153,6 +162,7 @@ After both children complete this workflow and are closed, reply exactly DELEGAT
   );
   await waitForCompletion();
   const children = await verifyChildren();
+
   await verifyActiveClose();
 
   await worker.stop();

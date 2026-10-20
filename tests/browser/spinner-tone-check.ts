@@ -44,6 +44,7 @@ export async function checkSpinnerTone(
     }
 
     const tone = current.tone;
+
     transforms.add(JSON.stringify(tone));
     await expect(page.locator("[data-activity-spinner] img")).toHaveAttribute("src", `/api/spinner/${current.id}`);
     await page.waitForFunction((id) => {
@@ -54,9 +55,11 @@ export async function checkSpinnerTone(
       return img?.complete && img.naturalWidth === SPINNER_EDGE && img.currentSrc.includes(id);
     }, current.id);
     const bytes = await capture();
+
     await writeFile(`.local/spinner-tone-${label}-${name}.png`, bytes);
     const { data, info } = await sharp(bytes).removeAlpha().raw().toBuffer({ resolveWithObject: true });
     const value = (x: number, y: number) => data[(y * info.width + x) * info.channels];
+
     expect(value(0, 0)).toBe(BACKGROUND);
     const opaque: number[] = [];
 
@@ -66,6 +69,7 @@ export async function checkSpinnerTone(
       const expected = BACKGROUND + OPACITY * (normalized - BACKGROUND);
       const halfAlpha = BACKGROUND + OPACITY * (HALF_ALPHA / CHANNEL_MAX) * (normalized - BACKGROUND);
       const pixel = value(x, OPAQUE_SAMPLE_Y);
+
       expect(Math.abs(pixel - expected)).toBeLessThanOrEqual(PIXEL_TOLERANCE);
       // SVG filtering and alpha compositing round at multiple 8-bit boundaries, especially in WebKit.
       expect(Math.abs(value(x, ALPHA_SAMPLE_Y) - halfAlpha)).toBeLessThanOrEqual(ALPHA_TOLERANCE);
@@ -79,6 +83,7 @@ export async function checkSpinnerTone(
       name === "subtle" ? SUBTLE_SPAN : FULL_SPAN
     );
     const response = await page.request.get(`/api/spinner/${current.id}`);
+
     expect(await response.body()).toEqual(await readFile(fixtures[name]));
   }
 
@@ -93,12 +98,15 @@ export async function checkLegacyTone(
 ) {
   const before = await main.call("spinner_status");
   const database = new Database(path.join(directory, "spinners.sqlite"));
+
   database.prepare("UPDATE spinner_assets SET tone=NULL WHERE id=?").run(id);
   database.close();
   const legacy = await main.call("spinner_status");
+
   expect(legacy.current?.tone).toBeNull();
   const response = await fetch(url);
   const upgraded = await main.call("spinner_status");
+
   expect(upgraded.current?.tone).toEqual(before.current?.tone);
 
   return response;

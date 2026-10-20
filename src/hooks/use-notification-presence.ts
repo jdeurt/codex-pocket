@@ -15,6 +15,7 @@ export function useNotificationPresence(endpoint: string) {
     let active = true;
     let source: EventSource | undefined;
     let deviceId = "";
+
     const close = () => {
       source?.close();
       source = undefined;
@@ -27,6 +28,7 @@ export function useNotificationPresence(endpoint: string) {
       }
 
       const connection = new EventSource(`/api/notifications/presence?device=${deviceId}`);
+
       source = connection;
       connection.addEventListener("probe", (event: MessageEvent<string>) => {
         if (source !== connection || document.visibilityState !== "visible") {
@@ -42,6 +44,7 @@ export function useNotificationPresence(endpoint: string) {
         }
       });
     };
+
     void crypto.subtle.digest("SHA-256", new TextEncoder().encode(endpoint)).then((digest) => {
       deviceId = [...new Uint8Array(digest)].map((value) => value.toString(HEX_RADIX).padStart(2, "0")).join("");
       connect();

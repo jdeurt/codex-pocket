@@ -11,6 +11,7 @@ async function completedTurn(page: Page, prompt: string) {
   const turn = page
     .locator('[data-slot="message-scroller-item"]')
     .filter({ has: page.getByText(prompt, { exact: true }) });
+
   await expect(turn.locator('[data-delivery="sent"]')).toBeVisible();
   await expect
     .poll(async () => {
@@ -68,6 +69,7 @@ test("real Codex shares each requested image once and preserves deliberate repea
 
     const repeatPrompt = `Show me two copies of ${file} together in one message.`;
     const repeated = await completedTurn(page, repeatPrompt);
+
     await expect(repeated.locator("img")).toHaveCount(2);
     await page.reload();
 

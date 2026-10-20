@@ -33,6 +33,7 @@ export function projectRestarts(state: Snapshot): Turn[] {
 
     const items = boundaries.get(event.after.turnId) ?? new Map<string, RestartEvent[]>();
     const events = items.get(event.after.itemId) ?? [];
+
     events.push(event);
     items.set(event.after.itemId, events);
     boundaries.set(event.after.turnId, items);

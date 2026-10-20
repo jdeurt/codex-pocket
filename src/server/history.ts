@@ -5,6 +5,7 @@ const METHOD_NOT_FOUND = -32_601;
 
 export async function loadItems(rpc: CodexRpc, threadId: string, turnId: string) {
   const items: Item[] = [];
+
   let cursor: string | null = null;
 
   do {
@@ -15,6 +16,7 @@ export async function loadItems(rpc: CodexRpc, threadId: string, turnId: string)
       limit: 100,
       sortDirection: "asc",
     });
+
     items.push(...page.data.map((entry) => entry.item));
     cursor = page.nextCursor;
   } while (cursor);
@@ -25,6 +27,7 @@ export async function loadItems(rpc: CodexRpc, threadId: string, turnId: string)
 export async function loadHistory(rpc: CodexRpc, thread: Thread): Promise<Turn[]> {
   try {
     const turns: Turn[] = [];
+
     let cursor: string | null = null;
 
     do {

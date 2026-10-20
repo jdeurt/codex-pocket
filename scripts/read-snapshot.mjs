@@ -5,6 +5,7 @@
 export async function readSnapshot(body) {
   const reader = body.getReader();
   const decoder = new globalThis.TextDecoder();
+
   let buffer = "";
 
   try {
@@ -20,6 +21,7 @@ export async function readSnapshot(body) {
 
       while (boundary) {
         const frame = buffer.slice(0, boundary.index);
+
         buffer = buffer.slice(boundary.index + boundary[0].length);
         const data = frame
           .split(/\r\n|\n|\r/)

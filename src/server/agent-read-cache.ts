@@ -8,6 +8,7 @@ import { codexPreview } from "./agent-history";
 
 const LIVE_REFRESH_MS = 2000;
 const MAX_TRANSCRIPTS = 12;
+
 interface CachedRead {
   revision: string;
   at: number;
@@ -18,8 +19,11 @@ interface CachedRead {
 
 export class AgentReadCache {
   private selected = "";
+
   private previews = new Map<string, CachedRead>();
+
   private transcripts = new Map<string, CachedRead>();
+
   private pending = new Map<string, Promise<void>>();
 
   private fresh(record: AgentRecord, saved: CachedRead | undefined, revision: string, image = false) {
@@ -32,6 +36,7 @@ export class AgentReadCache {
         Date.now() - saved.at < LIVE_REFRESH_MS)
     );
   }
+
   private apply(record: AgentRecord, saved: CachedRead) {
     Object.assign(record.agent, {
       ...observedMetadata({ model: saved.agent.model, effort: saved.agent.reasoningEffort }),
@@ -53,6 +58,7 @@ export class AgentReadCache {
 
     record.historyError = record.discoveryError === true ? true : saved.historyError;
   }
+
   private remember(record: AgentRecord, revision: string, full: boolean) {
     record.agent.previewState = record.historyError ? "unavailable" : record.agent.preview ? undefined : "empty";
     const value: CachedRead = {
@@ -62,6 +68,7 @@ export class AgentReadCache {
       historyError: record.historyError,
       ...(full && { turns: record.turns ?? [] }),
     };
+
     this.previews.set(record.agent.id, { ...value, turns: undefined });
 
     if (!full) {
@@ -79,6 +86,7 @@ export class AgentReadCache {
       }
     }
   }
+
   private async readFull(record: AgentRecord, revision: string, priority: number) {
     const saved = this.transcripts.get(record.agent.id);
 
@@ -89,6 +97,7 @@ export class AgentReadCache {
     await agentRead(() => hydrateAgent(record), priority);
     this.remember(record, revision, true);
   }
+
   private async readPreview(record: AgentRecord, revision: string) {
     if (record.agent.harness === "claude" || !record.sessionId) {
       await this.full(record, false, 1);
@@ -98,6 +107,7 @@ export class AgentReadCache {
 
     try {
       const value = await agentRead(() => codexPreview(bridge.agentReader(), record.sessionId ?? ""), 1);
+
       record.agent.preview = value.preview;
 
       if (!record.pocket && !activeAgent(record.agent) && !record.observedStatus) {
@@ -111,6 +121,7 @@ export class AgentReadCache {
 
     this.remember(record, revision, false);
   }
+
   private async coalesce(key: string, read: () => Promise<void>) {
     const current = this.pending.get(key);
 
@@ -119,6 +130,7 @@ export class AgentReadCache {
     }
 
     const done = read();
+
     this.pending.set(key, done);
 
     try {
@@ -129,6 +141,7 @@ export class AgentReadCache {
       }
     }
   }
+
   async project(record: AgentRecord) {
     const saved = this.previews.get(record.agent.id);
     const revision = await agentRevision(record);
@@ -142,6 +155,7 @@ export class AgentReadCache {
 
     return revision;
   }
+
   async warm(record: AgentRecord) {
     const revision = await this.project(record);
 
@@ -151,6 +165,7 @@ export class AgentReadCache {
 
     await this.coalesce(`preview:${record.agent.id}`, () => this.readPreview(record, revision));
   }
+
   async full(record: AgentRecord, image = false, priority = 0) {
     if (priority === 0) {
       this.selected = record.agent.id;

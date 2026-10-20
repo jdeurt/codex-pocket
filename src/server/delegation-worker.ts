@@ -9,6 +9,7 @@ import path from "node:path";
 import { z } from "zod";
 
 const RECOVERY_INTERVAL_MS = 30_000;
+
 interface WorkerOptions {
   createAdapter?: (harness: SidePocket["harness"], options: Parameters<typeof createAdapter>[1]) => HarnessAdapter;
   recoveryIntervalMs?: number;
@@ -36,30 +37,44 @@ export function parentToolServer(childId: string, commandId: string) {
 
 export class DelegationWorker {
   private timer?: NodeJS.Timeout;
+
   private unsubscribe?: () => void;
+
   private ticking?: Promise<void>;
+
   private forwarding?: Promise<void>;
+
   private dirty = false;
+
   private mailDirty = false;
+
   private started = false;
+
   private stopped = false;
+
   private active = new Map<string, { adapter: HarnessAdapter; done: Promise<void> }>();
+
   private closing = new Map<string, Promise<void>>();
+
   private waiting = new Map<string, WaitingRequest>();
+
   constructor(
     private store: DelegationStore,
     private parent: ParentDelivery,
     private config: Config,
     private options: WorkerOptions = {}
   ) {}
+
   private request(child: SidePocket, request: HarnessRequest) {
     const id = this.store.mail.request(child.parentId, child.id, request);
+
     this.store.setStatus(child.parentId, child.id, "waiting");
 
     return new Promise<unknown>((resolve, reject) => {
       this.waiting.set(id, { childId: child.id, resolve, reject });
     });
   }
+
   private answers() {
     for (const child of this.store.list(this.config.threadId)) {
       for (const request of this.store.mail.requests(child.parentId, child.id)) {
@@ -83,9 +98,11 @@ export class DelegationWorker {
       }
     }
   }
+
   private complete(child: SidePocket, command: DelegationCommand, result: HarnessResult) {
     const closing = this.store.get(child.parentId, child.id).status === "closing";
     const notify = !closing && (!this.store.mail.hasMessage(child.id, command.id) || result.status !== "completed");
+
     this.store.recordResult(
       command,
       closing ? "cancelled" : result.status === "failed" ? "failed" : "completed",
@@ -94,6 +111,7 @@ export class DelegationWorker {
     );
     log().info({ childId: child.id, commandId: command.id, result, closing }, "side_pocket.completed");
   }
+
   private async execute(child: SidePocket, command: DelegationCommand, adapter: HarnessAdapter) {
     // Reserve the active slot before even a synchronous adapter can finish.
     await Promise.resolve();
@@ -101,6 +119,7 @@ export class DelegationWorker {
 
     try {
       const sessionId = await adapter.open();
+
       this.store.setSession(child.parentId, child.id, sessionId);
       log().info(
         { childId: child.id, parentId: child.parentId, harness: child.harness, sessionId, commandId: command.id },
@@ -115,10 +134,12 @@ export class DelegationWorker {
 
       sending = true;
       const result = await adapter.run(command.id, command.body);
+
       this.complete(child, command, result);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const closing = this.store.get(child.parentId, child.id).status === "closing";
+
       this.store.recordResult(
         command,
         closing ? "cancelled" : sending ? "unknown" : "failed",
@@ -143,6 +164,7 @@ export class DelegationWorker {
       void this.tick();
     }
   }
+
   private launch(child: SidePocket, command: DelegationCommand) {
     const policy = this.store.parent(child.parentId).policy;
     const { sessionStarted } = object(JSON.parse(child.metadata));
@@ -160,8 +182,10 @@ export class DelegationWorker {
       },
     });
     const done = this.execute(child, command, adapter);
+
     this.active.set(child.id, { adapter, done });
   }
+
   private async closeRequested(child: SidePocket) {
     const running = this.active.get(child.id);
 
@@ -176,6 +200,7 @@ export class DelegationWorker {
     this.store.setStatus(child.parentId, child.id, "closed");
     log().info({ childId: child.id, sessionId: child.sessionId }, "side_pocket.closed");
   }
+
   private async forward() {
     for (const mail of this.store.mail.pending(this.config.threadId)) {
       const child = this.store.get(mail.parentId, mail.childId);
@@ -191,6 +216,7 @@ ${mail.payload}`;
       }
     }
   }
+
   private async forwardPending() {
     await Promise.resolve();
 
@@ -212,10 +238,12 @@ ${mail.payload}`;
       }
     }
   }
+
   private forwardSoon() {
     this.mailDirty = true;
     this.forwarding ??= this.forwardPending();
   }
+
   private async closeSafely(child: SidePocket) {
     try {
       await this.closeRequested(child);
@@ -225,6 +253,7 @@ ${mail.payload}`;
       this.closing.delete(child.id);
     }
   }
+
   private dispatch() {
     for (const child of this.store.list(this.config.threadId)) {
       if (child.status !== "closing" || this.closing.has(child.id)) {
@@ -232,6 +261,7 @@ ${mail.payload}`;
       }
 
       const closing = this.closeSafely(child);
+
       this.closing.set(child.id, closing);
     }
 
@@ -251,6 +281,7 @@ ${mail.payload}`;
       }
     }
   }
+
   private async drain() {
     await Promise.resolve();
 
@@ -274,6 +305,7 @@ ${mail.payload}`;
       }
     }
   }
+
   async tick() {
     if (this.stopped) {
       return;
@@ -283,6 +315,7 @@ ${mail.payload}`;
     this.ticking ??= this.drain();
     await this.ticking;
   }
+
   start() {
     if (this.started) {
       return;
@@ -297,6 +330,7 @@ ${mail.payload}`;
     this.timer.unref();
     void this.tick();
   }
+
   async stop() {
     this.stopped = true;
     this.unsubscribe?.();

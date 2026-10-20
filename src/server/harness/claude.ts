@@ -108,15 +108,22 @@ function messageText(content: unknown) {
 
 export class ClaudeAdapter implements HarnessAdapter {
   private sessionId: string;
+
   private resume: boolean;
+
   private current?: Query;
+
   private process?: ChildProcess;
+
   private interrupted = false;
+
   private nativeAgents: Record<string, { name: string; status: string; parentId?: string; background?: boolean }> = {};
+
   constructor(private options: AdapterOptions) {
     this.sessionId = options.child.sessionId ?? crypto.randomUUID();
     this.resume = !!options.child.sessionId;
   }
+
   private event(message: SDKMessage) {
     log().debug({ childId: this.options.child.id, message }, "side_pocket.claude.event");
 
@@ -193,6 +200,7 @@ export class ClaudeAdapter implements HarnessAdapter {
       this.options.callbacks.output(text);
     }
   }
+
   private async consume(run: Query): Promise<HarnessResult> {
     for await (const message of run) {
       this.event(message);
@@ -213,12 +221,14 @@ export class ClaudeAdapter implements HarnessAdapter {
       "Claude exited without a turn result. Delivery may have occurred; inspect history before retrying."
     );
   }
+
   async open() {
     claudePermissions(this.options.child.policy);
     this.resume = !!(await getSessionInfo(this.sessionId, { dir: this.options.child.cwd }));
 
     return this.sessionId;
   }
+
   async run(id: string, text: string): Promise<HarnessResult> {
     this.interrupted = false;
     this.nativeAgents = {};
@@ -256,6 +266,7 @@ export class ClaudeAdapter implements HarnessAdapter {
             stdio: "pipe",
             shell: false,
           });
+
           this.process = child;
           this.options.callbacks.metadata({ pid: child.pid });
 
@@ -263,6 +274,7 @@ export class ClaudeAdapter implements HarnessAdapter {
         },
       },
     });
+
     this.current = run;
 
     try {
@@ -274,19 +286,23 @@ export class ClaudeAdapter implements HarnessAdapter {
       this.current = undefined;
     }
   }
+
   async history(): Promise<HarnessMessage[]> {
     const messages = await getSessionMessages(this.sessionId, { dir: this.options.child.cwd });
 
     return harnessMessages(claudeTranscript(messages));
   }
+
   async interrupt() {
     this.interrupted = true;
     await this.current?.interrupt();
   }
+
   async archive() {
     // Claude has no native archive operation. Pocket archives its own record and keeps resumable history.
     await this.interrupt();
   }
+
   async close() {
     this.current?.close();
     await waitForProcessExit(this.process);

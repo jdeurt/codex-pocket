@@ -28,9 +28,13 @@ export const THREE_MORE_STARTS = 3;
 
 class Peer {
   private listeners = new Set<() => void>();
+
   private sequence = 0;
+
   private pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
+
   readonly events: Message[] = [];
+
   constructor(readonly child: ChildProcess) {
     child.on("message", (input: unknown) => {
       const message = dataSchema.parse(input);
@@ -56,6 +60,7 @@ class Peer {
       }
     });
   }
+
   call(method: "create" | "createAndCrash" | "close" | "resume" | "answerAndClose", args: Message): Promise<SidePocket>;
   call(method: "claim", args: Message): Promise<DelegationCommand | undefined>;
   call(method: string, args?: Message): Promise<unknown>;
@@ -75,6 +80,7 @@ class Peer {
       ? sidePocketSchema.parse(result)
       : result;
   }
+
   until(predicate: (events: Message[]) => boolean, timeoutMs = WAIT_MS) {
     return new Promise<void>((resolve, reject) => {
       const resources: { timer?: NodeJS.Timeout } = {};
@@ -87,6 +93,7 @@ class Peer {
         this.listeners.delete(check);
         resolve();
       };
+
       resources.timer = setTimeout(() => {
         this.listeners.delete(check);
         reject(new Error(`Timed out; simulator events: ${JSON.stringify(this.events)}`));
@@ -95,6 +102,7 @@ class Peer {
       check();
     });
   }
+
   starts() {
     return this.events.filter((entry) => entry.event === "started");
   }
@@ -103,6 +111,7 @@ class Peer {
 export async function fixture(t: { after: (callback: () => Promise<void>) => void }) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "pocket-worker-flow-"));
   const store = new DelegationStore(directory);
+
   store.saveParent(owner, { cwd: directory, policy: { sandbox: "danger-full-access", approval: "never" } });
   const peers: Peer[] = [];
   const clients: Client[] = [];
@@ -123,8 +132,10 @@ export async function fixture(t: { after: (callback: () => Promise<void>) => voi
       env: { ...env, DELEGATION_HOST_MODE: mode, DELEGATION_RECOVERY_MS: String(recoveryIntervalMs) },
       stdio: ["ignore", "ignore", "pipe", "ipc"],
     });
+
     child.stderr?.on("data", (data: Buffer) => process.stderr.write(data));
     const result = new Peer(child);
+
     peers.push(result);
     await result.until((events) => events.some((entry) => entry.event === "ready"));
 
@@ -132,6 +143,7 @@ export async function fixture(t: { after: (callback: () => Promise<void>) => voi
   };
   const mcp = async (script = "scripts/mcp.ts", extra: Record<string, string> = {}) => {
     const client = new Client({ name: "delegation-flow", version: "1.0.0" });
+
     clients.push(client);
     await client.connect(
       new StdioClientTransport({
@@ -145,6 +157,7 @@ export async function fixture(t: { after: (callback: () => Promise<void>) => voi
 
     return client;
   };
+
   t.after(async () => {
     for (const client of clients) {
       await client.close();
@@ -156,6 +169,7 @@ export async function fixture(t: { after: (callback: () => Promise<void>) => voi
       }
 
       const exited = once(entry.child, "exit");
+
       entry.child.send({ method: "stop" });
       await exited;
     }
@@ -175,6 +189,7 @@ export const assignment = (key: string, harness = "codex", body = key) => ({
 });
 export const tool = async (client: Client, name: string, args: Message) => {
   const result = await client.callTool({ name, arguments: args });
+
   assert.equal(result.isError, undefined, JSON.stringify(result));
 
   return dataSchema.parse(toolJson(result));
@@ -192,6 +207,7 @@ export function state(store: DelegationStore, predicate: () => boolean) {
       resources.unsubscribe?.();
       resolve();
     };
+
     resources.unsubscribe = store.subscribe(check);
     resources.timer = setTimeout(() => {
       resources.unsubscribe?.();

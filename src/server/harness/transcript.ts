@@ -52,6 +52,7 @@ function appendPart({ message, raw, parts, userContent, turn, calls }: MessageCo
         status: "running",
         text: "",
       };
+
       calls.set(string(part.id), item);
       turn.items.push(item);
 
@@ -120,7 +121,9 @@ function appendPart({ message, raw, parts, userContent, turn, calls }: MessageCo
 // never executable requests, and tool-result-only user messages are not user bubbles.
 export function claudeTranscript(messages: ClaudeMessage[]): Turn[] {
   const turns: Turn[] = [];
+
   let turn: Turn | undefined;
+
   const calls = new Map<string, Item>();
 
   for (const message of messages) {

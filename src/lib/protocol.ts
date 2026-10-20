@@ -66,15 +66,19 @@ export const initialSnapshot: Snapshot = {
   notices: [],
   scheduled: {},
 };
+
 export function isData(value: unknown): value is Data {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
+
 export function object(value: unknown): Data {
   return isData(value) ? value : {};
 }
+
 export function string(value: unknown): string {
   return typeof value === "string" ? value : "";
 }
+
 export function pretty(value: unknown): string {
   return z
     .string()

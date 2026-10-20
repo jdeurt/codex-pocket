@@ -8,6 +8,7 @@ const directory = process.env.CODEX_POCKET_STATE_DIR;
 const threadId = process.env.CODEX_THREAD_ID;
 const historyFile = path.join(directory, "fake-history.json");
 const turns = JSON.parse(await readFile(historyFile, "utf8"));
+
 await appendFile(path.join(directory, "fake-processes.jsonl"), JSON.stringify({ pid: process.pid }) + "\n");
 const send = (message) => process.stdout.write(JSON.stringify(message) + "\n");
 const event = (method, params) => send({ method, params: { threadId, ...params } });

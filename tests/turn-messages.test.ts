@@ -17,6 +17,7 @@ const turn: Turn = { id: "turn", status: "completed", items };
 
 await test("a running turn keeps visible messages in order without an expander", () => {
   const entries = turnMessages(turn, true);
+
   assert.equal(
     entries.every((entry) => entry.kind === "message"),
     true
@@ -30,6 +31,7 @@ await test("a running turn keeps visible messages in order without an expander",
 await test("steering preserves earlier updates while subsequent activity collapses beside the final reply", () => {
   const entries = turnMessages(turn, false);
   const activity = entries.find((entry) => entry.kind === "activity");
+
   assert.ok(activity?.kind === "activity");
   assert.deepEqual(
     activity.items.map((item) => item.id),
@@ -52,30 +54,36 @@ await test("legacy phase-less history keeps its last reply, and commentary-only 
     items: items.filter((item) => item.type === "agentMessage").map((item) => ({ ...item, phase: null })),
   };
   const entries = turnMessages(legacy, false);
+
   assert.equal(entries.at(LAST_ITEM_INDEX)?.kind, "message");
   assert.equal(
     entries.some((entry) => entry.kind === "message" && entry.item.id === "final"),
     true
   );
   const final = items.at(LAST_ITEM_INDEX);
+
   assert.ok(final);
   const onlyFinal = turnMessages({ ...turn, items: [final] }, false);
+
   assert.equal(
     onlyFinal.some((entry) => entry.kind === "activity"),
     false
   );
   const interrupted = turnMessages({ ...turn, status: "interrupted", items: [items[1]] }, false);
+
   assert.equal(interrupted[0].kind, "message");
 });
 
 await test("uninterrupted activity still collapses with the final answer outside", () => {
   const ordinary = { ...turn, items: items.filter((item) => item.id !== "steering") };
   const entries = turnMessages(ordinary, false);
+
   assert.deepEqual(
     entries.map((entry) => entry.kind),
     ["message", "activity", "message", "message"]
   );
   const activity = entries[1];
+
   assert.ok(activity.kind === "activity");
   assert.deepEqual(
     activity.items.map((item) => item.id),
@@ -86,6 +94,7 @@ await test("uninterrupted activity still collapses with the final answer outside
 
 await test("each repeated interruption fixes all preceding updates in their chronological positions", () => {
   const final = items.at(LAST_ITEM_INDEX);
+
   assert.ok(final);
   const repeated: Turn = {
     ...turn,
@@ -97,6 +106,7 @@ await test("each repeated interruption fixes all preceding updates in their chro
     ],
   };
   const entries = turnMessages(repeated, false);
+
   assert.deepEqual(
     entries.flatMap((entry) => (entry.kind === "message" ? entry.item.id : [])),
     ["user", "first", "steering", "second", "image", "steering-again", "final"]

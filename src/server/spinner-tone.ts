@@ -37,6 +37,7 @@ function percentile(histogram: Float64Array, weight: number, fraction: number) {
 
 export function spinnerTone(rgba: Buffer): SpinnerTone {
   const histogram = new Float64Array(CHANNEL_MAX + 1);
+
   let weight = 0;
   let minimum = 1;
   let maximum = 0;
@@ -50,6 +51,7 @@ export function spinnerTone(rgba: Buffer): SpinnerTone {
     }
 
     const value = Math.round(RED_LUMA * rgba[pixel] + GREEN_LUMA * rgba[pixel + 1] + BLUE_LUMA * rgba[pixel + 2]);
+
     histogram[value] += alpha;
     weight += alpha;
     minimum = Math.min(minimum, value / CHANNEL_MAX);

@@ -11,6 +11,7 @@ await test("only resumed history produces recovery, and an existing pending or u
   assert.equal(recoveryReceipt([], []), undefined);
   assert.equal(recoveryReceipt([{ id: "empty", status: "completed", items: [] }], []), undefined);
   const first = recoveryReceipt(turns, []);
+
   assert.ok(first);
   assert.equal(isRecoveryMessageId(first.id), true);
   assert.equal(first.status, "queued");
@@ -20,6 +21,7 @@ await test("only resumed history produces recovery, and an existing pending or u
   }
 
   const next = recoveryReceipt(turns, [{ ...first, status: "sent" }]);
+
   assert.ok(next);
   assert.notEqual(first.id, next.id);
   assert.equal(isRecoveryMessageId(crypto.randomUUID()), false);
@@ -27,6 +29,7 @@ await test("only resumed history produces recovery, and an existing pending or u
 
 await test("recovery prompts stay hidden by durable identity while ordinary messages and agent responses remain", () => {
   const recovery = recoveryReceipt(turns, []);
+
   assert.ok(recovery);
   const ordinary: Receipt = { id: crypto.randomUUID(), text: RECOVERY_PROMPT, status: "queued" };
   const state: Snapshot = {
@@ -56,9 +59,11 @@ await test("recovery prompts stay hidden by durable identity while ordinary mess
     ],
   };
   const visible = visibleSnapshot(state);
+
   assert.deepEqual(visible.queue, [ordinary]);
   assert.deepEqual(visible.turns[0].items, state.turns[0].items.slice(1));
   const saved = JSON.stringify(state);
+
   assert.deepEqual(visibleSnapshot(snapshotSchema.parse(JSON.parse(saved))), visible);
   assert.equal(state.queue.length, 2);
 });

@@ -36,9 +36,11 @@ watchFile(`${directory}/control.json`, { interval: APPEND_POLL_MS, persistent: f
   appended.add(current);
   const id = `parent-incoming-${current.slice("parent-append:".length).replaceAll(":", "-")}`;
   const turn = { id, status: "inProgress", items: [] };
+
   emit({ method: "turn/started", params: { threadId: replayParent, turn } });
   const text = `${id}. Parent streamed start. `;
   const item = { id, type: "agentMessage", phase: "final_answer", text };
+
   emit({
     method: "item/started",
     params: {
@@ -49,6 +51,7 @@ watchFile(`${directory}/control.json`, { interval: APPEND_POLL_MS, persistent: f
   });
   setTimeout(() => {
     const delta = `${"Parent output arriving while reading a child. ".repeat(APPEND_REPETITIONS)} STREAM_FINISHED`;
+
     emit({ method: "item/agentMessage/delta", params: { threadId: replayParent, turnId: id, itemId: id, delta } });
     emit({
       method: "item/completed",
@@ -195,6 +198,7 @@ function response(request: { method: string }, params: Record<string, unknown>, 
 
 createInterface({ input: process.stdin }).on("line", (line) => {
   const request = fixtureRequestSchema.parse(JSON.parse(line));
+
   appendFileSync(
     `${directory}/rpc.jsonl`,
     JSON.stringify({

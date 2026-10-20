@@ -7,6 +7,7 @@ import { markdownImageSource } from "./agent-images";
 import { visibleSnapshot } from "./visible-snapshot";
 
 const REFRESH_MS = 2000;
+
 type Discovery = Awaited<ReturnType<typeof discoverAgents>>;
 
 function preserveHistory(next: Discovery, saved?: Discovery) {
@@ -41,6 +42,7 @@ function preserveHistory(next: Discovery, saved?: Discovery) {
       ...previous.agent,
       status: activeAgent(previous.agent) ? ("unknown" as const) : previous.agent.status,
     };
+
     next.records.set(id, { ...previous, agent, historyError: true, discoveryError: true });
     next.catalog.agents.push(agent);
   }
@@ -51,8 +53,11 @@ function preserveHistory(next: Discovery, saved?: Discovery) {
 // Read-only catalog/transcript cache, scoped to the server-configured parent.
 export class AgentBrowser {
   private reads = new AgentReadCache();
+
   private cached?: Discovery;
+
   private refreshing?: Promise<void>;
+
   private async refresh(owner: string) {
     try {
       this.cached = preserveHistory(
@@ -63,6 +68,7 @@ export class AgentBrowser {
       this.refreshing = undefined;
     }
   }
+
   private async owned(owner: string, id: string) {
     await this.catalog(owner);
     const record = this.cached?.records.get(id);
@@ -73,6 +79,7 @@ export class AgentBrowser {
 
     return record;
   }
+
   async catalog(owner: string, previews = false) {
     if (this.cached?.owner !== owner || Date.now() - this.cached.catalog.updatedAt >= REFRESH_MS) {
       this.refreshing ??= this.refresh(owner);
@@ -84,6 +91,7 @@ export class AgentBrowser {
     }
 
     const records = this.cached.records.values().toArray();
+
     await Promise.all(records.map((record) => this.reads.project(record)));
 
     if (previews) {
@@ -94,8 +102,10 @@ export class AgentBrowser {
 
     return this.cached.catalog;
   }
+
   async transcript(owner: string, id: string): Promise<AgentTranscript> {
     const record = await this.owned(owner, id);
+
     await this.reads.full(record);
     const raw = {
       ...structuredClone(initialSnapshot),
@@ -110,6 +120,7 @@ export class AgentBrowser {
         : undefined,
     };
     const state = visibleSnapshot(raw, { tools: true });
+
     // Images use scoped item IDs, never caller-supplied paths or another chat's cache.
     state.turns = state.turns.map((turn) => ({
       id: turn.id,
@@ -151,8 +162,10 @@ export class AgentBrowser {
       updatedAt: Date.now(),
     };
   }
+
   async image(owner: string, id: string, itemId: string, index: number, markdownSource?: string) {
     const record = await this.owned(owner, id);
+
     await this.reads.full(record, true);
     const item = record.turns?.flatMap((turn) => turn.items).find((entry) => entry.id === itemId);
     const source = item && (markdownSource ? markdownImageSource(item, markdownSource) : itemImageSources(item)[index]);
@@ -168,6 +181,7 @@ export class AgentBrowser {
 declare global {
   var pocketAgentBrowser: AgentBrowser | undefined;
 }
+
 export function agentBrowser() {
   const existing = globalThis.pocketAgentBrowser;
 
@@ -176,6 +190,7 @@ export function agentBrowser() {
   }
 
   const browser = new AgentBrowser();
+
   Object.defineProperty(globalThis, "pocketAgentBrowser", { value: browser, configurable: true });
 
   return browser;

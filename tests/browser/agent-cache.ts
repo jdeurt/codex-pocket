@@ -9,10 +9,12 @@ const LAST_TURN = -1;
 const directory = ".local/agent-browser-replay";
 const ARCHIVED_TURNS = 40;
 const MAX_READS = 4;
+
 export async function checkAgentCache(request: APIRequestContext, control: (stage: string) => Promise<void>) {
   const initialLog = await readFile(`${directory}/rpc.jsonl`, "utf8");
   const baseline = initialLog.trim().split("\n").length;
   const catalog = await request.get("/api/agents");
+
   expect(catalog.ok()).toBeTruthy();
   const afterCatalog = await readFile(`${directory}/rpc.jsonl`, "utf8");
   const discoveryReads = afterCatalog
@@ -20,6 +22,7 @@ export async function checkAgentCache(request: APIRequestContext, control: (stag
     .split("\n")
     .slice(baseline)
     .map((line) => replayLogSchema.parse(JSON.parse(line)));
+
   expect(
     discoveryReads.filter(
       (entry) =>
@@ -36,6 +39,7 @@ export async function checkAgentCache(request: APIRequestContext, control: (stag
     request.get(`/api/agents?agent=pocket:${closedId}&item=closed-session-image&index=0`),
     request.get(`/api/agents?agent=pocket:${closedId}&item=closed-session-image&index=0&thumbnail=1`),
   ]);
+
   expect(concurrent.every((response) => response.ok())).toBeTruthy();
   const coldLog = await readFile(`${directory}/rpc.jsonl`, "utf8");
   const coldReads = coldLog
@@ -47,15 +51,18 @@ export async function checkAgentCache(request: APIRequestContext, control: (stag
       (entry) =>
         entry.threadId === "closed-session" && entry.method === "thread/turns/list" && entry.itemsView === "full"
     );
+
   expect(coldReads).toHaveLength(1);
   await request.get("/api/agents?view=list");
   const first = await request.get("/api/agents?agent=codex:done-codex");
   const firstHistory = agentTranscriptSchema.parse(await first.json());
+
   expect(firstHistory.state.turns.length).toBeGreaterThan(ARCHIVED_TURNS);
   expect(firstHistory.state.turns[0].id).toBe("archived-0");
   const beforeReuse = await readFile(`${directory}/rpc.jsonl`, "utf8");
   const reuseBaseline = beforeReuse.trim().split("\n").length;
   const reused = await request.get("/api/agents?agent=codex:done-codex");
+
   expect(reused.ok()).toBeTruthy();
   await request.get("/api/agents?agent=codex:done-codex&item=done-codex-image&index=0");
   await request.get("/api/agents?agent=codex:done-codex&item=done-codex-image&index=0&thumbnail=1");
@@ -66,6 +73,7 @@ export async function checkAgentCache(request: APIRequestContext, control: (stag
     .slice(reuseBaseline)
     .map((line) => replayLogSchema.parse(JSON.parse(line)))
     .filter((entry) => entry.threadId === "done-codex");
+
   expect(reuseReads).toEqual([]);
   await control("history-changed");
   await expect
@@ -78,6 +86,7 @@ export async function checkAgentCache(request: APIRequestContext, control: (stag
     .toBe("changed-turn");
   const changed = await request.get("/api/agents?agent=codex:done-codex");
   const changedHistory = agentTranscriptSchema.parse(await changed.json());
+
   expect(changedHistory.state.turns[0].id).toBe("archived-0");
   expect(changedHistory.state.turns.length).toBe(firstHistory.state.turns.length + 1);
   const changedLog = await readFile(`${directory}/rpc.jsonl`, "utf8");
@@ -87,6 +96,7 @@ export async function checkAgentCache(request: APIRequestContext, control: (stag
     .slice(reuseBaseline)
     .map((line) => replayLogSchema.parse(JSON.parse(line)))
     .filter((entry) => entry.threadId === "done-codex" && entry.method === "thread/turns/list");
+
   expect(changedReads.length).toBeGreaterThan(0);
   expect(
     changedReads.every(
@@ -96,6 +106,7 @@ export async function checkAgentCache(request: APIRequestContext, control: (stag
   ).toBeTruthy();
   const metricsText = await readFile(`${directory}/rpc-metrics.json`, "utf8");
   const metrics = z.object({ maxReads: z.number() }).parse(JSON.parse(metricsText));
+
   expect(metrics.maxReads).toBeLessThanOrEqual(MAX_READS);
   expect(metrics.maxReads).toBeGreaterThan(1);
   await writeFile(

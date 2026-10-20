@@ -24,19 +24,26 @@ const delivery: { status: string; gate?: ReturnType<typeof Promise.withResolvers
 
 class SimulatedAdapter implements HarnessAdapter {
   private resolve?: (result: HarnessResult) => void;
+
   private reject?: (error: Error) => void;
+
   private closing?: Promise<void>;
+
   private releaseClose?: () => void;
+
   private closeGate?: Promise<void>;
+
   constructor(
     private options: AdapterOptions,
     private harness: string
   ) {
     adapters.set(options.child.id, this);
   }
+
   open() {
     return Promise.resolve(this.options.child.sessionId ?? `saved:${this.options.child.id}`);
   }
+
   run(id: string, text: string) {
     if (text === "hold-close") {
       this.closeGate = new Promise((resolve) => {
@@ -50,12 +57,15 @@ class SimulatedAdapter implements HarnessAdapter {
       send({ event: "started", id, childId: this.options.child.id, harness: this.harness, text });
     });
   }
+
   complete() {
     this.resolve?.({ status: "completed", text: "Simulated result" });
   }
+
   fail() {
     this.reject?.(new Error("Simulated disconnect after send"));
   }
+
   async ask() {
     try {
       const answer = await this.options.callbacks.request({
@@ -64,25 +74,31 @@ class SimulatedAdapter implements HarnessAdapter {
         method: "AskUserQuestion",
         input: { question: "Color?" },
       });
+
       send({ event: "answer", childId: this.options.child.id, answer });
     } catch (error) {
       send({ event: "cancelled", childId: this.options.child.id, error: String(error) });
     }
   }
+
   release() {
     this.releaseClose?.();
   }
+
   history() {
     return Promise.resolve([]);
   }
+
   interrupt() {
     this.resolve?.({ status: "interrupted", text: "Closed" });
 
     return Promise.resolve();
   }
+
   async archive() {
     await this.interrupt();
   }
+
   close() {
     this.closing ??= (async () => {
       await this.interrupt();
@@ -118,6 +134,7 @@ process.on("message", (message) => {
   const { id, method } = object(message);
   const args = object(object(message).args);
   const childId = string(args.childId);
+
   void (async () => {
     switch (method) {
       case "create": {
@@ -156,6 +173,7 @@ process.on("message", (message) => {
 
       case "createAndCrash": {
         const child = store.create(owner, args);
+
         send({ id, result: child });
         process.exit(CRASH_EXIT_CODE); // Skip the notification microtask after committing.
         break;

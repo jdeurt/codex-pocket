@@ -8,6 +8,7 @@ const POLL_MS = 2000;
 const motionQuery = "(prefers-reduced-motion: reduce)";
 const subscribeMotion = (callback: () => void) => {
   const media = globalThis.matchMedia(motionQuery);
+
   media.addEventListener("change", callback);
 
   return () => {
@@ -26,7 +27,9 @@ export function ActivitySpinner() {
 
   useEffect(() => {
     const abort = new AbortController();
+
     let refreshing = false;
+
     const refresh = async () => {
       if (document.hidden || refreshing || abort.signal.aborted) {
         return;
@@ -39,6 +42,7 @@ export function ActivitySpinner() {
 
         if (response.ok) {
           const preference = spinnerPreferenceSchema.parse(await response.json());
+
           setCurrent(preference.current);
         }
       } catch {
@@ -48,6 +52,7 @@ export function ActivitySpinner() {
       }
     };
     const visible = () => void refresh();
+
     document.addEventListener("visibilitychange", visible);
     void refresh();
     const timer = setInterval(() => void refresh(), POLL_MS);

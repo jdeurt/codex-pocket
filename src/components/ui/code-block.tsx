@@ -200,6 +200,7 @@ function CodeBlockContent({
           .split("\n")
           .map((line) => {
             const occurrence = (occurrences.get(line) ?? 0) + 1;
+
             occurrences.set(line, occurrence);
 
             return { id: `${line}:${String(occurrence)}`, text: line };

@@ -11,6 +11,7 @@ import { string } from "../src/lib/protocol";
 nextEnv.loadEnvConfig(process.cwd());
 const directory = path.resolve(".local", "live-check", crypto.randomUUID());
 const project = path.join(directory, "project");
+
 process.env.CODEX_POCKET_STATE_DIR = path.join(directory, "bridge");
 await mkdir(project, { recursive: true });
 const config = configSchema.parse({
@@ -20,6 +21,7 @@ const config = configSchema.parse({
   serverArgs: ["app-server", "--listen", "stdio://", "-c", 'sandbox_mode="read-only"'],
 });
 const rpc = new CodexRpc();
+
 await rpc.connect(config);
 const { config: effective } = await rpc.request("config/read", {
   includeLayers: false,
@@ -33,6 +35,7 @@ const started = await rpc.request("thread/start", {
   developerInstructions: pocketInstructions(string(effective.developer_instructions), false),
 });
 const threadId = started.thread.id;
+
 await rpc.request("thread/name/set", { threadId, name: "Pocket live integration check" });
 
 await seedThread(rpc, threadId, "Integration check. Reply exactly READY. Do not use tools.", {
@@ -64,6 +67,7 @@ const host = spawn(
 const stop = () => {
   host.kill("SIGTERM");
 };
+
 process.once("SIGTERM", stop);
 process.once("SIGINT", stop);
 await new Promise<void>((resolve) =>

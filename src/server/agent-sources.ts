@@ -98,6 +98,7 @@ export async function codexThreads(): Promise<CodexThread[]> {
         limit: 100,
         cursor,
       });
+
       threads.push(...page.data);
       cursor = page.nextCursor;
     } while (cursor);
@@ -134,6 +135,7 @@ async function readCodex(record: AgentRecord, sessionId: string) {
     threadId: sessionId,
     includeTurns: false,
   });
+
   record.thread = thread;
   record.turns = await refreshCodexHistory(rpc, thread, record.turns);
   Object.assign(record.agent, observedMetadata({ model: thread.model, effort: thread.reasoningEffort }));
@@ -162,6 +164,7 @@ async function readClaude(record: AgentRecord, sessionId: string) {
   }
 
   const last = object(messages.at(LAST_MESSAGE)?.message);
+
   record.agent.status =
     record.observedStatus ??
     (["end_turn", "stop_sequence"].includes(string(last.stop_reason))
@@ -191,6 +194,7 @@ export async function hydrateAgent(record: AgentRecord) {
     }
   }
 }
+
 export async function claudeChildren(
   parent: AgentRecord,
   previous = new Map<string, AgentRecord>()
@@ -226,6 +230,7 @@ export async function claudeChildren(
 
   const result: AgentRecord[] = [];
   const known = new Map<string, string>();
+
   let progress = true;
 
   while (progress) {
@@ -246,12 +251,14 @@ export async function claudeChildren(
       }
 
       const agentId = `claude:${parent.sessionId ?? ""}:${id}`;
+
       known.set(id, agentId);
       progress = true;
       const invocation = transcript.find((message) => message.parent_tool_use_id)?.parent_tool_use_id;
       const parentTurns = ancestor ? claudeTranscript(messages.get(ancestor) ?? []) : (parent.turns ?? []);
       // SDK subagent IDs and parent_agent_id establish ancestry, never prompt text.
       const tool = parentTurns.flatMap((turn) => turn.items).find((item) => item.nativeId === invocation);
+
       result.push({
         agent: {
           id: agentId,

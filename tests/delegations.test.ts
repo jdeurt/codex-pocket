@@ -16,6 +16,7 @@ const assignment = { title: "Investigate", body: "Read the project", idempotency
 async function fixture(t: { after: (fn: () => Promise<void>) => void }) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "pocket-delegation-"));
   const store = new DelegationStore(directory);
+
   store.saveParent(owner, context);
   t.after(async () => {
     store.close();
@@ -28,26 +29,32 @@ async function fixture(t: { after: (fn: () => Promise<void>) => void }) {
 await test("delegation creation and sends are scoped, durable and idempotent", async (t) => {
   const { store, directory } = await fixture(t);
   const child = store.create(owner, assignment);
+
   assert.equal(store.create(owner, assignment).id, child.id);
   assert.throws(() => store.create(owner, { ...assignment, body: "Different work" }), /different work/);
   assert.throws(() => store.get("other-parent", child.id), /not found/);
   assert.deepEqual(child.policy, context.policy);
   const first = store.send(owner, child.id, "followup", "Follow up");
+
   assert.equal(store.send(owner, child.id, "followup", "Follow up").id, first.id);
   assert.throws(() => store.send(owner, child.id, "followup", "Different text"), /different text/);
   store.setSession(owner, child.id, "saved-native-session");
   const reopened = new DelegationStore(directory);
+
   assert.equal(reopened.get(owner, child.id).sessionId, "saved-native-session");
   reopened.close();
   const info = await stat(path.join(directory, "delegations.sqlite"));
+
   assert.equal(info.mode & PERMISSION_MASK, PRIVATE_FILE_MODE);
 });
 
 await test("close cancels queued work and resume keeps the same child and saved session", async (t) => {
   const { store } = await fixture(t);
   const child = store.create(owner, assignment);
+
   store.setSession(owner, child.id, "saved");
   const first = store.claim(owner, child.id);
+
   assert.ok(first);
   store.send(owner, child.id, "second", "Queued work");
   assert.equal(store.claim(owner, child.id), undefined);
@@ -58,6 +65,7 @@ await test("close cancels queued work and resume keeps the same child and saved 
   store.finish(first, "cancelled", "Closed");
   store.setStatus(owner, child.id, "closed");
   const resumed = store.resume(owner, child.id);
+
   assert.equal(resumed.id, child.id);
   assert.equal(resumed.sessionId, "saved");
   assert.equal(resumed.status, "idle");
@@ -69,8 +77,10 @@ await test("child messages route by managed identity, deduplicate retries and re
   const { store } = await fixture(t);
   const child = store.create(owner, assignment);
   const command = store.claim(owner, child.id);
+
   assert.ok(command);
   const first = store.mail.message(child.id, command.id, { message: "Which color?" });
+
   assert.equal(store.mail.message(child.id, command.id, { message: "Which color?" }).id, first.id);
   assert.equal(store.mail.pending(owner).length, 1);
   assert.deepEqual(store.mail.pending("other-parent"), []);
@@ -83,9 +93,11 @@ await test("restarts preserve reports and identities without replaying uncertain
   const { store, directory } = await fixture(t);
   const child = store.create(owner, assignment);
   const command = store.claim(owner, child.id);
+
   assert.ok(command);
   store.setSession(owner, child.id, "native-session");
   const reopened = new DelegationStore(directory);
+
   reopened.recover(owner);
   reopened.recover(owner);
   assert.equal(reopened.get(owner, child.id).sessionId, "native-session");
@@ -96,6 +108,7 @@ await test("restarts preserve reports and identities without replaying uncertain
   assert.throws(() => reopened.send(owner, child.id, "followup", "Continue"), /Resume/);
   reopened.resume(owner, child.id);
   const next = reopened.send(owner, child.id, "followup", "Continue from saved work");
+
   assert.equal(reopened.claim(owner, child.id)?.id, next.id);
   reopened.close();
 });
@@ -109,6 +122,7 @@ await test("harness answers are validated before persistence and remain parent s
     method: "item/tool/requestUserInput",
     input: { questions: [{ id: "color" }] },
   });
+
   assert.throws(() => store.mail.answer(owner, child.id, id, { answers: {} }), /Answer each/);
   assert.equal(store.mail.requests(owner, child.id)[0].status, "pending");
   assert.throws(() => store.mail.answer("other", child.id, id, {}), /no longer waiting/);
@@ -119,6 +133,7 @@ await test("harness answers are validated before persistence and remain parent s
 await test("delegate reports stay internal while ordinary chat and parent replies remain visible", () => {
   const reportId = "pocket-delegate:report-id";
   const snapshot = structuredClone(initialSnapshot);
+
   snapshot.queue.push({ id: reportId, text: "Internal child report", status: "queued" });
   snapshot.turns.push({
     id: "turn",
@@ -130,6 +145,7 @@ await test("delegate reports stay internal while ordinary chat and parent replie
     ],
   });
   const visible = visibleSnapshot(snapshot);
+
   assert.equal(visible.queue.length, 0);
   assert.deepEqual(
     visible.turns[0].items.map((item) => item.id),

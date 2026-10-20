@@ -44,6 +44,7 @@ await test("image references support generated output, MCP, dynamic tools and lo
 
 await test("client snapshots project tool images without sending tool arguments or image bytes", () => {
   const state = structuredClone(initialSnapshot);
+
   state.turns = [
     {
       id: "turn",
@@ -55,6 +56,7 @@ await test("client snapshots project tool images without sending tool arguments 
     },
   ];
   const visible = visibleSnapshot(state);
+
   assert.equal(visible.turns[0].items[0].type, "imageOutput");
   assert.equal(visible.turns[0].items.length, 1);
   assert.equal(JSON.stringify(visible).includes("private"), false);
@@ -62,18 +64,22 @@ await test("client snapshots project tool images without sending tool arguments 
 
 await test("local and inline images render safely while non-images and remote fetches are rejected", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "pocket-images-"));
+
   process.env.CODEX_POCKET_LOG_DIR = path.join(directory, "logs");
 
   try {
     const input = await readFile("public/icon-192.png");
+
     await writeFile(path.join(directory, "image.png"), input);
     await writeFile(path.join(directory, "not-an-image.png"), "<html>Not an image</html>");
     const rendered = await renderImage("image.png", directory, true);
     const metadata = await sharp(rendered.bytes).metadata();
+
     assert.equal(metadata.format, "webp");
     assert.equal(metadata.width, ICON_SIZE);
     assert.equal(metadata.height, ICON_SIZE);
     const inline = await renderImage(`data:image/png;base64,${input.toString("base64")}`, directory, true);
+
     assert.equal(inline.etag, rendered.etag);
     await assert.rejects(() => renderImage("not-an-image.png", directory, true));
     await assert.rejects(() => renderImage("https://example.com/private", directory, true), /Only local/);
@@ -86,6 +92,7 @@ await test("local and inline images render safely while non-images and remote fe
 await test("image diagnostics retain sizes and saved paths without repeating megabytes of base64", () => {
   const entry = { type: "imageGeneration", result: "base64-content", savedPath: "/tmp/image.png" };
   const output = JSON.stringify(redactLog(entry));
+
   assert.equal(output.includes("base64-content"), false);
   assert.equal(output.includes("/tmp/image.png"), true);
   assert.equal(entry.result, "base64-content");

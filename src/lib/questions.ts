@@ -12,4 +12,5 @@ export const questionsSchema = z.array(
       .optional(),
   })
 );
+
 export type Question = z.infer<typeof questionsSchema>[number];

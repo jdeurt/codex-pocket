@@ -5,6 +5,7 @@ import { bridge } from "@/server/bridge";
 import { z } from "zod";
 
 export const runtime = "nodejs";
+
 export async function POST(request: Request) {
   try {
     await guard(request, true);

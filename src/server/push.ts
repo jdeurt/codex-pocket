@@ -32,6 +32,7 @@ const pushStateSchema = z.object({
   subscriptions: z.array(subscriptionSchema),
   notified: z.array(z.string()),
 });
+
 type PushState = z.infer<typeof pushStateSchema>;
 
 declare global {
@@ -59,10 +60,12 @@ function withState<T>(action: (state: PushState) => T | Promise<T>) {
       notified: [],
     };
     const value = await action(state);
+
     await writeLocal("push.json", state);
 
     return value;
   })();
+
   operations.serial = result;
 
   return result;
@@ -72,6 +75,7 @@ export const pushPublicKey = () => withState((state) => state.keys.publicKey);
 
 export async function saveSubscription(input: unknown) {
   const subscription = subscriptionSchema.parse(input);
+
   await withState((state) => {
     state.subscriptions = state.subscriptions.filter((entry) => entry.endpoint !== subscription.endpoint);
     state.subscriptions.push(subscription);
@@ -107,6 +111,7 @@ export function completionPayload(threadId: string, turn: Turn) {
     new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(notification.body),
     ({ segment }) => segment
   );
+
   let start = 0;
   let end = characters.length;
 
@@ -150,6 +155,7 @@ export async function notifyTurnComplete(threadId: string, turn: Turn) {
   }
 
   const expired = new Set<string>();
+
   await Promise.all(
     delivery.subscriptions.map(async (subscription) => {
       if (await notificationPresence.isForeground(subscription.endpoint)) {

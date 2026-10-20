@@ -40,6 +40,7 @@ export function useAttachments(parent?: string) {
 
       return savedDraft(owner, value);
     })();
+
     writes.current = result;
 
     return result;
@@ -52,6 +53,7 @@ export function useAttachments(parent?: string) {
 
     scope.current = parent;
     let active = true;
+
     void savedDraft(parent)
       .then((value) => {
         if (!active) {
@@ -94,6 +96,7 @@ export function useAttachments(parent?: string) {
 
     const controller = new AbortController();
     const owner = scope.current;
+
     uploads.current.set(entry.id, controller);
     const patch = (fields: Partial<DraftAttachment>) => {
       if (scope.current !== owner) {
@@ -105,6 +108,7 @@ export function useAttachments(parent?: string) {
         files: current.current.files.map((file) => (file.id === entry.id ? { ...file, ...fields } : file)),
       });
     };
+
     patch({ progress: 0, error: undefined });
 
     try {
@@ -115,6 +119,7 @@ export function useAttachments(parent?: string) {
         },
         controller.signal
       );
+
       patch({ uploaded, progress: PERCENT });
       await persist(current.current);
     } catch (error_) {
@@ -166,6 +171,7 @@ export function useAttachments(parent?: string) {
 
     const added = files.map((file) => ({ id: crypto.randomUUID(), file, progress: 0 }));
     const value = { files: [...existing, ...added] };
+
     update(value);
 
     try {
@@ -182,6 +188,7 @@ export function useAttachments(parent?: string) {
     uploads.current.get(id)?.abort();
     uploads.current.delete(id);
     const value = { files: current.current.files.filter((file) => file.id !== id) };
+
     update(value);
 
     try {
@@ -197,6 +204,7 @@ export function useAttachments(parent?: string) {
     }
 
     const value = { ...current.current, pending: { id, text } };
+
     await persist(value);
     update(value);
   }

@@ -21,6 +21,7 @@ export async function seedThread(rpc: CodexRpc, threadId: string, text: string, 
       completion.reject(new Error(`The seed turn failed: ${JSON.stringify(turn.error)}`));
     }
   };
+
   rpc.on("event", listener);
 
   try {

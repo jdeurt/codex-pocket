@@ -19,6 +19,7 @@ export function reduceEvent(state: Snapshot, event: RpcEvent) {
   }
 
   const turnId = string(params.turnId) || string(object(params.turn).id);
+
   let turn = state.turns.find((entry) => entry.id === turnId);
 
   switch (event.method) {

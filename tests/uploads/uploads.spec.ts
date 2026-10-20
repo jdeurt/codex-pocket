@@ -43,6 +43,7 @@ async function deliveredCount(id: string) {
 test("pick, retry, remove, file-only send, reload, queued recovery and real stored bytes", async ({ page }, info) => {
   await page.goto("/");
   const attach = page.getByRole("button", { name: "Attach images or files", exact: true });
+
   await expect(attach).toBeEnabled();
   await control("complete");
   await expect(page.locator("header [role=status]")).toHaveText("Connected");
@@ -60,8 +61,10 @@ test("pick, retry, remove, file-only send, reload, queued recovery and real stor
 
   // Real native chooser activation, followed by browser file selection.
   const chooser = page.waitForEvent("filechooser");
+
   await attach.click();
   const nativeChooser = await chooser;
+
   await nativeChooser.setFiles([photo, text]);
   await expect(selected.getByText("Ready to send", { exact: true })).toHaveCount(2);
   await expect(send).toBeEnabled();
@@ -80,6 +83,7 @@ test("pick, retry, remove, file-only send, reload, queued recovery and real stor
   const photoRequest = photoRequests.findLast((request) =>
     request.input.some((part: { type: string }) => part.type === "localImage")
   );
+
   assert.ok(photoRequest);
   expect(photoRequest.bytes[0].size).toBeGreaterThan(0);
   expect(photoRequest.input.map((part: { type: string }) => part.type)).toEqual(["localImage", "text"]);
@@ -87,6 +91,7 @@ test("pick, retry, remove, file-only send, reload, queued recovery and real stor
 
   // An upload failure keeps the Blob, survives reload, then retries using the same ID.
   let failedId = "";
+
   await page.route("**/api/uploads?**", async (route) => {
     if (route.request().method() === "PUT") {
       failedId = new URL(route.request().url()).searchParams.get("id") ?? "";
@@ -102,17 +107,20 @@ test("pick, retry, remove, file-only send, reload, queued recovery and real stor
   await selected.getByRole("button", { name: `Retry ${textName}` }).click();
   await expect(selected.getByText("Ready to send", { exact: true })).toBeVisible();
   const recoveredBytes = await page.request.get(`/api/uploads?id=${failedId}`);
+
   expect(await recoveredBytes.body()).toEqual(textBytes);
 
   const binaryName = `${info.project.name}-archive.bin`;
   const pdfName = `${info.project.name}-document.pdf`;
   const binary = Buffer.from("AP8eCsgtAH4=", "base64");
+
   await picker.setInputFiles([
     { name: binaryName, mimeType: "application/octet-stream", buffer: binary },
     { name: pdfName, mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4\nPocket test bytes\n%%EOF") },
   ]);
   await expect(selected.getByText("Ready to send", { exact: true })).toHaveCount(MIXED_FILE_COUNT);
   const message = `${info.project.name} files and text`;
+
   await page.getByRole("textbox", { name: "Message Pocket" }).fill(message);
   // Lose the HTTP acknowledgement after Pocket has durably accepted the queue entry.
   await page.route("**/api/messages", async (route) => {
@@ -130,6 +138,7 @@ test("pick, retry, remove, file-only send, reload, queued recovery and real stor
   await expect(page.getByText("Queued", { exact: true }).last()).toBeVisible();
   const outbox = outboxSchema.parse(JSON.parse(await readFile(path.join(directory, "state/outbox.json"), "utf8")));
   const receipt = outbox.receipts.find((entry: { text: string }) => entry.text === message);
+
   assert.ok(receipt?.attachments);
   expect(receipt.attachments).toHaveLength(MIXED_FILE_COUNT);
   expect(receipt.attachments[0].id).toBe(failedId);
@@ -149,6 +158,7 @@ test("pick, retry, remove, file-only send, reload, queued recovery and real stor
   await expect.poll(() => deliveredCount(receipt.id)).toBe(1);
   const captured = await requests();
   const delivered = captured.find((request) => request.clientUserMessageId === receipt.id);
+
   assert.ok(delivered);
   expect(delivered.bytes).toHaveLength(MIXED_FILE_COUNT);
   expect(Buffer.from(delivered.files.find((file) => file.name === binaryName)?.base64 ?? "", "base64")).toEqual(binary);
@@ -164,8 +174,10 @@ test("pick, retry, remove, file-only send, reload, queued recovery and real stor
     page.getByRole("list", { name: "Attachments", exact: true }).getByText(binaryName, { exact: true }).last()
   ).toBeVisible();
   const binaryFile = receipt.attachments.find((file: { name: string }) => file.name === binaryName);
+
   assert.ok(binaryFile);
   const download = await page.request.get(attachmentUrl(binaryFile.id));
+
   expect(download.headers()["content-type"]).toBe("application/octet-stream");
   expect(download.headers()["content-disposition"]).toContain("attachment;");
   expect(await download.body()).toEqual(binary);
@@ -194,12 +206,15 @@ test("API confines IDs, origins, filenames, content and retries", async ({ reque
     data: Buffer.from("<script>alert('test')</script>"),
   };
   const first = await request.put(url, options);
+
   expect(first.ok()).toBeTruthy();
   const firstBody = z.object({ file: fileAttachmentSchema }).parse(await first.json());
+
   expect(firstBody.file.kind).toBe("file");
   expect(await ok(request.put(url, options))).toBeTruthy();
   expect(await ok(request.put(url, { ...options, data: Buffer.from("changed") }))).toBeFalsy();
   const downloaded = await request.get(`/api/uploads?id=${id}`);
+
   expect(downloaded.headers()["content-type"]).toBe("application/octet-stream");
   expect(downloaded.headers()["content-security-policy"]).toContain("sandbox");
   expect(
@@ -208,6 +223,7 @@ test("API confines IDs, origins, filenames, content and retries", async ({ reque
   expect(await ok(request.get("/api/uploads?id=../../etc/passwd"))).toBeFalsy();
   expect(await ok(request.get(`/api/uploads?id=${crypto.randomUUID()}`))).toBeFalsy();
   const unrelatedId = await readFile(path.join(directory, "unrelated-id.txt"), "utf8");
+
   expect(await ok(request.get(`/api/uploads?id=${unrelatedId}`))).toBeFalsy();
   expect(
     await ok(request.put(url, { ...options, headers: { ...options.headers, Origin: "https://evil.example" } }))
@@ -217,27 +233,32 @@ test("API confines IDs, origins, filenames, content and retries", async ({ reque
     `/api/uploads?id=${crypto.randomUUID()}&name=big.bin&type=application%2Foctet-stream`,
     { ...options, data: Buffer.alloc(MAX_FILE_BYTES + 1) }
   );
+
   expect(oversized.ok()).toBeFalsy();
   const emptyMessage = await request.post("/api/messages", {
     headers: { Origin: origin },
     data: { id: crypto.randomUUID(), text: "" },
   });
+
   expect(emptyMessage.ok()).toBeFalsy();
 });
 
 test("keyboard picker, upload progress, parent draft and IME sending", async ({ page, isMobile }, info) => {
   await page.goto("/");
   const attach = page.getByRole("button", { name: "Attach images or files", exact: true });
+
   await expect(attach).toBeEnabled();
   await control("complete");
   await expect(page.locator("header [role=status]")).toHaveText("Connected");
   const textarea = page.getByRole("textbox", { name: "Message Pocket" });
   const send = page.getByRole("button", { name: "Send message", exact: true });
   const draft = `${info.project.name} keyboard draft`;
+
   await textarea.fill(draft);
   await page.reload();
   await expect(textarea).toHaveValue(draft);
   const uploadGate = Promise.withResolvers<boolean>();
+
   await page.route("**/api/uploads?**", async (route) => {
     if (route.request().method() === "PUT") {
       await uploadGate.promise;
@@ -248,11 +269,14 @@ test("keyboard picker, upload progress, parent draft and IME sending", async ({ 
   await expect(attach).toBeEnabled();
   await attach.focus();
   const chooser = page.waitForEvent("filechooser");
+
   await attach.press("Enter");
   const nativeChooser = await chooser;
   const name = `${info.project.name}-keyboard.txt`;
+
   await nativeChooser.setFiles({ name, mimeType: "text/plain", buffer: Buffer.from("Keyboard upload") });
   const selected = page.getByRole("list", { name: "Selected attachments" });
+
   await expect(selected.getByRole("progressbar", { name: `Uploading ${name}` })).toBeVisible();
   await expect(send).toBeDisabled();
   uploadGate.resolve(true);
@@ -295,12 +319,14 @@ test("animated GIF exposes its durable original path to harness tools", async ({
     .gif({ delay: [firstDelay, secondDelay], loop: 0 })
     .toBuffer();
   const sourceMetadata = await sharp(gif, { animated: true }).metadata();
+
   expect(sourceMetadata.pages).toBe(2);
   await page.goto("/");
   await expect(page.getByRole("button", { name: "Attach images or files", exact: true })).toBeEnabled();
   await control("complete");
   await expect(page.locator("header [role=status]")).toHaveText("Connected");
   const name = `${info.project.name}-animated-spinner.gif`;
+
   await page.locator('input[type="file"]').setInputFiles({ name, mimeType: "image/gif", buffer: gif });
   await expect(
     page.getByRole("list", { name: "Selected attachments" }).getByText("Ready to send", { exact: true })
@@ -313,26 +339,34 @@ test("animated GIF exposes its durable original path to harness tools", async ({
   await expect(page.getByRole("list", { name: "Selected attachments" })).toHaveCount(0);
   const captured = await requests();
   const delivered = captured.findLast((request) => request.files.some((file) => file.name === name));
+
   assert.ok(delivered);
   expect(delivered.input.map((part: { type: string }) => part.type)).toEqual(["localImage", "text"]);
   const original = delivered.files.find((file: { name?: string }) => file.name === name);
+
   assert.ok(original);
   expect(original.mediaType).toBe("image/gif");
   expect(Buffer.from(original.base64, "base64")).toEqual(gif);
   const durableBytes = await readFile(original.path);
+
   expect(durableBytes).toEqual(gif);
   const metadata = await sharp(durableBytes, { animated: true }).metadata();
+
   expect(metadata.pages).toBe(2);
   expect(metadata.delay).toEqual(sourceMetadata.delay);
   expect(metadata.loop).toBe(0);
   const imageInput = delivered.input.find((part) => part.type === "localImage");
+
   assert.ok(imageInput);
   const imagePath = imageInput.path;
+
   expect(imagePath).not.toBe(original.path);
   const preview = await sharp(imagePath).metadata();
+
   expect(preview.format).toBe("png");
   const fileCard = page.getByRole("list", { name: "Attachments", exact: true }).getByText(name, { exact: true });
   const download = await page.request.get(attachmentUrl(path.basename(path.dirname(original.path))));
+
   expect(await download.body()).toEqual(gif);
   await page.reload();
   expect(await readFile(original.path)).toEqual(gif);

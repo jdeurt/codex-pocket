@@ -29,6 +29,7 @@ test("pending answer drafts survive new output and prepended history without sub
   };
   const writes = await mount(page, state);
   const answer = page.getByRole("textbox", { name: "Your answer", exact: true });
+
   await answer.fill("Preserved answer draft");
   state.turns[0].items.push({ id: "after-question", type: "agentMessage", text: "Additional fixture output" });
   await publish(page, state);

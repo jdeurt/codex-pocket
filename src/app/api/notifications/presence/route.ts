@@ -24,6 +24,7 @@ export async function GET(request: Request) {
   }
 
   let cleanup: ((close: boolean) => void) | undefined;
+
   const stream = new ReadableStream({
     start(controller) {
       const encoder = new TextEncoder();
@@ -37,7 +38,9 @@ export async function GET(request: Request) {
         send(": keepalive\n\n");
       }, HEARTBEAT_MS);
       const abort = () => cleanup?.(true);
+
       let closed = false;
+
       cleanup = (close) => {
         if (closed) {
           return;

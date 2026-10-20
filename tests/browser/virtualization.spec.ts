@@ -87,6 +87,7 @@ async function settledAnchor(page: Page) {
       new Promise<void>((resolve) => {
         let last = element.scrollTop;
         let stableFrames = 0;
+
         const sample = () => {
           stableFrames = Math.abs(element.scrollTop - last) < 1 ? stableFrames + 1 : 0;
           last = element.scrollTop;
@@ -97,6 +98,7 @@ async function settledAnchor(page: Page) {
             globalThis.requestAnimationFrame(sample);
           }
         };
+
         globalThis.requestAnimationFrame(sample);
       })
   );
@@ -124,6 +126,7 @@ test("large single-turn history stays bounded through rapid scrollbar, wheel and
   page,
 }, info) => {
   const writes = await mount(page, history());
+
   await expect(page.locator('[data-message-id="message-1199"]')).toBeVisible();
   expect(await page.locator(row).count()).toBeGreaterThanOrEqual(MIN_MOUNTED_ROWS);
   expect(await page.locator(row).count()).toBeLessThan(MAX_MOUNTED_ROWS);
@@ -171,19 +174,23 @@ test("prepend, streaming, append and steering preserve the reader anchor and fol
   page,
 }, info) => {
   const state = history();
+
   await mount(page, state);
   await scrollToFraction(page, PREPEND_FRACTION);
   let anchor = await settledAnchor(page);
+
   state.turns[0].items.unshift(...history(PREPEND_COUNT, -PREPEND_COUNT).turns[0].items);
   await publish(page, state);
   await expectAnchor(page, anchor);
   const { promise: imageReady, resolve: releaseImage } = Promise.withResolvers<boolean>();
   const delayedImage = await readFile("public/icon-192.png");
+
   await page.route("**/api/images?item=anchor-growth*", async (route) => {
     await imageReady;
     await route.fulfill({ contentType: "image/png", body: delayedImage });
   });
   const anchorIndex = state.turns[0].items.findIndex((item) => anchor.id.endsWith(`/${item.id}`));
+
   state.turns[0].items[anchorIndex - 2].images = [
     { source: "/api/images?item=anchor-growth", alt: "Image above reader" },
   ];
@@ -200,6 +207,7 @@ test("prepend, streaming, append and steering preserve the reader anchor and fol
   await expect(page.getByRole("img", { name: "Image above reader", exact: true })).toHaveJSProperty("complete", true);
   await expectAnchor(page, anchor);
   const stream = { id: "stream", type: "agentMessage", text: "Streaming start" };
+
   state.turns[0].items.push(stream);
   state.activeTurnId = state.turns[0].id;
   state.activity = "Inspecting virtualization fixture";
@@ -219,6 +227,7 @@ test("prepend, streaming, append and steering preserve the reader anchor and fol
   await page.getByRole("button", { name: "Jump to latest message" }).click();
   await expect(page.locator('[data-message-id="steer"]')).toBeVisible();
   const afterSteer = { id: "after-steer", type: "agentMessage", text: "After steering" };
+
   state.turns[0].items.push(afterSteer);
   await publish(page, state);
   await expect(page.locator('[data-message-id="after-steer"]')).toBeVisible();
@@ -237,6 +246,7 @@ test("empty and short chats preserve drafts, activity, images, selection and red
 }, info) => {
   await page.emulateMedia({ reducedMotion: "reduce" });
   const state: Snapshot = { ...history(), turns: [] };
+
   await mount(page, state);
   await page.getByRole("textbox", { name: "Message Pocket" }).fill("Preserved first draft");
   state.queue = [{ id: "first-queued", text: "Queued first message.\n".repeat(QUEUED_LINES), status: "sending" }];
@@ -310,10 +320,12 @@ test("empty and short chats preserve drafts, activity, images, selection and red
   await expect(page.getByRole("button", { name: "Close image preview" })).toBeVisible();
   await page.getByRole("button", { name: "Close image preview" }).click();
   const code = page.locator('[data-message-id="activity-final"] [data-slot="code-block-content"]');
+
   await code.focus();
   await expect(code).toBeFocused();
   await code.evaluate((element) => {
     const range = globalThis.document.createRange();
+
     range.selectNodeContents(element);
     globalThis.getSelection()?.removeAllRanges();
     globalThis.getSelection()?.addRange(range);

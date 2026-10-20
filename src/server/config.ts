@@ -13,7 +13,9 @@ export const configSchema = z
       .default(["http://localhost:3000", "http://127.0.0.1:3000"]),
   })
   .strict();
+
 export type Config = z.infer<typeof configSchema>;
+
 export async function readConfig(): Promise<Config | null> {
   if (!process.env.CODEX_THREAD_ID) {
     return null;

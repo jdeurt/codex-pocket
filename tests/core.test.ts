@@ -22,6 +22,7 @@ await test("environment configuration rejects remote origins with paths and rela
 
 await test("a phone approval cannot silently grant a session-wide exception", () => {
   const request: PendingRequest = { id: "approval", method: "item/commandExecution/requestApproval", params: {} };
+
   assert.deepEqual(validateAnswer(request, { decision: "accept" }), { decision: "accept" });
   assert.throws(() => validateAnswer(request, { decision: "acceptForSession" }));
   assert.throws(() =>
@@ -36,6 +37,7 @@ await test("permission answers grant only the requested profile for the current 
     method: "item/permissions/requestApproval",
     params: { permissions },
   };
+
   assert.deepEqual(validateAnswer(request, { allow: true }), { permissions, scope: "turn" });
   assert.deepEqual(validateAnswer(request, { allow: false }), { permissions: {}, scope: "turn" });
 });
@@ -46,6 +48,7 @@ await test("questions require an answer for each question and reject unrelated a
     method: "item/tool/requestUserInput",
     params: { questions: [{ id: "choice" }] },
   };
+
   assert.deepEqual(validateAnswer(request, { answers: { choice: { answers: ["A"] } } }), {
     answers: { choice: { answers: ["A"] } },
   });
@@ -60,6 +63,7 @@ await test("streaming messages stay isolated to their thread and stale completio
     activeTurnId: "new",
     turns: [{ id: "old", status: "inProgress", items: [{ id: "reply", type: "agentMessage", text: "Hello" }] }],
   };
+
   reduceEvent(state, {
     method: "item/agentMessage/delta",
     params: { threadId: "other", turnId: "old", itemId: "reply", delta: "Wrong" },

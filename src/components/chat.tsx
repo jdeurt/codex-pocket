@@ -30,6 +30,7 @@ export function Chat() {
   const [agentsOpen, setAgentsOpen] = useState(false);
   const messageId = useRef<string | null>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
+
   useComposerViewport(textarea);
   const filePicker = useRef<HTMLInputElement>(null);
   const recoveredMessage = useRef<string | undefined>(undefined);
@@ -66,6 +67,7 @@ export function Chat() {
 
     const id = (messageId.current ??=
       attachments.pending?.text === text ? attachments.pending.id : crypto.randomUUID());
+
     reportClient("message.send", { id, text, activeTurnId: state.activeTurnId });
     setSending(true);
     setError("");
@@ -150,6 +152,7 @@ export function Chat() {
                 disabled={sending || !attachments.ready || state.connection === "unconfigured"}
                 onChange={(event) => {
                   const files = [...(event.target.files ?? [])];
+
                   event.target.value = "";
                   messageId.current = null;
                   void attachments.add(files);

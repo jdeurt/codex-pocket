@@ -11,9 +11,11 @@ await test("a child MCP exposes only message_parent and routes content to its re
   const directory = await mkdtemp(path.join(os.tmpdir(), "pocket-child-mcp-"));
   const store = new DelegationStore(directory);
   const owner = "parent-chat";
+
   store.saveParent(owner, { cwd: "/tmp", policy: { sandbox: "danger-full-access", approval: "never" } });
   const child = store.create(owner, { title: "Check", body: "Check messaging", idempotencyKey: "check" });
   const command = store.claim(owner, child.id);
+
   assert.ok(command);
   const client = new Client({ name: "child-check", version: "1.0.0" });
   const transport = new StdioClientTransport({
@@ -27,21 +29,25 @@ await test("a child MCP exposes only message_parent and routes content to its re
   try {
     await client.connect(transport);
     const { tools } = await client.listTools();
+
     assert.deepEqual(
       tools.map((tool) => tool.name),
       ["message_parent"]
     );
     assert.deepEqual(Object.keys(tools[0].inputSchema.properties ?? {}), ["message"]);
     const sent = await client.callTool({ name: "message_parent", arguments: { message: "Which color?" } });
+
     assert.equal(sent.isError, undefined);
     await client.callTool({ name: "message_parent", arguments: { message: "Which color?" } });
     assert.equal(store.mail.pending(owner).length, 1);
     assert.equal(store.mail.pending(owner)[0].childId, child.id);
     assert.deepEqual(store.mail.pending("other-parent"), []);
     const invalid = await client.callTool({ name: "message_parent", arguments: { message: "Hello", id: "other" } });
+
     assert.equal(invalid.isError, true);
     store.closeChild(owner, child.id);
     const late = await client.callTool({ name: "message_parent", arguments: { message: "Too late" } });
+
     assert.equal(late.isError, true);
   } finally {
     await client.close();

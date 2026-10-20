@@ -15,6 +15,7 @@ export const fileAttachmentSchema = z.object({
   mediaType: z.string(),
   kind: z.enum(["image", "file"]),
 });
+
 export type FileAttachment = z.infer<typeof fileAttachmentSchema>;
 
 export const attachmentUrl = (id: string, preview = false) =>

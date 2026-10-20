@@ -70,7 +70,9 @@ for (const length of ["short", "long"]) {
         ...saved.turns,
       ],
     };
+
     let connections = 0;
+
     await page.route("**/api/events", async (route) => {
       connections += 1;
       await route.fulfill({
@@ -81,6 +83,7 @@ for (const length of ["short", "long"]) {
     });
     await page.goto("/");
     const notice = page.getByRole("note");
+
     await expect(notice).toHaveText("Pocket restarted");
     await expect(notice).toHaveCount(1);
     await page.getByRole("button", { name: "Dismiss notification prompt" }).click();
@@ -119,6 +122,7 @@ for (const length of ["short", "long"]) {
         overflow: document.documentElement.scrollWidth > innerWidth,
       };
     });
+
     expect(metrics.font).toBe(metrics.activityFont);
     expect(metrics.color).toBe(metrics.activityColor);
     expect(metrics.opacity).toBe(metrics.activityOpacity);
@@ -183,6 +187,7 @@ test("read-only agent viewer excludes a parent restart event and retains ordinar
   };
   // Deliberately include the parent's typed item in a child response: readOnly must exclude it.
   const child = { ...saved, threadId: "restart-exclusion-child", activeTurnId: undefined };
+
   expect(child.turns.flatMap((turn) => turn.items).filter((item) => item.type === "pocketRestart")).toHaveLength(1);
   await page.route("**/api/events", (route) =>
     route.fulfill({
@@ -199,10 +204,12 @@ test("read-only agent viewer excludes a parent restart event and retains ordinar
   );
   await page.goto("/");
   const parent = page.locator("main");
+
   await expect(parent.getByRole("note")).toHaveCount(1);
   await expect(parent.getByRole("note")).toHaveText("Pocket restarted");
   await page.getByRole("button", { name: "1 agent", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Agents", exact: true });
+
   await dialog.getByRole("button", { name: /Restart exclusion child/ }).click();
   await expect(dialog.getByText("Original user content must remain unchanged.", { exact: true })).toBeVisible();
   await expect(dialog.getByRole("note")).toHaveCount(0);

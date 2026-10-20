@@ -10,6 +10,7 @@ import { sidePocketInstructions } from "./instructions";
 import { validateAnswer } from "../answers";
 
 const INVALID_REQUEST_CODE = -32_600;
+
 interface SessionResponse {
   thread: Thread;
   model: string;
@@ -30,11 +31,17 @@ function text(item: Item) {
 
 export class CodexAdapter implements HarnessAdapter {
   private rpc = new CodexRpc();
+
   private sessionId?: string;
+
   private active?: string;
+
   private pending?: { resolve: (result: HarnessResult) => void; reject: (error: Error) => void };
+
   private outputs = new Map<string, string>();
+
   private nativeAgents: Record<string, { parentId: string; name: string; status: string }> = {};
+
   constructor(private options: AdapterOptions) {
     this.rpc.on("event", (event: RpcEvent) => {
       this.event(event);
@@ -46,6 +53,7 @@ export class CodexAdapter implements HarnessAdapter {
       this.pending?.reject(error instanceof Error ? error : new Error("Harness request failed.", { cause: error }))
     );
   }
+
   private observeNative(event: RpcEvent) {
     if (
       ![
@@ -84,6 +92,7 @@ export class CodexAdapter implements HarnessAdapter {
 
     if (event.method === "thread/status/changed" || event.method === "thread/started") {
       const status = object(event.params.status ?? thread.status);
+
       this.nativeAgents[id].status =
         status.type === "active"
           ? Array.isArray(status.activeFlags) && status.activeFlags.length > 0
@@ -98,11 +107,13 @@ export class CodexAdapter implements HarnessAdapter {
       this.nativeAgents[id].status = "closed";
     } else if (event.method === "turn/completed") {
       const status = string(object(event.params.turn).status);
+
       this.nativeAgents[id].status = status === "completed" ? "completed" : status === "failed" ? "failed" : "idle";
     }
 
     this.options.callbacks.metadata({ nativeAgents: this.nativeAgents });
   }
+
   private event(event: RpcEvent) {
     this.observeNative(event);
 
@@ -154,6 +165,7 @@ export class CodexAdapter implements HarnessAdapter {
       }
     }
   }
+
   private async answerRequest(request: PendingRequest) {
     const question = request.method === "item/tool/requestUserInput";
     const answer = await this.options.callbacks.request({
@@ -162,8 +174,10 @@ export class CodexAdapter implements HarnessAdapter {
       method: request.method,
       input: request.params,
     });
+
     this.rpc.respond(request.id, validateAnswer(request, answer));
   }
+
   private async session(params: Record<string, unknown>): Promise<SessionResponse> {
     const { child } = this.options;
 
@@ -187,8 +201,10 @@ export class CodexAdapter implements HarnessAdapter {
       return this.rpc.request("thread/start", params);
     }
   }
+
   async open() {
     const { config, child, callbacks, parentTools } = this.options;
+
     callbacks.metadata({ nativeAgents: null });
     await this.rpc.connect(
       {
@@ -212,6 +228,7 @@ export class CodexAdapter implements HarnessAdapter {
         .join("\n\n"),
       ephemeral: false,
     });
+
     this.sessionId = thread.id;
     callbacks.metadata({
       model,
@@ -222,12 +239,14 @@ export class CodexAdapter implements HarnessAdapter {
 
     return thread.id;
   }
+
   async run(id: string, input: string) {
     this.outputs.clear();
     const result = new Promise<HarnessResult>((resolve, reject) => {
       this.pending = { resolve, reject };
     });
     const { child } = this.options;
+
     this.options.callbacks.metadata({ sessionStarted: true });
 
     try {
@@ -237,6 +256,7 @@ export class CodexAdapter implements HarnessAdapter {
         input: [{ type: "text", text: input, text_elements: [] }],
         effort: child.effort ?? child.policy.effort,
       });
+
       void start.catch((error: unknown) =>
         this.pending?.reject(error instanceof Error ? error : new Error("Harness request failed.", { cause: error }))
       );
@@ -246,6 +266,7 @@ export class CodexAdapter implements HarnessAdapter {
       this.pending = undefined;
     }
   }
+
   async history(): Promise<HarnessMessage[]> {
     const { thread } = await this.rpc.request("thread/read", {
       threadId: this.sessionId,
@@ -254,14 +275,17 @@ export class CodexAdapter implements HarnessAdapter {
 
     return harnessMessages(await loadHistory(this.rpc, thread));
   }
+
   async interrupt() {
     if (this.active) {
       await this.rpc.request("turn/interrupt", { threadId: this.sessionId, turnId: this.active });
     }
   }
+
   async archive() {
     await this.rpc.request("thread/archive", { threadId: this.sessionId });
   }
+
   async close() {
     await this.rpc.shutdown();
   }

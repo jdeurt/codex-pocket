@@ -42,6 +42,7 @@ function messageEntries(turn: Turn, active: boolean): TurnEntry[] {
       index > boundary && item.type === "agentMessage" && item.phase !== "final_answer" && item.id !== final?.id
   );
   const ids = new Set(activity.map((item) => item.id));
+
   let grouped = false;
 
   return messages.flatMap<TurnEntry>((item) => {
@@ -61,6 +62,7 @@ function messageEntries(turn: Turn, active: boolean): TurnEntry[] {
 
 export function turnMessages(turn: Turn, active: boolean): TurnEntry[] {
   const entries: TurnEntry[] = [];
+
   let items: Item[] = [];
   let segment = 0;
 

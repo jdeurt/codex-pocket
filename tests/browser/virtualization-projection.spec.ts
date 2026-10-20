@@ -20,8 +20,10 @@ const mediaTail: Item[] = [
 async function expectSharedProjection(page: Page) {
   await expect(page.locator('[data-transcript-row^="visibility/empty-"]')).toHaveCount(0);
   const fileRow = page.locator('[data-transcript-row="visibility/file-only"]');
+
   await expect(fileRow).toBeVisible();
   const files = fileRow.getByRole("list", { name: "Attachments", exact: true });
+
   await expect(files.getByRole("listitem")).toHaveCount(1);
   await expect(files.getByText("fixture.txt", { exact: true })).toBeVisible();
   await expect(files.getByText("text/plain", { exact: true })).toBeVisible();
@@ -84,8 +86,10 @@ test("shared projected history preserves one scroller, media, pending drafts and
   };
   const writes = await mount(page, state);
   const answer = page.getByRole("textbox", { name: "Your answer", exact: true });
+
   await answer.fill("Preserved pending draft");
   const queued = page.locator('[data-message-id="queued-files"]');
+
   await expect(queued.getByText("queued.txt", { exact: true })).toBeVisible();
   await expect(queued.locator('[data-slot="bubble-content"] > p')).toHaveCount(0);
   await expect(queued).toHaveAttribute("data-delivery", "queued");

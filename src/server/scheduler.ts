@@ -7,16 +7,20 @@ const INTERVAL_MS = 1000;
 
 export class Scheduler {
   private running = false;
+
   private timer?: NodeJS.Timeout;
+
   constructor(
     private store: ScheduleStore,
     private bridge: Bridge,
     private threadId: string
   ) {}
+
   private async collectDue(now: number) {
     for (const schedule of this.store.due(this.threadId, now)) {
       try {
         const next = await nextOccurrence(schedule.calendar, now);
+
         this.store.claim(schedule, next, now);
       } catch (error) {
         log().error({ id: schedule.id, error }, "schedule.recurrence_failed");
@@ -26,6 +30,7 @@ export class Scheduler {
 
     this.bridge.refreshScheduled();
   }
+
   private async dispatch() {
     const pending = this.store.runs(this.threadId).filter((entry) => ["pending", "queued"].includes(entry.status));
 
@@ -36,6 +41,7 @@ export class Scheduler {
 
       try {
         const delivered = await this.bridge.send(run.id, run.body);
+
         this.store.setRun(run.id, delivered.status === "sending" ? "unknown" : delivered.status);
       } catch (error) {
         // Bridge persists uncertain sends; retrying this same ID only reads that receipt.
@@ -44,12 +50,14 @@ export class Scheduler {
       }
     }
   }
+
   start() {
     this.store.recover(this.threadId);
     this.timer = setInterval(() => void this.tick(), INTERVAL_MS);
     this.timer.unref();
     void this.tick();
   }
+
   async tick(now = Date.now()) {
     if (this.running) {
       return;
@@ -66,6 +74,7 @@ export class Scheduler {
       this.running = false;
     }
   }
+
   stop() {
     clearInterval(this.timer);
   }

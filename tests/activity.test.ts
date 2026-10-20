@@ -7,6 +7,7 @@ import { visibleSnapshot } from "../src/server/visible-snapshot";
 
 await test("activity summarizes structured actions without leaking paths, commands or tool arguments", () => {
   const command: Item = { id: "command", type: "commandExecution", command: "private command" };
+
   assert.equal(itemActivity(command), "Running commands");
   assert.equal(
     itemActivity({ ...command, commandActions: [{ type: "read", path: "/private/project/file.ts" }] }),
@@ -62,6 +63,7 @@ await test("activity labels use plural targets and no punctuation across Codex i
     "futureItem",
   ]) {
     const label = itemActivity({ id: "item", type });
+
     assert.match(label ?? "", /^[A-Z][a-z]+(?: [a-z]+)*s$/);
   }
 
@@ -75,6 +77,7 @@ await test("activity labels use plural targets and no punctuation across Codex i
 
 await test("live activity follows the latest event in this turn, survives reload and clears at completion", () => {
   const state = { ...structuredClone(initialSnapshot), threadId: "thread" };
+
   reduceEvent(state, {
     method: "turn/started",
     params: { threadId: "thread", turn: { id: "turn", status: "inProgress", items: [] } },
@@ -85,10 +88,12 @@ await test("live activity follows the latest event in this turn, survives reload
     command: "private command",
     commandActions: [{ type: "read", path: "/private/file" }],
   };
+
   reduceEvent(state, { method: "item/started", params: { threadId: "thread", turnId: "turn", item } });
   assert.equal(currentActivity(state), "Reading files");
   assert.equal(currentActivity({ ...state, activity: undefined }), "Reading files");
   const visible = visibleSnapshot(state);
+
   assert.equal(visible.activity, "Reading files");
   assert.equal(JSON.stringify(visible).includes("private"), false);
   reduceEvent(state, {

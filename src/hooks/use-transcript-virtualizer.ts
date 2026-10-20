@@ -86,6 +86,7 @@ export function useTranscriptVirtualizer(
       ...options,
       onChange: publish,
     });
+
     state.layout = readLayout(virtualizer);
 
     return {
@@ -117,6 +118,7 @@ export function useTranscriptVirtualizer(
   });
   const layout = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
   const virtualizer = store.virtualizer;
+
   useLayoutEffect(() => virtualizer._didMount(), [virtualizer]);
   useLayoutEffect(() => {
     store.configure(options, adjust);

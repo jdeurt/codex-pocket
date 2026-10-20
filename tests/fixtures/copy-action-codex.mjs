@@ -14,6 +14,7 @@ const config = {
 
 createInterface({ input: process.stdin }).on("line", (line) => {
   const message = JSON.parse(line);
+
   appendFileSync(log, JSON.stringify({ pid: process.pid, ...message }) + "\n");
 
   if (message.id === undefined) {

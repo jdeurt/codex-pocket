@@ -10,6 +10,7 @@ export async function checkActivityInterruptions(page: Page) {
     "Steering update one: after the current command, send commentary exactly INTERRUPT_THREE, run sleep 12, then finish with final answer INTERRUPT_FINAL.";
   const secondSteer =
     "Steering update two: after the current command, finish with final answer exactly INTERRUPT_FINAL.";
+
   await send(page, prompt);
   await expect(page.getByText("INTERRUPT_TWO", { exact: true })).toBeVisible();
   await expect(page.getByRole("status", { name: "Pocket activity" })).toContainText("Running commands");
@@ -47,6 +48,7 @@ export async function checkActivityInterruptions(page: Page) {
           elements.map((element) => element.textContent.trim()).filter((text) => wanted.includes(text)),
         expected
       );
+
     expect(order).toEqual(expected);
     await expect(turn.locator('[data-slot="trace-collapsible-content"]')).toHaveCount(0);
   }

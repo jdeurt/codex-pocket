@@ -9,6 +9,7 @@ test("notification presence follows foreground visibility, page restoration and 
 }) => {
   const { publicKey } = webpush.generateVAPIDKeys();
   const acknowledgements: unknown[] = [];
+
   await page.route("**/api/notifications", (route) =>
     route.fulfill({ json: route.request().method() === "GET" ? { publicKey } : { subscribed: true } })
   );
@@ -24,6 +25,7 @@ test("notification presence follows foreground visibility, page restoration and 
         toJSON: () => ({ endpoint }),
       };
       const registration = { pushManager: { getSubscription: () => Promise.resolve(subscription) } };
+
       Object.defineProperty(navigator, "serviceWorker", {
         value: { register: () => Promise.resolve(registration), ready: Promise.resolve(registration) },
       });
@@ -33,6 +35,7 @@ test("notification presence follows foreground visibility, page restoration and 
       });
       const NativeSource = EventSource;
       const sources: (EventTarget & { closed: boolean; close: () => void })[] = [];
+
       Object.defineProperty(globalThis, "EventSource", {
         value: function PresenceSource(url: string) {
           if (!url.includes("/notifications/presence?")) {
@@ -45,12 +48,14 @@ test("notification presence follows foreground visibility, page restoration and 
               connection.closed = true;
             },
           });
+
           sources.push(connection);
 
           return connection;
         },
       });
       let visible = true;
+
       Object.defineProperty(document, "visibilityState", { get: () => (visible ? "visible" : "hidden") });
       Object.defineProperty(globalThis, "pocketPresenceCount", {
         get: () => sources.filter((source) => !source.closed).length,
@@ -70,6 +75,7 @@ test("notification presence follows foreground visibility, page restoration and 
   await page.goto("/");
   const count = () => page.evaluate(() => Number(Reflect.get(globalThis, "pocketPresenceCount")));
   const probe = () => page.evaluate(() => globalThis.dispatchEvent(new Event("pocket-probe")));
+
   await expect.poll(count).toBe(1);
   await probe();
   await expect.poll(() => acknowledgements.length).toBe(1);
@@ -79,6 +85,7 @@ test("notification presence follows foreground visibility, page restoration and 
 
     return [...new Uint8Array(digest)].map((value) => value.toString(HEX_RADIX).padStart(2, "0")).join("");
   }, ENDPOINT);
+
   expect(acknowledgements[0]).toEqual({ deviceId, challengeId: CHALLENGE_ID });
   await page.evaluate(() => globalThis.dispatchEvent(new CustomEvent("pocket-visibility", { detail: false })));
   await expect.poll(count).toBe(0);

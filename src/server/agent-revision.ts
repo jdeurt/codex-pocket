@@ -37,6 +37,7 @@ async function claudeFile(record: AgentRecord) {
     "projects"
   );
   const key = `${directory}:${root}`;
+
   let pending = roots.get(key);
 
   if (!pending) {
@@ -71,6 +72,7 @@ export async function agentRevision(record: AgentRecord) {
 
       if (file) {
         const info = await stat(/* turbopackIgnore: true */ file);
+
         fileRevision = `${String(info.mtimeMs)}:${String(info.size)}`;
       }
     } catch {

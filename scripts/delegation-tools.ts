@@ -29,6 +29,7 @@ async function closeChild(owner: string, id: string) {
 
       return false;
     };
+
     resources.unsubscribe = store.subscribe(check);
     resources.timer = setTimeout(() => {
       // A final read covers a lost close notification without another poller.

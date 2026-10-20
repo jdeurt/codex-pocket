@@ -42,10 +42,12 @@ test.beforeEach(async ({ page }) => {
   await page.addInitScript((state) => {
     class FixtureEventSource extends EventTarget {
       readyState = 1;
+
       constructor() {
         super();
         setTimeout(() => this.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(state) })), 0);
       }
+
       close() {
         /*
         This fixture does not open a connection.
@@ -92,6 +94,7 @@ test("focused composer contains page scrolling and preserves transcript and text
   await expect(page.locator("body")).toHaveCSS("position", "fixed");
   await page.evaluate(() => {
     const DOCUMENT_PAN_DISTANCE = 300;
+
     globalThis.scrollTo(0, DOCUMENT_PAN_DISTANCE);
   });
   await assertDocumentStable(page);
@@ -103,6 +106,7 @@ test("focused composer contains page scrolling and preserves transcript and text
     element.scrollTop = element.scrollHeight / 2;
   });
   const before = await scrollTop(page);
+
   await scrollWithWheel(page, scroller(page), -TRANSCRIPT_WHEEL_DELTA, mobileWebkit);
   await expect.poll(() => scrollTop(page)).toBeLessThan(before - MIN_TRANSCRIPT_TRAVEL);
   await expect(input(page)).toBeFocused();
@@ -124,6 +128,7 @@ test("focused composer contains page scrolling and preserves transcript and text
   }
 
   const shortHeight = await input(page).evaluate((element) => element.clientHeight);
+
   await input(page).fill(Array.from({ length: 45 }, (_, index) => `Draft line ${String(index)}`).join("\n"));
   await expect.poll(() => input(page).evaluate((element) => element.clientHeight)).toBeGreaterThan(shortHeight);
   await expect
@@ -151,6 +156,7 @@ test("focused composer contains page scrolling and preserves transcript and text
   const attach = page.getByRole("button", { name: "Attach images or files", exact: true });
   const nextControl =
     (await attach.count()) > 0 ? attach : page.getByRole("button", { name: "Send message", exact: true });
+
   await expect(nextControl).toBeFocused();
   await expect(page.locator("body")).toHaveCSS("position", "static");
   await expect(page.locator(".chat-shell")).not.toHaveAttribute("style", /composer-viewport/);
@@ -162,6 +168,7 @@ test("focused composer contains page scrolling and preserves transcript and text
     element.focus();
   });
   const keyboardBefore = await scrollTop(page);
+
   await page.keyboard.press("PageUp");
   await expect.poll(() => scrollTop(page)).toBeLessThan(keyboardBefore);
   await page.keyboard.press("PageDown");
@@ -184,6 +191,7 @@ test("focused shell follows keyboard-like visual viewport changes and releases t
   // sequence independently of layout viewport resizing (Safari's behavior).
   await page.addInitScript(() => {
     const viewport = new EventTarget();
+
     Object.defineProperties(viewport, {
       height: { configurable: true, get: () => globalThis.innerHeight },
       offsetTop: { configurable: true, value: 0 },
@@ -235,6 +243,7 @@ test("focused shell follows keyboard-like visual viewport changes and releases t
     element.scrollTop = element.scrollHeight / 2;
   });
   const before = await scrollTop(page);
+
   await scrollWithWheel(page, scroller(page), -BACKWARD_WHEEL_DELTA, browserName === "webkit" && isMobile);
   await expect.poll(() => scrollTop(page)).toBeLessThan(before);
 
@@ -311,6 +320,7 @@ test("Chromium phone touch scrolls the transcript while the composer stays focus
   const TOUCH_STEPS = 10;
   const TOUCH_STEP_DISTANCE = 20;
   const FRAME_MS = 16;
+
   await cdp.send("Input.dispatchTouchEvent", { type: "touchStart", touchPoints: [{ x, y: y + TOUCH_START_OFFSET }] });
 
   for (let step = 1; step <= TOUCH_STEPS; step++) {

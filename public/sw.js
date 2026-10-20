@@ -3,6 +3,7 @@ const cacheName = "codex-pocket-static-v1";
 
 async function installOfflinePage() {
   const cache = await caches.open(cacheName);
+
   await cache.addAll(["/offline.html"]);
 }
 

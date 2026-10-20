@@ -54,6 +54,7 @@ export function createRotatingLogStream(directory: string, maxBytes = DEFAULT_MA
   let bytes = 0;
   let createdAt = 0;
   let file: WriteStream;
+
   const reference: { stream?: Writable } = {};
 
   function open() {
@@ -92,6 +93,7 @@ export function createRotatingLogStream(directory: string, maxBytes = DEFAULT_MA
     }
 
     const output = createWriteStream(filename, { fd: descriptor, autoClose: true });
+
     output.on("error", (error) => reference.stream?.destroy(error));
 
     return output;
@@ -147,6 +149,7 @@ export function log() {
     Number(process.env.CODEX_POCKET_LOG_MAX_BYTES ?? DEFAULT_MAX_BYTES),
     Number(process.env.CODEX_POCKET_LOG_MAX_FILES ?? DEFAULT_MAX_FILES)
   );
+
   stream.on("error", (error) => process.stderr.write(`Pocket log writer failed: ${error.message}\n`));
   const logger = pino(
     {
@@ -157,6 +160,7 @@ export function log() {
     },
     stream
   );
+
   Object.defineProperty(globalThis, "codexPocketLogger", { value: logger, configurable: true });
 
   return logger;

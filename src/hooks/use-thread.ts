@@ -18,6 +18,7 @@ const store: {
 function publish(state: Snapshot, connected: boolean) {
   store.latestState = state;
   const reconciled = reconcileDeliveries(state, store.pending);
+
   store.pending = reconciled.pending;
   store.current = { state: reconciled.state, connected };
 
@@ -43,6 +44,7 @@ function start() {
   let lastSummary = "";
   let source: EventSource | undefined;
   let retry: ReturnType<typeof setTimeout> | undefined;
+
   const connect = () => {
     reportClient("sse.connecting");
     source?.close();
@@ -102,6 +104,7 @@ function start() {
       connect();
     }
   };
+
   connect();
   globalThis.addEventListener("online", connect);
   document.addEventListener("visibilitychange", wake);

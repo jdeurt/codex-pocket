@@ -14,6 +14,7 @@ export function useComposerViewport(textarea: RefObject<HTMLTextAreaElement | nu
     }
 
     let frame: number | undefined;
+
     const reset = () => {
       shell.style.removeProperty("--composer-viewport-height");
       shell.style.removeProperty("--composer-viewport-top");

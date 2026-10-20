@@ -39,6 +39,7 @@ await test("size rotation preserves whole JSON records in private files named wi
   try {
     await writeRecords(directory, KEEP_ALL);
     const names = await readdir(directory);
+
     assert.ok(names.length > 1);
     const records: Record<string, unknown>[] = [];
 
@@ -46,9 +47,11 @@ await test("size rotation preserves whole JSON records in private files named wi
       assert.match(name, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\.jsonl$/);
       const file = path.join(directory, name);
       const info = await stat(file);
+
       assert.equal(info.mode & PERMISSION_MASK, PRIVATE_FILE_MODE);
       assert.ok(info.size <= MAX_BYTES);
       const contents = await readFile(file, "utf8");
+
       records.push(
         ...contents
           .trim()
@@ -70,6 +73,7 @@ await test("retention keeps only the configured number of recent log files", asy
   try {
     await writeRecords(directory, KEEP_RECENT);
     const files = await readdir(directory);
+
     assert.equal(files.length, KEEP_RECENT);
   } finally {
     await rm(directory, { recursive: true, force: true });
@@ -83,6 +87,7 @@ await test("redaction covers nested credentials while retaining message and erro
     headers: { Authorization: "secret" },
     error: new Error("Broken"),
   });
+
   assert.equal(redacted.message, "Hello");
   assert.equal(JSON.stringify(redacted).includes('"secret"'), false);
   assert.match(JSON.stringify(redacted), /Broken/);

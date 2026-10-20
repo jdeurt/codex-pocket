@@ -32,6 +32,7 @@ export async function guard(request: Request, mutation = false, contentType = "a
     throw new Error(`Expected ${contentType}.`);
   }
 }
+
 export async function readBody(request: Request) {
   const reader = request.body?.getReader();
 
@@ -40,6 +41,7 @@ export async function readBody(request: Request) {
   }
 
   const chunks: Uint8Array[] = [];
+
   let size = 0;
 
   for (;;) {
@@ -63,7 +65,9 @@ export async function readBody(request: Request) {
 
   return data;
 }
+
 export const noStore = { "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" };
+
 export function errorResponse(error: unknown, status = HTTP_BAD_REQUEST) {
   log().error({ error, status }, "http.failed");
 

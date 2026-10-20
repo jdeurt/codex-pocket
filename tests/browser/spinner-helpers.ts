@@ -7,6 +7,7 @@ const RGB_CHANNELS = 3;
 const MIN_BRIGHTNESS = 50;
 const MAX_BRIGHTNESS = 230;
 const FRAME_INTERVAL_MS = 70;
+
 export async function alignment(page: Page) {
   return page.evaluate(() => {
     const row = globalThis.document.querySelector(".activity-indicator");
@@ -57,13 +58,16 @@ export async function animatedGrayscale(page: Page) {
 
   for (let index = 0; index < CAPTURE_FRAMES; index++) {
     const bytes = await captureSlot(page);
+
     await writeFile(`.local/spinner-frame-${test.info().project.name}-${String(index)}.png`, bytes);
     const { data, info } = await sharp(bytes).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+
     let brightest = 0;
     let maximumChroma = 0;
 
     for (let pixel = 0; pixel < data.length; pixel += info.channels) {
       const channels = data.subarray(pixel, pixel + RGB_CHANNELS);
+
       maximumChroma = Math.max(maximumChroma, Math.max(...channels) - Math.min(...channels));
       brightest = Math.max(brightest, data[pixel]);
     }

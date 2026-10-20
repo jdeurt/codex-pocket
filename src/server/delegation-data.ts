@@ -62,6 +62,7 @@ export const delegationRequestSchema = z.object({
 
 export type StoredPocket = z.infer<typeof storedPocketSchema>;
 export const sidePocketSchema = storedPocketSchema.extend({ policy: parentPolicySchema });
+
 export type SidePocket = z.infer<typeof sidePocketSchema>;
 export type ParentContext = z.infer<typeof parentContextSchema>;
 export type DelegationCommand = z.infer<typeof delegationCommandSchema>;

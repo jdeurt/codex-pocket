@@ -38,6 +38,7 @@ export const scheduleSchema = z.object({
   createdAt: z.number(),
   updatedAt: z.number(),
 });
+
 export type Schedule = z.infer<typeof scheduleSchema>;
 const storedRun = z.object({
   id: z.string(),
@@ -49,13 +50,16 @@ const storedRun = z.object({
   status: z.enum(["pending", "dispatching", "queued", "sent", "unknown", "cancelled"]),
   error: z.string().nullable(),
 });
+
 export type ScheduledRun = z.infer<typeof storedRun>;
 
 export class ScheduleStore {
   private db: Database.Database;
+
   constructor(directory: string) {
     mkdirSync(directory, { recursive: true, mode: 0o700 });
     const filename = path.join(directory, "schedules.sqlite");
+
     this.db = new Database(filename, { timeout: BUSY_TIMEOUT_MS });
     chmodSync(filename, PRIVATE_FILE_MODE);
     this.db.pragma("journal_mode = WAL");
@@ -74,11 +78,13 @@ export class ScheduleStore {
       CREATE INDEX IF NOT EXISTS scheduled_runs_thread ON scheduled_runs(threadId, status);
     `);
   }
+
   list(threadId: string) {
     return z
       .array(scheduleSchema)
       .parse(this.db.prepare("SELECT * FROM schedules WHERE threadId = ? ORDER BY createdAt, id").all(threadId));
   }
+
   get(threadId: string, id: string) {
     const row = this.db.prepare("SELECT * FROM schedules WHERE threadId = ? AND id = ?").get(threadId, id);
 
@@ -88,6 +94,7 @@ export class ScheduleStore {
 
     return scheduleSchema.parse(row);
   }
+
   async create(threadId: string, input: unknown, now = Date.now()) {
     const value = scheduleInput.parse(input);
     const calendar = normalizeCalendar(value.calendar);
@@ -108,6 +115,7 @@ export class ScheduleStore {
       createdAt: now,
       updatedAt: now,
     };
+
     this.db
       .prepare(
         "INSERT INTO schedules VALUES (@id,@threadId,@title,@body,@calendar,@active,@nextRun,@revision,@createdAt,@updatedAt)"
@@ -117,6 +125,7 @@ export class ScheduleStore {
 
     return row;
   }
+
   async update(threadId: string, id: string, input: unknown, expectedRevision?: number, now = Date.now()) {
     const patch = schedulePatch.parse(input);
     const previous = this.get(threadId, id);
@@ -160,6 +169,7 @@ export class ScheduleStore {
 
     return row;
   }
+
   delete(threadId: string, id: string) {
     return this.db.transaction(() => {
       this.get(threadId, id);
@@ -167,6 +177,7 @@ export class ScheduleStore {
       const result = this.db
         .prepare("UPDATE scheduled_runs SET status='cancelled' WHERE threadId=? AND scheduleId=? AND status='pending'")
         .run(threadId, id);
+
       log().info({ threadId, id, cancelledPending: result.changes }, "schedule.deleted");
 
       return {
@@ -177,6 +188,7 @@ export class ScheduleStore {
       };
     })();
   }
+
   due(threadId: string, now: number) {
     return z
       .array(scheduleSchema)
@@ -186,6 +198,7 @@ export class ScheduleStore {
           .all(threadId, now, DUE_BATCH_SIZE)
       );
   }
+
   claim(schedule: Schedule, nextRun: number | null, now: number) {
     const scheduledAt = schedule.nextRun;
 
@@ -222,6 +235,7 @@ export class ScheduleStore {
         status: "pending",
         error: null,
       };
+
       this.db
         .prepare(
           "INSERT INTO scheduled_runs VALUES (@id,@scheduleId,@threadId,@title,@body,@scheduledAt,@status,@error)"
@@ -232,26 +246,31 @@ export class ScheduleStore {
       return run;
     })();
   }
+
   runs(threadId: string) {
     return z
       .array(storedRun)
       .parse(this.db.prepare("SELECT * FROM scheduled_runs WHERE threadId=? ORDER BY scheduledAt, id").all(threadId));
   }
+
   setRun(id: string, status: ScheduledRun["status"], error: string | null = null) {
     this.db.prepare("UPDATE scheduled_runs SET status=?, error=? WHERE id=?").run(status, error, id);
     log().info({ id, status, error }, "schedule.delivery");
   }
+
   recover(threadId: string) {
     this.db
       .prepare("UPDATE scheduled_runs SET status='pending' WHERE threadId=? AND status='dispatching'")
       .run(threadId);
   }
+
   beginRun(id: string) {
     return (
       this.db.prepare("UPDATE scheduled_runs SET status='dispatching' WHERE id=? AND status='pending'").run(id)
         .changes > 0
     );
   }
+
   close() {
     this.db.close();
   }
@@ -269,6 +288,7 @@ export function schedules() {
   }
 
   const store = new ScheduleStore(localDirectory());
+
   Object.defineProperty(globalThis, "codexPocketSchedules", { value: store, configurable: true });
 
   return store;

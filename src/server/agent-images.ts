@@ -10,6 +10,7 @@ export function markdownImageSource(item: Item, requested: string) {
   }
 
   const sources = new Set<string>();
+
   Markdown({
     children: string(item.text),
     urlTransform: (url, key) => {

@@ -32,6 +32,7 @@ export async function createTonalFixtures(directory: string) {
         const offset = (y * SIZE + x) * CHANNELS;
         const inside = x >= EDGE && x < SIZE - EDGE && y >= EDGE && y < SIZE - EDGE;
         const luminance = inside ? levels[Math.floor((x - EDGE) / BAND_WIDTH)] : name === "hidden" ? OPAQUE : 0;
+
         data[offset] = luminance;
         data[offset + 1] = luminance;
         data[offset + 2] = luminance;

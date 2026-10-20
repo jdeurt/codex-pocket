@@ -9,6 +9,7 @@ await test("local setup needs no remote origin, while phone origins must be cano
   assert.equal(setupOrigin(""), undefined);
   assert.equal(setupOrigin("  "), undefined);
   const insecure = new URL("https://example.com");
+
   insecure.protocol = "http:";
   assert.throws(() => setupOrigin(insecure.href));
   assert.equal(setupOrigin("https://pocket.example.com/"), "https://pocket.example.com");
@@ -26,6 +27,7 @@ await test("configuration reruns keep chat identity, secrets and process setting
     CODEX_SERVER_ARGS: JSON.stringify(["app-server", "-c", 'model="chosen-model"']),
   };
   const first = formatEnvironment(source, values);
+
   assert.equal(formatEnvironment(first, values), first);
   assert.ok(first.includes("SECRET_TOKEN=private-value"));
   assert.ok(first.includes("# Keep this comment"));
@@ -45,10 +47,12 @@ await test("setup atomically writes an owner-private env file without altering n
     await saveSetupEnvironment(file, { CODEX_THREAD_ID: "saved" });
     await saveSetupEnvironment(file, { CODEX_CWD: "/work" });
     const contents = await readFile(file, "utf8");
+
     assert.ok(contents.includes("CODEX_THREAD_ID='saved'"));
     assert.ok(contents.includes("CODEX_CWD='/work'"));
     const fileStat = await stat(file);
     const neighbors = await readdir(directory);
+
     assert.equal(fileStat.mode & modeMask, privateMode);
     assert.deepEqual(
       neighbors.toSorted((a, b) => a.localeCompare(b)),

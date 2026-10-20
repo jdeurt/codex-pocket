@@ -36,24 +36,29 @@ export function verifyRestartProjection(state: Snapshot) {
     turnMessages(turn, turn.id === state.activeTurnId || turn.status === "inProgress")
   );
   const writable = projectedEntries(Conversation({ state }));
+
   assert.deepEqual(writable, canonical);
   const expectedEvents = state.turns.flatMap((turn) => turn.items).filter((item) => item.type === "pocketRestart");
+
   assert.equal(expectedEvents.length, 1);
   assert.deepEqual(
     items(writable).filter((item) => item.type === "pocketRestart"),
     expectedEvents
   );
   const displayed = markup(writable);
+
   assert.equal((displayed.match(/data-system-event="pocket-restarted"/g) ?? []).length, expectedEvents.length);
   assert.match(displayed, /Pocket restarted/);
   assert.doesNotMatch(displayed, /data-message-id="empty-/);
 
   const readOnly = projectedEntries(Conversation({ state, readOnly: true }));
+
   assert.deepEqual(
     items(readOnly),
     items(writable).filter((item) => item.type !== "pocketRestart")
   );
   const excluded = markup(readOnly);
+
   assert.doesNotMatch(excluded, /Pocket restarted|data-system-event=/);
   assert.match(excluded, /Original user content must remain unchanged/);
 }

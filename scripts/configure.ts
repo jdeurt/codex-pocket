@@ -69,6 +69,7 @@ try {
       ),
     });
     const { thread } = started;
+
     console.info(
       JSON.stringify({
         model: started.model,

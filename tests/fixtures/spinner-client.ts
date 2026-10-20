@@ -10,6 +10,7 @@ export async function spinnerClient(
   script = "scripts/mcp.ts"
 ) {
   const client = new Client({ name: "spinner-flow", version: "1" });
+
   await client.connect(
     new StdioClientTransport({
       command: process.execPath,
@@ -30,6 +31,7 @@ export async function spinnerClient(
     client,
     async call(name: string, args: Record<string, unknown> = {}) {
       const result = await client.callTool({ name, arguments: args });
+
       assert.equal(result.isError, undefined, JSON.stringify(result));
 
       return spinnerLibrarySchema.parse(toolJson(result));

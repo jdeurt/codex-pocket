@@ -23,6 +23,7 @@ test("visible message edges and pending status use one shared outer gap", async 
       { id: "gap-turn", status: "inProgress", items: [] },
     ],
   };
+
   await mount(page, state);
   const cases = [
     { id: "gap-last", type: "userMessage", content: [{ text: "Last user bubble" }] },
@@ -78,6 +79,7 @@ test("visible message edges and pending status use one shared outer gap", async 
 
         return gaps.map((gap) => Math.abs(gap - expected));
       });
+
     await expect.poll(async () => Math.max(...(await outerGaps()))).toBeLessThan(1);
     state.queue = [];
     await publish(page, state);
@@ -96,6 +98,7 @@ test("visible message edges and pending status use one shared outer gap", async 
   state.activeTurnId = undefined;
   await publish(page, state);
   const emptyFooter = page.locator('[data-slot="transcript-footer"]');
+
   await expect(emptyFooter).toBeEmpty();
   await expect(emptyFooter).toHaveCSS("padding-top", "0px");
   expect(await emptyFooter.evaluate((element) => element.getBoundingClientRect().height)).toBe(0);

@@ -14,6 +14,7 @@ export const longName =
   );
 export const replayImage =
   "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAPAAAACgCAIAAAC9uXYyAAAACXBIWXMAAAPoAAAD6AG1e1JrAAADQUlEQVR4nO3WgQnAAAwCwa76g3SHjtwxAnLgAEEf49P7EQdaweA5v4A4EKBBwIE0NAhaf4kmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAhafwgmx30GFKBBwIE0NAjmHTA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6QzA57jOgAA0CDqShQdD6Q/gBTZKAi/7jQtEAAAAASUVORK5CYII=";
+
 export function replayThreads(settled = false, revision = 1) {
   return [
     {
@@ -71,6 +72,7 @@ export function replayThreads(settled = false, revision = 1) {
     updatedAt: revision,
   }));
 }
+
 export function replayTurns(id: string, stage = "initial"): Turn[] {
   if (id === replayParent) {
     return Array.from({ length: 25 }, (_, index) => ({

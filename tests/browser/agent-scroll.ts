@@ -25,6 +25,7 @@ async function anchor(parent: Locator, id?: string) {
 export async function checkAgentScroll(page: Page, control: (stage: string) => Promise<void>) {
   const mutations: string[] = [];
   const measurements = [];
+
   page.on("request", (request) => {
     if (!["GET", "HEAD"].includes(request.method()) && !request.url().includes("/api/logs")) {
       mutations.push(request.url());
@@ -32,12 +33,15 @@ export async function checkAgentScroll(page: Page, control: (stage: string) => P
   });
   await page.goto("/");
   const trigger = page.getByRole("button", { name: "6 agents", exact: true });
+
   await expect(trigger).toBeVisible();
   const draft = "Keep my parent draft while output streams";
   const composer = page.getByRole("textbox", { name: "Message Pocket" });
+
   await composer.fill(draft);
   const parent = page.locator('main > [class] [data-slot="message-scroller-viewport"]').first();
   const dialog = page.getByRole("dialog", { name: "Agents", exact: true });
+
   await page.evaluate(
     () =>
       new Promise<void>((resolve) => {
@@ -61,22 +65,27 @@ export async function checkAgentScroll(page: Page, control: (stage: string) => P
       position === "scrolled" ? SCROLLED_OFFSET : null
     );
     const before = await parent.evaluate((element) => element.scrollTop);
+
     expect(before).toBeGreaterThan(SCROLLED_OFFSET - OFFSET_TOLERANCE);
     const beforeAnchor = await anchor(parent);
+
     // Do not scroll the offscreen activity control into view before opening.
     await trigger.evaluate((button: HTMLButtonElement) => {
       button.click();
     });
     const row = dialog.getByRole("button", { name: /Researching an exceptionally long/ });
+
     await row.click();
     await expect(dialog.getByRole("heading", { name: "Side Pocket", exact: true })).toBeFocused();
     await expect(dialog.getByText("Saved native-codex result", { exact: true })).toBeVisible();
     await expect(dialog.getByRole("note")).toHaveCount(0);
     const appendKey = `${position}:${crypto.randomUUID()}`;
+
     await control(`parent-append:${appendKey}`);
     // Parent remains mounted and consumes the actual RPC -> bridge -> SSE update.
     const incomingId = `parent-incoming-${appendKey.replaceAll(":", "-")}`;
     const incoming = parent.locator(`[data-slot="bubble"][data-message-id="${incomingId}"]`);
+
     await expect(incoming).toContainText("STREAM_FINISHED");
     await page.evaluate(
       () =>
@@ -89,8 +98,10 @@ export async function checkAgentScroll(page: Page, control: (stage: string) => P
         })
     );
     const during = await parent.evaluate((element) => element.scrollTop);
+
     expect(Math.abs(during - before)).toBeLessThan(OFFSET_TOLERANCE);
     const duringAnchor = await anchor(parent, beforeAnchor.id);
+
     expect(Math.abs(duringAnchor.offset - beforeAnchor.offset)).toBeLessThan(OFFSET_TOLERANCE);
     await page.keyboard.press("Escape");
     await expect(row).toBeFocused();
@@ -98,8 +109,10 @@ export async function checkAgentScroll(page: Page, control: (stage: string) => P
     await expect(dialog).toBeHidden();
     await expect(trigger).toBeFocused();
     const after = await parent.evaluate((element) => element.scrollTop);
+
     expect(Math.abs(after - before)).toBeLessThan(OFFSET_TOLERANCE);
     const afterAnchor = await anchor(parent, beforeAnchor.id);
+
     expect(Math.abs(afterAnchor.offset - beforeAnchor.offset)).toBeLessThan(OFFSET_TOLERANCE);
     await expect(composer).toHaveValue(draft);
     await expect(parent).not.toHaveAttribute("data-scroll-suspended", "true");

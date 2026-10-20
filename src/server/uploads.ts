@@ -34,6 +34,7 @@ const rasterTypes = new Set([
   "image/tiff",
 ]);
 const storedUploadSchema = fileAttachmentSchema.extend({ sha256: z.string() });
+
 type StoredUpload = z.infer<typeof storedUploadSchema>;
 
 function directory(parent: string, id: string) {
@@ -79,6 +80,7 @@ async function writeBytes(request: Request, pending: string) {
   const handle = await open(path.join(pending, "original"), "wx", PRIVATE_FILE_MODE);
   const hash = createHash("sha256");
   const reader = request.body.getReader();
+
   let size = 0;
 
   try {

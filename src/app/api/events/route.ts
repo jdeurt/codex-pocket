@@ -18,19 +18,24 @@ export async function GET(request: Request) {
   }
 
   let cleanup: ((closeStream: boolean) => void) | undefined;
+
   const connectionId = crypto.randomUUID();
+
   log().info({ connectionId, userAgent: request.headers.get("user-agent") }, "sse.open");
   const stream = new ReadableStream({
     start(controller) {
       const encoder = new TextEncoder();
       const abort = () => cleanup?.(true);
+
       let closed = false;
+
       const send = (state: Snapshot) => {
         if (closed) {
           return;
         }
 
         const visible = visibleSnapshot(state);
+
         controller.enqueue(encoder.encode(`data: ${JSON.stringify(visible)}\n\n`));
       };
       const heartbeat = setInterval(() => {
@@ -53,6 +58,7 @@ export async function GET(request: Request) {
           controller.close();
         }
       };
+
       cleanup = dispose;
       bridge.on("snapshot", send);
       request.signal.addEventListener("abort", abort, { once: true });

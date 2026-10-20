@@ -7,6 +7,7 @@ const CODE_CADENCE = 20;
 const IMAGE_CADENCE = 97;
 
 const LONG_HISTORY = 1200;
+
 export function history(count = LONG_HISTORY, start = 0): Snapshot {
   return {
     ...initialSnapshot,

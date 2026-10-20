@@ -32,6 +32,7 @@ export async function restoreReceipts(threadId: string) {
 
   return receipts;
 }
+
 export async function persistReceipts(threadId: string, receipts: Receipt[]) {
   const recent = [
     // Attachment receipts also hold the saved message's display metadata.
@@ -39,6 +40,7 @@ export async function persistReceipts(threadId: string, receipts: Receipt[]) {
     ...receipts.filter((r) => r.status === "sent" && !r.attachments?.length).slice(-RECEIPT_LIMIT),
     ...receipts.filter((r) => r.status !== "sent"),
   ];
+
   await writeLocal("outbox.json", { threadId, receipts: recent });
 
   return recent;

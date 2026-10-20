@@ -17,13 +17,16 @@ const input = { title: "Morning check", body: "Read the project status.", calend
 
 await test("one-time events, recurring dates, exclusions and DST resolve to UTC instants", async () => {
   const once = normalizeCalendar(input.calendar);
+
   assert.equal(await nextOccurrence(once, NOW), FIRST);
   assert.equal(await nextOccurrence(once, FIRST), null);
   const repeating = normalizeCalendar(
     "BEGIN:VCALENDAR\nVERSION:2.0\nBEGIN:VEVENT\nDTSTART;TZID=America/Los_Angeles:20261031T090000\nRRULE:FREQ=DAILY;COUNT=3\nEXDATE;TZID=America/Los_Angeles:20261101T090000\nEND:VEVENT\nEND:VCALENDAR"
   );
+
   assert.equal(await nextOccurrence(repeating, Date.parse("2026-10-31T16:00:00Z")), Date.parse("2026-11-02T17:00:00Z"));
   const additional = normalizeCalendar(`${input.calendar}\nRDATE:20261022T180000Z`);
+
   assert.equal(await nextOccurrence(additional, FIRST), Date.parse("2026-10-22T18:00:00Z"));
 });
 
@@ -49,32 +52,40 @@ await test("invalid dates, floating dates, timezones and ambiguous event shapes 
 
 await test("recurrence computation is bounded so pathological rules cannot block the scheduler", async () => {
   const calendar = normalizeCalendar("DTSTART:20000101T000000Z\nRRULE:FREQ=MINUTELY;BYMONTH=2;BYMONTHDAY=30");
+
   await assert.rejects(() => nextOccurrence(calendar, NOW), /too long/);
 });
 
 await test("schedule CRUD is scoped, revision checked, durable and owner private", async () => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "pocket-schedules-"));
+
   process.env.CODEX_POCKET_LOG_DIR = path.join(directory, "logs");
   let store = new ScheduleStore(directory);
 
   try {
     const job = await store.create("thread-a", input, NOW);
+
     assert.equal(job.nextRun, FIRST);
     const metadata = await stat(path.join(directory, "schedules.sqlite"));
+
     assert.equal(metadata.mode & MODE_MASK, PRIVATE_MODE);
     assert.throws(() => store.get("thread-b", job.id), /not found/);
     assert.deepEqual(store.list("thread-b"), []);
     const paused = await store.update("thread-a", job.id, { active: false, title: "Paused check" }, job.revision, NOW);
+
     assert.equal(paused.active, 0);
     const renamed = await store.update("thread-a", job.id, { title: "Paused check" }, paused.revision, NOW);
+
     assert.equal(renamed.active, 0);
     await assert.rejects(() => store.update("thread-a", job.id, { title: "Stale" }, job.revision, NOW), /changed/);
     const resumed = await store.update("thread-a", job.id, { active: true }, renamed.revision, NOW);
+
     store.close();
     store = new ScheduleStore(directory);
     assert.equal(store.get("thread-a", job.id).revision, resumed.revision);
     assert.equal(store.due("thread-a", FIRST).length, 1);
     const run = store.claim(resumed, null, FIRST);
+
     assert.ok(run);
     assert.equal(store.get("thread-a", job.id).active, 0);
     assert.equal(store.claim(resumed, null, FIRST), undefined);
@@ -95,6 +106,7 @@ await test("schedule CRUD is scoped, revision checked, durable and owner private
 
 await test("scheduled triggers stay hidden while ordinary messages, replies and prompts remain visible", () => {
   const state = structuredClone(initialSnapshot);
+
   state.scheduled["run-id"] = { title: "Morning check", scheduledAt: FIRST };
   state.queue = [
     { id: "run-id", text: "private injected instructions", status: "queued" },
@@ -119,6 +131,7 @@ await test("scheduled triggers stay hidden while ordinary messages, replies and 
   ];
   const original = structuredClone(state);
   const visible = visibleSnapshot(state);
+
   assert.equal(JSON.stringify(visible).includes("private injected instructions"), false);
   assert.equal(JSON.stringify(visible).includes("Morning check"), false);
   assert.deepEqual(visible.turns[0].items, state.turns[0].items.slice(1));

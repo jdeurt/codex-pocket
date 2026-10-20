@@ -38,6 +38,7 @@ async function boundedRaster(file: FileHandle) {
   }
 
   const buffer = Buffer.alloc(MAX_BYTES + 1);
+
   let size = 0;
 
   while (size < buffer.length) {
@@ -142,12 +143,15 @@ async function rasterFile(filename: string) {
 
 export class SpinnerStore {
   private db: Database.Database;
+
   private assets: string;
+
   constructor(directory: string) {
     this.assets = path.join(directory, "spinner-assets");
     mkdirSync(this.assets, { recursive: true, mode: PRIVATE_DIRECTORY_MODE });
     chmodSync(this.assets, PRIVATE_DIRECTORY_MODE);
     const filename = path.join(directory, "spinners.sqlite");
+
     this.db = new Database(filename, { timeout: 3000 });
     chmodSync(filename, PRIVATE_FILE_MODE);
     this.db.pragma("journal_mode = WAL");
@@ -172,6 +176,7 @@ export class SpinnerStore {
       })
       .immediate();
   }
+
   status(): SpinnerLibrary {
     const assets = z
       .array(storedSpinnerSchema)
@@ -182,11 +187,13 @@ export class SpinnerStore {
 
     return { current: assets.find((asset) => asset.id === activeId) ?? null, saved: assets };
   }
+
   async set(filename: string) {
     const { input, ...metadata } = await rasterFile(filename);
     const id = randomUUID();
     const digest = createHash("sha256").update(input).digest("hex");
     const target = path.join(this.assets, id);
+
     await writeFile(target, input, { mode: PRIVATE_FILE_MODE, flag: "wx" });
     const saved = { used: false };
 
@@ -246,11 +253,13 @@ export class SpinnerStore {
 
     return this.status();
   }
+
   reset() {
     this.db.prepare("UPDATE spinner_preference SET activeId=NULL WHERE singleton=1").run();
 
     return this.status();
   }
+
   delete(id: string) {
     spinnerId.parse(id);
     this.db
@@ -277,6 +286,7 @@ export class SpinnerStore {
 
     return { deletedId: id, ...this.status() };
   }
+
   async asset(id: string) {
     spinnerId.parse(id);
     const asset = z
@@ -296,6 +306,7 @@ export class SpinnerStore {
       if (!asset.tone) {
         // Upgrade legacy saved assets on first read, keeping original animation bytes and cache identity.
         const { tone } = await validatedRaster(bytes);
+
         this.db.prepare("UPDATE spinner_assets SET tone=? WHERE id=? AND tone IS NULL").run(JSON.stringify(tone), id);
       }
 
@@ -304,14 +315,17 @@ export class SpinnerStore {
       closeSync(file);
     }
   }
+
   close() {
     this.db.close();
   }
 }
 
 const stores = new Map<string, SpinnerStore>();
+
 export function spinners() {
   const directory = localDirectory();
+
   let store = stores.get(directory);
 
   if (!store) {

@@ -14,19 +14,23 @@ if (process.env.CODEX_TEST_ACTIVITY === "1") {
     await expect(page.getByText("Connected", { exact: true })).toBeVisible();
     const prompt =
       "First send a commentary update with exactly two paragraphs: ACTIVITY_ONE_FIRST and ACTIVITY_ONE_SECOND. Then run the read-only shell command sleep 4. Send another commentary message exactly ACTIVITY_TWO, then run sleep 4. Finally send a final answer exactly ACTIVITY_FINAL. Do not modify files.";
+
     await send(page, prompt);
     await expect(page.getByText("ACTIVITY_ONE_FIRST", { exact: true })).toBeVisible();
     const turn = page
       .locator('[data-slot="message-scroller-item"]')
       .filter({ has: page.getByText(prompt, { exact: true }) });
+
     await expect(turn.getByRole("button", { name: "Show activity", exact: true })).toHaveCount(0);
     await expect(page.getByRole("status", { name: "Pocket activity" })).toContainText("Running commands");
     const muted = await page.getByRole("status", { name: "Pocket activity" }).evaluate((element) => ({
       color: getComputedStyle(element).color,
       opacity: getComputedStyle(element).opacity,
     }));
+
     await expect(page.getByText("ACTIVITY_FINAL", { exact: true })).toBeVisible();
     const show = turn.getByRole("button", { name: "Show activity", exact: true });
+
     await expect(show).toBeVisible();
     await expect(show).toHaveCSS("opacity", muted.opacity);
     await expect(show.locator('[data-slot="trace-line"]')).toHaveCSS("color", muted.color);
@@ -34,10 +38,12 @@ if (process.env.CODEX_TEST_ACTIVITY === "1") {
     await expect(page.getByText("ACTIVITY_ONE_FIRST", { exact: true })).toBeHidden();
     await show.click();
     const hide = turn.getByRole("button", { name: "Hide activity", exact: true });
+
     await expect(hide).toHaveAttribute("aria-expanded", "true");
     await expect(hide.locator('[data-slot="trace-line"]')).toHaveCSS("color", muted.color);
     await expect(page.getByText("ACTIVITY_TWO", { exact: true })).toBeVisible();
     const panel = turn.locator('[data-slot="trace-collapsible-content"]');
+
     await expect(panel.getByText("ACTIVITY_FINAL", { exact: true })).toHaveCount(0);
     const first = await page.getByText("ACTIVITY_ONE_FIRST", { exact: true }).boundingBox();
     const second = await page.getByText("ACTIVITY_ONE_SECOND", { exact: true }).boundingBox();
@@ -50,6 +56,7 @@ if (process.env.CODEX_TEST_ACTIVITY === "1") {
     const QUARTER_TURN_DEGREES = 90;
     const paragraphGap = second.y - first.y - first.height;
     const messageGap = next.y - second.y - second.height;
+
     expect(Math.abs(messageGap - paragraphGap)).toBeLessThan(1);
     await expect(hide.locator('[data-slot="trace-line"]')).toHaveCSS("font-size", "16px");
     await expect(hide.locator("svg")).toHaveCSS("width", "16px");
@@ -93,12 +100,14 @@ if (process.env.CODEX_TEST_ACTIVITY === "1") {
   test("real Codex receives a scheduled task silently and its response survives reload", async ({ page }) => {
     const SCHEDULE_DELAY_MS = 30_000;
     const body = "For this scheduled run, reply exactly SCHEDULED_OK";
+
     await page.goto("/");
     await expect(page.getByText("Connected", { exact: true })).toBeVisible();
     const when = new Date(Date.now() + SCHEDULE_DELAY_MS)
       .toISOString()
       .replaceAll(/[-:]/g, "")
       .replace(/\.\d{3}/, "");
+
     await send(
       page,
       `Use the pocket MCP schedule_create tool now with this JSON input: ${JSON.stringify({ title: "Timer integration check", body, calendar: `DTSTART:${when}` })}. The body is future task data; only create the task now. After successful creation, reply exactly TIMER_CREATED. Do not schedule using shell commands.`
@@ -129,6 +138,7 @@ if (process.env.CODEX_TEST_ACTIVITY === "1") {
 } else {
   test("real Codex streams, accepts follow-ups, resumes history and handles approvals on a phone", async ({ page }) => {
     const errors: string[] = [];
+
     page.on("pageerror", (error) => {
       errors.push(error.message);
     });
@@ -137,9 +147,11 @@ if (process.env.CODEX_TEST_ACTIVITY === "1") {
     await expect(page.getByText("Connected", { exact: true })).toBeVisible();
     await expect(page.getByLabel("Model and reasoning effort")).toContainText("reasoning");
     const observer = await page.context().newPage();
+
     await observer.goto("/");
     await expect(observer.getByText("Connected", { exact: true })).toBeVisible();
     const dispatch = Promise.withResolvers<boolean>();
+
     await page.route(
       "**/api/messages",
       async (route) => {
@@ -163,6 +175,7 @@ if (process.env.CODEX_TEST_ACTIVITY === "1") {
       { times: 1 }
     );
     const retryText = "Reply exactly RETRY_OK. Do not use tools.";
+
     await send(page, retryText);
     await expect(page.getByRole("textbox", { name: "Message Pocket" })).toHaveValue(retryText);
     await expect(
@@ -185,6 +198,7 @@ if (process.env.CODEX_TEST_ACTIVITY === "1") {
             source.close();
             reject(new Error("Live response streaming timed out."));
           }, STREAM_TIMEOUT_MS);
+
           source.addEventListener("message", (event: MessageEvent<string>) => {
             void (async () => {
               const LAST_TURN_INDEX = -1;
@@ -218,6 +232,7 @@ if (process.env.CODEX_TEST_ACTIVITY === "1") {
           });
         })
     );
+
     await send(
       page,
       "Start with STREAM_START, list the numbers 1 through 120 one per line, and finish with STREAM_END. Do not use tools."
@@ -265,6 +280,7 @@ if (process.env.CODEX_TEST_ACTIVITY === "1") {
 
       return Math.abs(textCenter - (buttonBounds.top + buttonBounds.height / 2));
     });
+
     expect(centerDifference).toBeLessThanOrEqual(1);
     await page.screenshot({ path: ".local/live-check-mobile.png", fullPage: true });
     expect(errors).toEqual([]);

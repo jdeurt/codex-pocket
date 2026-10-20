@@ -9,6 +9,7 @@ import { useAgentRead } from "@/hooks/use-agents";
 export function AgentChat({ agent, back }: { agent: AgentEntry; back: () => void }) {
   const { data, error } = useAgentRead(`/api/agents?agent=${encodeURIComponent(agent.id)}`, agentTranscriptSchema);
   const heading = useRef<HTMLHeadingElement>(null);
+
   useEffect(() => {
     heading.current?.focus();
   }, [agent.id]);

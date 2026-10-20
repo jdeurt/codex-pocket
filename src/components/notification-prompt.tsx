@@ -39,6 +39,7 @@ export function NotificationPrompt() {
   const [endpoint, setEndpoint] = useState("");
   const registration = useRef<ServiceWorkerRegistration | null>(null);
   const publicKey = useRef<Uint8Array<ArrayBuffer> | null>(null);
+
   useNotificationPresence(endpoint);
 
   useEffect(() => {
@@ -68,6 +69,7 @@ export function NotificationPrompt() {
       }
 
       const base64 = config.publicKey.replaceAll("-", "+").replaceAll("_", "/");
+
       publicKey.current = Uint8Array.from(atob(base64), (character) => character.codePointAt(0) ?? 0);
       let subscription = await registration.current.pushManager.getSubscription();
 
@@ -124,6 +126,7 @@ export function NotificationPrompt() {
         userVisibleOnly: true,
         applicationServerKey: publicKey.current,
       });
+
       await post("/api/notifications", subscription.toJSON());
       setEndpoint(subscription.endpoint);
       setStatus("enabled");

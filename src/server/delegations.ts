@@ -33,26 +33,34 @@ export const delegationInput = z
     idempotencyKey: delegationKey,
   })
   .strict();
+
 export type { DelegationCommand, ParentContext, SidePocket, StoredPocket } from "./delegation-data";
 
 export class DelegationStore {
   private db;
+
   private notifications: DelegationNotifications;
+
   readonly mail: DelegationMailbox;
+
   lastCommandStatus = (parentId: string, childId: string) => lastCommandStatus(this.db, parentId, childId);
+
   constructor(directory: string) {
     this.db = delegationDatabase(directory);
     this.notifications = new DelegationNotifications(directory);
     this.mail = new DelegationMailbox(this.db, this.notifications.changed);
   }
+
   subscribe(listener: () => void) {
     return this.notifications.subscribe(listener);
   }
+
   saveParent(id: string, context: ParentContext) {
     this.db
       .prepare("INSERT INTO delegation_parents VALUES (?,?) ON CONFLICT(id) DO UPDATE SET context=excluded.context")
       .run(id, JSON.stringify(context));
   }
+
   parent(id: string): ParentContext {
     const row = z
       .object({ context: z.string() })
@@ -65,6 +73,7 @@ export class DelegationStore {
 
     return parentContextSchema.parse(JSON.parse(row.context));
   }
+
   list(parentId: string) {
     const rows = z
       .array(storedPocketSchema)
@@ -72,6 +81,7 @@ export class DelegationStore {
 
     return rows.map((row) => pocket(row));
   }
+
   get(parentId: string, id: string) {
     const row = storedPocketSchema
       .optional()
@@ -83,6 +93,7 @@ export class DelegationStore {
 
     return pocket(row);
   }
+
   create(parentId: string, input: unknown) {
     const value = delegationInput.parse(input);
     const parent = this.parent(parentId);
@@ -113,6 +124,7 @@ export class DelegationStore {
 
         const id = crypto.randomUUID();
         const now = Date.now();
+
         this.db
           .prepare(
             `INSERT INTO side_pockets
@@ -140,6 +152,7 @@ export class DelegationStore {
       })
       .immediate();
   }
+
   send(parentId: string, childId: string, key: string, body: string) {
     delegationKey.parse(key);
     const text = delegationBody.parse(body);
@@ -166,6 +179,7 @@ export class DelegationStore {
         }
 
         const id = crypto.randomUUID();
+
         this.db
           .prepare("INSERT INTO delegation_commands VALUES (?,?,?,?,?,'queued',NULL,?)")
           .run(id, childId, parentId, key, text, Date.now());
@@ -175,6 +189,7 @@ export class DelegationStore {
       })
       .immediate();
   }
+
   commands(parentId: string, childId: string) {
     return z
       .array(delegationCommandSchema)
@@ -184,6 +199,7 @@ export class DelegationStore {
           .all(parentId, childId)
       );
   }
+
   claim(parentId: string, childId: string) {
     return this.db
       .transaction(() => {
@@ -211,6 +227,7 @@ export class DelegationStore {
       })
       .immediate();
   }
+
   queuedChildren(parentId: string) {
     const rows = z.array(storedPocketSchema).parse(
       this.db
@@ -224,12 +241,14 @@ export class DelegationStore {
 
     return rows.map((row) => pocket(row));
   }
+
   setStatus(parentId: string, id: string, status: SidePocket["status"]) {
     this.db
       .prepare("UPDATE side_pockets SET status=?,updatedAt=? WHERE parentId=? AND id=?")
       .run(status, Date.now(), parentId, id);
     this.notifications.changed();
   }
+
   continueChild(parentId: string, id: string) {
     // A concurrent answer must never undo a persisted close request.
     return (
@@ -240,16 +259,19 @@ export class DelegationStore {
         .run(Date.now(), parentId, id).changes > 0
     );
   }
+
   setSession(parentId: string, id: string, sessionId: string) {
     this.db
       .prepare("UPDATE side_pockets SET sessionId=?,updatedAt=? WHERE parentId=? AND id=?")
       .run(sessionId, Date.now(), parentId, id);
   }
+
   metadata(parentId: string, id: string, data: unknown) {
     this.db
       .prepare("UPDATE side_pockets SET metadata=json_patch(metadata,?) WHERE parentId=? AND id=?")
       .run(JSON.stringify(data), parentId, id);
   }
+
   finish(command: DelegationCommand, status: DelegationCommand["status"], result: string) {
     this.db.prepare("UPDATE delegation_commands SET status=?,result=? WHERE id=?").run(status, result, command.id);
     const child = this.get(command.parentId, command.childId);
@@ -258,6 +280,7 @@ export class DelegationStore {
       this.setStatus(command.parentId, command.childId, status === "unknown" ? "unknown" : "idle");
     }
   }
+
   recordResult(
     command: DelegationCommand,
     status: DelegationCommand["status"],
@@ -272,6 +295,7 @@ export class DelegationStore {
       }
     })();
   }
+
   closeChild(parentId: string, id: string) {
     return this.db
       .transaction(() => {
@@ -290,6 +314,7 @@ export class DelegationStore {
       })
       .immediate();
   }
+
   resume(parentId: string, id: string) {
     const child = this.get(parentId, id);
 
@@ -303,6 +328,7 @@ export class DelegationStore {
 
     return this.get(parentId, id);
   }
+
   recover(parentId: string) {
     for (const child of this.list(parentId)) {
       for (const command of this.commands(parentId, child.id)) {
@@ -312,6 +338,7 @@ export class DelegationStore {
 
         const message =
           "Pocket restarted during this turn. Its outcome is unknown. Inspect the saved history and send a follow-up to continue; the original work will not be replayed automatically.";
+
         this.recordResult(command, "unknown", message, {
           sourceId: `recovery:${command.id}`,
           kind: "recovery",
@@ -323,6 +350,7 @@ export class DelegationStore {
       this.mail.cancelRequests(child.id);
     }
   }
+
   close() {
     this.notifications.close();
     this.db.close();

@@ -51,6 +51,7 @@ await test(
     }
 
     const worker = await peer();
+
     await worker.until(() => worker.starts().length === CAPACITY);
     assert.deepEqual(
       worker.starts().map((entry) => entry.childId),
@@ -81,11 +82,14 @@ await test(
         tool(client, "side_pocket_create", assignment(`burst-${String(index)}`))
       )
     );
+
     await worker.until(() => worker.starts().length === CAPACITY);
     const starts = worker.starts();
     const queued = children.find((child) => starts.every((start) => start.childId !== child.id));
+
     assert.ok(queued);
     const first = starts[0];
+
     await tool(client, "side_pocket_send", {
       id: first.childId,
       message: "followup-one",
@@ -120,12 +124,14 @@ await test(
     const worker = await peer();
     const client = await mcp();
     const child = await tool(client, "side_pocket_create", assignment("question-flow"));
+
     await worker.until(() => worker.starts().length === 1);
     const command = store.commands(owner, String(child.id))[0];
     const childMcp = await mcp("scripts/side-pocket-mcp.ts", {
       POCKET_CHILD_ID: String(child.id),
       POCKET_COMMAND_ID: command.id,
     });
+
     await tool(childMcp, "message_parent", { message: "Cross-process report" });
     await worker.until((events) =>
       events.some((entry) => entry.event === "mail" && String(entry.text).includes("Cross-process report"))
@@ -135,6 +141,7 @@ await test(
       events.some((entry) => entry.event === "mail" && String(entry.text).includes("request"))
     );
     const request = store.mail.requests(owner, String(child.id))[0];
+
     await tool(client, "side_pocket_answer", {
       id: child.id,
       requestId: request.id,
@@ -146,6 +153,7 @@ await test(
     await state(store, () => store.mail.requests(owner, String(child.id)).length === 2);
     await tool(client, "side_pocket_send", { id: child.id, message: "cancel queued", idempotencyKey: "cancel" });
     const closed = await tool(client, "side_pocket_close", { id: child.id });
+
     assert.equal(closed.status, "closed");
     await worker.until((events) => events.some((entry) => entry.event === "cancelled"));
     assert.deepEqual(
@@ -160,6 +168,7 @@ await test(
     await worker.call("ask", { childId: child.id });
     await state(store, () => store.mail.requests(owner, String(child.id)).length === THREE_MORE_STARTS);
     const writer = await peer("writer");
+
     await writer.call("answerAndClose", {
       childId: child.id,
       requestId: store.mail.requests(owner, String(child.id)).at(LAST_INDEX)?.id,
@@ -178,6 +187,7 @@ await test(
     const writer = await peer("writer");
     const child = await writer.call("create", assignment("crash"));
     const worker = await peer();
+
     await worker.until(() => worker.starts().length === 1);
     await worker.call("holdDelivery");
     await writer.call("message", {
@@ -187,20 +197,24 @@ await test(
     });
     await worker.until((events) => events.some((entry) => entry.event === "mail"));
     const pendingMail = store.mail.pending(owner).find((mail) => mail.kind === "message");
+
     assert.ok(pendingMail);
     await worker.call("ask", { childId: child.id });
     await state(store, () => store.mail.requests(owner, child.id).length === 1);
     const exited = once(worker.child, "exit");
+
     worker.child.kill("SIGKILL");
     await exited;
     const queued = await writer.call("create", assignment("queued-during-downtime"));
     const restarted = await peer();
+
     await restarted.until(() => restarted.starts().length === 1);
     assert.equal(restarted.starts()[0].childId, queued.id);
     assert.equal(store.commands(owner, child.id)[0].status, "unknown");
     assert.equal(store.get(owner, child.id).status, "unknown");
     assert.equal(store.mail.requests(owner, child.id)[0].status, "cancelled");
     const recovery = store.mail.history(owner, child.id).find((mail) => mail.kind === "recovery");
+
     assert.ok(recovery);
     await restarted.until((events) => events.some((entry) => entry.event === "mail" && entry.id === recovery.id));
     await restarted.until((events) => events.some((entry) => entry.event === "mail" && entry.id === pendingMail.id));
@@ -224,6 +238,7 @@ await test(
     const before = await readSignal(signal);
     const exited = once(writer.child, "exit");
     const child = await writer.call("createAndCrash", assignment("lost-notification"));
+
     await exited;
     assert.equal(await readSignal(signal), before);
     await worker.until(() => worker.starts().length === 1);
@@ -252,9 +267,11 @@ await test(
       ])
     );
     const claimed = claims.filter((command) => command !== undefined);
+
     assert.equal(claimed.length, CAPACITY);
     assert.equal(new Set(claimed.map((command) => command.id)).size, CAPACITY);
     const commands = children.flatMap((child) => store.commands(owner, String(child.id)));
+
     assert.equal(commands.filter((command) => command.status === "running").length, CAPACITY);
   }
 );
@@ -266,12 +283,15 @@ await test(
     const { store, peer } = await fixture(t);
     const worker = await peer();
     const writer = await peer("writer");
+
     await worker.call("holdDelivery");
     const child = await writer.call("create", assignment("slow-mail"));
+
     await worker.until(() => worker.starts().length === 1);
     await writer.call("message", { childId: child.id, commandId: worker.starts()[0].id, message: "Blocked delivery" });
     await worker.until((events) => events.some((event) => event.event === "mail"));
     const next = await writer.call("create", assignment("dispatch-while-mail-waits"));
+
     await worker.until(() => worker.starts().length === 2);
     await worker.call("ask", { childId: next.id });
     await state(store, () => store.mail.requests(owner, next.id).length === 1);
@@ -285,6 +305,7 @@ await test(
     await worker.call("releaseDelivery");
     await state(store, () => store.mail.history(owner, child.id)[0].delivery === "unknown");
     const mailId = store.mail.history(owner, child.id)[0].id;
+
     await worker.call("barrier");
     assert.equal(worker.events.filter((event) => event.event === "mail" && event.id === mailId).length, 1);
     await worker.call("fail", { childId: child.id });

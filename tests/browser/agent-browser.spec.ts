@@ -30,6 +30,7 @@ async function ids() {
 async function lifecycle(settled = false) {
   const entries = await ids();
   const db = new Database(`${directory}/state/delegations.sqlite`);
+
   db.prepare("UPDATE side_pockets SET status=? WHERE id=?").run(
     settled ? "idle" : "waiting",
     entries["Codex Side Pocket"]
@@ -73,8 +74,10 @@ test("offline replay: scoped discovery, complete normalized histories and GET-on
   await mkdir(".local/agent-browser-screenshots", { recursive: true });
   await page.screenshot({ animations: "disabled", path: ".local/agent-browser-screenshots/mobile-parent.png" });
   const catalog = await request.get("/api/agents");
+
   expect(catalog.ok()).toBeTruthy();
   const data = agentCatalogSchema.parse(await catalog.json());
+
   expect(data.agents.filter(activeAgent)).toHaveLength(ACTIVE_COUNT);
   expect(data.agents.filter((agent) => agent.name === "Codex Side Pocket")).toHaveLength(1);
   expect(data.agents.some((agent) => /PRIVATE|Duplicate/.test(agent.name))).toBeFalsy();
@@ -94,10 +97,12 @@ test("offline replay: scoped discovery, complete normalized histories and GET-on
     "replay-parent",
   ]) {
     const denied = await request.get(`/api/agents?agent=${encodeURIComponent(id)}&parent=unrelated-parent`);
+
     expect(denied.status()).toBe(HTTP_NOT_FOUND);
   }
 
   const crossOrigin = await request.get("/api/agents", { headers: { Origin: "https://untrusted.example" } });
+
   expect(crossOrigin.status()).toBe(HTTP_FORBIDDEN);
 
   for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
@@ -105,11 +110,13 @@ test("offline replay: scoped discovery, complete normalized histories and GET-on
       method,
       data: { action: "resume" },
     });
+
     expect(mutation.status()).toBe(METHOD_NOT_ALLOWED);
   }
 
   const transcriptResponse = await request.get("/api/agents?agent=codex:native-codex");
   const transcript = agentTranscriptSchema.parse(await transcriptResponse.json());
+
   expect(JSON.stringify(transcript)).toContain("Earlier progress from the full transcript");
   expect(JSON.stringify(transcript)).toContain("REPLAY_TOOL_OUTPUT");
   expect(JSON.stringify(transcript)).not.toMatch(
@@ -123,19 +130,24 @@ test("offline replay: scoped discovery, complete normalized histories and GET-on
 
   const imageUrl = (image.images ?? [])[0].source;
   const imageResponse = await request.get(imageUrl);
+
   expect(imageResponse.headers()["content-type"]).toBe("image/webp");
   const unrelatedImage = await request.get(imageUrl.replace("codex%3Anative-codex", "codex%3Aunrelated"));
+
   expect(unrelatedImage.status()).toBe(HTTP_NOT_FOUND);
   const markdownImage = await request.get(
     "/api/agents?agent=codex:native-codex&item=markdown-image&source=child-image.png"
   );
+
   expect(markdownImage.headers()["content-type"]).toBe("image/webp");
   const forgedImage = await request.get(
     "/api/agents?agent=codex:native-codex&item=markdown-image&source=../../private.png"
   );
+
   expect(forgedImage.status()).toBe(HTTP_NOT_FOUND);
   const claudeResponse = await request.get(`/api/agents?agent=pocket:${entries["Claude Side Pocket"]}`);
   const claude = agentTranscriptSchema.parse(await claudeResponse.json());
+
   expect(JSON.stringify(claude)).toContain("CLAUDE_REPLAY_TOOL_OUTPUT");
   expect(claude.state.turns.flatMap((turn) => turn.items).filter((item) => item.type === "userMessage")).toHaveLength(
     1
@@ -145,6 +157,7 @@ test("offline replay: scoped discovery, complete normalized histories and GET-on
     .trim()
     .split("\n")
     .map((line) => replayLogSchema.parse(JSON.parse(line)));
+
   expect(
     log.filter(
       (entry) =>
@@ -162,6 +175,7 @@ test("offline replay: mobile/desktop read-only navigation, ellipsis, focus and p
   page,
 }) => {
   const actions: string[] = [];
+
   page.on("request", (request) => {
     if (request.method() === "POST" && !request.url().includes("/api/logs")) {
       actions.push(request.url());
@@ -171,14 +185,17 @@ test("offline replay: mobile/desktop read-only navigation, ellipsis, focus and p
   await expect(page.getByRole("button", { name: "6 agents", exact: true })).toBeVisible();
   await page.getByRole("textbox", { name: "Message Pocket" }).fill("Preserved parent draft");
   const viewport = page.locator('[data-slot="message-scroller-viewport"]').first();
+
   await viewport.evaluate((element) => {
     element.scrollTop = 240;
   });
   const scroll = await viewport.evaluate((element) => element.scrollTop);
+
   await page.getByRole("button", { name: "6 agents", exact: true }).evaluate((button: HTMLButtonElement) => {
     button.click();
   });
   const dialog = page.getByRole("dialog", { name: "Agents", exact: true });
+
   await expect(dialog).toBeVisible();
   await expect(dialog.locator(".agents-list-header").getByRole("button")).toHaveCount(1);
   await expect(dialog.getByRole("button", { name: "Back to Pocket", exact: true })).toBeVisible();
@@ -187,6 +204,7 @@ test("offline replay: mobile/desktop read-only navigation, ellipsis, focus and p
   await expect(dialog.getByRole("button", { name: /Finished research/ })).toBeVisible();
   expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBeTruthy();
   const row = dialog.getByRole("button", { name: new RegExp(longName.slice(0, LONG_NAME_PREFIX)) });
+
   await expect(row.locator(".agent-preview")).toHaveCSS("white-space", "nowrap");
   await expect(row.locator(".agent-preview")).toHaveCSS("text-overflow", "ellipsis");
   await expect(row.locator(".agent-preview")).toHaveCSS("overflow", "hidden");
@@ -240,17 +258,21 @@ test("offline replay: mobile/desktop read-only navigation, ellipsis, focus and p
 test("offline replay: live updates, retained terminal history, errors and zero active agents", async ({ page }) => {
   await page.goto("/");
   const trigger = page.getByRole("button", { name: "6 agents", exact: true });
+
   await expect(trigger).toBeVisible();
   const parentViewport = page.locator('[data-slot="message-scroller-viewport"]').first();
+
   await parentViewport.dispatchEvent("wheel", { deltaY: -180 });
   await parentViewport.evaluate((element) => {
     element.scrollTop = 180;
   });
   const scroll = await parentViewport.evaluate((element) => element.scrollTop);
+
   await trigger.evaluate((button: HTMLButtonElement) => {
     button.click();
   });
   const dialog = page.getByRole("dialog", { name: "Agents", exact: true });
+
   await dialog.getByRole("button", { name: /Researching an exceptionally long/ }).click();
   await control("updated");
   await expect(dialog.locator(".agent-chat").getByText("LIVE_REPLAY_UPDATE", { exact: true })).toBeVisible();
@@ -283,6 +305,7 @@ test("offline replay: denied access, network reconnect, native Claude chat and n
   page,
 }) => {
   const connection = { mode: "healthy" };
+
   await page.route("**/api/agents?agent=codex%3Anative-codex", async (route) => {
     if (connection.mode === "denied") {
       await route.fulfill({ status: HTTP_FORBIDDEN, json: { error: "Replay access denied" } });
@@ -296,6 +319,7 @@ test("offline replay: denied access, network reconnect, native Claude chat and n
   await page.goto("/");
   await page.getByRole("button", { name: "6 agents", exact: true }).click();
   const dialog = page.getByRole("dialog", { name: "Agents", exact: true });
+
   await expect(dialog).toHaveCSS("transform", "matrix(1, 0, 0, 1, 0, 0)");
   expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBeTruthy();
   await expect(dialog.locator(".agents-list-header").getByRole("button")).toHaveCount(1);
@@ -303,6 +327,7 @@ test("offline replay: denied access, network reconnect, native Claude chat and n
   await page.screenshot({ animations: "disabled", path: ".local/agent-browser-screenshots/narrow-list.png" });
   await dialog.getByRole("button", { name: /Researching an exceptionally long/ }).click();
   const chat = dialog.locator(".agent-chat");
+
   await expect(chat.getByText("Saved native-codex result", { exact: true })).toBeVisible();
   await expect(chat.locator("header").getByRole("button")).toHaveCount(1);
   await expect(chat.getByRole("button", { name: "Back to agents", exact: true })).toBeVisible();

@@ -11,6 +11,7 @@ export function delegationDatabase(directory: string) {
   mkdirSync(directory, { recursive: true, mode: 0o700 });
   const filename = path.join(directory, "delegations.sqlite");
   const db = new Database(filename, { timeout: BUSY_TIMEOUT_MS });
+
   chmodSync(filename, PRIVATE_FILE_MODE);
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");

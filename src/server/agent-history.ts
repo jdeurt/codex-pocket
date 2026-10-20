@@ -31,6 +31,7 @@ export async function codexPreview(rpc: CodexRpc, threadId: string) {
     sortDirection: "desc",
     itemsView: "notLoaded",
   });
+
   let cursor: string | null = null;
 
   do {
@@ -57,6 +58,7 @@ export async function codexPreview(rpc: CodexRpc, threadId: string) {
 async function loadTail(rpc: CodexRpc, thread: Thread, previous: Turn[]) {
   const boundary = previous.findLast((turn) => ["completed", "failed", "interrupted"].includes(turn.status));
   const recent: Turn[] = [];
+
   let cursor: string | null = null;
 
   do {

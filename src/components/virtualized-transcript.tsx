@@ -176,6 +176,7 @@ function MeasuredTranscript({
     },
     [virtualizer, suspended]
   );
+
   useLayoutEffect(() => {
     virtualizer.scrollToEnd();
   }, [virtualizer]);

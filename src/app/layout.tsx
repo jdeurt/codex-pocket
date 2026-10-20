@@ -15,6 +15,7 @@ export const viewport: Viewport = {
   themeColor: "#212121",
   interactiveWidget: "resizes-content",
 };
+
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html lang="en" className="dark">

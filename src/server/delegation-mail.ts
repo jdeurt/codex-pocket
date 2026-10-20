@@ -10,6 +10,7 @@ const MAX_BODY_LENGTH = 65_536;
 const HISTORY_LIMIT = 200;
 export const parentMessageInput = z.object({ message: z.string().trim().min(1).max(MAX_BODY_LENGTH) }).strict();
 export const delegationMessagePrefix = "pocket-delegate:";
+
 export interface DelegationMail {
   id: string;
   childId: string;
@@ -36,8 +37,10 @@ export class DelegationMailbox {
     private db: Database.Database,
     private changed: () => void
   ) {}
+
   record(parentId: string, childId: string, sourceId: string, kind: string, payload: unknown, notify = true) {
     const id = `${delegationMessagePrefix}${crypto.randomUUID()}`;
+
     this.db
       .prepare(`INSERT OR IGNORE INTO delegation_mail VALUES (?,?,?,?,?,?,?,?)`)
       .run(id, childId, parentId, sourceId, kind, JSON.stringify(payload), notify ? "pending" : "local", Date.now());
@@ -50,6 +53,7 @@ export class DelegationMailbox {
       this.db.prepare("SELECT * FROM delegation_mail WHERE childId=? AND sourceId=?").get(childId, sourceId)
     );
   }
+
   message(childId: string, commandId: string, input: unknown) {
     const { message } = parentMessageInput.parse(input);
     const command = z
@@ -73,6 +77,7 @@ export class DelegationMailbox {
 
     return { id: mail.id, queued: true, note: "The parent receives this message and can reply in this saved session." };
   }
+
   pending(parentId: string) {
     return z
       .array(delegationMailSchema)
@@ -84,9 +89,11 @@ export class DelegationMailbox {
           .all(parentId)
       );
   }
+
   delivered(id: string, status: "queued" | "sent" | "unknown") {
     this.db.prepare("UPDATE delegation_mail SET delivery=? WHERE id=?").run(status, id);
   }
+
   history(parentId: string, childId: string) {
     return z
       .array(delegationMailSchema)
@@ -99,13 +106,16 @@ export class DelegationMailbox {
           .toReversed()
       );
   }
+
   hasMessage(childId: string, commandId: string) {
     return !!this.db
       .prepare("SELECT 1 FROM delegation_mail WHERE childId=? AND sourceId LIKE ? LIMIT 1")
       .get(childId, `message:${commandId}:%`);
   }
+
   request(parentId: string, childId: string, request: HarnessRequest) {
     const id = crypto.randomUUID();
+
     this.db
       .prepare("INSERT INTO delegation_requests VALUES (?,?,?,?,?,?,NULL,'pending',?)")
       .run(id, childId, parentId, request.id, request.method, JSON.stringify(request.input), Date.now());
@@ -113,6 +123,7 @@ export class DelegationMailbox {
 
     return id;
   }
+
   requests(parentId: string, childId: string, pendingOnly = false) {
     return z
       .array(delegationRequestSchema)
@@ -124,6 +135,7 @@ export class DelegationMailbox {
           .all(parentId, childId, Number(pendingOnly))
       );
   }
+
   answer(parentId: string, childId: string, id: string, answer: unknown) {
     return this.db
       .transaction(() => {
@@ -162,6 +174,7 @@ export class DelegationMailbox {
       })
       .immediate();
   }
+
   cancelRequests(childId: string) {
     const result = this.db
       .prepare("UPDATE delegation_requests SET status='cancelled' WHERE childId=? AND status='pending'")

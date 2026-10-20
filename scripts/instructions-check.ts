@@ -24,11 +24,13 @@ async function checkInstructions() {
   await mkdir(".local", { recursive: true });
   const directory = await mkdtemp(path.resolve(".local", "instructions-check-"));
   const project = path.join(directory, "project");
+
   await mkdir(project);
   process.env.CODEX_POCKET_STATE_DIR = path.join(directory, "state");
   const marker = "POCKET_NATIVE_PROMPT";
   const existing = `The configured integration marker is ${marker}. When asked for the configured integration marker, reply exactly ${marker}.`;
   const instructions = pocketInstructions(existing, false);
+
   assert.ok(instructions.startsWith(existing + "\n\n"));
   let config = configSchema.parse({
     threadId: "bootstrap",
@@ -47,6 +49,7 @@ async function checkInstructions() {
   let rpc = new CodexRpc();
   let thread: Thread | undefined;
   let originalBase: string | undefined;
+
   const results: { stage: string; marker: string; baseHash: string; promptCopies: number }[] = [];
 
   async function close() {
@@ -55,6 +58,7 @@ async function checkInstructions() {
     }
 
     const disconnected = new Promise((resolve) => rpc.once("disconnect", resolve));
+
     rpc.close();
     await disconnected;
   }
@@ -68,6 +72,7 @@ async function checkInstructions() {
         replies.push(item.text);
       }
     };
+
     rpc.on("event", listener);
 
     try {
@@ -86,8 +91,10 @@ async function checkInstructions() {
       .split("\n")
       .map((line) => rolloutRowSchema.parse(JSON.parse(line)));
     const metadata = rows.find((row) => row.type === "session_meta");
+
     assert.ok(metadata?.payload.base_instructions);
     const base = metadata.payload.base_instructions.text;
+
     assert.ok(base.length > 0);
     assert.equal(base.includes("You are Pocket"), false);
     originalBase ??= base;
@@ -97,11 +104,14 @@ async function checkInstructions() {
       .flatMap((row) => row.payload.content)
       .map((part) => part.text ?? "");
     const promptCopies = developerTexts.filter((text) => text.includes(instructions)).length;
+
     assert.equal(promptCopies, 1);
     const turns = await loadHistory(rpc, { id: config.threadId, turns: [] });
     const phone = visibleSnapshot({ ...initialSnapshot, connection: "connected", turns });
+
     assert.equal(JSON.stringify(phone).includes("Pocket displays image-view"), false);
     const result = { stage, marker, baseHash: createHash("sha256").update(base).digest("hex"), promptCopies };
+
     results.push(result);
     console.log(JSON.stringify(result));
   }
@@ -114,6 +124,7 @@ async function checkInstructions() {
       sandbox: "read-only",
       developerInstructions: instructions,
     });
+
     thread = started.thread;
     config = { ...config, threadId: thread.id };
     await check("initial Pocket turn");

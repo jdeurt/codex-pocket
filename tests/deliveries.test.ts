@@ -5,10 +5,13 @@ import test from "node:test";
 
 await test("a send stays visible before acknowledgment and merges with the server queue by ID", () => {
   const pending: QueuedMessage[] = [{ id: "first", text: "Hello", status: "sending" }];
+
   assert.deepEqual(reconcileDeliveries(initialSnapshot, pending).state.queue, pending);
   const queued: Snapshot = { ...initialSnapshot, queue: [{ ...pending[0], status: "queued" }] };
+
   assert.deepEqual(reconcileDeliveries(queued, pending).state.queue, queued.queue);
   const acknowledged: QueuedMessage[] = [{ ...pending[0], status: "sent" }];
+
   assert.deepEqual(reconcileDeliveries(queued, acknowledged).state.queue, acknowledged);
 });
 
@@ -21,6 +24,7 @@ await test("Codex confirmation removes only the matching optimistic message even
     turns: [{ id: "turn", status: "inProgress", items: [{ id: "item", type: "userMessage", clientId: "first" }] }],
   };
   const result = reconcileDeliveries(state, [first, second]);
+
   assert.deepEqual(result.pending, [second]);
   assert.deepEqual(result.state.queue, [second]);
   assert.deepEqual(reconcileDeliveries(state, [{ ...first, status: "sent" }, second]), result);
@@ -29,6 +33,7 @@ await test("Codex confirmation removes only the matching optimistic message even
 await test("uncertain sends remain visible across a disconnected snapshot", () => {
   const pending: QueuedMessage[] = [{ id: "first", text: "Hello", status: "unknown" }];
   const result = reconcileDeliveries({ ...initialSnapshot, connection: "disconnected" }, pending);
+
   assert.deepEqual(result.state.queue, pending);
   assert.deepEqual(result.pending, pending);
 });

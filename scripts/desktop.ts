@@ -17,6 +17,7 @@ if (command === "requests") {
   }
 
   const result: unknown = JSON.parse(payload);
+
   await writeLocal(`reply-${crypto.randomUUID()}.json`, { id: request.id, result });
   console.info("Answer queued for Codex.");
 } else {

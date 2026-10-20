@@ -17,6 +17,7 @@ export const itemsPageSchema = z.looseObject({
   data: z.array(z.looseObject({ item: itemSchema })),
   nextCursor: z.string().nullable(),
 });
+
 export type SessionResponse = z.infer<typeof sessionResponseSchema>;
 export const rpcResponseSchemas = new Map<string, z.ZodType>([
   ["thread/start", sessionResponseSchema],

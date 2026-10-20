@@ -62,6 +62,7 @@ async function worker() {
 async function check() {
   const { RECOVERY_PROMPT } = await import("../src/server/recovery");
   const directory = path.resolve(".local", "restart-notice-check", crypto.randomUUID());
+
   await mkdir(directory, { recursive: true });
   await writeFile(path.join(directory, "fake-history.json"), "[]");
   const env = {
@@ -79,6 +80,7 @@ async function check() {
       execArgv: ["--import", "tsx"],
       silent: true,
     });
+
     target.stdout?.resume();
     target.stderr?.pipe(process.stderr);
 
@@ -89,6 +91,7 @@ async function check() {
 
   async function request(text?: string) {
     const reply = once(child, "message", { signal: AbortSignal.timeout(PROCESS_TIMEOUT_MS) });
+
     child.send({ id: crypto.randomUUID(), text });
     const replies: unknown[] = await reply;
     const result = replies[0];
@@ -98,6 +101,7 @@ async function check() {
 
   async function snapshot(text?: string) {
     const result = await request(text);
+
     assert.equal(result.error, undefined);
     assert.ok("raw" in result && "visible" in result);
 
@@ -106,6 +110,7 @@ async function check() {
 
   async function stop() {
     const exited = once(child, "exit", { signal: AbortSignal.timeout(PROCESS_TIMEOUT_MS) });
+
     child.kill("SIGTERM");
     await exited;
   }
@@ -113,6 +118,7 @@ async function check() {
   async function failedAndPendingChecks() {
     await stop();
     const failureDirectory = path.join(directory, "failed-resume");
+
     await mkdir(failureDirectory);
     await writeFile(
       path.join(failureDirectory, "fake-history.json"),
@@ -127,52 +133,66 @@ async function check() {
     await writeFile(path.join(failureDirectory, "fail-resume"), "yes");
     child = start(failureDirectory);
     const failed = await request();
+
     assert.match(failed.error ?? "", /Fixture resume failed/);
     await assert.rejects(readFile(path.join(failureDirectory, "restart-events.json")), { code: "ENOENT" });
     await unlink(path.join(failureDirectory, "fail-resume"));
     await writeFile(path.join(failureDirectory, "fail-history"), "yes");
     const incomplete = await request();
+
     assert.match(incomplete.error ?? "", /Fixture history failed/);
     await assert.rejects(readFile(path.join(failureDirectory, "restart-events.json")), { code: "ENOENT" });
     await unlink(path.join(failureDirectory, "fail-history"));
     const successful = await snapshot();
+
     assert.equal(events(successful.visible).length, 1);
     const processes = await readFile(path.join(failureDirectory, "fake-processes.jsonl"), "utf8");
     const failedAttempts = 2;
+
     assert.equal(processes.trim().split("\n").length, failedAttempts + 1);
     const retried = await snapshot();
+
     assert.deepEqual(events(retried.visible), events(successful.visible));
     assert.equal(await readFile(path.join(failureDirectory, "fake-processes.jsonl"), "utf8"), processes);
     await stop();
     const outboxFile = path.join(failureDirectory, "outbox.json");
     const outbox = outboxSchema.parse(JSON.parse(await readFile(outboxFile, "utf8")));
+
     outbox.receipts.push({ id: "pocket-recovery:already-queued", text: RECOVERY_PROMPT, status: "queued" });
     await writeFile(outboxFile, JSON.stringify(outbox));
     child = start(failureDirectory);
     const pending = await snapshot();
+
     assert.equal(events(pending.visible).length, events(successful.visible).length + 1);
     const inputs = pending.raw.turns
       .flatMap((turn) => turn.items)
       .filter((item) => String(item.clientId).startsWith("pocket-recovery:"));
+
     assert.equal(inputs.length, 2);
     assert.equal(inputs.filter((item) => item.clientId === "pocket-recovery:already-queued").length, 1);
     const retriedPending = await snapshot();
+
     assert.deepEqual(events(retriedPending.visible), events(pending.visible));
   }
 
   async function scenarios() {
     const empty = await snapshot();
+
     assert.equal(events(empty.visible).length, 0);
     assert.equal(empty.raw.turns.length, 0);
     const original = await snapshot("Original user content must remain unchanged.");
+
     assert.equal(events(original.visible).length, 0);
     const lastItem = original.raw.turns.at(LAST_ITEM)?.items.at(LAST_ITEM)?.id;
+
     await stop();
     child = start();
     const restarted = await snapshot();
+
     assert.equal(events(restarted.visible).length, 1);
     const flattened = restarted.visible.turns.flatMap((turn) => turn.items);
     const index = flattened.findIndex((item) => item.type === "pocketRestart");
+
     assert.equal(flattened[index - 1].id, lastItem);
     assert.equal(flattened[index + 1].type, "agentMessage");
     assert.equal(
@@ -189,14 +209,17 @@ async function check() {
     const recovery = restarted.raw.turns
       .flatMap((turn) => turn.items)
       .find((item) => String(item.clientId).startsWith("pocket-recovery:"));
+
     assert.ok(Array.isArray(recovery?.content));
     assert.equal(string(object(recovery.content[0]).text), RECOVERY_PROMPT);
     const persisted = await readFile(path.join(directory, "restart-events.json"), "utf8");
     const processes = await readFile(path.join(directory, "fake-processes.jsonl"), "utf8");
+
     assert.equal(processes.trim().split("\n").length, 2);
 
     for (let retry = 0; retry < RECONNECTS; retry += 1) {
       const reconnected = await snapshot();
+
       assert.deepEqual(events(reconnected.visible), events(restarted.visible));
     }
 
@@ -204,6 +227,7 @@ async function check() {
     assert.equal(await readFile(path.join(directory, "fake-processes.jsonl"), "utf8"), processes);
     await writeFile(path.join(directory, "snapshot.json"), JSON.stringify(restarted.visible));
     const ordinaryMatching = await snapshot(RECOVERY_PROMPT);
+
     assert.equal(
       ordinaryMatching.visible.turns
         .flatMap((turn) => turn.items)
@@ -213,6 +237,7 @@ async function check() {
     await stop();
     child = start();
     const second = await snapshot();
+
     assert.equal(events(second.visible).length, 2);
     assert.equal(events(second.visible)[0].id, events(restarted.visible)[0].id);
     assert.equal(new Set(events(second.visible).map((item) => item.id)).size, 2);
@@ -228,15 +253,19 @@ async function check() {
         { id: "old-command", type: "commandExecution", command: "fixture-only" },
       ],
     };
+
     await writeFile(path.join(directory, "fake-history.json"), JSON.stringify([...second.raw.turns, interrupted]));
     child = start();
     const steered = await snapshot();
+
     assert.equal(events(steered.visible).length, events(second.visible).length + 1);
     const { turnMessages } = await import("../src/lib/turn-messages");
     const interruptedTurn = steered.visible.turns.find((turn) => turn.id === interrupted.id);
+
     assert.ok(interruptedTurn);
     const entries = turnMessages(interruptedTurn, false);
     const noticeIndex = entries.findIndex((entry) => entry.kind === "message" && entry.item.type === "pocketRestart");
+
     assert.ok(noticeIndex > 0);
     assert.equal(entries[noticeIndex - 1].kind, "activity");
     assert.equal(entries[noticeIndex + 1].kind, "message");
@@ -246,20 +275,25 @@ async function check() {
     await stop();
     const outboxFile = path.join(directory, "outbox.json");
     const outbox = outboxSchema.parse(JSON.parse(await readFile(outboxFile, "utf8")));
+
     outbox.receipts.push({ id: "pocket-recovery:unknown", text: RECOVERY_PROMPT, status: "unknown" });
     await writeFile(outboxFile, JSON.stringify(outbox));
     child = start();
     const uncertain = await snapshot();
+
     assert.equal(events(uncertain.visible).length, events(steered.visible).length + 1);
     assert.deepEqual(uncertain.raw.turns, steered.raw.turns);
     assert.equal(uncertain.raw.queue.find((item) => item.id === "pocket-recovery:unknown")?.status, "unknown");
     assert.equal(uncertain.visible.queue.length, 0);
 
     const { visibleSnapshot } = await import("../src/server/visible-snapshot");
+
     await import("../tests/fixtures/restart-css-loader.mjs");
     const { verifyRestartProjection } = await import("../tests/fixtures/restart-projection");
+
     verifyRestartProjection(restarted.visible);
     const mismatched = visibleSnapshot({ ...second.raw, threadId: "other-thread" });
+
     assert.equal(events(mismatched).length, 0);
     const legacy: Turn = {
       id: "legacy",
@@ -269,6 +303,7 @@ async function check() {
         { id: "old-answer", type: "agentMessage", text: "An old recovery reply" },
       ],
     };
+
     assert.equal(events(visibleSnapshot({ ...initialSnapshot, turns: [legacy] })).length, 0);
     const emptyAroundEvent: Snapshot = {
       ...restarted.visible,
@@ -281,6 +316,7 @@ async function check() {
         ],
       })),
     };
+
     verifyRestartProjection(emptyAroundEvent);
     assert.deepEqual(
       emptyAroundEvent.turns

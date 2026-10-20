@@ -13,6 +13,7 @@ const PREVIEW_SIZE = 4096;
 const THUMBNAIL_QUALITY = 82;
 const PREVIEW_QUALITY = 92;
 const RASTER_FORMATS = new Set(["png", "jpeg", "webp", "gif", "avif", "heif", "tiff"]);
+
 interface RenderedImage {
   bytes: Buffer;
   etag: string;
@@ -75,6 +76,7 @@ export async function renderImage(source: string, cwd: string, thumbnail: boolea
     .webp({ quality: thumbnail ? THUMBNAIL_QUALITY : PREVIEW_QUALITY })
     .toBuffer();
   const rendered = { bytes, etag: `"${key}"` };
+
   cache.set(key, rendered);
   let total = cache.values().reduce((sum, entry) => sum + entry.bytes.length, 0);
 
