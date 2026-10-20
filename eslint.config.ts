@@ -126,7 +126,7 @@ export function createConfig(options: { typed?: boolean; tsconfigRootDir?: strin
   const reactRules = reactHooks.configs.flat["recommended-latest"].rules;
 
   return defineConfig([
-    { ignores: ["dist/**", NODE_MODULES, MARKETPLACE_BUILD, MARKETPLACE_VERIFY] },
+    { ignores: ["dist/**", NODE_MODULES, MARKETPLACE_BUILD, MARKETPLACE_VERIFY, ".next/**", "next-env.d.ts"] },
     { ...js.configs.recommended, files },
     { ...unicorn.configs.recommended, files },
     // Keep TypeScript-only core replacements scoped while enabling typed checks for JavaScript too.
