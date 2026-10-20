@@ -4,6 +4,16 @@ import { writeFile } from "node:fs/promises";
 const SCROLLED_OFFSET = 280;
 const OFFSET_TOLERANCE = 2;
 
+async function retainedExtent(parent: Locator) {
+  const canvas = parent.locator(":scope > .transcript > div");
+  await expect(canvas).toHaveCSS("min-height", "0px");
+
+  return canvas.evaluate((element) => ({
+    rendered: element.getBoundingClientRect().height,
+    logical: Number(element.style.height.replace("px", "")),
+  }));
+}
+
 async function anchor(parent: Locator, id?: string) {
   return parent.evaluate((element, match) => {
     const viewport = element.getBoundingClientRect();
@@ -60,6 +70,8 @@ export async function checkAgentScroll(page: Page, control: (stage: string) => P
     const before = await parent.evaluate((element) => element.scrollTop);
     expect(before).toBeGreaterThan(SCROLLED_OFFSET - OFFSET_TOLERANCE);
     const beforeAnchor = await anchor(parent);
+    const extentBefore = await retainedExtent(parent);
+    expect(Math.abs(extentBefore.rendered - extentBefore.logical)).toBeLessThan(1);
     // Do not scroll the offscreen activity control into view before opening.
     await trigger.evaluate((button: HTMLButtonElement) => button.click());
     const row = dialog.getByRole("button", { name: /Researching an exceptionally long/ });
@@ -93,13 +105,29 @@ export async function checkAgentScroll(page: Page, control: (stage: string) => P
     const afterAnchor = await anchor(parent, beforeAnchor.id);
     expect(Math.abs(afterAnchor.offset - beforeAnchor.offset)).toBeLessThan(OFFSET_TOLERANCE);
     await expect(composer).toHaveValue(draft);
+    await expect(parent).not.toHaveAttribute("data-scroll-suspended", "true");
+    const extentAfter = await retainedExtent(parent);
+    expect(Math.abs(extentAfter.rendered - extentAfter.logical)).toBeLessThan(1);
     await page.locator("main").getByRole("button", { name: "Jump to latest message", exact: true }).click();
     await expect
       .poll(() => parent.evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight))
       .toBeLessThan(OFFSET_TOLERANCE);
     await expect(incoming).toBeInViewport();
     await expect(composer).toHaveValue(draft);
-    measurements.push({ position, before, during, after, beforeAnchor, duringAnchor, afterAnchor });
+    const extentLatest = await retainedExtent(parent);
+    expect(Math.abs(extentLatest.rendered - extentLatest.logical)).toBeLessThan(1);
+    measurements.push({
+      position,
+      before,
+      during,
+      after,
+      beforeAnchor,
+      duringAnchor,
+      afterAnchor,
+      extentBefore,
+      extentAfter,
+      extentLatest,
+    });
   }
 
   expect(mutations).toEqual([]);
