@@ -22,7 +22,7 @@ import {
   rowsForTurns,
 } from "@/lib/transcript-virtualization";
 import { MessageScroller, MessageScrollerProvider, MessageScrollerViewport } from "@/components/ui/message-scroller";
-import { type Range, type VirtualItem, elementScroll } from "@tanstack/react-virtual";
+import { type Range, type VirtualItem, elementScroll, measureElement } from "@tanstack/react-virtual";
 import {
   type TranscriptBookmark,
   readTranscriptBookmark,
@@ -35,7 +35,8 @@ import { ChatMessage } from "./chat-message";
 import { TranscriptFooter } from "./transcript-footer";
 
 const PADDING_START = 24;
-const PADDING_END = 32;
+// The 44px reserved row centers a 20px label 12px below its top: 4 + 12 = 16px.
+const PADDING_END = 4;
 const LAST_ITEM = -1;
 const ACTIVITY_LOOKAHEAD_VIEWPORTS = 3;
 
@@ -143,6 +144,11 @@ function MeasuredTranscript({
     getScrollElement: () => viewport.current,
     getItemKey,
     estimateSize: (index) => (index === rows.length ? 0 : ESTIMATED_MESSAGE_HEIGHT),
+    // Rounded row heights accumulate error against the naturally flowing DOM block.
+    measureElement: (element, entry, instance) =>
+      instance.options.useCachedMeasurements
+        ? measureElement(element, entry, instance)
+        : (entry?.borderBoxSize[0]?.blockSize ?? element.getBoundingClientRect().height),
     initialOffset: () => bookmark?.offset ?? rows.length * ESTIMATED_MESSAGE_HEIGHT,
     initialMeasurementsCache: bookmark?.measurements,
     anchorTo: suspended || !follow ? "start" : "end",
@@ -207,6 +213,8 @@ function MeasuredTranscript({
         <MessageScroller>
           <MessageScrollerViewport
             ref={viewport}
+            className="data-at-end:scroll-fade-none"
+            data-at-end={layout.atEnd || undefined}
             data-scroll-suspended={suspended || undefined}
             preserveScrollOnPrepend={false}
             style={{ overflowAnchor: "none", overflowY: suspended ? "hidden" : undefined }}

@@ -11,7 +11,7 @@ Juan authorized resuming the stopped handoff, retaining original delegate report
 - Blank, parser-hidden, bookkeeping-only and commentary-only completions return before claiming notification receipts. Visible replies/images retain foreground suppression and deduplication.
 - Parent-only model/effort controls reuse the existing serialized connection, read back native settings, and persist them across reconnects. Token accounting and observed compaction are exposed; exact remaining context stays unknown. See [the capability matrix](POCKET_SESSION_CONTROLS.md).
 - Local files open through an intercepted full-screen route retaining the parent draft and position. Markdown uses the chat renderer and relative file resolution; images/PDFs use native frames, and unknown types offer downloads. The header has a 44px back target and an 8px gap. A dedicated empty edge strip owns deliberate swipe-back without capturing links or selected text.
-- Installed iOS layout removes only the 16px minimum composer bottom padding while retaining the actual safe-area inset. Freed space grows the transcript. A 34px reported inset still occupies 34px.
+- Installed iOS layout uses `max(0px, safe-area-inset-bottom - 16px)` below the composer. A 34px reported inset leaves 18px of padding, moving the input down 16px and giving that space to the transcript. Zero and small insets clamp to zero; the reserved status row keeps its 44px height and 10px input gap.
 - Newly arriving literal Markdown and code suffixes get a 100ms opacity reveal. Prior content stays opaque, animations cancel rather than queue, virtual remounts do not replay them, and reduced motion disables them. React's pre-mutation selection snapshot preserves unchanged selected text through Markdown node replacement.
 - `npm run usage` reads native Codex/Claude records for an explicit interval or local day. It retains category/provenance/parent information, deduplicates resumed/forked/cumulative records, and separates native reported costs from optional dated price estimates and unknown billing/subscription charges.
 - `.jscpd.json` sets similarity 0.7 with identifier/literal/annotation normalization, two gap lines and JS/TS cross-format matching. Authored source and tests are included.
@@ -19,7 +19,9 @@ Juan authorized resuming the stopped handoff, retaining original delegate report
 
 ## Verification
 
-The complete browser suite passed 176 tests with four expected skips. Additional geometry coverage passed ten cases with two WebKit-only skips in Chromium. Measurements assert header centers and 44px hit targets, the 8px report icon gap, a 16px transcript gain with zero inset, a retained 34px simulated inset, rotation bounds and keyboard bounds. Native files, Markdown, swipe thresholds, selection retention, streaming code and virtual remounts pass on desktop/phone Chromium and WebKit.
+Initial handoff verification passed 176 browser tests with four expected skips. Additional geometry coverage passed ten cases with two WebKit-only skips in Chromium. That initial version retained a 34px simulated bottom inset. Native files, Markdown, swipe thresholds, selection retention, streaming code and virtual remounts passed on desktop/phone Chromium and WebKit.
+
+Follow-up layout checks measure the updated 34px-to-18px PWA inset, the matching 16px transcript gain, rotation and keyboard bounds, and the 16px gap from the last visible transcript component to the status text. Fractional message heights are retained in the virtualizer to prevent accumulated rounding error; the scroll fade is disabled at the transcript end so the final component remains visible.
 
 The complete server/workflow suite passed 88 tests in the isolated offline environment. Formatting, zero-warning lint, strict types and the production build passed. The same complete suite also passed while the SDK's bundled native executable was temporarily removed from this worktree and then restored.
 

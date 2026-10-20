@@ -14,7 +14,7 @@ For desktop answers in another main Pocket, set `POCKET_ID` to its URL identity 
 
 # Composer status area
 
-The status row belongs to the composer, outside the transcript's scroll container. It always reserves 44px and has a 10px gap above the input. Notifications, errors, and attachments appear above it. The indicator, one-line status text, and agents hint share a vertical center; the agents button has a 44px touch target without negative vertical margins. Empty, thinking-only, agents-only, and combined states use the same geometry.
+The status row belongs to the composer, outside the transcript's scroll container. It always reserves 44px and has a 10px gap above the input. At the transcript end, the last visible component sits 16px above the status text's line box. Notifications, errors, and attachments appear above the status row when present. The indicator, one-line status text, and agents hint share a vertical center; the agents button has a 44px touch target without negative vertical margins. Empty, thinking-only, agents-only, and combined states use the same geometry.
 
 # Verification
 
