@@ -9,6 +9,7 @@ import { turnMessages } from "../../../src/lib/turn-messages";
 export function SuspensionFixture() {
   const [state, setState] = useState(suspensionHistory);
   const [open, setOpen] = useState(false);
+  const [returning, setReturning] = useState(false);
   const [hide, setHide] = useState(false);
   const [draft, setDraft] = useState("");
   const [openedOffset, setOpenedOffset] = useState(0);
@@ -39,7 +40,10 @@ export function SuspensionFixture() {
           Hide parent layout
         </label>
       </header>
-      <div className="flex min-h-0 flex-1 flex-col" style={{ display: open && hide ? "none" : undefined }}>
+      <div
+        className="flex min-h-0 flex-1 flex-col"
+        style={{ display: (open && hide) || returning ? "none" : undefined }}
+      >
         <VirtualizedTranscript turns={turns} suspended={open}>
           {state.queue.map((item) => (
             <div key={item.id} data-delivery={item.status} data-message-id={item.id}>
@@ -61,7 +65,18 @@ export function SuspensionFixture() {
           data-parent-offset={openedOffset}
           className="fixed inset-0 z-50 bg-background"
         >
-          <button id="fixture-return" type="button" onClick={() => setOpen(false)}>
+          <button
+            id="fixture-return"
+            type="button"
+            onClick={() => {
+              if (hide) {
+                setReturning(true);
+                globalThis.requestAnimationFrame(() => globalThis.requestAnimationFrame(() => setReturning(false)));
+              }
+
+              setOpen(false);
+            }}
+          >
             Return to parent
           </button>
         </div>

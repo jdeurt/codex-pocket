@@ -9,6 +9,7 @@ const MAX_RESTORE_FRAMES = 30;
 // state; freezing only scroll writes allows background data to reconcile.
 export class TranscriptSuspension {
   private paused = false;
+  private cached = false;
   private restoring = false;
   private writing = false;
   private offset = 0;
@@ -21,8 +22,25 @@ export class TranscriptSuspension {
 
   constructor(private readonly changed: () => void) {}
 
+  private reveal(instance: TranscriptVirtualizer) {
+    if (!this.restoring || !this.cached || (instance.scrollElement?.clientHeight ?? 0) === 0) {
+      return;
+    }
+
+    // Restore before the revealed parent can paint at native offset zero.
+    this.writing = true;
+    instance.scrollToOffset(this.offset, { behavior: "auto" });
+    this.writing = false;
+    this.cached = false;
+    this.changed();
+  }
+
   get blocked() {
     return this.paused || this.restoring;
+  }
+
+  shouldCacheMeasurements(requested: boolean) {
+    return requested || this.cached;
   }
 
   capture(instance: TranscriptVirtualizer): ScrollSnapshot | null {
@@ -64,7 +82,7 @@ export class TranscriptSuspension {
     return !this.dirty;
   }
 
-  finish(pauseMotion: (value: boolean) => void) {
+  finish(pauseMotion: (value: boolean, offset?: number) => void) {
     if (this.paused || !this.restoring) {
       return;
     }
@@ -72,6 +90,7 @@ export class TranscriptSuspension {
     cancelAnimationFrame(this.frame);
     this.frame = 0;
     this.restoring = false;
+    this.cached = false;
     this.instance?.cancelScroll();
     pauseMotion(false);
     this.changed();
@@ -107,8 +126,10 @@ export class TranscriptSuspension {
     }
   }
 
-  update(requested: boolean, instance: TranscriptVirtualizer, pauseMotion: (value: boolean) => void) {
+  update(requested: boolean, instance: TranscriptVirtualizer, pauseMotion: (value: boolean, offset?: number) => void) {
     if (requested === this.paused) {
+      this.reveal(instance);
+
       return;
     }
 
@@ -116,19 +137,31 @@ export class TranscriptSuspension {
     this.instance = instance;
     this.paused = requested;
     this.restoring = !requested;
-    pauseMotion(true);
+    pauseMotion(true, this.offset);
     instance.cancelScroll();
 
     if (requested) {
+      this.cached = true;
       this.dirty = true;
 
       return;
     }
 
+    this.reveal(instance);
     let previous = instance.getTotalSize();
     let stable = 0;
     let frames = 0;
     const restore = () => {
+      // Returning renders before an ancestor's display:none mutation is undone.
+      // Keep sizes cached until visible, then let both lists commit that option.
+      if (this.cached || instance.options.useCachedMeasurements) {
+        this.reveal(instance);
+
+        this.frame = requestAnimationFrame(restore);
+
+        return;
+      }
+
       if (frames === 0 || Math.abs((instance.scrollElement?.scrollTop ?? 0) - this.offset) >= 1) {
         this.writing = true;
         instance.scrollToOffset(this.offset, { behavior: "auto" });

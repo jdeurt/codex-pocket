@@ -1,11 +1,13 @@
 import { type Virtualizer, elementScroll } from "@tanstack/react-virtual";
+import { isAtTranscriptEnd, needsTranscriptSeek } from "./transcript-virtualization";
 import { ACTIVITY_MOTION } from "./activity-motion";
-import { isAtTranscriptEnd } from "./transcript-virtualization";
+import { TranscriptScrollOffset } from "./transcript-scroll-offset";
 
 type TranscriptVirtualizer = Virtualizer<HTMLDivElement, HTMLElement>;
 const STABLE_FRAMES = 2;
 
 export class TranscriptScrollMotion {
+  private seeking = false;
   private following = true;
   private allowFollow = true;
   private ready = false;
@@ -26,6 +28,7 @@ export class TranscriptScrollMotion {
   private disclosure = false;
   private seeked = false;
   private animation?: { from: number; target: number; start: number; base: number; clock: Animation };
+  readonly offsets = new TranscriptScrollOffset();
   private element() {
     return this.instance?.scrollElement;
   }
@@ -50,7 +53,6 @@ export class TranscriptScrollMotion {
       this.canvas.style.minHeight = "0px";
     }
   }
-
   private correct(smooth: boolean) {
     const instance = this.instance;
     const element = this.element();
@@ -61,12 +63,14 @@ export class TranscriptScrollMotion {
 
     const target = this.target();
 
-    if (smooth && !this.reduced() && !this.seeked && Math.abs(target - element.scrollTop) > element.clientHeight * 2) {
+    if (smooth && !this.reduced() && !this.seeked && needsTranscriptSeek(instance, this.canvas)) {
       this.seeked = true;
+      this.seeking = true;
       instance.scrollToOffset(
         Math.max(target + (Math.sign(element.scrollTop - target) * element.clientHeight) / 2, 0),
         { behavior: "auto" }
       );
+      this.seeking = false;
       this.layout();
 
       return;
@@ -94,7 +98,6 @@ export class TranscriptScrollMotion {
     this.intent = false;
     instance.cancelScroll();
   }
-
   size(total: number) {
     if (
       this.disclosure &&
@@ -126,7 +129,6 @@ export class TranscriptScrollMotion {
       });
     });
   }
-
   source(id: string, text: string) {
     if (this.lastSource?.id === id && this.lastSource.text !== text) {
       this.streamingUntil = performance.now() + ACTIVITY_MOTION.duration;
@@ -139,7 +141,6 @@ export class TranscriptScrollMotion {
       this.following = true;
     }
   }
-
   cancel(preserveExtent = false) {
     cancelAnimationFrame(this.frame);
     cancelAnimationFrame(this.settling);
@@ -199,7 +200,7 @@ export class TranscriptScrollMotion {
 
     if (options.behavior !== "smooth" || this.reduced() || !this.ready) {
       this.anchored = !this.correcting && options.adjustments !== undefined;
-      elementScroll(target, { behavior: "instant" }, instance);
+      this.offsets.write(target, instance, this.seeking);
 
       return;
     }
@@ -311,7 +312,6 @@ export class TranscriptScrollMotion {
     };
     this.settling = requestAnimationFrame(settle);
   }
-
   disclose(pinned: boolean) {
     this.cancel(true);
     this.following = pinned || this.following;
@@ -329,18 +329,16 @@ export class TranscriptScrollMotion {
     this.intent = true;
     this.correct(true);
   }
-
-  suspend(value: boolean) {
-    if (value === this.suspended) {
-      return;
+  suspend(value: boolean, offset?: number) {
+    if (value !== this.suspended) {
+      this.suspended = value;
+      this.allowFollow = false;
+      this.cancel();
+      this.following = false;
     }
 
-    this.suspended = value;
-    this.allowFollow = false;
-    this.cancel();
-    this.following = false;
+    this.offsets.freeze(value ? offset : undefined, this.instance);
   }
-
   unmount() {
     this.cancel();
     this.ready = false;

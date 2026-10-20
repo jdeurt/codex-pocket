@@ -8,9 +8,9 @@ import {
   INITIAL_MESSAGE_WINDOW,
   type TranscriptRow as Row,
   type TranscriptTurn,
-  bufferedMessages,
   isAtTranscriptEnd,
   measureTranscriptRow,
+  messageRange,
   rowsForTurns,
 } from "@/lib/transcript-virtualization";
 import { MessageScroller, MessageScrollerProvider, MessageScrollerViewport } from "@/components/ui/message-scroller";
@@ -33,11 +33,10 @@ function isActivityTrigger(target: EventTarget | null) {
   return target instanceof Element && !!target.closest('[data-slot="trace-collapsible-trigger"]');
 }
 
-function messageRange(range: Range, backwards: number) {
-  const footerIndex = range.count - 1;
-
-  // Keep interactive pending requests mounted while message rows are recycled.
-  return [...bufferedMessages({ ...range, count: footerIndex }, backwards), footerIndex];
+function interruptDrag(buttons: number, motion: TranscriptScrollMotion) {
+  if (buttons === 1) {
+    motion.interrupt();
+  }
 }
 
 function MeasuredTranscript({
@@ -59,9 +58,11 @@ function MeasuredTranscript({
   const viewport = useRef<HTMLDivElement>(null);
   const canvas = useRef<HTMLDivElement>(null);
   const [motion] = useState(() => new TranscriptScrollMotion());
+  const pauseMotion = useCallback((value: boolean, offset?: number) => motion.suspend(value, offset), [motion]);
   const [, redraw] = useReducer((value: number) => value + 1, 0);
   const [suspension] = useState(() => new TranscriptSuspension(redraw));
   const paused = suspended || suspension.blocked;
+  const cached = suspension.shouldCacheMeasurements(suspended);
   const [activityMeasurements] = useState<ActivityMeasurements>(() => new Map());
   const [atEnd, setAtEnd] = useState(true);
   const rangeExtractor = useCallback(
@@ -89,6 +90,7 @@ function MeasuredTranscript({
   const virtualizer = useVirtualizer<HTMLDivElement, HTMLElement>({
     count: rows.length + 1,
     getScrollElement: () => viewport.current,
+    observeElementOffset: motion.offsets.observe,
     getItemKey,
     estimateSize: (index) => (index === rows.length ? 0 : ESTIMATED_MESSAGE_HEIGHT),
     initialOffset: () => rows.length * ESTIMATED_MESSAGE_HEIGHT,
@@ -103,7 +105,7 @@ function MeasuredTranscript({
     // for core measurement while a smooth end command crosses older history.
     overscan: rows.length + 1,
     measureElement: measureTranscriptRow,
-    useCachedMeasurements: suspended,
+    useCachedMeasurements: cached,
     scrollToFn: (offset, options, instance) =>
       suspension.scrollTo(offset, options, instance, suspended, () => motion.scrollTo(offset, options, instance)),
     onChange: (instance, sync) => {
@@ -113,14 +115,12 @@ function MeasuredTranscript({
       motion.readPosition(instance, sync);
     },
   });
-
   useTranscriptMeasurements(
     virtualizer,
     suspension,
     canvas,
     ':scope > div > ul > li, :scope > div > [data-slot="transcript-footer"]'
   );
-
   useLayoutEffect(() => {
     // The library defers iOS corrections while a finger or momentum owns the
     // scroller, then applies the measured delta after the gesture settles.
@@ -139,7 +139,7 @@ function MeasuredTranscript({
 
   const last = rows.at(LAST_ITEM);
   useLayoutEffect(() => {
-    suspension.update(suspended, virtualizer, (value) => motion.suspend(value));
+    suspension.update(suspended, virtualizer, pauseMotion);
 
     if (last?.entry.kind === "message" && last.entry.item.type === "agentMessage") {
       motion.source(last.id, string(last.entry.item.text));
@@ -153,9 +153,8 @@ function MeasuredTranscript({
   const footerRow = items.at(LAST_ITEM);
   const blockStart = messages[0]?.start ?? footerRow?.start ?? 0;
   const includesTail = rows.length === 0 || messages.at(LAST_ITEM)?.index === rows.length - 1;
-
   const pointerIntent = (event: { target: EventTarget | null }) => {
-    suspension.finish((value) => motion.suspend(value));
+    suspension.finish(pauseMotion);
     const target = event.target;
 
     if (isActivityTrigger(target)) {
@@ -184,14 +183,15 @@ function MeasuredTranscript({
               preserveScrollOnPrepend={false}
               style={suspension.viewportStyle(suspended)}
               onWheel={() => {
-                suspension.finish((value) => motion.suspend(value));
+                suspension.finish(pauseMotion);
                 motion.interrupt();
               }}
               onTouchStart={pointerIntent}
               onTouchMove={() => motion.interrupt()}
               onPointerDown={pointerIntent}
+              onPointerMove={(event) => interruptDrag(event.buttons, motion)}
               onKeyDown={(event) => {
-                suspension.finish((value) => motion.suspend(value));
+                suspension.finish(pauseMotion);
 
                 if (!((event.key === "Enter" || event.key === " ") && isActivityTrigger(event.target))) {
                   motion.interrupt();
@@ -264,6 +264,8 @@ function MeasuredTranscript({
                                 measurements={activityMeasurements}
                                 suspended={suspended}
                                 suspension={suspension}
+                                offsets={motion.offsets}
+                                cached={cached}
                               />
                             )}
                           </li>
@@ -295,7 +297,7 @@ function MeasuredTranscript({
                 className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full border-border bg-background"
                 aria-label="Jump to latest message"
                 onClick={() => {
-                  suspension.finish((value) => motion.suspend(value));
+                  suspension.finish(pauseMotion);
                   motion.latest();
                 }}
               >
