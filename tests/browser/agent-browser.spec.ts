@@ -18,15 +18,29 @@ const LONG_NAME_PREFIX = 40;
 const METHOD_NOT_ALLOWED = 405;
 const directory = ".local/agent-browser-replay";
 
+/**
+Atomically advances the private native replay without exposing a partial control file.
+@param stage - Named replay stage consumed by the fake RPC child.
+@returns Completion of the control-file replacement.
+*/
 async function control(stage: string) {
   await writeFile(`${directory}/control.tmp`, JSON.stringify({ stage }));
   await rename(`${directory}/control.tmp`, `${directory}/control.json`);
 }
 
+/**
+Reads the replay's persisted managed-child identities at the fixture boundary.
+@returns Validated title-to-native-identity mapping.
+*/
 async function ids() {
   return z.record(z.string(), z.string()).parse(JSON.parse(await readFile(`${directory}/ids.json`, "utf8")));
 }
 
+/**
+Updates private SQLite fixture lifecycle state before discovery assertions.
+@param isSettled - Whether both active managed children have reached their idle fixture state.
+@returns Completion of the existing status/request updates.
+*/
 async function lifecycle(isSettled = false) {
   const entries = await ids();
   const db = new Database(`${directory}/state/delegations.sqlite`);

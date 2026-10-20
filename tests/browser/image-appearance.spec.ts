@@ -3,6 +3,11 @@ import { checkImageAppearance } from "./image-appearance";
 import { initialSnapshot } from "../../src/lib/protocol";
 import path from "node:path";
 
+/**
+Mounts a saved image through offline canonical chat state and actual image routing.
+@param page - Isolated browser receiving the saved-image fixture.
+@returns Rendered message row containing the saved image.
+*/
 async function showImage(page: Page) {
   const state = {
     ...initialSnapshot,

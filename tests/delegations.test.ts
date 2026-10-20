@@ -13,6 +13,11 @@ const owner = "parent-chat";
 const context = { cwd: "/tmp", policy: { sandbox: "danger-full-access", approval: "never" } };
 const assignment = { title: "Investigate", body: "Read the project", idempotencyKey: "work-1" };
 
+/**
+Creates private durable delegation storage and registers its native cleanup.
+@param t - Native test lifecycle receiving asynchronous store and directory cleanup.
+@returns Owned store and private directory.
+*/
 async function fixture(t: { after: (fn: () => Promise<void>) => void }) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "pocket-delegation-"));
   const store = new DelegationStore(directory);

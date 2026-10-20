@@ -24,6 +24,15 @@ const FULL_SPAN = 40;
 const PALETTE_COUNT = 3;
 const LAST_SAMPLE = -1;
 
+/**
+Checks image-derived contrast and alpha composition against rendered native spinner pixels.
+@param page - Browser showing the active spinner.
+@param main - Real stdio MCP client bound to private spinner storage.
+@param directory - Private fixture and database directory.
+@param label - Evidence label distinguishing the rendered viewport.
+@param capture - Actual slot screenshot operation for the mounted browser.
+@returns Completion of palette, tonal-band, alpha and original-byte assertions.
+*/
 export async function checkSpinnerTone(
   page: Page,
   main: Awaited<ReturnType<typeof spinnerClient>>,
@@ -90,6 +99,14 @@ export async function checkSpinnerTone(
   expect(transforms.size).toBe(PALETTE_COUNT);
 }
 
+/**
+Checks that reading a legacy asset backfills its missing persisted tone.
+@param main - Real stdio MCP client bound to private spinner storage.
+@param directory - Private database directory.
+@param id - Existing asset whose persisted tone is removed for migration replay.
+@param url - Isolated asset route triggering the native backfill.
+@returns Native asset response after the migration request.
+*/
 export async function checkLegacyTone(
   main: Awaited<ReturnType<typeof spinnerClient>>,
   directory: string,

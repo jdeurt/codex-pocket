@@ -15,6 +15,12 @@ const KEEP_RECENT = 2;
 const PRIVATE_FILE_MODE = 0o600;
 const PERMISSION_MASK = 0o777;
 
+/**
+Writes structured records through the real rotating stream and waits for native completion.
+@param directory - Private directory containing rotated log files.
+@param retention - Number of rotated segments retained by the native stream.
+@returns Completion of record delivery and stream closure.
+*/
 async function writeRecords(directory: string, retention: number) {
   const stream = createRotatingLogStream(directory, MAX_BYTES, retention);
   const logger = pino(

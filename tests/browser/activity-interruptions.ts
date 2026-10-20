@@ -1,6 +1,11 @@
 import { type Page, expect } from "@playwright/test";
 import { send } from "./messages";
 
+/**
+Exercises queued steering and interrupt/recovery against the explicitly enabled live harness.
+@param page - Browser already connected to the opted-in live test session.
+@returns Completion of the existing commentary, steering and interruption assertions.
+*/
 export async function checkActivityInterruptions(page: Page) {
   const prompt =
     "Send commentary exactly INTERRUPT_ONE, run sleep 1, send a second commentary exactly INTERRUPT_TWO, then run sleep 12. Finish with final answer INTERRUPT_FINAL. Do not modify files.";

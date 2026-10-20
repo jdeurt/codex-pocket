@@ -8,6 +8,11 @@ const MIN_BRIGHTNESS = 50;
 const MAX_BRIGHTNESS = 230;
 const FRAME_INTERVAL_MS = 70;
 
+/**
+Measures the actual spinner slot and label geometry in the activity row.
+@param page - Browser showing an active spinner.
+@returns Slot bounds, label position and activity-row height.
+*/
 export async function alignment(page: Page) {
   return page.evaluate(() => {
     const row = globalThis.document.querySelector(".activity-indicator");
@@ -34,6 +39,11 @@ export async function alignment(page: Page) {
   });
 }
 
+/**
+Captures only the visible spinner viewport rectangle without element autoscroll.
+@param page - Browser showing the spinner to inspect.
+@returns PNG bytes for the actual rendered slot.
+*/
 export async function captureSlot(page: Page) {
   const clip = await page.evaluate(() => {
     const rect = globalThis.document.querySelector("[data-activity-spinner]")?.getBoundingClientRect();
@@ -49,6 +59,11 @@ export async function captureSlot(page: Page) {
   return page.screenshot({ clip, timeout: 10_000 });
 }
 
+/**
+Checks actual frame changes, grayscale pixels and stable image-derived tone across captures.
+@param page - Browser showing the active animated custom spinner.
+@returns Completion of pixel assertions and private frame evidence.
+*/
 export async function animatedGrayscale(page: Page) {
   const transfer = page.locator("[data-activity-spinner] feFuncR");
 

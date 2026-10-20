@@ -6,6 +6,12 @@ import { send } from "./messages";
 import sharp from "sharp";
 import { snapshotSchema } from "../../src/lib/protocol";
 
+/**
+Waits for a prompted live turn to finish and leave no active activity row.
+@param page - Browser connected to the explicitly opted-in live harness.
+@param prompt - Exact sent prompt identifying the rendered turn.
+@returns Rendered completed turn locator.
+*/
 async function completedTurn(page: Page, prompt: string) {
   const turn = page
     .locator('[data-slot="message-scroller-item"]')

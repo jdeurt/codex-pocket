@@ -36,6 +36,11 @@ const viewport = '[data-slot="message-scroller-viewport"]';
 const row = "[data-transcript-row]";
 const pixelTolerance = 3;
 
+/**
+Checks actual mounted row bounds for uncovered regions inside the transcript viewport.
+@param page - Browser containing the offline virtualized transcript.
+@returns Whether painted rows cover the visible viewport.
+*/
 async function hasVisibleCoverage(page: Page) {
   return page.locator(viewport).evaluate((element) => {
     const TOP_GAP = 32;
@@ -58,6 +63,12 @@ async function hasVisibleCoverage(page: Page) {
   });
 }
 
+/**
+Dispatches pointer activity before positioning the standard native transcript scroller.
+@param page - Browser containing the mounted transcript.
+@param fraction - Requested fraction of the available scroll range.
+@returns Completion of the native scroll input.
+*/
 async function scrollToFraction(page: Page, fraction: number) {
   await page.locator(viewport).evaluate((element, part) => {
     element.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
@@ -66,6 +77,11 @@ async function scrollToFraction(page: Page, fraction: number) {
   await expect.poll(() => hasVisibleCoverage(page)).toBe(true);
 }
 
+/**
+Captures the first visible non-activity transcript row and its viewport offset.
+@param page - Browser containing the mounted transcript.
+@returns Visible row identity and vertical offset.
+*/
 async function visibleAnchor(page: Page) {
   return page.locator(viewport).evaluate((element) => {
     const top = element.getBoundingClientRect().top;
@@ -81,6 +97,11 @@ async function visibleAnchor(page: Page) {
   });
 }
 
+/**
+Waits for browser animation frames before sampling a stable transcript anchor.
+@param page - Browser containing the mounted transcript.
+@returns Anchor identity and offset after browser layout settles.
+*/
 async function settledAnchor(page: Page) {
   await page.locator(viewport).evaluate(
     (element) =>
@@ -106,6 +127,12 @@ async function settledAnchor(page: Page) {
   return visibleAnchor(page);
 }
 
+/**
+Waits until the saved visible row returns to its prior native viewport offset.
+@param page - Browser containing the mounted transcript.
+@param anchor - Previously sampled row identity and vertical offset.
+@returns Completion of the retained-anchor assertion.
+*/
 async function expectAnchor(page: Page, anchor: { id: string; top: number }) {
   await expect
     .poll(async () => {

@@ -1,5 +1,12 @@
 import { type Locator, type Page, expect } from "@playwright/test";
 
+/**
+Checks image gestures without introducing hover, press or focus decoration.
+@param page - Browser showing the completed image turn.
+@param turn - Canonical rendered turn containing the image.
+@param label - Viewport label used for evidence and phone-specific touch checks.
+@returns Completion of gesture, appearance and preview-close assertions.
+*/
 export async function checkImageAppearance(page: Page, turn: Locator, label: string) {
   const frame = turn.locator(".chat-image").first();
   const trigger = frame.getByRole("button", { name: /^Preview image:/ });

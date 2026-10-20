@@ -12,6 +12,11 @@ const IMAGE_GAP = 16;
 const RATIO_TOLERANCE = 0.01;
 const START_FRACTION = 4;
 
+/**
+Waits for decoded native image dimensions before requiring actual browser geometry.
+@param image - Rendered image whose intrinsic content must be loaded.
+@returns Non-null image bounding box.
+*/
 async function bounds(image: Locator) {
   await expect.poll(() => image.evaluate((element: HTMLImageElement) => element.naturalWidth)).toBeGreaterThan(0);
   const box = await image.boundingBox();
@@ -23,6 +28,11 @@ async function bounds(image: Locator) {
   return box;
 }
 
+/**
+Exercises native Chromium touch dismissal while measuring the actual animated displacement.
+@param page - Browser showing an open image preview.
+@returns Completion of dismissal and movement assertions.
+*/
 async function swipeDown(page: Page) {
   const popup = page.getByRole("dialog");
   const box = await bounds(popup.locator("img"));
@@ -73,6 +83,14 @@ async function swipeDown(page: Page) {
   await client.detach();
 }
 
+/**
+Checks original Markdown image layout, previews and reload persistence in the live workflow.
+@param page - Browser connected to the explicitly opted-in live harness.
+@param browserName - Playwright browser engine determining native touch support.
+@param portrait - Absolute generated portrait fixture path.
+@param landscape - Absolute generated landscape fixture path.
+@returns Completion of the existing image layout and interaction assertions.
+*/
 async function checkImagePage(page: Page, browserName: string, portrait: string, landscape: string) {
   const markdown = `IMAGES_BEFORE\n\n![Portrait one](${portrait}) ![Portrait two](${portrait})\n\n![Landscape](${landscape})\n\nIMAGES_AFTER`;
   const first = page.getByRole("img", { name: "Portrait one", exact: true });
@@ -154,6 +172,12 @@ async function checkImagePage(page: Page, browserName: string, portrait: string,
   await bounds(first);
 }
 
+/**
+Creates private portrait/landscape inputs and removes them after the live preview workflow.
+@param page - Browser connected to the explicitly opted-in live harness.
+@param browserName - Playwright browser engine used for native interaction selection.
+@returns Completion of the workflow and private image cleanup.
+*/
 export async function checkImagePreviews(page: Page, browserName: string) {
   const PORTRAIT_WIDTH = 600;
   const LONG_EDGE = 1200;

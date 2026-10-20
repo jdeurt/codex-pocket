@@ -21,6 +21,11 @@ const SCROLL_STOPS = {
 const viewport = '[data-slot="message-scroller-viewport"]';
 const MAX_ROWS = 250;
 
+/**
+Measures viewport coverage using actual mounted transcript rows and row geometry.
+@param page - Browser containing the offline virtualized transcript.
+@returns Mounted row count, viewport coverage and the visible native anchor.
+*/
 async function painted(page: Page) {
   return page.locator(viewport).evaluate((element) => {
     const TOP_GAP = 32;
@@ -56,6 +61,12 @@ async function painted(page: Page) {
   });
 }
 
+/**
+Scrolls the native viewport after dispatching the same pointer activity as user interaction.
+@param page - Browser containing the mounted transcript.
+@param fraction - Requested fraction of the available scroll extent.
+@returns Completion of the fixture scroll and native scroll event.
+*/
 async function scroll(page: Page, fraction: number) {
   await page.locator(viewport).evaluate((element, part) => {
     element.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));

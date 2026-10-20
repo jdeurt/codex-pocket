@@ -1,6 +1,11 @@
 import { type Page, expect, test } from "@playwright/test";
 import { type Snapshot, initialSnapshot } from "../../src/lib/protocol";
 
+/**
+Encodes arbitrary clipboard text as the renderer's explicit copy fence without normalizing its bytes.
+@param text - Exact payload, including whitespace, Unicode and nested fence text.
+@returns Markdown copy marker containing the JSON-encoded payload.
+*/
 const marker = (text: string) => "```pocket-copy\n" + JSON.stringify(text) + "\n```";
 const EXPECTED_BLOCKS = 3;
 const MAX_TABS = 8;
@@ -11,6 +16,13 @@ declare global {
   }
 }
 
+/**
+Mounts the real chat with an offline assistant payload and captures attempted API mutations.
+@param page - Isolated browser using fixture routes.
+@param text - Exact assistant Markdown, including embedded copy payloads.
+@param items - Additional canonical items belonging to the same completed turn.
+@returns Rendered Markdown, captured mutations and the canonical snapshot update operation.
+*/
 async function showChat(page: Page, text: string, items: Snapshot["turns"][number]["items"] = []) {
   const assistant = { id: "assistant-copy", type: "agentMessage", phase: "final_answer", text };
   const state: Snapshot = {
@@ -60,6 +72,12 @@ async function showChat(page: Page, text: string, items: Snapshot["turns"][numbe
   };
 }
 
+/**
+Installs a deterministic native clipboard boundary before the page loads.
+@param page - Isolated browser receiving the clipboard spy.
+@param mode - Native clipboard outcome exercised by the workflow.
+@returns Completion of the browser initialization script.
+*/
 async function spyClipboard(page: Page, mode: "resolve" | "reject" | "pending" | "unavailable" = "resolve") {
   await page.addInitScript((behavior) => {
     const state: Window["copyTest"] = { calls: [] };
@@ -91,6 +109,11 @@ async function spyClipboard(page: Page, mode: "resolve" | "reject" | "pending" |
   }, mode);
 }
 
+/**
+Reads clipboard writes captured by the browser's native-boundary spy.
+@param page - Browser with the spy installed before navigation.
+@returns Exact payloads submitted by actual copy gestures.
+*/
 const clipboardCalls = (page: Page) => page.evaluate(() => globalThis.window.copyTest.calls);
 
 test("explicit assistant marker copies exact arbitrary text only on gesture and keeps one spaced block", async ({

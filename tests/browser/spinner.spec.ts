@@ -51,6 +51,11 @@ test.afterAll(async () => {
   }
 });
 
+/**
+Opens the isolated spinner app and waits for its actual activity slot.
+@param page - Browser bound to the private spinner server.
+@returns Completion of the visible-slot assertion.
+*/
 async function ready(page: Page) {
   await page.goto(origin, { waitUntil: "domcontentloaded" });
   await expect(page.locator("[data-activity-spinner]")).toBeVisible();

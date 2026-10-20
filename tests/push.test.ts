@@ -16,6 +16,11 @@ import test from "node:test";
 import { tmpdir } from "node:os";
 import webpush from "web-push";
 
+/**
+Creates valid ephemeral Web Push subscription keys for the private delivery fixture.
+@param endpoint - Private fixture endpoint receiving the encrypted push.
+@returns Native subscription with valid P-256 and authentication key material.
+*/
 function subscription(endpoint: string) {
   const key = createECDH("prime256v1");
   const AUTH_BYTES = 16;

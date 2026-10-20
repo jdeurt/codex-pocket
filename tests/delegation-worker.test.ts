@@ -17,6 +17,11 @@ import path from "node:path";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
+/**
+Reads a private process signal file while treating only missing files as not-yet-signaled.
+@param filename - Private fixture signal path.
+@returns Signal text, or an empty value while the file does not exist.
+*/
 async function readSignal(filename: string) {
   try {
     return await readFile(filename, "utf8");

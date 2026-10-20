@@ -21,10 +21,30 @@ const RESIZE_DRAFT_LINES = 8;
 const RESIZED_VIEWPORT_HEIGHT = 420;
 const BACKWARD_WHEEL_DELTA = 200;
 
+/**
+Selects the real parent transcript viewport for focus and native scroll checks.
+@param page - Browser containing the mounted parent conversation.
+@returns First transcript viewport locator.
+*/
 const scroller = (page: Page) => page.locator('[data-slot="message-scroller-viewport"]').first();
+/**
+Selects the actual writable parent composer.
+@param page - Browser containing the mounted parent conversation.
+@returns Accessible parent message textbox locator.
+*/
 const input = (page: Page) => page.getByRole("textbox", { name: "Message Pocket", exact: true });
+/**
+Samples the actual parent transcript scroll offset.
+@param page - Browser containing the mounted parent conversation.
+@returns Native vertical transcript offset.
+*/
 const scrollTop = (page: Page) => scroller(page).evaluate((element) => element.scrollTop);
 
+/**
+Verifies that transcript interactions have not scrolled the outer document.
+@param page - Browser showing the real mounted chat.
+@returns Completion of window/document/body offset assertions.
+*/
 async function assertDocumentStable(page: Page) {
   expect(
     await page.evaluate(() => ({
@@ -40,14 +60,23 @@ test.beforeEach(async ({ page }) => {
   // No route can send a message or touch the running Pocket service.
   await page.route("**/api/**", (route) => route.fulfill({ json: {} }));
   await page.addInitScript((state) => {
+    /**
+    Replays a single canonical snapshot through the browser's native event dispatch.
+    */
     class FixtureEventSource extends EventTarget {
       readyState = 1;
 
+      /**
+      Schedules the initial fixture snapshot after the native event target is initialized.
+      */
       constructor() {
         super();
         setTimeout(() => this.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(state) })), 0);
       }
 
+      /**
+      Leaves the connection-free snapshot fixture closed without native network work.
+      */
       close() {
         /*
         This fixture does not open a connection.
@@ -64,6 +93,14 @@ test.beforeEach(async ({ page }) => {
     .toBeGreaterThan(MIN_TRANSCRIPT_HEIGHT);
 });
 
+/**
+Scrolls the real transcript using native wheel input or the mobile WebKit DOM fallback.
+@param page - Browser providing native mouse input.
+@param target - Mounted transcript viewport.
+@param delta - Requested vertical wheel displacement.
+@param isMobileWebkit - Whether the browser lacks Playwright wheel injection.
+@returns Completion of the requested scroll input.
+*/
 async function scrollWithWheel(page: Page, target: Locator, delta: number, isMobileWebkit: boolean) {
   if (isMobileWebkit) {
     // Playwright cannot inject wheel/swipe scrolling in mobile WebKit.
