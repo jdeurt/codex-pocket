@@ -2,9 +2,9 @@
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { CodeBlock, CodeBlockContent } from "@/components/ui/code-block";
 import { type PendingRequest, object, pretty, string } from "@/lib/protocol";
+import { type Question, questionsSchema } from "@/lib/questions";
 import { Button } from "@/components/ui/button";
 import { QuestionForm } from "./question-form";
-import { questionsSchema } from "@/lib/questions";
 import { useState } from "react";
 
 /**
@@ -78,6 +78,54 @@ function Approval({
 }
 
 /**
+Present editable question, approval or terminal-only content for a normalized pending request.
+@param props - Native request, validated questions and caller-owned answer state.
+@returns The matching request controls and any failed-answer message.
+*/
+function PromptForm({
+  request,
+  questions,
+  sending,
+  submit,
+  error,
+}: {
+  request: PendingRequest;
+  questions: Question[] | undefined;
+  sending: boolean;
+  submit: (result: unknown) => Promise<void>;
+  error: string;
+}) {
+  let title = "Input needed on your computer";
+  let content = <p>Handle this request in the terminal on your computer.</p>;
+
+  if (questions && request.method === "item/tool/requestUserInput") {
+    title = "A question for you";
+    content = <QuestionForm questions={questions} sending={sending} submit={submit} />;
+  } else if (
+    [
+      "item/commandExecution/requestApproval",
+      "item/fileChange/requestApproval",
+      "item/permissions/requestApproval",
+    ].includes(request.method)
+  ) {
+    title = "Approval needed";
+    content = <Approval request={request} sending={sending} submit={submit} />;
+  }
+
+  return (
+    <Alert className="prompt">
+      <AlertTitle>{title}</AlertTitle>
+      <AlertDescription>
+        <div className="flex w-full flex-col gap-4">
+          {content}
+          {error && <p role="alert">{error}</p>}
+        </div>
+      </AlertDescription>
+    </Alert>
+  );
+}
+
+/**
 Select user-input questions or native approval controls for a pending request.
 @param props - Normalized request and the callback that owns sending its answer.
 @returns The matching existing request form.
@@ -131,32 +179,13 @@ export function Prompt({
     );
   }
 
-  let title = "Input needed on your computer";
-  let content = <p>Handle this request in the terminal on your computer.</p>;
-
-  if (request.method === "item/tool/requestUserInput" && questions.success) {
-    title = "A question for you";
-    content = <QuestionForm questions={questions.data} sending={sending} submit={submit} />;
-  } else if (
-    [
-      "item/commandExecution/requestApproval",
-      "item/fileChange/requestApproval",
-      "item/permissions/requestApproval",
-    ].includes(request.method)
-  ) {
-    title = "Approval needed";
-    content = <Approval request={request} sending={sending} submit={submit} />;
-  }
-
   return (
-    <Alert className="prompt">
-      <AlertTitle>{title}</AlertTitle>
-      <AlertDescription>
-        <div className="flex w-full flex-col gap-4">
-          {content}
-          {error && <p role="alert">{error}</p>}
-        </div>
-      </AlertDescription>
-    </Alert>
+    <PromptForm
+      request={request}
+      questions={questions.success ? questions.data : undefined}
+      sending={sending}
+      submit={submit}
+      error={error}
+    />
   );
 }

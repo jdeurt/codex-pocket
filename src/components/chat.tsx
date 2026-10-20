@@ -11,6 +11,7 @@ import { useEffect, useRef, useState } from "react";
 import { AgentBrowser } from "./agent-browser";
 import { ComposerAttachments } from "./composer-attachments";
 import { Conversation } from "./conversation";
+import { type FileAttachment } from "@/lib/attachments";
 import { NotificationPrompt } from "./notification-prompt";
 import { connectionStatus } from "@/lib/connection-status";
 import { modelDescription } from "@/lib/model-description";
@@ -18,6 +19,12 @@ import { post } from "@/lib/client-api";
 import { useComposerViewport } from "@/hooks/use-composer-viewport";
 import { useDraft } from "@/hooks/use-draft";
 
+/**
+Require visible text or files and wait until every selected upload has a receipt.
+@param text - Draft text proposed for sending.
+@param files - Selected draft attachments with their current upload state.
+@returns Whether the draft contains a complete sendable payload.
+*/
 function hasMessage(text: string, files: DraftAttachment[]) {
   return (!!text.trim() || files.length > 0) && files.every((entry) => !!entry.uploaded);
 }
@@ -35,10 +42,13 @@ export function Chat() {
   const messageId = useRef<string | null>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
 
-  useComposerViewport(textarea);
   const filePicker = useRef<HTMLInputElement>(null);
   const recoveredMessage = useRef<string | undefined>(undefined);
   const attachments = useAttachments(state.threadId);
+  const isConnected = streamConnected && state.connection === "connected";
+  const status = connectionStatus(state, streamConnected);
+
+  useComposerViewport(textarea);
 
   useEffect(() => {
     if (!attachments.pending || recoveredMessage.current === attachments.pending.id) {
@@ -58,17 +68,30 @@ export function Chat() {
     }
   }, []);
 
-  const isConnected = streamConnected && state.connection === "connected";
-  const status = connectionStatus(state, streamConnected);
+  async function postPreparedDraft(id: string, text: string, files: FileAttachment[]) {
+    await attachments.rememberSend(id, text);
+    stageMessage(id, text, files);
+    setDraft("");
 
-  async function send() {
-    const text = draft.trim();
-    const files = attachments.files.flatMap((entry) => (entry.uploaded ? [entry.uploaded] : []));
+    return post("/api/messages", { id, text, attachments: files.map((file) => file.id) });
+  }
 
-    if (!hasMessage(text, attachments.files) || sending || !isConnected || !attachments.ready) {
-      return;
+  async function completeDelivery(id: string, text: string, files: FileAttachment[]) {
+    const result = await postPreparedDraft(id, text, files);
+
+    if (result.status === "unknown") {
+      throw new Error("Delivery is uncertain. Check the conversation on your computer before sending again.");
     }
 
+    updateDelivery(id, result.status === "sent" ? "sent" : "queued");
+    reportClient("message.acknowledged", { id, status: result.status });
+    await attachments.clear();
+    messageId.current = null;
+    textarea.current?.focus();
+  }
+
+  async function deliverDraft(text: string) {
+    const files = attachments.files.flatMap((entry) => (entry.uploaded ? [entry.uploaded] : []));
     const id = (messageId.current ??=
       attachments.pending?.text === text ? attachments.pending.id : crypto.randomUUID());
 
@@ -77,23 +100,7 @@ export function Chat() {
     setError("");
 
     try {
-      await attachments.rememberSend(id, text);
-
-      stageMessage(id, text, files);
-      setDraft("");
-      const result = await post("/api/messages", { id, text, attachments: files.map((file) => file.id) });
-
-      if (result.status === "unknown") {
-        throw new Error("Delivery is uncertain. Check the conversation on your computer before sending again.");
-      }
-
-      updateDelivery(id, result.status === "sent" ? "sent" : "queued");
-      reportClient("message.acknowledged", { id, status: result.status });
-
-      await attachments.clear();
-
-      messageId.current = null;
-      textarea.current?.focus();
+      await completeDelivery(id, text, files);
     } catch (error_) {
       reportClient("message.failed", { id, ...clientError(error_) }, "error");
       updateDelivery(id, "unknown");
@@ -102,6 +109,16 @@ export function Chat() {
     } finally {
       setSending(false);
     }
+  }
+
+  async function send() {
+    const text = draft.trim();
+
+    if (sending || !isConnected || !attachments.ready || !hasMessage(text, attachments.files)) {
+      return;
+    }
+
+    await deliverDraft(text);
   }
 
   return (

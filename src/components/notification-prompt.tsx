@@ -10,12 +10,21 @@ import { useNotificationPresence } from "@/hooks/use-notification-presence";
 type Status = "loading" | "ready" | "subscribing" | "enabled" | "blocked" | "unsupported" | "dismissed";
 const PREPARATION_TIMEOUT_MS = 5000;
 
+/**
+Register the existing worker and wait until its native registration is active.
+@returns The ready native service-worker registration.
+*/
 async function readyRegistration() {
   await navigator.serviceWorker.register("/sw.js");
 
   return navigator.serviceWorker.ready;
 }
 
+/**
+Bound native worker preparation and clear its timeout after either outcome.
+@returns The ready registration before the preparation deadline.
+@throws {Error} When worker preparation fails or exceeds the existing deadline.
+*/
 async function prepareRegistration() {
   let timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -34,6 +43,52 @@ async function prepareRegistration() {
 }
 
 /**
+Decode the configured VAPID key at the notification boundary.
+@param value - Public key from the server's notification configuration.
+@returns Native key bytes accepted by PushManager.
+@throws {TypeError} When the server has no configured public key.
+*/
+function notificationPublicKey(value: unknown) {
+  if (typeof value !== "string") {
+    throw new TypeError("Notification configuration is unavailable.");
+  }
+
+  return Uint8Array.from(
+    atob(value.replaceAll("-", "+").replaceAll("_", "/")),
+    (character) => character.codePointAt(0) ?? 0
+  );
+}
+
+/**
+Keep an existing native subscription only when it uses the currently configured VAPID key.
+@param registration - Ready native worker registration.
+@param publicKey - Configured VAPID bytes, compared with the browser's actual subscription key.
+@returns The existing matching subscription, or null after removing an obsolete one.
+*/
+async function matchingSubscription(registration: ServiceWorkerRegistration, publicKey: Uint8Array<ArrayBuffer>) {
+  const subscription = await registration.pushManager.getSubscription();
+  const key = subscription?.options.applicationServerKey;
+
+  if (
+    subscription &&
+    (!key ||
+      new Uint8Array(key).some((value, index) => value !== publicKey[index]) ||
+      key.byteLength !== publicKey.byteLength)
+  ) {
+    await subscription.unsubscribe();
+
+    return null;
+  }
+
+  return subscription;
+}
+
+const statusMessages: Partial<Record<Status, string>> = {
+  unsupported: "Add Pocket to your Home Screen to enable notifications.",
+  blocked: "Notifications are blocked. Enable them in your device settings.",
+};
+
+/**
 Present native notification permission and subscription status without automatic permission requests.
 @returns The existing permission prompt and status controls, or no prompt when dismissed.
 */
@@ -48,6 +103,18 @@ export function NotificationPrompt() {
 
   useEffect(() => {
     const controller = new AbortController();
+
+    async function restoreSubscription(nativeRegistration: ServiceWorkerRegistration, key: Uint8Array<ArrayBuffer>) {
+      const subscription = await matchingSubscription(nativeRegistration, key);
+
+      if (subscription) {
+        await post("/api/notifications", subscription.toJSON());
+      }
+
+      controller.signal.throwIfAborted();
+      setEndpoint(subscription?.endpoint ?? "");
+      setStatus(subscription ? "enabled" : "ready");
+    }
 
     async function prepare() {
       const config = await get("/api/notifications", controller.signal);
@@ -68,36 +135,8 @@ export function NotificationPrompt() {
 
       registration.current = await prepareRegistration();
 
-      if (typeof config.publicKey !== "string") {
-        throw new TypeError("Notification configuration is unavailable.");
-      }
-
-      const base64 = config.publicKey.replaceAll("-", "+").replaceAll("_", "/");
-
-      publicKey.current = Uint8Array.from(atob(base64), (character) => character.codePointAt(0) ?? 0);
-      let subscription = await registration.current.pushManager.getSubscription();
-
-      if (subscription) {
-        const key = subscription.options.applicationServerKey;
-
-        if (
-          !key ||
-          new Uint8Array(key).some((value, index) => value !== publicKey.current?.[index]) ||
-          key.byteLength !== publicKey.current.byteLength
-        ) {
-          await subscription.unsubscribe();
-          subscription = null;
-        }
-      }
-
-      if (subscription) {
-        await post("/api/notifications", subscription.toJSON());
-      }
-
-      controller.signal.throwIfAborted();
-
-      setEndpoint(subscription?.endpoint ?? "");
-      setStatus(subscription ? "enabled" : "ready");
+      publicKey.current = notificationPublicKey(config.publicKey);
+      await restoreSubscription(registration.current, publicKey.current);
     }
 
     void prepare().catch((error_: unknown) => {
@@ -148,14 +187,7 @@ export function NotificationPrompt() {
   return (
     <Alert className="notification-prompt">
       <AlertDescription className="notification-content">
-        <p>
-          {error ||
-            (status === "unsupported"
-              ? "Add Pocket to your Home Screen to enable notifications."
-              : status === "blocked"
-                ? "Notifications are blocked. Enable them in your device settings."
-                : "Get notified when Pocket finishes.")}
-        </p>
+        <p>{error || (statusMessages[status] ?? "Get notified when Pocket finishes.")}</p>
         {(status === "ready" || status === "subscribing") && (
           <Button
             size="touch"

@@ -1,6 +1,7 @@
 import { type Turn, string } from "../lib/protocol";
 import { readLocal, writeLocal } from "./local-state";
 import { log } from "./logging";
+import { type NotificationPayload } from "../lib/notification-payload";
 import { notificationPresence } from "./notification-presence";
 import { readConfig } from "./config";
 import webpush from "web-push";
@@ -83,7 +84,7 @@ export async function saveSubscription(input: unknown) {
   log().info({ provider: new URL(subscription.endpoint).origin }, "push.subscribed");
 }
 
-export function completionNotification(threadId: string, turn: Turn) {
+export function completionNotification(threadId: string, turn: Turn): NotificationPayload {
   const replies = turn.items.filter((item) => item.type === "agentMessage");
   const reply = replies.findLast((item) => item.phase === "final_answer") ?? replies.findLast((item) => !item.phase);
 

@@ -23,11 +23,12 @@ Start the spinner's fake-protocol Next app and wait for its HTTP endpoint.
 */
 export async function startSpinnerServer(server: SpinnerServer, origin: string) {
   const build = server.project === process.cwd() ? await fixtureBuild("spinner") : {};
+  const port = new URL(origin).port;
 
   server.output = "";
   server.host = spawn(
     process.execPath,
-    ["node_modules/next/dist/bin/next", "dev", server.project, "--hostname", "127.0.0.1", "--port", "3103"],
+    ["node_modules/next/dist/bin/next", "dev", server.project, "--hostname", "127.0.0.1", "--port", port],
     {
       cwd: process.cwd(),
       env: {

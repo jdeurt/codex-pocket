@@ -8,6 +8,21 @@ import { AgentList } from "./agent-list";
 import { Dialog } from "@base-ui/react/dialog";
 import { useAgentRead } from "@/hooks/use-agents";
 
+/**
+Restore focus to the parent activity trigger, falling back to its composer when absent.
+@returns The existing parent control, or null when neither control is mounted.
+*/
+function agentTriggerFocus() {
+  return (
+    document.querySelector<HTMLElement>(".agents-trigger") ?? document.querySelector<HTMLTextAreaElement>("#message")
+  );
+}
+
+/**
+Keep overview polling active and request full catalog details only while the browser is open.
+@param isOpen - Whether the list needs the complete scoped catalog.
+@returns The newest catalog, its current read error and the active-agent count.
+*/
 function useAgentCatalog(isOpen: boolean) {
   const overview = useAgentRead("/api/agents", agentCatalogSchema);
   const detail = useAgentRead("/api/agents?view=list", agentCatalogSchema, isOpen);
@@ -43,8 +58,9 @@ export function AgentBrowser({ onOpenChange }: { onOpenChange: (isOpen: boolean)
           .map(([id, agent]) => [id, isActiveAgent(agent) ? { ...agent, status: "unknown" as const } : agent])
       : []
   );
+  const agents = data?.agents ?? [];
 
-  for (const agent of data?.agents ?? []) {
+  for (const agent of agents) {
     entries.set(agent.id, agent);
   }
 
@@ -97,13 +113,7 @@ export function AgentBrowser({ onOpenChange }: { onOpenChange: (isOpen: boolean)
       )}
       <Dialog.Portal>
         <Dialog.Backdrop className="agents-backdrop" />
-        <Dialog.Popup
-          className="agents-panel"
-          finalFocus={() =>
-            document.querySelector<HTMLElement>(".agents-trigger") ??
-            document.querySelector<HTMLTextAreaElement>("#message")
-          }
-        >
+        <Dialog.Popup className="agents-panel" finalFocus={agentTriggerFocus}>
           <Dialog.Title className="sr-only">Agents</Dialog.Title>
           <Dialog.Description className="sr-only">
             Agents working in this parent chat. Open an agent to read its conversation.
@@ -112,7 +122,7 @@ export function AgentBrowser({ onOpenChange }: { onOpenChange: (isOpen: boolean)
             entries={entries
               .values()
               .toArray()
-              .sort((a, b) => Number(isActiveAgent(b)) - Number(isActiveAgent(a)) || a.name.localeCompare(b.name))}
+              .toSorted((a, b) => Number(isActiveAgent(b)) - Number(isActiveAgent(a)) || a.name.localeCompare(b.name))}
             hidden={!!selected}
             error={error}
             warnings={data?.warnings ?? []}

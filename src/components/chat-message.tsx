@@ -23,7 +23,11 @@ function MessageAttachments({ item }: { item: Item }) {
       {files.length === 0 && item.images && item.images.length > 0 && (
         <AttachmentGroup layout="wrap" className="chat-images">
           {item.images.map((image) => (
-            <ChatImage key={image.source} source={image.source} alt={image.alt || "Image from Pocket"} />
+            <ChatImage
+              key={image.source}
+              source={image.source}
+              alt={image.alt?.length ? image.alt : "Image from Pocket"}
+            />
           ))}
         </AttachmentGroup>
       )}

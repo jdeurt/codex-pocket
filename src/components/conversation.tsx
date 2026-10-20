@@ -2,6 +2,7 @@
 import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Message, MessageContent } from "@/components/ui/message";
+import { type QueuedMessage, type Snapshot } from "@/lib/protocol";
 import { ActivityIndicatorContext } from "@/lib/activity-indicator-context";
 import { ActivityRow } from "./activity-row";
 import { ActivitySpinner } from "./activity-spinner";
@@ -10,7 +11,6 @@ import { MessageScrollerItem } from "@/components/ui/message-scroller";
 import { Prompt } from "./prompt";
 import { type ReactNode } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
-import { type Snapshot } from "@/lib/protocol";
 import { VirtualizedTranscript } from "./virtualized-transcript";
 import { post } from "@/lib/client-api";
 import { turnMessages } from "@/lib/turn-messages";
@@ -31,24 +31,34 @@ function ConversationEmpty({
   readOnly: boolean;
   emptyMessage: string;
 }) {
-  return connection === "unconfigured" ? (
-    <MessageScrollerItem messageId="setup">
-      <Empty className="chat-empty">
-        <EmptyHeader>
-          <EmptyTitle>Pocket, from here.</EmptyTitle>
-          <EmptyDescription>Set CODEX_THREAD_ID in .env.local on your computer, then restart the app.</EmptyDescription>
-        </EmptyHeader>
-      </Empty>
-    </MessageScrollerItem>
-  ) : connection === "connecting" && empty ? (
-    <MessageScrollerItem messageId="loading">
-      <div aria-label="Loading conversation" className="flex flex-col gap-4 py-8">
-        <Skeleton className="ml-auto h-12 w-2/3" />
-        <Skeleton className="h-4 w-4/5" />
-        <Skeleton className="h-4 w-1/2" />
-      </div>
-    </MessageScrollerItem>
-  ) : empty ? (
+  if (connection === "unconfigured") {
+    return (
+      <MessageScrollerItem messageId="setup">
+        <Empty className="chat-empty">
+          <EmptyHeader>
+            <EmptyTitle>Pocket, from here.</EmptyTitle>
+            <EmptyDescription>
+              Set CODEX_THREAD_ID in .env.local on your computer, then restart the app.
+            </EmptyDescription>
+          </EmptyHeader>
+        </Empty>
+      </MessageScrollerItem>
+    );
+  }
+
+  if (connection === "connecting" && empty) {
+    return (
+      <MessageScrollerItem messageId="loading">
+        <div aria-label="Loading conversation" className="flex flex-col gap-4 py-8">
+          <Skeleton className="ml-auto h-12 w-2/3" />
+          <Skeleton className="h-4 w-4/5" />
+          <Skeleton className="h-4 w-1/2" />
+        </div>
+      </MessageScrollerItem>
+    );
+  }
+
+  return empty ? (
     <MessageScrollerItem messageId="empty">
       <Empty className="chat-empty">
         <EmptyHeader>
@@ -58,6 +68,19 @@ function ConversationEmpty({
       </Empty>
     </MessageScrollerItem>
   ) : null;
+}
+
+/**
+Describe the existing queue state while leaving sent-message omission to its owner.
+@param status - Normalized delivery state from the shared queue schema.
+@returns The existing uncertain, sending or queued label.
+*/
+function deliveryLabel(status: QueuedMessage["status"]) {
+  if (status === "unknown") {
+    return "Delivery uncertain. Check on your computer.";
+  }
+
+  return status === "sending" ? "Sending…" : "Queued";
 }
 
 /**
@@ -119,15 +142,7 @@ export function Conversation({
                   {!!item.text.trim() && <p className="whitespace-pre-wrap">{item.text}</p>}
                 </BubbleContent>
               </Bubble>
-              {item.status !== "sent" && (
-                <p className="delivery-status">
-                  {item.status === "unknown"
-                    ? "Delivery uncertain. Check on your computer."
-                    : item.status === "sending"
-                      ? "Sending…"
-                      : "Queued"}
-                </p>
-              )}
+              {item.status !== "sent" && <p className="delivery-status">{deliveryLabel(item.status)}</p>}
             </MessageContent>
           </Message>
         </MessageScrollerItem>

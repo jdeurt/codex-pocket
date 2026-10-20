@@ -5,6 +5,12 @@ import { Button } from "./ui/button";
 import { Dialog } from "@base-ui/react/dialog";
 import { type RefObject } from "react";
 
+const previewLabels: Record<NonNullable<AgentEntry["previewState"]>, string> = {
+  loading: "Loading preview…",
+  unavailable: "Preview unavailable.",
+  empty: "No visible messages saved yet.",
+};
+
 /**
 Render scoped agent rows with retained focus handles and discovery warnings.
 @param props - Normalized entries, visibility, warnings, row refs and selection callback.
@@ -65,14 +71,7 @@ export function AgentList({
                 <span className="agent-status">{agentStatus(agent.status)}</span>
               </span>
               <span className="agent-source">{agentSource(agent)}</span>
-              <span className="agent-preview">
-                {agent.preview ||
-                  (agent.previewState === "loading"
-                    ? "Loading preview…"
-                    : agent.previewState === "unavailable"
-                      ? "Preview unavailable."
-                      : "No visible messages saved yet.")}
-              </span>
+              <span className="agent-preview">{agent.preview || previewLabels[agent.previewState ?? "empty"]}</span>
             </span>
             <ChevronRightIcon aria-hidden="true" />
           </button>

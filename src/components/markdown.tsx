@@ -19,18 +19,11 @@ function MarkdownPre({ children }: ComponentProps<"pre">) {
 }
 
 /**
-Select explicit copy actions or ordinary inline/block code from parser-owned node data.
+Render ordinary inline or block code using the parser's exact text children.
 @param props - Native code props and react-markdown AST metadata.
-@returns The exact copy action or existing code presentation.
+@returns The existing literal inline or block code presentation.
 */
-function MarkdownCode({ children, className, node }: ComponentProps<"code"> & ExtraProps) {
-  const copyText = node?.properties["data-pocket-copy-text"];
-
-  // This property is set only by the opt-in assistant marker plugin.
-  if (typeof copyText === "string") {
-    return <CopyAction key={copyText} text={copyText} />;
-  }
-
+function MarkdownLiteralCode({ children, className, node }: ComponentProps<"code"> & ExtraProps) {
   const text =
     node?.children
       .filter((child) => child.type === "text")
@@ -45,6 +38,57 @@ function MarkdownCode({ children, className, node }: ComponentProps<"code"> & Ex
   ) : (
     <code>{children}</code>
   );
+}
+
+/**
+Select explicit assistant copy actions using parser-owned metadata rather than display text.
+@param props - Native code props and react-markdown AST metadata.
+@returns The exact copy action or the ordinary literal-code renderer.
+*/
+function MarkdownCode({ node, ...props }: ComponentProps<"code"> & ExtraProps) {
+  const copyText = node?.properties["data-pocket-copy-text"];
+
+  return typeof copyText === "string" ? (
+    <CopyAction key={copyText} text={copyText} />
+  ) : (
+    <MarkdownLiteralCode node={node} {...props} />
+  );
+}
+
+/**
+Allow block attachment composition only when a parsed paragraph contains images and whitespace.
+@param props - Native paragraph children and the actual parser-owned element node.
+@returns The existing image group or ordinary Markdown paragraph container.
+*/
+function MarkdownParagraph({ children, node }: ComponentProps<"p"> & ExtraProps) {
+  const isImageGroup = node?.children.every((child) =>
+    child.type === "text" ? !child.value.trim() : child.type === "element" && child.tagName === "img"
+  );
+
+  return isImageGroup ? (
+    <AttachmentGroup layout="wrap" className="chat-images">
+      {children}
+    </AttachmentGroup>
+  ) : (
+    <div className="markdown-paragraph">{children}</div>
+  );
+}
+
+/**
+Keep Markdown link validation and guarded local-image routing in their shared URL adapters.
+@param url - URL text supplied by react-markdown.
+@param key - Native attribute being transformed.
+@param imageBase - Optional read-only agent image endpoint for local source routing.
+@returns The same safe link or image URL used by the existing renderer.
+*/
+function markdownUrl(url: string, key: string, imageBase: string | undefined) {
+  if (key !== "src") {
+    return defaultUrlTransform(url);
+  }
+
+  return imageBase && !url.startsWith("data:") && imageUrl(url)
+    ? `${imageBase}&source=${encodeURIComponent(url)}`
+    : imageUrl(url);
 }
 
 export const Markdown = memo(function MarkdownContent({
@@ -64,13 +108,7 @@ export const Markdown = memo(function MarkdownContent({
     <div className="markdown">
       <ReactMarkdown
         remarkPlugins={markdownPlugins(allowCopyActions)}
-        urlTransform={(url, key) =>
-          key === "src"
-            ? imageBase && imageUrl(url) && !url.startsWith("data:")
-              ? `${imageBase}&source=${encodeURIComponent(url)}`
-              : imageUrl(url)
-            : defaultUrlTransform(url)
-        }
+        urlTransform={(url, key) => markdownUrl(url, key, imageBase)}
         components={{
           table: ({ children }) => (
             <Table
@@ -84,16 +122,7 @@ export const Markdown = memo(function MarkdownContent({
             <ChatImage key={typeof src === "string" ? src : ""} source={typeof src === "string" ? src : ""} alt={alt} />
           ),
           // Markdown permits images inside paragraphs; use a block container for attachment/dialog composition.
-          p: ({ children, node }) =>
-            node?.children.every((child) =>
-              child.type === "text" ? !child.value.trim() : child.type === "element" && child.tagName === "img"
-            ) ? (
-              <AttachmentGroup layout="wrap" className="chat-images">
-                {children}
-              </AttachmentGroup>
-            ) : (
-              <div className="markdown-paragraph">{children}</div>
-            ),
+          p: MarkdownParagraph,
           a: ({ children, ...props }) => (
             <a {...props} target="_blank" rel="noopener noreferrer">
               {children}

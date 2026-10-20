@@ -5,6 +5,55 @@ import type { DraftAttachment } from "@/hooks/use-attachments";
 import { fileSize } from "@/lib/attachments";
 
 /**
+Present the current upload outcome without changing retry ownership or byte transport.
+@param props - Draft entry, disabled state and caller-owned retry operation.
+@returns The existing error/retry controls, ready label or native progress indicator.
+*/
+function AttachmentProgress({
+  entry,
+  disabled,
+  retry,
+}: {
+  entry: DraftAttachment;
+  disabled: boolean;
+  retry: (file: DraftAttachment) => Promise<void>;
+}) {
+  if (entry.error) {
+    return (
+      <div>
+        <p className="text-destructive">{entry.error}</p>
+        <Button
+          type="button"
+          size="sm"
+          className="min-h-11"
+          variant="ghost"
+          disabled={disabled}
+          onClick={() => void retry(entry)}
+          aria-label={`Retry ${entry.file.name}`}
+        >
+          <RotateCcwIcon />
+          Retry
+        </Button>
+      </div>
+    );
+  }
+
+  return entry.uploaded ? (
+    <span className="text-muted-foreground">Ready to send</span>
+  ) : (
+    <>
+      <span className="text-muted-foreground">Uploading {entry.progress}%</span>
+      <progress
+        className="mt-1 block h-1 w-full"
+        value={entry.progress}
+        max={100}
+        aria-label={`Uploading ${entry.file.name}`}
+      />
+    </>
+  );
+}
+
+/**
 Present selected upload progress and expose caller-owned retry/removal actions.
 @param props - Draft files, disabled state and callbacks that own each upload operation.
 @returns The current composer attachment list.
@@ -40,35 +89,7 @@ export function ComposerAttachments({
                 <span className="shrink-0">· {fileSize(entry.file.size)}</span>
               </p>
               <div className="mt-1 text-xs [overflow-wrap:anywhere]" role="status">
-                {entry.error ? (
-                  <div>
-                    <p className="text-destructive">{entry.error}</p>
-                    <Button
-                      type="button"
-                      size="sm"
-                      className="min-h-11"
-                      variant="ghost"
-                      disabled={disabled}
-                      onClick={() => void retry(entry)}
-                      aria-label={`Retry ${entry.file.name}`}
-                    >
-                      <RotateCcwIcon />
-                      Retry
-                    </Button>
-                  </div>
-                ) : entry.uploaded ? (
-                  <span className="text-muted-foreground">Ready to send</span>
-                ) : (
-                  <>
-                    <span className="text-muted-foreground">Uploading {entry.progress}%</span>
-                    <progress
-                      className="mt-1 block h-1 w-full"
-                      value={entry.progress}
-                      max={100}
-                      aria-label={`Uploading ${entry.file.name}`}
-                    />
-                  </>
-                )}
+                <AttachmentProgress entry={entry} disabled={disabled} retry={retry} />
               </div>
             </div>
             <Button

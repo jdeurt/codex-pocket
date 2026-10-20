@@ -81,6 +81,13 @@ function TranscriptEntry({
   );
 }
 
+/**
+Keep the existing bounded range when an expanded nested activity panel is nearby.
+@param rows - Canonical transcript rows owned by the outer list.
+@param expanded - IDs of currently expanded activity groups.
+@param range - Native TanStack range to extend.
+@returns Buffered message indices with the interactive footer retained.
+*/
 function transcriptRange(rows: Row[], expanded: Set<string>, range: Range) {
   const isNested = rows
     .slice(Math.max(range.startIndex - 1, 0), range.endIndex + 1)
@@ -149,10 +156,6 @@ function MeasuredTranscript({
   const savedOffset = useRef<number | undefined>(undefined);
   const [follow, setFollow] = useState(true);
 
-  if (suspended && follow) {
-    setFollow(false);
-  }
-
   const [activityMeasurements] = useState<ActivityMeasurements>(() => new Map());
   const rangeExtractor = useCallback((range: Range) => transcriptRange(rows, expanded, range), [rows, expanded]);
 
@@ -191,6 +194,19 @@ function MeasuredTranscript({
     },
     [virtualizer, suspended]
   );
+  const items = layout.rows;
+  const messages = items.filter((item) => item.index < rows.length);
+  const footerRow = items.at(LAST_ITEM);
+  const blockStart = messages.at(0)?.start ?? footerRow?.start ?? 0;
+  const resumeFollow = () => {
+    if (!suspended) {
+      setFollow(true);
+    }
+  };
+
+  if (suspended && follow) {
+    setFollow(false);
+  }
 
   useLayoutEffect(() => {
     virtualizer.scrollToEnd();
@@ -204,16 +220,6 @@ function MeasuredTranscript({
       savedOffset.current = undefined;
     }
   }, [suspended, virtualizer]);
-
-  const items = layout.rows;
-  const messages = items.filter((item) => item.index < rows.length);
-  const footerRow = items.at(LAST_ITEM);
-  const blockStart = messages.at(0)?.start ?? footerRow?.start ?? 0;
-  const resumeFollow = () => {
-    if (!suspended) {
-      setFollow(true);
-    }
-  };
 
   return (
     <MessageScrollerProvider autoScroll={false} defaultScrollPosition="start">

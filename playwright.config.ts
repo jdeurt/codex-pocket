@@ -58,7 +58,11 @@ const config: PlaywrightTestConfig = {
     : [
         {
           name: "browser-chromium",
-          testMatch: ["**/browser/image-appearance.spec.ts", "**/browser/notifications.spec.ts"],
+          testMatch: [
+            "**/browser/image-appearance.spec.ts",
+            "**/browser/notifications.spec.ts",
+            "**/browser/service-worker.spec.ts",
+          ],
           timeout: LONG_TEST_TIMEOUT,
           expect: { timeout: TEST_TIMEOUT },
           use: { ...PHONE, browserName: "chromium" },

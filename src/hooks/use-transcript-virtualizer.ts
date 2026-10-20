@@ -22,6 +22,11 @@ export interface TranscriptLayout {
   atEnd: boolean;
 }
 
+/**
+Copy native virtual items and scalar measurements into a React render snapshot.
+@param virtualizer - Existing TanStack instance that owns all measurement and scrolling.
+@returns A detached layout snapshot for external-store subscribers.
+*/
 function readLayout(virtualizer: MessageVirtualizer): TranscriptLayout {
   return {
     rows: virtualizer.getVirtualItems().map((row) => ({ ...row })),
@@ -32,6 +37,12 @@ function readLayout(virtualizer: MessageVirtualizer): TranscriptLayout {
   };
 }
 
+/**
+Compare copied native measurements without relying on mutable row-object identity.
+@param previous - Previously published virtual rows.
+@param next - Newly copied virtual rows.
+@returns Whether their keys, positions, sizes and lanes match.
+*/
 function hasSameRows(previous: VirtualItem[], next: VirtualItem[]) {
   return (
     previous.length === next.length &&
@@ -52,6 +63,13 @@ function hasSameRows(previous: VirtualItem[], next: VirtualItem[]) {
 
 // TanStack owns measurements, anchors and scrolling. React renders an immutable
 // subscription snapshot so the compiler never memoizes reads of its mutable instance.
+/**
+Subscribe React to immutable snapshots while TanStack owns measurement, anchoring and following.
+Core lifecycle wiring mirrors the official adapter; _didMount/_willUpdate remain undocumented core APIs.
+@param options - Native TanStack options with the existing element observers and scroll function defaults.
+@param [adjust] - Native measurement-adjustment decision for this transcript.
+@returns The existing virtualizer instance and its reactive layout snapshot.
+*/
 export function useTranscriptVirtualizer(
   options: MessageOptions,
   adjust?: MessageVirtualizer["shouldAdjustScrollPositionOnItemSizeChange"]
