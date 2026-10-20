@@ -5,9 +5,22 @@ import { setVisualViewport } from "./focused-fixture";
 
 const INSET_GAIN = 16;
 const SAFE_AREA = 34;
+const LANDSCAPE_SAFE_AREA = 21;
+const SMALL_SAFE_AREA = 8;
 const HIT_TARGET = 44;
 const KEYBOARD_HEIGHT = 380;
 const TOLERANCE = 1;
+const STATUS_GAP = 10;
+
+/** Emulate native inset changes in the copied standalone CSS rule.
+@param page - Browser rendering the actual standalone rule.
+@param pixels - Native bottom inset for this orientation or keyboard state.
+*/
+async function safeArea(page: Page, pixels: number) {
+  await page.evaluate((value) => {
+    globalThis.document.documentElement.style.setProperty("--pocket-test-safe-area", `${String(value)}px`);
+  }, pixels);
+}
 
 /**
 Read layout footprint so moving the composer must grow the transcript rather than leave a dead strip.
@@ -17,20 +30,29 @@ Read layout footprint so moving the composer must grow the transcript rather tha
 async function layout(page: Page) {
   return page.locator(".chat-shell").evaluate((shell) => {
     const footer = shell.querySelector(".composer-wrap");
-    const viewport = shell.querySelector('[data-slot="message-scroller-viewport"]');
+    const viewport = shell.querySelector('[data-slot="message-scroller-viewport"]')?.getBoundingClientRect();
     const box = footer?.getBoundingClientRect();
     const send = shell.querySelector('[aria-label="Send message"]')?.getBoundingClientRect();
+    const composer = shell.querySelector(".composer")?.getBoundingClientRect();
+    const activity = footer?.querySelector(".activity-row")?.getBoundingClientRect();
+
+    if (!footer || !viewport || !box || !send || !composer || !activity) {
+      throw new Error("The composer, status row and transcript must be mounted before measurement.");
+    }
 
     return {
       screenWidth: globalThis.innerWidth,
       screenHeight: globalThis.innerHeight,
-      sendBottom: send?.bottom ?? 0,
-      sendHeight: send?.height ?? 0,
-      sendWidth: send?.width ?? 0,
-      footerHeight: box?.height ?? 0,
-      footerBottom: box?.bottom ?? 0,
-      padding: footer ? Number(getComputedStyle(footer).paddingBottom.replace("px", "")) : 0,
-      viewportHeight: viewport?.getBoundingClientRect().height ?? 0,
+      sendBottom: send.bottom,
+      sendHeight: send.height,
+      sendWidth: send.width,
+      footerHeight: box.height,
+      footerBottom: box.bottom,
+      composerBottom: composer.bottom,
+      statusHeight: activity.height,
+      statusGap: composer.top - activity.bottom,
+      padding: Number(getComputedStyle(footer).paddingBottom.replace("px", "")),
+      viewportHeight: viewport.height,
     };
   });
 }
@@ -65,7 +87,8 @@ test("standalone iOS padding expands the transcript and keeps keyboard controls 
               style.dataset.pocketStandalone = "";
               style.textContent = rule.cssText
                 .replace(/@supports[^{}]+/, "@media all")
-                .replace("(display-mode: standalone)", "all");
+                .replace("(display-mode: standalone)", "all")
+                .replaceAll("env(safe-area-inset-bottom)", "var(--pocket-test-safe-area, 0px)");
               globalThis.document.head.append(style);
             }
 
@@ -90,27 +113,33 @@ test("standalone iOS padding expands the transcript and keeps keyboard controls 
       return layout(page);
     });
 
-  const inset = await test.step("Preserve a simulated nonzero native safe-area inset", async () => {
-    await page.locator("style[data-pocket-standalone]").evaluateAll((elements, pixels) => {
-      for (const element of elements) {
-        element.textContent = element.textContent.replaceAll(
-          "env(safe-area-inset-bottom)",
-          () => `${String(pixels)}px`
-        );
-      }
-    }, SAFE_AREA);
+  const inset = await test.step("Reduce the simulated portrait safe area by exactly 16px", async () => {
+    await safeArea(page, SAFE_AREA);
     await expect
       .poll(async () => {
         const measured = await layout(page);
 
         return measured.padding;
       })
-      .toBe(SAFE_AREA);
+      .toBe(SAFE_AREA - INSET_GAIN);
 
     return layout(page);
   });
+  const previous = await test.step("Measure the transcript gain against the previous full-inset layout", async () => {
+    const priorRule = await page.addStyleTag({ content: `.composer-wrap { padding-bottom: ${String(SAFE_AREA)}px; }` });
+    const measured = await layout(page);
+
+    await priorRule.evaluate((element) => {
+      if (element instanceof HTMLElement) {
+        element.remove();
+      }
+    });
+
+    return measured;
+  });
   const rotated = await test.step("Measure the same safe area after an orientation change", async () => {
     await page.setViewportSize({ width: standalone.screenHeight, height: standalone.screenWidth });
+    await safeArea(page, LANDSCAPE_SAFE_AREA);
     await expect
       .poll(async () => {
         const measured = await layout(page);
@@ -125,16 +154,37 @@ test("standalone iOS padding expands the transcript and keeps keyboard controls 
   expect(baseline.padding - standalone.padding).toBe(INSET_GAIN);
   expect(baseline.footerHeight - standalone.footerHeight).toBe(INSET_GAIN);
   expect(standalone.viewportHeight - baseline.viewportHeight).toBe(INSET_GAIN);
-  expect(inset.footerHeight - standalone.footerHeight).toBe(SAFE_AREA);
-  expect(rotated.padding).toBe(SAFE_AREA);
-  expect(rotated.sendBottom).toBeLessThanOrEqual(rotated.screenHeight - SAFE_AREA + TOLERANCE);
+  expect(inset.footerHeight - standalone.footerHeight).toBe(SAFE_AREA - INSET_GAIN);
+  expect(previous.footerHeight - inset.footerHeight).toBe(INSET_GAIN);
+  expect(inset.composerBottom - previous.composerBottom).toBe(INSET_GAIN);
+  expect(inset.viewportHeight - previous.viewportHeight).toBe(INSET_GAIN);
+  expect(inset.screenHeight - inset.composerBottom).toBe(SAFE_AREA - INSET_GAIN);
+  expect(rotated.padding).toBe(LANDSCAPE_SAFE_AREA - INSET_GAIN);
+  expect(rotated.sendBottom).toBeLessThanOrEqual(rotated.screenHeight - rotated.padding + TOLERANCE);
   expect(rotated.sendHeight).toBeGreaterThanOrEqual(HIT_TARGET);
   expect(rotated.sendWidth).toBeGreaterThanOrEqual(HIT_TARGET);
+
+  for (const measured of [standalone, inset, rotated]) {
+    expect(measured.statusHeight).toBe(HIT_TARGET);
+    expect(measured.statusGap).toBe(STATUS_GAP);
+  }
+
+  await test.step("Clamp smaller native insets to zero rather than negative padding", async () => {
+    await safeArea(page, SMALL_SAFE_AREA);
+    await expect
+      .poll(async () => {
+        const measured = await layout(page);
+
+        return measured.padding;
+      })
+      .toBe(0);
+  });
   await info.attach("standalone-layout", {
-    body: JSON.stringify({ baseline, standalone, inset, rotated, safeArea: "emulated zero and 34px insets" }),
+    body: JSON.stringify({ baseline, standalone, previous, inset, rotated, safeArea: "emulated 0, 8, 21 and 34px" }),
     contentType: "application/json",
   });
   await page.getByRole("textbox", { name: "Message Pocket" }).focus();
+  await safeArea(page, 0);
   await setVisualViewport(page, KEYBOARD_HEIGHT);
   await expect
     .poll(async () => {
