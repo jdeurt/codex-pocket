@@ -32,7 +32,11 @@ export function visibleSnapshot(state: Snapshot, options: { tools?: boolean } = 
         if (item.type === "userMessage" && Array.isArray(item.attachments)) {
           const { pocketAttachmentText, ...message } = item;
 
-          return { ...message, content: pocketAttachmentText ? [{ type: "text", text: pocketAttachmentText }] : [] };
+          return {
+            ...message,
+            images: undefined,
+            content: pocketAttachmentText ? [{ type: "text", text: pocketAttachmentText }] : [],
+          };
         }
 
         const images = itemImageSources(item).map((source, index) => ({

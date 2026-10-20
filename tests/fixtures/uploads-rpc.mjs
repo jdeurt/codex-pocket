@@ -48,6 +48,24 @@ setInterval(async () => {
     return;
   }
 
+  if (control.action === "duplicate-image") {
+    const turn = thread.turns.findLast((entry) =>
+      entry.items.some((item) => item.content?.some((part) => part.type === "localImage"))
+    );
+    const item = turn?.items.findLast((entry) => entry.content?.some((part) => part.type === "localImage"));
+
+    if (turn && item) {
+      item.images = [
+        { source: item.content.find((part) => part.type === "localImage").path, alt: "Duplicate upload preview" },
+      ];
+      item.fixtureDuplicateImage = true;
+      event("item/completed", { turnId: turn.id, item });
+      await save();
+    }
+
+    return;
+  }
+
   if (control.action !== "complete") {
     return;
   }

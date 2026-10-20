@@ -20,9 +20,9 @@ export function ComposerAttachments({
   }
 
   return (
-    <ul className="mb-2 flex max-h-52 gap-2 overflow-auto py-1" aria-label="Selected attachments">
+    <ul className="mb-2 flex max-h-52 gap-4 overflow-auto py-1" aria-label="Selected attachments">
       {files.map((entry) => (
-        <li key={entry.id} className="w-60 shrink-0 rounded-xl border border-input bg-background py-2 pr-2 pl-3">
+        <li key={entry.id} className="w-60 shrink-0 rounded-xl border border-input bg-background px-4 py-2">
           <div className="flex items-start gap-2">
             <div className="min-w-0 flex-1 py-1">
               <p className="truncate text-sm" title={entry.file.name}>
