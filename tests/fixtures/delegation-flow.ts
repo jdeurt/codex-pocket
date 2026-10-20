@@ -31,7 +31,7 @@ export const THREE_MORE_STARTS = 3;
 /**
 Owns one fake host's IPC correlation, event wakeups and diagnostic stream.
 */
-class Peer {
+export class Peer {
   private listeners = new Set<() => void>();
 
   private sequence = 0;
@@ -130,10 +130,10 @@ class Peer {
   Waits for recorded process events without polling and removes its wakeup subscription on settlement.
   @param isSatisfied - Predicate over recorded simulator events.
   @param timeoutMs - Maximum wait before reporting the full captured event history.
-  @returns Completion once the expected native event sequence has arrived.
+  @returns Copy of the native event journal at the moment the expected sequence arrives.
   */
   until(isSatisfied: (events: HostEvent[]) => boolean, timeoutMs = WAIT_MS) {
-    return new Promise<void>((resolve, reject) => {
+    return new Promise<HostEvent[]>((resolve, reject) => {
       const resources: { timer?: NodeJS.Timeout } = {};
       const check = () => {
         if (!isSatisfied(this.events)) {
@@ -142,7 +142,7 @@ class Peer {
 
         clearTimeout(resources.timer);
         this.listeners.delete(check);
-        resolve();
+        resolve([...this.events]);
       };
 
       resources.timer = setTimeout(() => {
@@ -268,6 +268,26 @@ export function assignment(key: string, harness = "codex", body = key) {
 }
 
 /**
+Calls a managed-child lifecycle tool and validates its canonical persisted child result.
+@param client - Owned real stdio MCP client.
+@param name - Child creation, confirmed closure or saved-session resumption tool.
+@param args - Native domain input validated by the actual MCP server.
+@returns Canonical persisted child, normalized once at the tool-result boundary.
+*/
+export function tool(
+  client: Client,
+  name: "side_pocket_create" | "side_pocket_close" | "side_pocket_resume",
+  args: Message
+): Promise<SidePocket>;
+/**
+Calls a report, answer or queue tool while retaining its normalized application record.
+@param client - Owned real stdio MCP client.
+@param name - Other registered delegation tool name.
+@param args - Native domain input validated by the actual MCP server.
+@returns Application record for assertions or ignored acknowledgments.
+*/
+export function tool(client: Client, name: string, args: Message): Promise<Message>;
+/**
 Calls a real MCP tool and validates its application result as a record.
 @param client - Owned native stdio MCP client.
 @param name - Registered tool name.
@@ -279,7 +299,9 @@ export async function tool(client: Client, name: string, args: Message) {
 
   assert.equal(result.isError, undefined, JSON.stringify(result));
 
-  return dataSchema.parse(toolJson(result));
+  return ["side_pocket_create", "side_pocket_close", "side_pocket_resume"].includes(name)
+    ? sidePocketSchema.parse(toolJson(result))
+    : dataSchema.parse(toolJson(result));
 }
 
 /**
