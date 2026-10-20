@@ -6,6 +6,11 @@ import { parentPolicy } from "./harness/permissions";
 import path from "node:path";
 import { string } from "../lib/protocol";
 
+/**
+Extend native server arguments with this process's bundled Pocket MCP connection.
+@param config - Validated parent configuration retaining its native process arguments.
+@returns Arguments with explicit private state and parent identities.
+*/
 export function pocketServerArgs(config: Config) {
   const root = process.cwd();
   const overrides: Record<string, unknown> = {
@@ -28,6 +33,12 @@ export function pocketServerArgs(config: Config) {
   ];
 }
 
+/**
+Append the existing phone, delegation and scheduling contracts to parent instructions.
+@param existing - Effective native developer instructions to retain.
+@param isUnrestricted - Whether the effective native sandbox permits unrestricted access.
+@returns Combined runtime instructions with the configured access description.
+*/
 export function pocketInstructions(existing: string, isUnrestricted: boolean) {
   return [
     existing,
@@ -50,6 +61,12 @@ Pocket injects the body as a user message when due, obeying its configured steer
     .join("\n\n");
 }
 
+/**
+Resume the parent with Pocket instructions and persist its effective child policy.
+@param rpc - Connected native Codex protocol client.
+@param config - Validated parent identity and working directory.
+@returns Native resumed-thread result and effective runtime metadata.
+*/
 export async function resumePocket(rpc: CodexRpc, config: Config) {
   const { config: effective } = await rpc.request("config/read", {
     includeLayers: false,

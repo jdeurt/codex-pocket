@@ -67,6 +67,11 @@ export type SidePocket = z.infer<typeof sidePocketSchema>;
 export type ParentContext = z.infer<typeof parentContextSchema>;
 export type DelegationCommand = z.infer<typeof delegationCommandSchema>;
 
+/**
+Validate serialized parent policy while normalizing a persisted Side Pocket row.
+@param row - Database row already checked by the stored-pocket schema.
+@returns Side Pocket with its parsed native parent policy.
+*/
 export function pocket(row: StoredPocket): SidePocket {
   return { ...row, policy: parentPolicySchema.parse(JSON.parse(row.policy)) };
 }

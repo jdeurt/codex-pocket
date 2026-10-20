@@ -1,15 +1,35 @@
-import { type AgentTranscript, isActiveAgent } from "../lib/agents";
-import { initialSnapshot, object, string } from "../lib/protocol";
+import { type AgentEntry, type AgentTranscript, isActiveAgent } from "../lib/agents";
+import { agentImageSource, projectAgentTranscript } from "./agent-projection";
 import { AgentReadCache } from "./agent-read-cache";
+import { type AgentRecord } from "./agent-sources";
 import { discoverAgents } from "./agent-catalog";
-import { itemImageSources } from "../lib/images";
-import { markdownImageSource } from "./agent-images";
-import { visibleSnapshot } from "./visible-snapshot";
 
 const REFRESH_MS = 2000;
 
 type Discovery = Awaited<ReturnType<typeof discoverAgents>>;
 
+/**
+Retain a verified native child through a source outage without advertising stale active work.
+@param next - Current scoped discovery tree receiving the retained child.
+@param id - Existing catalog identity whose ancestry remains verified.
+@param previous - Previously scoped record containing saved native history.
+*/
+function retainUnavailableAgent(next: Discovery, id: string, previous: AgentRecord) {
+  const agent: AgentEntry = {
+    ...previous.agent,
+    status: isActiveAgent(previous.agent) ? "unknown" : previous.agent.status,
+  };
+
+  next.records.set(id, { ...previous, agent, historyError: true, discoveryError: true });
+  next.catalog.agents.push(agent);
+}
+
+/**
+Retain saved transcripts and verified ancestry when native discovery is temporarily unavailable.
+@param next - Fresh scoped discovery result.
+@param saved - Previous discovery result reusable only for the same owner.
+@returns Discovery retaining known readable history without inventing ownership.
+*/
 function preserveHistory(next: Discovery, saved?: Discovery) {
   if (saved?.owner !== next.owner) {
     return next;
@@ -38,19 +58,16 @@ function preserveHistory(next: Discovery, saved?: Discovery) {
       continue;
     }
 
-    const agent = {
-      ...previous.agent,
-      status: isActiveAgent(previous.agent) ? ("unknown" as const) : previous.agent.status,
-    };
-
-    next.records.set(id, { ...previous, agent, historyError: true, discoveryError: true });
-    next.catalog.agents.push(agent);
+    retainUnavailableAgent(next, id, previous);
   }
 
   return next;
 }
 
 // Read-only catalog/transcript cache, scoped to the server-configured parent.
+/**
+Own the read-only parent-scoped catalog and native transcript caches.
+*/
 export class AgentBrowser {
   private reads = new AgentReadCache();
 
@@ -58,19 +75,47 @@ export class AgentBrowser {
 
   private refreshing?: Promise<void>;
 
+  /**
+Read native discovery and merge still-owned saved history before replacing the catalog.
+@param owner - Configured parent whose descendants may be read.
+*/
+  private async updateDiscovery(owner: string) {
+    this.cached = preserveHistory(
+      await discoverAgents(owner, this.cached?.owner === owner ? this.cached.records : undefined),
+      this.cached
+    );
+  }
+
+  /**
+Refresh scoped discovery while preserving known saved history through source outages.
+@param owner - Configured parent whose native descendants may be discovered.
+*/
   private async refresh(owner: string) {
     try {
-      this.cached = preserveHistory(
-        await discoverAgents(owner, this.cached?.owner === owner ? this.cached.records : undefined),
-        this.cached
-      );
+      await this.updateDiscovery(owner);
     } finally {
       this.refreshing = undefined;
     }
   }
 
+  /**
+Refresh the scoped catalog before returning one owned agent record.
+@param owner - Configured parent identity required by the endpoint.
+@param id - Catalog identity requested within that parent.
+@returns Owned normalized discovery record.
+*/
   private async owned(owner: string, id: string) {
     await this.catalog(owner);
+
+    return this.record(id);
+  }
+
+  /**
+Require an agent already present in the current scoped discovery cache.
+@param id - Catalog identity requested after its owner catalog was refreshed.
+@returns Owned discovery record, or an availability error.
+*/
+  private record(id: string) {
     const record = this.cached?.records.get(id);
 
     if (!record) {
@@ -80,17 +125,44 @@ export class AgentBrowser {
     return record;
   }
 
-  async catalog(owner: string, isPreviews = false) {
+  /**
+Require a completed discovery belonging to the configured parent.
+@param owner - Parent identity expected by this read.
+@returns Current discovery after exact owner validation.
+*/
+  private requireDiscovery(owner: string) {
+    const cached = this.cached;
+
+    if (cached?.owner !== owner) {
+      throw new Error("Parent chat is unavailable.");
+    }
+
+    return cached;
+  }
+
+  /**
+Coalesce stale parent discovery before requiring the current owner cache.
+@param owner - Configured parent whose catalog is being requested.
+@returns Completed current discovery for that parent.
+*/
+  private async discovery(owner: string) {
     if (this.cached?.owner !== owner || Date.now() - this.cached.catalog.updatedAt >= REFRESH_MS) {
       this.refreshing ??= this.refresh(owner);
       await this.refreshing;
     }
 
-    if (this.cached?.owner !== owner) {
-      throw new Error("Parent chat is unavailable.");
-    }
+    return this.requireDiscovery(owner);
+  }
 
-    const records = this.cached.records.values().toArray();
+  /**
+Project native revisions and optionally warm previews without dispatching harness work.
+@param owner - Configured parent whose descendants alone are visible.
+@param isPreviews - Whether background previews should be warmed through the shared pool.
+@returns Lightweight scoped catalog with native availability warnings.
+*/
+  async catalog(owner: string, isPreviews = false) {
+    const discovery = await this.discovery(owner);
+    const records = discovery.records.values().toArray();
 
     await Promise.all(records.map((record) => this.reads.project(record)));
 
@@ -100,81 +172,38 @@ export class AgentBrowser {
       }
     }
 
-    return this.cached.catalog;
+    return this.requireDiscovery(owner).catalog;
   }
 
+  /**
+Hydrate an owned agent and expose the shared normalized read-only display contract.
+@param owner - Configured parent scope.
+@param id - Agent identity already present in that parent's discovery.
+@returns Read-only transcript with guarded image endpoints and canonical visible rows.
+*/
   async transcript(owner: string, id: string): Promise<AgentTranscript> {
     const record = await this.owned(owner, id);
 
     await this.reads.full(record);
-    const raw = {
-      ...structuredClone(initialSnapshot),
-      connection: "connected" as const,
-      title: record.agent.name,
-      model: record.agent.model,
-      reasoningEffort: record.agent.reasoningEffort,
-      turns: record.turns ?? [],
-      requests: record.requests ?? [],
-      activeTurnId: isActiveAgent(record.agent)
-        ? record.turns?.findLast((turn) => turn.status === "inProgress")?.id
-        : undefined,
-    };
-    const state = visibleSnapshot(raw, { tools: true });
 
-    // Images use scoped item IDs, never caller-supplied paths or another chat's cache.
-    state.turns = state.turns.map((turn) => ({
-      id: turn.id,
-      status: turn.status,
-      items: turn.items.map((item) => ({
-        id: item.id,
-        type: item.type,
-        ...(typeof item.text === "string" && { text: item.text }),
-        ...(item.type === "agentMessage" && {
-          imageBase: `/api/agents?agent=${encodeURIComponent(id)}&item=${encodeURIComponent(item.id)}`,
-        }),
-        ...(typeof item.phase === "string" && { phase: item.phase }),
-        ...(Array.isArray(item.content) && {
-          content: item.content
-            .filter((part) => object(part).type === "text")
-            .map((part) => ({ type: "text", text: string(object(part).text) })),
-        }),
-        ...(item.type === "toolTrace" && { tool: item.tool, status: item.status }),
-        ...(Array.isArray(item.images) && {
-          images: item.images.map((_, index) => ({
-            alt: "Image from Pocket",
-            source: `/api/agents?agent=${encodeURIComponent(id)}&item=${encodeURIComponent(item.id)}&index=${String(index)}`,
-          })),
-        }),
-      })),
-    }));
-
-    return {
-      agent: record.agent,
-      state,
-      history: record.historyError
-        ? "unavailable"
-        : state.turns.some((turn) => turn.items.length > 0)
-          ? "available"
-          : "empty",
-      ...(record.historyError && {
-        warning: "Saved history is unavailable. Check harness access on your computer. Reconnecting automatically.",
-      }),
-      updatedAt: Date.now(),
-    };
+    return projectAgentTranscript(record, id);
   }
 
+  /**
+Read an image only from an owned agent's complete native transcript.
+@param owner - Configured parent scope.
+@param id - Owned catalog identity.
+@param itemId - Native item identity inside that agent's transcript.
+@param index - Nonnegative image index requested by the guarded endpoint.
+@param markdownSource - Exact optional source authorized against the owned Markdown AST.
+@returns Owned source and its native working directory.
+*/
   async image(owner: string, id: string, itemId: string, index: number, markdownSource?: string) {
     const record = await this.owned(owner, id);
 
     await this.reads.full(record, true);
-    const item = record.turns?.flatMap((turn) => turn.items).find((entry) => entry.id === itemId);
-    const source = item && (markdownSource ? markdownImageSource(item, markdownSource) : itemImageSources(item)[index]);
 
-    if (!source || !Number.isSafeInteger(index) || index < 0) {
-      throw new Error("Image is unavailable in this agent chat.");
-    }
-
-    return { source, cwd: record.cwd };
+    return agentImageSource(record, itemId, index, markdownSource);
   }
 }
 
@@ -182,16 +211,22 @@ declare global {
   var pocketAgentBrowser: AgentBrowser | undefined;
 }
 
-export function agentBrowser() {
-  const existing = globalThis.pocketAgentBrowser;
-
-  if (existing) {
-    return existing;
-  }
-
+/**
+Create the process catalog cache while retaining its existing native global descriptor.
+@returns The newly registered parent-scoped browser cache.
+*/
+function createAgentBrowser() {
   const browser = new AgentBrowser();
 
   Object.defineProperty(globalThis, "pocketAgentBrowser", { value: browser, configurable: true });
 
   return browser;
+}
+
+/**
+Reuse the process's existing parent-scoped agent browser or create it lazily.
+@returns The process catalog and transcript owner.
+*/
+export function agentBrowser() {
+  return globalThis.pocketAgentBrowser ?? createAgentBrowser();
 }

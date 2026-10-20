@@ -1,11 +1,9 @@
-import { type AgentEntry, type AgentStatus, agentStatusSchema, isActiveAgent } from "../lib/agents";
-import { type ClaudeMessage, claudeTranscript } from "./harness/transcript";
+import { type AgentEntry, type AgentStatus, agentStatusSchema } from "../lib/agents";
 import { type Data, type PendingRequest, type Thread, type Turn, object, string } from "../lib/protocol";
-import { getSessionInfo, getSessionMessages, getSubagentMessages, listSubagents } from "@anthropic-ai/claude-agent-sdk";
 import { refreshCodexHistory, visiblePreview } from "./agent-history";
 import { type SidePocket } from "./delegations";
-import { agentRead } from "./agent-read-pool";
 import { bridge } from "./bridge";
+import { readClaude } from "./agent-claude";
 
 const LAST_MESSAGE = -1;
 
@@ -29,13 +27,23 @@ export interface AgentRecord {
   fileRevision?: string;
 }
 
+/**
+Resolve native Codex ancestry from explicit parent metadata rather than prompt text.
+@param thread - Normalized native thread, including its SDK source metadata.
+@returns Native parent identity, or an empty string when no ancestry is supplied.
+*/
 export function codexParent(thread: CodexThread) {
-  return (
-    string(thread.parentThreadId) ||
-    string(object(object(object(thread.source).subAgent).thread_spawn).parent_thread_id)
-  );
+  const source = object(thread.source);
+  const agent = object(source.subAgent);
+
+  return string(thread.parentThreadId) || string(object(agent.thread_spawn).parent_thread_id);
 }
 
+/**
+Project model and nullable reasoning effort from stored native metadata.
+@param data - Normalized metadata object produced by the native harness.
+@returns Only present model and effort fields, preserving explicit null effort.
+*/
 export function observedMetadata(data: Data) {
   return {
     ...(string(data.model) && { model: string(data.model) }),
@@ -43,17 +51,13 @@ export function observedMetadata(data: Data) {
   };
 }
 
-export function nativeStatus(thread: CodexThread, turns: Turn[]): AgentStatus {
-  const status = object(thread.status);
-
-  if (status.type === "active") {
-    return Array.isArray(status.activeFlags) && status.activeFlags.length > 0 ? "waiting" : "running";
-  }
-
-  if (status.type === "systemError") {
-    return "failed";
-  }
-
+/**
+Infer inactive native status from the last saved turn before the thread's idle fallback.
+@param turns - Chronological native turns.
+@param status - Native thread status discriminator.
+@returns Existing failed, idle, completed or unknown catalog status.
+*/
+function settledStatus(turns: Turn[], status: unknown): AgentStatus {
   const last = turns.at(LAST_MESSAGE);
 
   if (last?.status === "failed") {
@@ -68,9 +72,30 @@ export function nativeStatus(thread: CodexThread, turns: Turn[]): AgentStatus {
     return "completed";
   }
 
-  return status.type === "idle" ? "idle" : "unknown";
+  return status === "idle" ? "idle" : "unknown";
 }
 
+/**
+Prefer current native activity and system errors before saved-turn terminal status.
+@param thread - Normalized native thread carrying its status and activity flags.
+@param turns - Chronological turns available from lightweight or complete history.
+@returns Existing read-only catalog status.
+*/
+export function nativeStatus(thread: CodexThread, turns: Turn[]): AgentStatus {
+  const status = object(thread.status);
+
+  if (status.type === "active") {
+    return Array.isArray(status.activeFlags) && status.activeFlags.length > 0 ? "waiting" : "running";
+  }
+
+  return status.type === "systemError" ? "failed" : settledStatus(turns, status.type);
+}
+
+/**
+Project saved request details into read-only agent UI without dispatching an answer.
+@param request - Persisted request with serialized native input.
+@returns Informational normalized question or approval request.
+*/
 export function informationalRequest(request: { id: string; method: string; input: string }): PendingRequest {
   const input = object(JSON.parse(request.input));
 
@@ -84,6 +109,10 @@ export function informationalRequest(request: { id: string; method: string; inpu
   };
 }
 
+/**
+Read active and archived native subagent thread pages without hydrating transcripts.
+@returns All lightweight native subagent threads in native page order.
+*/
 export async function codexThreads(): Promise<CodexThread[]> {
   const rpc = bridge.agentReader();
   const threads: CodexThread[] = [];
@@ -107,6 +136,27 @@ export async function codexThreads(): Promise<CodexThread[]> {
   return threads;
 }
 
+/**
+Apply parent-observed native status only after its runtime ownership has been checked.
+@param record - Discovered native child receiving observed status.
+@param owner - Running or waiting Side Pocket that owns the native child.
+*/
+function observeRuntimeCodex(record: AgentRecord, owner: SidePocket) {
+  const runtime = object(object(JSON.parse(owner.metadata)).nativeAgents);
+  const observed = agentStatusSchema.safeParse(object(runtime[record.sessionId ?? ""]).status);
+
+  if (!observed.success || observed.data === "unknown") {
+    return;
+  }
+
+  record.agent.status = observed.data;
+  record.observedStatus = observed.data;
+}
+
+/**
+Retain persisted child status and reconcile native descendants with their active owner's observations.
+@param record - Scoped discovered Codex record whose display status is updated.
+*/
 export function observeCodex(record: AgentRecord) {
   if (record.pocket) {
     return;
@@ -118,17 +168,14 @@ export function observeCodex(record: AgentRecord) {
     return;
   }
 
-  const runtime = object(object(JSON.parse(record.runtimeOwner.metadata)).nativeAgents);
-  const observed = agentStatusSchema.safeParse(object(runtime[record.sessionId ?? ""]).status);
-
-  if (!observed.success || observed.data === "unknown") {
-    return;
-  }
-
-  record.agent.status = observed.data;
-  record.observedStatus = observed.data;
+  observeRuntimeCodex(record, record.runtimeOwner);
 }
 
+/**
+Read native thread metadata and refresh its full cached history without resuming work.
+@param record - Scoped discovery record receiving normalized history and metadata.
+@param sessionId - Native session identity already checked by the hydration owner.
+*/
 async function readCodex(record: AgentRecord, sessionId: string) {
   const rpc = bridge.agentReader();
   const { thread } = await rpc.request("thread/read", {
@@ -143,49 +190,30 @@ async function readCodex(record: AgentRecord, sessionId: string) {
   observeCodex(record);
 }
 
-async function readClaude(record: AgentRecord, sessionId: string) {
-  const messages = record.claudeAgent
-    ? await getSubagentMessages(record.claudeRoot ?? sessionId, record.claudeAgent, { dir: record.cwd })
-    : await getSessionMessages(sessionId, { dir: record.cwd });
-
-  if (record.pocket && messages.length === 0 && !(await getSessionInfo(sessionId, { dir: record.cwd }))) {
-    throw new Error("Saved Claude history is unavailable.");
+/**
+Hydrate the selected native harness and derive a visible preview from canonical turns.
+@param record - Scoped record whose native session may be absent.
+*/
+async function hydrateNativeAgent(record: AgentRecord) {
+  if (record.sessionId) {
+    await (record.agent.harness === "codex"
+      ? readCodex(record, record.sessionId)
+      : readClaude(record, record.sessionId));
+  } else {
+    record.turns = [];
   }
 
-  record.turns = claudeTranscript(messages);
-  const model = messages.map((message) => string(object(message.message).model)).findLast(Boolean);
-
-  if (model) {
-    record.agent.model = model;
-  }
-
-  if (record.pocket) {
-    return;
-  }
-
-  const last = object(messages.at(LAST_MESSAGE)?.message);
-
-  record.agent.status =
-    record.observedStatus ??
-    (["end_turn", "stop_sequence"].includes(string(last.stop_reason))
-      ? "completed"
-      : last.stop_reason === "max_tokens"
-        ? "idle"
-        : "unknown");
+  record.agent.preview = visiblePreview((record.turns ?? []).flatMap((turn) => turn.items).toReversed());
+  record.historyError = false;
 }
 
+/**
+Retain saved data and expose availability failures when native history cannot be read.
+@param record - Scoped discovery record whose history and availability are updated.
+*/
 export async function hydrateAgent(record: AgentRecord) {
   try {
-    if (record.sessionId) {
-      await (record.agent.harness === "codex"
-        ? readCodex(record, record.sessionId)
-        : readClaude(record, record.sessionId));
-    } else {
-      record.turns = [];
-    }
-
-    record.agent.preview = visiblePreview((record.turns ?? []).flatMap((turn) => turn.items).toReversed());
-    record.historyError = false;
+    await hydrateNativeAgent(record);
   } catch {
     record.historyError = true;
 
@@ -193,107 +221,4 @@ export async function hydrateAgent(record: AgentRecord) {
       record.agent.status = "unknown";
     }
   }
-}
-
-export async function claudeChildren(
-  parent: AgentRecord,
-  previous = new Map<string, AgentRecord>()
-): Promise<AgentRecord[]> {
-  if (!parent.sessionId) {
-    return [];
-  }
-
-  const runtime = object(object(parent.pocket ? JSON.parse(parent.pocket.metadata) : {}).nativeAgents);
-  const ids = [...new Set([...(await listSubagents(parent.sessionId, { dir: parent.cwd })), ...Object.keys(runtime)])];
-  const messages = new Map<string, ClaudeMessage[]>();
-
-  await Promise.all(
-    ids.map(async (id) => {
-      const saved = previous.get(`claude:${parent.sessionId ?? ""}:${id}`);
-
-      if (Object.hasOwn(runtime, id) || saved?.ancestryKnown) {
-        return;
-      }
-
-      messages.set(
-        id,
-        await agentRead(() => getSubagentMessages(parent.sessionId ?? "", id, { dir: parent.cwd, limit: 1 }), 1)
-      );
-    })
-  );
-
-  for (const id of ids) {
-    if (!messages.has(id)) {
-      messages.set(id, []);
-    }
-  }
-
-  const result: AgentRecord[] = [];
-  const known = new Map<string, string>();
-
-  let isProgress = true;
-
-  while (isProgress) {
-    isProgress = false;
-
-    for (const [id, transcript] of messages) {
-      if (known.has(id)) {
-        continue;
-      }
-
-      const observed = object(runtime[id]);
-      const saved = previous.get(`claude:${parent.sessionId ?? ""}:${id}`);
-      const transcriptParent = transcript.find((message) => message.parent_agent_id)?.parent_agent_id;
-      const ancestor = [transcriptParent, string(observed.parentId), saved?.claudeParent].find(Boolean);
-
-      if (ancestor && !known.has(ancestor)) {
-        continue;
-      }
-
-      const agentId = `claude:${parent.sessionId ?? ""}:${id}`;
-
-      known.set(id, agentId);
-      isProgress = true;
-      const invocation = transcript.find((message) => message.parent_tool_use_id)?.parent_tool_use_id;
-      const parentTurns = ancestor ? claudeTranscript(messages.get(ancestor) ?? []) : (parent.turns ?? []);
-      // SDK subagent IDs and parent_agent_id establish ancestry, never prompt text.
-      const tool = parentTurns.flatMap((turn) => turn.items).find((item) => item.nativeId === invocation);
-
-      result.push({
-        agent: {
-          id: agentId,
-          parentId: ancestor ? (known.get(ancestor) ?? parent.agent.id) : parent.agent.id,
-          name: string(observed.name) || string(tool?.title) || `Agent ${id}`,
-          source: "native",
-          harness: "claude",
-          status: "unknown",
-          preview: "",
-        },
-        cwd: parent.cwd,
-        sessionId: parent.sessionId,
-        claudeRoot: parent.sessionId,
-        claudeAgent: id,
-        ancestryKnown: transcript.length > 0 || Object.hasOwn(runtime, id) || saved?.ancestryKnown,
-        claudeParent: ancestor?.length ? ancestor : null,
-      });
-    }
-  }
-
-  return result;
-}
-
-export function observeClaudeChild(parent: AgentRecord, child: AgentRecord) {
-  const runtime = object(object(parent.pocket ? JSON.parse(parent.pocket.metadata) : {}).nativeAgents);
-  const status = agentStatusSchema.safeParse(object(runtime[child.claudeAgent ?? ""]).status);
-
-  if (!(
-    status.success &&
-    ["running", "waiting", "completed", "failed", "closed"].includes(status.data) &&
-    (!isActiveAgent({ ...child.agent, status: status.data }) || isActiveAgent(parent.agent))
-  )) {
-    return;
-  }
-
-  child.agent.status = status.data;
-  child.observedStatus = status.data;
 }

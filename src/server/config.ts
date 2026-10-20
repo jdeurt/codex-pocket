@@ -16,11 +16,11 @@ export const configSchema = z
 
 export type Config = z.infer<typeof configSchema>;
 
-export async function readConfig(): Promise<Config | null> {
-  if (!process.env.CODEX_THREAD_ID) {
-    return null;
-  }
-
+/**
+Parse the attached process environment with the strict Pocket configuration schema.
+@returns Validated parent identity, native process arguments and allowed origins.
+*/
+async function configuredEnvironment(): Promise<Config> {
   const serverArgs: unknown = JSON.parse(process.env.CODEX_SERVER_ARGS ?? '["app-server","--listen","stdio://"]');
 
   return configSchema.parseAsync({
@@ -33,4 +33,12 @@ export async function readConfig(): Promise<Config | null> {
       .split(",")
       .map((s) => s.trim()),
   });
+}
+
+/**
+Validate configuration only when this process is explicitly attached to a conversation.
+@returns The normalized environment configuration, or null for an unconfigured process.
+*/
+export async function readConfig(): Promise<Config | null> {
+  return process.env.CODEX_THREAD_ID ? configuredEnvironment() : null;
 }

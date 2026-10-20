@@ -1,4 +1,4 @@
-import { type Item, type RpcEvent, type Snapshot, type Turn, object, string } from "../lib/protocol";
+import { type Data, type Item, type RpcEvent, type Snapshot, type Turn, object, string } from "../lib/protocol";
 
 const LAST_ITEM_INDEX = -1;
 const TOOL_ACTIVITIES = new Map(
@@ -13,56 +13,80 @@ const TOOL_ACTIVITIES = new Map(
   })
 );
 
+const ITEM_ACTIVITIES = new Map(
+  Object.entries({
+    fileChange: "Editing files",
+    imageView: "Viewing images",
+    imageGeneration: "Generating images",
+    mcpToolCall: "Calling tools",
+    subAgentActivity: "Coordinating agents",
+    sleep: "Waiting for updates",
+    agentMessage: "",
+    plan: "Updating plans",
+    enteredReviewMode: "Reviewing changes",
+    exitedReviewMode: "Reviewing changes",
+    contextCompaction: "Summarizing conversations",
+    hookPrompt: "Running hooks",
+  })
+);
+
+/**
+Describe a native command action without interpreting command text as a protocol.
+@param action - Native command action normalized by the shared object boundary.
+@returns Existing file, skill, search or command activity label.
+*/
+function commandActionActivity(action: Data) {
+  switch (action.type) {
+    case "read": {
+      return /(?:^|[/\\])SKILL\.md$/i.test(string(action.path)) ? "Reading skills" : "Reading files";
+    }
+
+    case "listFiles": {
+      return "Listing files";
+    }
+
+    case "search": {
+      return "Searching files";
+    }
+
+    default: {
+      return "Running commands";
+    }
+  }
+}
+
+/**
+Prefer the native plugin label before inspecting a command's final structured action.
+@param item - Normalized native command-execution item.
+@returns Existing plugin or command-action activity label.
+*/
+function commandActivity(item: Item) {
+  if (item.pluginId) {
+    return "Using plugins";
+  }
+
+  return commandActionActivity(
+    object(Array.isArray(item.commandActions) ? item.commandActions.at(LAST_ITEM_INDEX) : undefined)
+  );
+}
+
+/**
+Project one normalized native item into the existing activity vocabulary.
+@param item - Native transcript item, including silent user and assistant message distinctions.
+@returns Activity label, an intentional blank assistant label, or undefined for user messages.
+*/
 export function itemActivity(item: Item): string | undefined {
   switch (item.type) {
     case "userMessage": {
-      return undefined;
+      return;
     }
 
     case "commandExecution": {
-      if (item.pluginId) {
-        return "Using plugins";
-      }
-
-      const action = object(Array.isArray(item.commandActions) ? item.commandActions.at(LAST_ITEM_INDEX) : undefined);
-
-      switch (action.type) {
-        case "read": {
-          return /(?:^|[/\\])SKILL\.md$/i.test(string(action.path)) ? "Reading skills" : "Reading files";
-        }
-
-        case "listFiles": {
-          return "Listing files";
-        }
-
-        case "search": {
-          return "Searching files";
-        }
-
-        default: {
-          return "Running commands";
-        }
-      }
-    }
-
-    case "fileChange": {
-      return "Editing files";
+      return commandActivity(item);
     }
 
     case "webSearch": {
       return object(item.action).type === "open_page" ? "Browsing pages" : "Searching sources";
-    }
-
-    case "imageView": {
-      return "Viewing images";
-    }
-
-    case "imageGeneration": {
-      return "Generating images";
-    }
-
-    case "mcpToolCall": {
-      return "Calling tools";
     }
 
     case "dynamicToolCall":
@@ -74,41 +98,18 @@ export function itemActivity(item: Item): string | undefined {
       return item.tool === "wait" ? "Waiting for updates" : "Coordinating agents";
     }
 
-    case "subAgentActivity": {
-      return "Coordinating agents";
-    }
-
-    case "sleep": {
-      return "Waiting for updates";
-    }
-
-    case "agentMessage": {
-      return "";
-    }
-
-    case "plan": {
-      return "Updating plans";
-    }
-
-    case "enteredReviewMode":
-    case "exitedReviewMode": {
-      return "Reviewing changes";
-    }
-
-    case "contextCompaction": {
-      return "Summarizing conversations";
-    }
-
-    case "hookPrompt": {
-      return "Running hooks";
-    }
-
     default: {
-      return "Considering options";
+      return ITEM_ACTIVITIES.get(item.type) ?? "Considering options";
     }
   }
 }
 
+/**
+Project native progress notifications into the shared activity vocabulary.
+@param event - Validated native notification.
+@param turn - Canonical turn whose current item can clarify command progress.
+@returns Updated activity label or undefined when this event carries no activity change.
+*/
 function eventActivity(event: RpcEvent, turn: Turn | undefined) {
   switch (event.method) {
     case "item/started":
@@ -152,17 +153,28 @@ function eventActivity(event: RpcEvent, turn: Turn | undefined) {
     }
 
     default: {
-      return undefined;
+      return;
     }
   }
 }
 
+/**
+Update activity only when a native event belongs to the current active turn.
+@param state - Canonical mutable parent snapshot.
+@param event - Validated native notification.
+@param turn - Canonical turn resolved for this event.
+*/
 export function updateActivity(state: Snapshot, event: RpcEvent, turn: Turn | undefined) {
   if (state.activeTurnId && turn?.id === state.activeTurnId) {
     state.activity = eventActivity(event, turn) ?? state.activity;
   }
 }
 
+/**
+Select current activity from native progress state or the last active-turn item.
+@param state - Snapshot whose active turn owns the displayed activity.
+@returns Existing activity label, or undefined when no native turn is active.
+*/
 export function currentActivity(state: Snapshot) {
   return state.activeTurnId
     ? (state.activity ??

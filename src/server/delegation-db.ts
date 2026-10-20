@@ -7,9 +7,12 @@ import { z } from "zod";
 const BUSY_TIMEOUT_MS = 1000;
 const PRIVATE_FILE_MODE = 0o600;
 
-export function delegationDatabase(directory: string) {
-  mkdirSync(directory, { recursive: true, mode: 0o700 });
-  const filename = path.join(directory, "delegations.sqlite");
+/**
+Initialize the native private SQLite file only after its parent directory exists.
+@param filename - Absolute private database path inside the created state directory.
+@returns Native SQLite handle with the existing tables, indexes and safety pragmas.
+*/
+function openDelegationDatabase(filename: string) {
   const db = new Database(filename, { timeout: BUSY_TIMEOUT_MS });
 
   chmodSync(filename, PRIVATE_FILE_MODE);
@@ -47,6 +50,24 @@ export function delegationDatabase(directory: string) {
   return db;
 }
 
+/**
+Open the private delegation database and establish its existing tables and indexes.
+@param directory - Private state directory whose database and permissions are initialized.
+@returns Native SQLite handle with WAL, foreign keys and bounded busy waiting.
+*/
+export function delegationDatabase(directory: string) {
+  mkdirSync(directory, { recursive: true, mode: 0o700 });
+
+  return openDelegationDatabase(path.join(directory, "delegations.sqlite"));
+}
+
+/**
+Read the newest command status for one parent-owned child.
+@param db - Existing native delegation database.
+@param parentId - Parent scope required by the query.
+@param childId - Child whose latest command is requested.
+@returns Validated latest command status, or undefined when no command exists.
+*/
 export function lastCommandStatus(db: Database.Database, parentId: string, childId: string) {
   const row = z
     .object({ status: commandStatusSchema })
