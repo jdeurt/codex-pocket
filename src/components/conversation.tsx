@@ -106,7 +106,7 @@ export function Conversation({
               <Bubble variant="secondary" align="end" data-message-id={item.id} data-delivery={item.status}>
                 <BubbleContent>
                   {item.attachments && <FileAttachments files={item.attachments} />}
-                  <p className="whitespace-pre-wrap">{item.text}</p>
+                  {!!item.text.trim() && <p className="whitespace-pre-wrap">{item.text}</p>}
                 </BubbleContent>
               </Bubble>
               {item.status !== "sent" && (

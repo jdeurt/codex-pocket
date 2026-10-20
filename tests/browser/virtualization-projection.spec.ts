@@ -40,6 +40,14 @@ test("shared projected history preserves one scroller, media, pending drafts and
     ...initialSnapshot,
     connection: "connected",
     activeTurnId: "visibility",
+    queue: [
+      {
+        id: "queued-files",
+        status: "queued",
+        text: " \n",
+        attachments: [{ id: "queued-file", kind: "file", name: "queued.txt", size: 5, mediaType: "text/plain" }],
+      },
+    ],
     turns: [
       {
         id: "visibility",
@@ -77,6 +85,32 @@ test("shared projected history preserves one scroller, media, pending drafts and
   const writes = await mount(page, state);
   const answer = page.getByRole("textbox", { name: "Your answer", exact: true });
   await answer.fill("Preserved pending draft");
+  const queued = page.locator('[data-message-id="queued-files"]');
+  await expect(queued.getByText("queued.txt", { exact: true })).toBeVisible();
+  await expect(queued.locator('[data-slot="bubble-content"] > p')).toHaveCount(0);
+  await expect(queued).toHaveAttribute("data-delivery", "queued");
+  await expect(queued.locator("..").locator(".delivery-status")).toHaveText("Queued");
+
+  for (const status of ["sending", "unknown", "sent"] as const) {
+    state.queue[0].status = status;
+    state.queue[0].text = status === "unknown" ? "Queued plain text" : "";
+    await publish(page, state);
+    await expect(queued).toHaveAttribute("data-delivery", status);
+    await expect(queued.getByText("queued.txt", { exact: true })).toBeVisible();
+    await expect(queued.locator('[data-slot="bubble-content"] > p')).toHaveCount(status === "unknown" ? 1 : 0);
+    const delivery = queued.locator("..").locator(".delivery-status");
+
+    if (status === "sent") {
+      await expect(delivery).toHaveCount(0);
+    } else {
+      await expect(delivery).toHaveText(
+        status === "sending" ? "Sending…" : "Delivery uncertain. Check on your computer."
+      );
+    }
+
+    await expect(answer).toHaveValue("Preserved pending draft");
+  }
+
   const viewport = await page.locator('[data-slot="message-scroller-viewport"]').elementHandle();
 
   if (!viewport) {

@@ -280,8 +280,7 @@
   margin-block: 0;
 }
 .transcript .message-flow:empty,
-.transcript .chat-images:empty,
-.transcript [data-slot="bubble-content"] > p:empty {
+.transcript .chat-images:empty {
   display: none;
 }
 .transcript .chat-images {
