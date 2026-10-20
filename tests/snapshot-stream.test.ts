@@ -2,6 +2,11 @@ import assert from "node:assert/strict";
 import { readSnapshot } from "../scripts/read-snapshot";
 import test from "node:test";
 
+/**
+Replays wire fragments in their original order and closes the source stream.
+@param chunks - Encoded SSE fragments, including partial UTF-8 sequences.
+@returns Native readable stream consumed by the production snapshot reader.
+*/
 function stream(chunks: Uint8Array[]) {
   return new ReadableStream<Uint8Array>({
     start(controller) {

@@ -6,12 +6,12 @@ import test from "node:test";
 await test("a send stays visible before acknowledgment and merges with the server queue by ID", () => {
   const pending: QueuedMessage[] = [{ id: "first", text: "Hello", status: "sending" }];
 
-  assert.deepEqual(reconcileDeliveries(initialSnapshot, pending).state.queue, pending);
   const queued: Snapshot = { ...initialSnapshot, queue: [{ ...pending[0], status: "queued" }] };
 
-  assert.deepEqual(reconcileDeliveries(queued, pending).state.queue, queued.queue);
   const acknowledged: QueuedMessage[] = [{ ...pending[0], status: "sent" }];
 
+  assert.deepEqual(reconcileDeliveries(initialSnapshot, pending).state.queue, pending);
+  assert.deepEqual(reconcileDeliveries(queued, pending).state.queue, queued.queue);
   assert.deepEqual(reconcileDeliveries(queued, acknowledged).state.queue, acknowledged);
 });
 

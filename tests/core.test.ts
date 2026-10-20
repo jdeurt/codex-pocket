@@ -6,6 +6,11 @@ import { reduceEvent } from "../src/server/reducer";
 import test from "node:test";
 import { validateAnswer } from "../src/server/answers";
 
+/**
+Builds the mutation request used to exercise host and origin authorization.
+@param headers - Host and origin variants supplied by each guard assertion.
+@returns Native JSON request with an unread body.
+*/
 function makeRequest(headers: Record<string, string>) {
   return new Request("http://localhost:3000/api/messages", {
     method: "POST",
