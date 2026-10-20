@@ -1,12 +1,13 @@
 import { type Virtualizer, elementScroll } from "@tanstack/react-virtual";
 import { ACTIVITY_MOTION } from "./activity-motion";
+import { isAtTranscriptEnd } from "./transcript-virtualization";
 
 type TranscriptVirtualizer = Virtualizer<HTMLDivElement, HTMLElement>;
-const END_THRESHOLD = 8;
 const STABLE_FRAMES = 2;
 
 export class TranscriptScrollMotion {
   private following = true;
+  private allowFollow = true;
   private ready = false;
   private instance?: TranscriptVirtualizer;
   private canvas?: HTMLDivElement;
@@ -25,7 +26,6 @@ export class TranscriptScrollMotion {
   private disclosure = false;
   private seeked = false;
   private animation?: { from: number; target: number; start: number; base: number; clock: Animation };
-
   private element() {
     return this.instance?.scrollElement;
   }
@@ -46,7 +46,7 @@ export class TranscriptScrollMotion {
   private release() {
     this.heldSize = 0;
 
-    if (this.canvas) {
+    if (this.canvas && !this.suspended) {
       this.canvas.style.minHeight = "0px";
     }
   }
@@ -114,7 +114,6 @@ export class TranscriptScrollMotion {
 
     return this.heldSize;
   }
-
   mount(instance: TranscriptVirtualizer, canvas: HTMLDivElement) {
     this.instance = instance;
     this.canvas = canvas;
@@ -135,9 +134,8 @@ export class TranscriptScrollMotion {
 
     this.lastSource = { id, text };
   }
-
   readPosition(instance: TranscriptVirtualizer, sync: boolean) {
-    if (sync && !this.suspended && !this.inputFrame && instance.isAtEnd(END_THRESHOLD)) {
+    if (sync && this.allowFollow && !this.suspended && !this.inputFrame && isAtTranscriptEnd(instance)) {
       this.following = true;
     }
   }
@@ -162,24 +160,24 @@ export class TranscriptScrollMotion {
 
     this.phase("idle");
   }
-
   interrupt() {
+    this.allowFollow = true;
     this.cancel();
     this.following = false;
     this.inputFrame = requestAnimationFrame(() => {
       this.inputFrame = requestAnimationFrame(() => {
         this.inputFrame = 0;
-        this.following = !!this.instance?.isAtEnd(END_THRESHOLD);
+        this.following = isAtTranscriptEnd(this.instance);
       });
     });
   }
 
   control() {
-    const pinned = !!this.instance?.isAtEnd(END_THRESHOLD);
+    this.allowFollow = true;
+    const pinned = isAtTranscriptEnd(this.instance);
     this.cancel();
     this.following = pinned;
   }
-
   scrollTo(
     offset: number,
     options: { adjustments?: number; behavior?: "auto" | "smooth" | "instant" },
@@ -246,11 +244,13 @@ export class TranscriptScrollMotion {
   }
 
   layout() {
+    const outgoing = this.canvas?.querySelector<HTMLElement>('[data-delivery="sending"]')?.dataset.messageId;
+
     if (!this.ready || this.suspended) {
+      this.outgoing = outgoing;
+
       return;
     }
-
-    const outgoing = this.canvas?.querySelector<HTMLElement>('[data-delivery="sending"]')?.dataset.messageId;
 
     if (outgoing && outgoing !== this.outgoing) {
       this.following = true;
@@ -313,18 +313,17 @@ export class TranscriptScrollMotion {
   }
 
   disclose(pinned: boolean) {
-    const follow = pinned || this.following;
     this.cancel(true);
-    this.following = follow;
-    this.intent = follow;
+    this.following = pinned || this.following;
+    this.intent = this.following;
     this.disclosure = true;
   }
 
   disclosed() {
     this.disclosure = false;
   }
-
   latest() {
+    this.allowFollow = true;
     this.cancel(true);
     this.following = true;
     this.intent = true;
@@ -336,9 +335,10 @@ export class TranscriptScrollMotion {
       return;
     }
 
-    this.cancel();
     this.suspended = value;
-    this.following = !value && !!this.instance?.isAtEnd(END_THRESHOLD);
+    this.allowFollow = false;
+    this.cancel();
+    this.following = false;
   }
 
   unmount() {

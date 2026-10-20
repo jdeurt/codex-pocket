@@ -20,7 +20,8 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: "env CODEX_THREAD_ID='' NODE_ENV=development npm exec next dev -- --hostname 127.0.0.1 --port 3113",
+    command:
+      "env CODEX_THREAD_ID='' POCKET_VIRTUALIZATION_FIXTURE=1 NODE_ENV=development npm exec next dev -- --hostname 127.0.0.1 --port 3113",
     url: "http://127.0.0.1:3113",
     reuseExistingServer: true,
     timeout: 60_000,

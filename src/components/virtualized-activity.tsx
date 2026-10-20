@@ -13,6 +13,8 @@ import {
 } from "@/components/ui/trace";
 import { type VirtualItem, elementScroll, useVirtualizer } from "@tanstack/react-virtual";
 import { ChatMessage } from "./chat-message";
+import type { TranscriptSuspension } from "@/lib/transcript-suspension";
+import { useTranscriptMeasurements } from "@/hooks/use-transcript-measurements";
 
 export type ActivityMeasurements = Map<string, VirtualItem[]>;
 
@@ -26,6 +28,8 @@ function ActivityMessages({
   end,
   scrollOffset,
   measurements,
+  suspended,
+  suspension,
 }: {
   id: string;
   turnId: string;
@@ -36,6 +40,8 @@ function ActivityMessages({
   end: number;
   scrollOffset: number;
   measurements: ActivityMeasurements;
+  suspended: boolean;
+  suspension: TranscriptSuspension;
 }) {
   "use no memo";
   const content = useRef<HTMLDivElement>(null);
@@ -48,7 +54,7 @@ function ActivityMessages({
     getItemKey,
     initialOffset: () => viewport.current?.scrollTop ?? 0,
     estimateSize: () => ESTIMATED_MESSAGE_HEIGHT,
-    anchorTo: scrollOffset >= margin && scrollOffset < end ? "end" : "start",
+    anchorTo: !suspended && !suspension.blocked && scrollOffset >= margin && scrollOffset < end ? "end" : "start",
     followOnAppend: false,
     scrollEndThreshold: -1,
     initialMeasurementsCache: measurements.get(id),
@@ -56,9 +62,14 @@ function ActivityMessages({
     rangeExtractor: (range) => (nearby ? bufferedMessages(range) : []),
     overscan: items.length,
     measureElement: measureTranscriptRow,
+    useCachedMeasurements: suspended,
     // Inner writes only preserve a reader's keyed/measurement anchor.
     // Navigation and bottom following remain with the outer controller.
-    scrollToFn: (offset, options, instance) => elementScroll(offset, { ...options, behavior: "instant" }, instance),
+    scrollToFn: (offset, options, instance) => {
+      if (!suspended && !suspension.blocked) {
+        elementScroll(offset, { ...options, behavior: "instant" }, instance);
+      }
+    },
   });
 
   useLayoutEffect(() => {
@@ -77,13 +88,15 @@ function ActivityMessages({
 
       // A fully preceding panel is anchored by the outer list. While reading
       // inside it, only its inner message list can identify the visible anchor.
-      return offset < margin + instance.getTotalSize() && item.end <= offset;
+      return !suspension.blocked && offset < margin + instance.getTotalSize() && item.end <= offset;
     };
 
     return () => {
       measurements.set(id, virtualizer.takeSnapshot());
     };
-  }, [virtualizer, id, margin, measurements]);
+  }, [virtualizer, id, margin, measurements, suspension]);
+
+  useTranscriptMeasurements(virtualizer, suspension, content, ":scope > ul > li");
 
   const rows = virtualizer.getVirtualItems();
 
@@ -130,6 +143,8 @@ export function VirtualizedActivity({
   end,
   scrollOffset,
   measurements,
+  suspended,
+  suspension,
 }: {
   id: string;
   turnId: string;
@@ -143,6 +158,8 @@ export function VirtualizedActivity({
   end: number;
   scrollOffset: number;
   measurements: ActivityMeasurements;
+  suspended: boolean;
+  suspension: TranscriptSuspension;
 }) {
   return (
     <Trace>
@@ -171,6 +188,8 @@ export function VirtualizedActivity({
               end={end}
               scrollOffset={scrollOffset}
               measurements={measurements}
+              suspended={suspended}
+              suspension={suspension}
             />
           </div>
         </TraceCollapsibleContent>
