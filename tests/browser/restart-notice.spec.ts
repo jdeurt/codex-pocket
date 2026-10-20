@@ -9,11 +9,11 @@ const OLD_TURNS = 600;
 const RELOADS = 3;
 const artifacts = { snapshotFile: process.env.POCKET_RESTART_SNAPSHOT };
 
-test.beforeAll(async () => {
-  if (artifacts.snapshotFile) {
-    return;
-  }
-
+/**
+Runs the offline restart workflow and requires its reported private artifact directory.
+@returns Persisted canonical snapshot path produced by the native replay.
+*/
+async function restartSnapshotPath() {
   const { stdout } = await promisify(execFile)(
     process.execPath,
     ["--import", "tsx", "scripts/restart-notice-check.ts"],
@@ -27,7 +27,25 @@ test.beforeAll(async () => {
     throw new Error(`No restart integration artifact: ${stdout}`);
   }
 
-  artifacts.snapshotFile = `${directory}/snapshot.json`;
+  return `${directory}/snapshot.json`;
+}
+
+/**
+Loads and validates the persisted restart snapshot at its saved-file boundary.
+@returns Canonical parent snapshot shared by the rendered restart scenarios.
+*/
+async function savedRestartSnapshot() {
+  const filename = artifacts.snapshotFile;
+
+  if (!filename) {
+    throw new Error("Run scripts/restart-notice-check.ts and pass its snapshot.json path as POCKET_RESTART_SNAPSHOT");
+  }
+
+  return snapshotSchema.parse(JSON.parse(await readFile(filename, "utf8")));
+}
+
+test.beforeAll(async () => {
+  artifacts.snapshotFile ??= await restartSnapshotPath();
 });
 
 test.beforeEach(async ({ page }) => {
@@ -38,11 +56,9 @@ test.beforeEach(async ({ page }) => {
 
 for (const length of ["short", "long"]) {
   test(`restart event is durable and styled in a ${length} chat`, async ({ page }, testInfo) => {
-    if (!artifacts.snapshotFile) {
-      throw new Error("Run scripts/restart-notice-check.ts and pass its snapshot.json path as POCKET_RESTART_SNAPSHOT");
-    }
+    let connections = 0;
 
-    const saved = snapshotSchema.parse(JSON.parse(await readFile(artifacts.snapshotFile, "utf8")));
+    const saved = await savedRestartSnapshot();
     const state: Snapshot = {
       ...saved,
       activeTurnId: "fixture-thinking",
@@ -71,56 +87,67 @@ for (const length of ["short", "long"]) {
       ],
     };
 
-    let connections = 0;
-
-    await page.route("**/api/events", async (route) => {
-      connections += 1;
-      await route.fulfill({
-        status: 200,
-        contentType: "text/event-stream",
-        body: `data: ${JSON.stringify(state)}\n\ndata: ${JSON.stringify(state)}\n\n`,
-      });
-    });
-    await page.goto("/");
     const notice = page.getByRole("note");
+    const metrics = await test.step("Render the persisted restart event and measure its actual layout", async () => {
+      await page.route("**/api/events", async (route) => {
+        connections += 1;
+        await route.fulfill({
+          status: 200,
+          contentType: "text/event-stream",
+          body: `data: ${JSON.stringify(state)}\n\ndata: ${JSON.stringify(state)}\n\n`,
+        });
+      });
+      await page.goto("/");
+      await expect(notice).toHaveText("Pocket restarted");
+      await expect(notice).toHaveCount(1);
+      await page.getByRole("button", { name: "Dismiss notification prompt" }).click();
+      await notice.scrollIntoViewIfNeeded();
+      await expect(notice).toBeVisible();
 
-    await expect(notice).toHaveText("Pocket restarted");
-    await expect(notice).toHaveCount(1);
-    await page.getByRole("button", { name: "Dismiss notification prompt" }).click();
-    await notice.scrollIntoViewIfNeeded();
-    await expect(notice).toBeVisible();
-    const metrics = await notice.evaluate((element) => {
-      const style = getComputedStyle(element);
-      const indicator = document.querySelector(".activity-indicator");
-      const icon = element.querySelector("svg");
-      const parent = element.parentElement;
+      return await notice.evaluate((element) => {
+        /**
+        Captures one atomic style/geometry sample after required layout nodes were verified.
+        @param indicator - Mounted activity label used as the visual reference.
+        @param icon - Mounted restart icon whose accessibility state is inspected.
+        @param parent - Restart container supplying the shared message gap.
+        @returns Actual restart/activity styles, shared gap and document geometry.
+        */
+        function captureLayout(indicator: Element, icon: SVGElement, parent: HTMLElement) {
+          const style = getComputedStyle(element);
+          const activity = getComputedStyle(indicator);
+          const row = element.closest("[data-transcript-row]");
+          const preceding = row?.previousElementSibling?.firstElementChild ?? element.previousElementSibling;
 
-      if (!indicator || !icon || !parent) {
-        throw new Error("Missing restart or activity layout");
-      }
+          return {
+            font: style.fontSize,
+            activityFont: activity.fontSize,
+            color: style.color,
+            activityColor: activity.color,
+            opacity: style.opacity,
+            activityOpacity: activity.opacity,
+            gap: style.gap,
+            activityGap: activity.gap,
+            center: style.justifyContent,
+            sharedGap: getComputedStyle(parent).getPropertyValue("--message-block-gap"),
+            measuredGap: preceding
+              ? element.getBoundingClientRect().top - preceding.getBoundingClientRect().bottom
+              : undefined,
+            iconHidden: icon.getAttribute("aria-hidden"),
+            insideBubble: !!element.closest('[data-slot="bubble"]'),
+            overflow: document.documentElement.scrollWidth > innerWidth,
+          };
+        }
 
-      const activity = getComputedStyle(indicator);
-      const row = element.closest("[data-transcript-row]");
-      const preceding = row?.previousElementSibling?.firstElementChild ?? element.previousElementSibling;
+        const indicator = document.querySelector(".activity-indicator");
+        const icon = element.querySelector("svg");
+        const parent = element.parentElement;
 
-      return {
-        font: style.fontSize,
-        activityFont: activity.fontSize,
-        color: style.color,
-        activityColor: activity.color,
-        opacity: style.opacity,
-        activityOpacity: activity.opacity,
-        gap: style.gap,
-        activityGap: activity.gap,
-        center: style.justifyContent,
-        sharedGap: getComputedStyle(parent).getPropertyValue("--message-block-gap"),
-        measuredGap: preceding
-          ? element.getBoundingClientRect().top - preceding.getBoundingClientRect().bottom
-          : undefined,
-        iconHidden: icon.getAttribute("aria-hidden"),
-        insideBubble: !!element.closest('[data-slot="bubble"]'),
-        overflow: document.documentElement.scrollWidth > innerWidth,
-      };
+        if (!indicator || !icon || !parent) {
+          throw new Error("Missing restart or activity layout");
+        }
+
+        return captureLayout(indicator, icon, parent);
+      });
     });
 
     expect(metrics.font).toBe(metrics.activityFont);
@@ -169,13 +196,12 @@ test("historical recovery instructions do not create a display event", async ({ 
 });
 
 test("read-only agent viewer excludes a parent restart event and retains ordinary messages", async ({ page }) => {
-  test.skip(!existsSync("src/components/agent-browser.tsx"), "Requires the integrated agent viewer");
+  const saved =
+    await test.step("Require the integrated read-only viewer before loading saved parent state", async () => {
+      test.skip(!existsSync("src/components/agent-browser.tsx"), "Requires the integrated agent viewer");
 
-  if (!artifacts.snapshotFile) {
-    throw new Error("Missing persisted restart fixture");
-  }
-
-  const saved = snapshotSchema.parse(JSON.parse(await readFile(artifacts.snapshotFile, "utf8")));
+      return await savedRestartSnapshot();
+    });
   const agent = {
     id: "codex:restart-exclusion",
     parentId: saved.threadId,
@@ -187,6 +213,8 @@ test("read-only agent viewer excludes a parent restart event and retains ordinar
   };
   // Deliberately include the parent's typed item in a child response: readOnly must exclude it.
   const child = { ...saved, threadId: "restart-exclusion-child", activeTurnId: undefined };
+  const parent = page.locator("main");
+  const dialog = page.getByRole("dialog", { name: "Agents", exact: true });
 
   expect(child.turns.flatMap((turn) => turn.items).filter((item) => item.type === "pocketRestart")).toHaveLength(1);
   await page.route("**/api/events", (route) =>
@@ -203,13 +231,9 @@ test("read-only agent viewer excludes a parent restart event and retains ordinar
     })
   );
   await page.goto("/");
-  const parent = page.locator("main");
-
   await expect(parent.getByRole("note")).toHaveCount(1);
   await expect(parent.getByRole("note")).toHaveText("Pocket restarted");
   await page.getByRole("button", { name: "1 agent", exact: true }).click();
-  const dialog = page.getByRole("dialog", { name: "Agents", exact: true });
-
   await dialog.getByRole("button", { name: /Restart exclusion child/ }).click();
   await expect(dialog.getByText("Original user content must remain unchanged.", { exact: true })).toBeVisible();
   await expect(dialog.getByRole("note")).toHaveCount(0);
