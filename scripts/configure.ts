@@ -104,6 +104,7 @@ async function setup() {
 // Codex injects its own thread ID into agent shells. Pocket selects its thread explicitly.
 delete process.env.CODEX_THREAD_ID;
 
-nextEnv.loadEnvConfig(process.cwd());
+// A running Next service passes its environment-loaded flag to child processes.
+nextEnv.loadEnvConfig(process.cwd(), undefined, undefined, true);
 
 await setup();
