@@ -21,10 +21,10 @@ The visible button is keyboard and screen reader accessible. The compact attachm
 ## Local integration verification
 
 ```sh
-NODE_ENV=development CODEX_THREAD_ID= npx playwright test -c playwright.uploads.config.ts
-NODE_ENV=development CODEX_THREAD_ID= npx playwright test -c playwright.attachment-layout.config.ts
+CODEX_THREAD_ID= npm run test:e2e:uploads
+CODEX_THREAD_ID= npm run test:e2e:attachments
 npm run typecheck
 npm run lint
 ```
 
-The Playwright configurations start an isolated Next dev server on port 3118 with a fake Codex executable, fake parent ID, private state directory, and no real chat messages. Upload flows verify mobile Chromium, mobile WebKit, and desktop Chromium: native/keyboard picker activation, progress, remove, upload retry/reload, file-only and text+file sends, actual harness payloads and readable bytes, animated GIF original paths/frame counts/timing, lost-ack idempotency, persisted queue reconnect, retained file-response bytes, bounds, parent scope, filename/origin rejection, draft preservation, and IME/newline behavior. Layout flows measure actual 16px gaps, responsive widths, padding, overflow, and absent upload preview/download actions at 320px/390px in Chromium/WebKit and 1280px desktop. A read-only viewer UI fixture checks noninteractive file rows and unrelated assistant-image previews. Screenshots remain local under `.local/uploads-replay/` and `.local/attachment-visual-review/`. Device emulation does not verify a physical phone's native picker or keyboard. No CI or live Codex model is used.
+The named upload and attachment projects in the root Playwright configuration share an isolated Next dev server on port 3118 with a fake Codex executable, fake parent ID, private state directory, and no real chat messages. Upload flows verify mobile Chromium, mobile WebKit, and desktop Chromium: native/keyboard picker activation, progress, remove, upload retry/reload, file-only and text+file sends, actual harness payloads and readable bytes, animated GIF original paths/frame counts/timing, lost-ack idempotency, persisted queue reconnect, retained file-response bytes, bounds, parent scope, filename/origin rejection, draft preservation, and IME/newline behavior. Layout flows measure actual 16px gaps, responsive widths, padding, overflow, and absent upload preview/download actions at 320px/390px in Chromium/WebKit and 1280px desktop. A read-only viewer UI fixture checks noninteractive file rows and unrelated assistant-image previews. Screenshots remain local under `.local/uploads-replay/` and `.local/attachment-visual-review/`. Device emulation does not verify a physical phone's native picker or keyboard. No CI or live Codex model is used.

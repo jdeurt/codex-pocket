@@ -225,7 +225,7 @@ test("API confines IDs, origins, filenames, content and retries", async ({ reque
   expect(emptyMessage.ok()).toBeFalsy();
 });
 
-test("keyboard picker, upload progress, parent draft and IME sending", async ({ page }, info) => {
+test("keyboard picker, upload progress, parent draft and IME sending", async ({ page, isMobile }, info) => {
   await page.goto("/");
   const attach = page.getByRole("button", { name: "Attach images or files", exact: true });
   await expect(attach).toBeEnabled();
@@ -264,10 +264,9 @@ test("keyboard picker, upload progress, parent draft and IME sending", async ({ 
   await expect(textarea).toHaveValue(`${draft}\n`);
   await textarea.fill(draft);
 
-  if (info.project.name === "desktop-chromium") {
-    await textarea.press("Enter");
-  } else {
-    await textarea.press("Enter");
+  await textarea.press("Enter");
+
+  if (isMobile) {
     await expect(textarea).toHaveValue(`${draft}\n`);
     await send.click();
   }

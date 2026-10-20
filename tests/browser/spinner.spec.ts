@@ -1,17 +1,16 @@
-import { type ChildProcess, spawn } from "node:child_process";
 import { type Page, expect, test } from "@playwright/test";
+import { type SpinnerServer, startSpinnerServer, stopSpinnerServer } from "../fixtures/spinner-server";
 import { alignment, animatedGrayscale, captureSlot } from "./spinner-helpers";
 import { checkLegacyTone, checkSpinnerTone } from "./spinner-tone-check";
 import { copyFile, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { SPINNER_ORIGIN } from "../fixtures/browser-defaults";
 import assert from "node:assert/strict";
 import { createSpinnerSite } from "../fixtures/spinner-site";
-import { once } from "node:events";
 import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
 import { spinnerClient } from "../fixtures/spinner-client";
 
-const HTTP_OK = 200;
 const HTTP_NOT_MODIFIED = 304;
 const HTTP_NOT_FOUND = 404;
 const HTTP_METHOD_NOT_ALLOWED = 405;
@@ -23,90 +22,26 @@ const BACKGROUND_TOLERANCE = 3;
 const MIN_RENDERED_ROWS = 7;
 const MAX_RENDERED_ROWS = 9;
 
-const origin = "http://127.0.0.1:3103";
-const server: {
-  directory: string;
-  project: string;
-  host?: ChildProcess;
-  main?: Awaited<ReturnType<typeof spinnerClient>>;
-  output: string;
-} = { directory: "", project: "", output: "" };
+const origin = SPINNER_ORIGIN;
+const server: SpinnerServer = { directory: "", project: "", output: "" };
 
-async function startServer() {
-  server.output = "";
-  server.host = spawn(
-    process.execPath,
-    ["node_modules/next/dist/bin/next", "dev", server.project, "--hostname", "127.0.0.1", "--port", "3103"],
-    {
-      cwd: process.cwd(),
-      env: {
-        ...process.env,
-        NODE_ENV: "development",
-        CODEX_THREAD_ID: "spinner-fixture",
-        CODEX_CWD: server.directory,
-        CODEX_POCKET_STATE_DIR: server.directory,
-        CODEX_BINARY: process.execPath,
-        CODEX_SERVER_ARGS: JSON.stringify([path.resolve("tests/fixtures/spinner-harness.mjs")]),
-        CODEX_ALLOWED_ORIGINS: origin,
-        POCKET_CHILD_ID: "",
-        POCKET_COMMAND_ID: "",
-      },
-      stdio: ["ignore", "pipe", "pipe"],
-    }
-  );
-  server.host.stdout?.on("data", (data) => {
-    server.output += String(data);
-  });
-  server.host.stderr?.on("data", (data) => {
-    server.output += String(data);
-  });
-  await expect
-    .poll(
-      async () => {
-        if (server.host?.exitCode !== null) {
-          throw new Error(server.output);
-        }
-
-        try {
-          const response1 = await fetch(`${origin}/api/spinner`);
-
-          return response1.status;
-        } catch {
-          return 0;
-        }
-      },
-      { timeout: 90_000, message: "isolated Next dev fixture starts" }
-    )
-    .toBe(HTTP_OK);
-}
-
-async function stopServer() {
-  if (server.host?.exitCode === null) {
-    const closed = once(server.host, "exit");
-    server.host.kill("SIGTERM");
-    await closed;
-  }
-
-  server.host = undefined;
-}
-
-test.beforeAll(async () => {
+test.beforeAll(async ({ browserName }) => {
   await mkdir(".local", { recursive: true });
   server.directory = await mkdtemp(path.join(os.tmpdir(), "pocket-spinner-browser-"));
   server.project = process.cwd();
 
-  if (test.info().project.name === "webkit") {
+  if (browserName === "webkit") {
     // Safari's existing chat scroller can stall forced layouts. Verify this standalone feature
     // against the same Next routes/component/styles without changing that separately owned scroller.
     server.project = await createSpinnerSite();
   }
 
   server.main = await spinnerClient(server.directory);
-  await startServer();
+  await startSpinnerServer(server, origin);
 });
 
 test.afterAll(async () => {
-  await stopServer();
+  await stopSpinnerServer(server);
   await writeFile(`.local/spinner-server-${test.info().project.name}.log`, server.output);
   await server.main?.client.close();
   await rm(server.directory, { recursive: true, force: true });
@@ -274,8 +209,8 @@ test("tool-managed GIF animates in grayscale across desktop/mobile, persists thr
   }
 
   // Restart the real Next process, retaining only this test's private state and fake harness.
-  await stopServer();
-  await startServer();
+  await stopSpinnerServer(server);
+  await startSpinnerServer(server, origin);
   const spinnerLibrary8 = await main.call("spinner_status");
   expect(spinnerLibrary8.current?.id).toBe(id);
   const page = await browser.newPage({ reducedMotion: "no-preference" });
