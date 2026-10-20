@@ -9,11 +9,12 @@ import { type spinnerClient } from "../fixtures/spinner-client";
 
 const SOURCE_GIF_WIDTH = 128;
 const SLOT_EDGE = 32;
+const IMAGE_EDGE = 28;
 const STATIC_CAPTURE_DELAY_MS = 150;
 const WIDE_IMAGE_WIDTH = 160;
 const BACKGROUND_TOLERANCE = 3;
-const MIN_RENDERED_ROWS = 7;
-const MAX_RENDERED_ROWS = 9;
+const MIN_RENDERED_ROWS = 6;
+const MAX_RENDERED_ROWS = 8;
 const HTTP_NOT_FOUND = 404;
 
 /**
@@ -67,6 +68,12 @@ export async function checkSpinnerViewport(
     await test.step("Verify animation, reload and reduced-motion fallback before capturing a still frame", async () => {
       expect(customPosition.slot.width).toBe(SLOT_EDGE);
       expect(customPosition.slot.height).toBe(SLOT_EDGE);
+      expect(await slot.locator("img").boundingBox()).toEqual({
+        x: customPosition.slot.x + (SLOT_EDGE - IMAGE_EDGE) / 2,
+        y: customPosition.slot.y + (SLOT_EDGE - IMAGE_EDGE) / 2,
+        width: IMAGE_EDGE,
+        height: IMAGE_EDGE,
+      });
       await animatedGrayscale(page);
       await page.screenshot({ path: `.local/spinner-${label}.png` });
       await page.reload();
@@ -76,6 +83,8 @@ export async function checkSpinnerViewport(
       await page.emulateMedia({ reducedMotion: "reduce" });
       await expect(slot.locator("img")).toHaveCount(0);
       await expect(slot.locator('svg[data-slot="spinner"]')).toBeVisible();
+      await expect(slot.locator('svg[data-slot="spinner"]')).toHaveCSS("width", "16px");
+      await expect(slot.locator('svg[data-slot="spinner"]')).toHaveCSS("height", "16px");
       expect(
         await page.evaluate(() => {
           const arc = globalThis.document.querySelector("[data-activity-spinner] .spinner-arc");

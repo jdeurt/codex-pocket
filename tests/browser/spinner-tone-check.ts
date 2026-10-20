@@ -7,8 +7,8 @@ import sharp from "sharp";
 import { type spinnerClient } from "../fixtures/spinner-client";
 
 const BACKGROUND = 33;
-const BAND_SAMPLE_X = 9;
-const BAND_WIDTH = 4;
+const BAND_SAMPLE_X = 10;
+const BAND_WIDTH = 3.5;
 const CHANNEL_MAX = 255;
 const OPACITY = 0.7;
 const HALF_ALPHA = 128;
@@ -85,7 +85,7 @@ export async function checkSpinnerTone(
         expect(value(0, 0)).toBe(BACKGROUND);
 
         for (const [band, level] of levels.entries()) {
-          const x = BAND_SAMPLE_X + band * BAND_WIDTH;
+          const x = Math.round(BAND_SAMPLE_X + band * BAND_WIDTH);
           const normalized = tone.contrast * level + tone.brightness * CHANNEL_MAX;
           const expected = BACKGROUND + OPACITY * (normalized - BACKGROUND);
           const halfAlpha = BACKGROUND + OPACITY * (HALF_ALPHA / CHANNEL_MAX) * (normalized - BACKGROUND);
