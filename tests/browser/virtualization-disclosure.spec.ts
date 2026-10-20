@@ -6,6 +6,8 @@ const MAX_MOUNTED_ROWS = 250;
 const MIN_HIT_TARGET = 44;
 const ANCHOR_TOLERANCE = 3;
 const ACTIVITY_MESSAGES = 3;
+const MIN_READER_GAP = 90;
+const MISSING_GAP = -1;
 
 test("activity disclosure keeps shared outer gaps and hit target through expansion and virtualization", async ({
   page,
@@ -84,7 +86,23 @@ test("activity disclosure keeps shared outer gaps and hit target through expansi
   }
 
   expect(before.height).toBeGreaterThanOrEqual(MIN_HIT_TARGET);
+  await show.evaluate((control, missingGap) => {
+    control.addEventListener(
+      "pointerdown",
+      () => {
+        control.dataset.activationY = String(control.getBoundingClientRect().y);
+        const viewport = control.closest('[data-slot="message-scroller-viewport"]');
+        control.dataset.activationGap = String(
+          viewport ? viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight : missingGap
+        );
+      },
+      { once: true }
+    );
+  }, MISSING_GAP);
   await show.click();
+  const activationY = Number(await hide.getAttribute("data-activation-y"));
+  const activationGap = Number(await hide.getAttribute("data-activation-gap"));
+  expect(activationGap).toBeGreaterThan(MIN_READER_GAP);
   await expect(hide).toHaveAttribute("aria-expanded", "true");
   await expect.poll(async () => Math.max(...(await gapErrors(true)))).toBeLessThan(1);
   const expandedBox = await hide.boundingBox();
@@ -93,7 +111,7 @@ test("activity disclosure keeps shared outer gaps and hit target through expansi
     .poll(async () => {
       const current = await hide.boundingBox();
 
-      return current ? Math.abs(current.y - before.y) : Infinity;
+      return current ? Math.abs(current.y - activationY) : Infinity;
     })
     .toBeLessThan(ANCHOR_TOLERANCE);
   await scroller.evaluate((element) => {
