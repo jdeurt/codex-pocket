@@ -1,6 +1,6 @@
 import { type APIResponse, expect, test } from "@playwright/test";
+import { MAX_FILE_BYTES, attachmentUrl } from "../../src/lib/attachments";
 import { readFile, writeFile } from "node:fs/promises";
-import { MAX_FILE_BYTES } from "../../src/lib/attachments";
 import path from "node:path";
 import sharp from "sharp";
 
@@ -69,7 +69,9 @@ test("pick, retry, remove, file-only send, reload, queued recovery and real stor
   await page.screenshot({ path: path.join(directory, `${info.project.name}-selected.png`) });
   await send.click();
   await expect(selected).toHaveCount(0);
-  await expect(page.getByRole("link", { name: `Download ${photoName}, ${png.length} B` })).toBeVisible();
+  await expect(
+    page.getByRole("list", { name: "Attachments", exact: true }).getByText(photoName, { exact: true })
+  ).toBeVisible();
   const photoRequests = await requests();
   const photoRequest = photoRequests.findLast((request) =>
     request.input.some((part: { type: string }) => part.type === "localImage")
@@ -148,13 +150,16 @@ test("pick, retry, remove, file-only send, reload, queued recovery and real stor
   expect(
     Buffer.from(delivered.bytes.find((file: { name: string }) => file.name === textName).base64, "base64")
   ).toEqual(textBytes);
-  await expect(page.getByRole("link", { name: new RegExp(`Download ${textName},`) }).last()).toBeVisible();
+  await expect(
+    page.getByRole("list", { name: "Attachments", exact: true }).getByText(textName, { exact: true }).last()
+  ).toBeVisible();
   await page.reload();
   await expect(selected).toHaveCount(0);
-  const downloadLink = page.getByRole("link", { name: new RegExp(`Download ${binaryName},`) }).last();
-  await expect(downloadLink).toBeVisible();
-  const downloadUrl = await downloadLink.getAttribute("href");
-  const download = await page.request.get(downloadUrl ?? "");
+  await expect(
+    page.getByRole("list", { name: "Attachments", exact: true }).getByText(binaryName, { exact: true }).last()
+  ).toBeVisible();
+  const binaryFile = receipt.attachments.find((file: { name: string }) => file.name === binaryName);
+  const download = await page.request.get(attachmentUrl(binaryFile.id));
   expect(download.headers()["content-type"]).toBe("application/octet-stream");
   expect(download.headers()["content-disposition"]).toContain("attachment;");
   expect(await download.body()).toEqual(binary);
@@ -317,12 +322,11 @@ test("animated GIF exposes its durable original path to harness tools", async ({
   expect(imagePath).not.toBe(original.path);
   const preview = await sharp(imagePath).metadata();
   expect(preview.format).toBe("png");
-  const link = page.getByRole("link", { name: new RegExp(`Download ${name},`) });
-  const url = await link.getAttribute("href");
-  const download = await page.request.get(url ?? "");
+  const fileCard = page.getByRole("list", { name: "Attachments", exact: true }).getByText(name, { exact: true });
+  const download = await page.request.get(attachmentUrl(path.basename(path.dirname(original.path))));
   expect(await download.body()).toEqual(gif);
   await page.reload();
   expect(await readFile(original.path)).toEqual(gif);
-  await expect(link).toBeVisible();
+  await expect(fileCard).toBeVisible();
   await control("complete");
 });

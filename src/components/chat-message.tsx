@@ -22,6 +22,12 @@ function messageText(item: Item) {
     : "";
 }
 
+function uploadedFiles(item: Item) {
+  const files = Array.isArray(item.attachments) ? (item.attachments as FileAttachment[]) : [];
+
+  return { files, layout: files.length > 0 ? "w-full max-w-full" : undefined };
+}
+
 export function ChatMessage({ item }: { item: Item }) {
   if (item.type === "pocketRestart") {
     return <SystemEvent />;
@@ -31,19 +37,22 @@ export function ChatMessage({ item }: { item: Item }) {
     return <ToolMessage item={item} />;
   }
 
+  const { files, layout } = uploadedFiles(item);
+
   return (
     <Message align={item.type === "userMessage" ? "end" : "start"}>
       <MessageContent>
         <Bubble
+          className={layout}
           data-message-id={string(item.clientId) || item.id}
           data-message-phase={string(item.phase) || undefined}
           data-delivery={item.type === "userMessage" ? "sent" : undefined}
           variant={item.type === "userMessage" ? "secondary" : "ghost"}
           align={item.type === "userMessage" ? "end" : "start"}
         >
-          <BubbleContent>
-            {Array.isArray(item.attachments) && <FileAttachments files={item.attachments as FileAttachment[]} />}
-            {Array.isArray(item.images) && item.images.length > 0 && (
+          <BubbleContent className={layout}>
+            <FileAttachments files={files} />
+            {files.length === 0 && Array.isArray(item.images) && item.images.length > 0 && (
               <AttachmentGroup layout="wrap" className="chat-images">
                 {item.images.map((image) => (
                   <ChatImage
