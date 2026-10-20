@@ -121,8 +121,8 @@ export function ActivitySpinner() {
           className="custom-activity-spinner-image"
           style={current.tone ? { filter: `url("#${filterId}")`, opacity: 1 } : undefined}
           src={`/api/spinner/${current.id}`}
-          width={32}
-          height={32}
+          width={28}
+          height={28}
           alt=""
           onLoad={() => {
             setLoaded(current.id);

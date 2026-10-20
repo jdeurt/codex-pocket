@@ -124,13 +124,10 @@
   padding: 24px 24px 32px;
 }
 .notification-prompt {
-  position: absolute;
+  position: relative;
   z-index: 20;
-  bottom: calc(100% + 8px);
-  left: 0;
-  right: 0;
-  width: min(calc(100% - 32px), 736px);
-  margin: 0 auto;
+  width: 100%;
+  margin: 0 auto 12px;
   /* Match the visible X strokes: 10px outer padding + 16px inside its 44px target. */
   padding-left: 26px;
   border-radius: 20px;
@@ -335,6 +332,9 @@
 .system-event {
   justify-content: center;
 }
+.activity-indicator {
+  min-width: 0;
+}
 .activity-spinner,
 .system-event-icon {
   display: block;
@@ -530,17 +530,16 @@
 }
 .agents-trigger {
   margin-left: auto;
+  margin-right: -8px;
+  margin-block: -6px;
+  padding: 6px 8px;
   min-height: 44px;
+  min-width: 44px;
   flex-shrink: 0;
   color: var(--muted-foreground);
   font-size: 13px;
+  line-height: 32px;
   cursor: pointer;
-}
-.chat-shell:has(.agents-trigger) > .composer-wrap .notification-prompt {
-  position: relative;
-  inset: auto;
-  width: 100%;
-  margin: 0 auto 12px;
 }
 .agents-trigger:focus-visible,
 .agent-row:focus-visible {

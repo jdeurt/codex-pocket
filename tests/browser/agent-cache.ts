@@ -1,6 +1,6 @@
-import { type APIRequestContext, expect, test } from "@playwright/test";
+import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
 import { readFile, writeFile } from "node:fs/promises";
-import { agentTranscriptSchema } from "../../src/lib/agents";
+import { agentCatalogSchema, agentTranscriptSchema, isActiveAgent } from "../../src/lib/agents";
 import { replayLogSchema } from "../fixtures/replay-protocol";
 import { z } from "zod";
 
@@ -8,6 +8,8 @@ const LAST_TURN = -1;
 const directory = ".local/agent-browser-replay";
 const ARCHIVED_TURNS = 40;
 const MAX_READS = 4;
+const CACHED_READ_TIMEOUT_MS = 2000;
+const REPEATED_CATALOG_READS = 3;
 const idsSchema = z.record(z.string(), z.string());
 const metricsSchema = z.object({ maxReads: z.number() });
 
@@ -32,6 +34,91 @@ async function archivedTranscript(request: APIRequestContext) {
   const response = await request.get("/api/agents?agent=codex:done-codex");
 
   return agentTranscriptSchema.parse(await response.json());
+}
+
+/**
+Checks that warm catalog requests and the real agent dialog remain usable while native discovery is held.
+@param page - Browser displaying the private fake-backed parent and agent dialog.
+@param request - API client sharing that same real server and cache.
+@returns The last verified catalog timestamp retained while discovery cannot complete.
+*/
+async function heldDiscovery(page: Page, request: APIRequestContext) {
+  await expect
+    .poll(async () => {
+      const response = await request.get("/api/agents", { timeout: CACHED_READ_TIMEOUT_MS });
+      const captured = await journal();
+
+      expect(response.ok()).toBeTruthy();
+
+      return captured.entries.filter((entry) => entry.method === "thread/list" && entry.stage === "discovery-held")
+        .length;
+    })
+    .toBe(1);
+
+  const verified = await test.step("Keep known agents available without awaiting the held native response", async () => {
+    const response = await request.get("/api/agents", { timeout: CACHED_READ_TIMEOUT_MS });
+    const catalog = agentCatalogSchema.parse(await response.json());
+
+    expect(catalog.agents.filter(isActiveAgent)).toHaveLength(6);
+
+    return catalog.updatedAt;
+  });
+
+  for (let read = 0; read < REPEATED_CATALOG_READS; read++) {
+    const response = await request.get("/api/agents?view=list", { timeout: CACHED_READ_TIMEOUT_MS });
+    const catalog = agentCatalogSchema.parse(await response.json());
+
+    expect(catalog.updatedAt).toBe(verified);
+    expect(catalog.agents.filter(isActiveAgent)).toHaveLength(6);
+  }
+
+  const captured = await journal();
+
+  expect(
+    captured.entries.filter((entry) => entry.method === "thread/list" && entry.stage === "discovery-held")
+  ).toHaveLength(1);
+  await expect(page.getByRole("dialog", { name: "Agents", exact: true })).toBeVisible();
+  await expect(page.getByText("Updates unavailable. Reconnecting automatically.", { exact: true })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "6 agents", exact: true })).toHaveCount(1);
+
+  return verified;
+}
+
+/**
+Exercises the real polling UI, scoped routes, native discovery gate and eventual cache refresh together.
+@param page - Browser showing the parent chat whose draft must survive reconnect.
+@param request - API client bound to the same isolated app.
+@param control - Atomic fake-host stage writer used to hold and release native responses.
+*/
+export async function checkAgentReconnect(
+  page: Page,
+  request: APIRequestContext,
+  control: (stage: string) => Promise<void>
+) {
+  await page.goto("/");
+  await page.getByRole("textbox", { name: "Message Pocket" }).fill("Retained during slow discovery");
+  await page.getByRole("button", { name: "6 agents", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Agents", exact: true })).toBeVisible();
+  await control("discovery-held");
+
+  let verified = 0;
+
+  try {
+    verified = await heldDiscovery(page, request);
+  } finally {
+    await control("updated");
+  }
+
+  await expect
+    .poll(async () => {
+      const response = await request.get("/api/agents");
+      const catalog = agentCatalogSchema.parse(await response.json());
+
+      return catalog.updatedAt;
+    })
+    .toBeGreaterThan(verified);
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("textbox", { name: "Message Pocket" })).toHaveValue("Retained during slow discovery");
 }
 
 /**
