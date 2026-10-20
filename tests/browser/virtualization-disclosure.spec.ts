@@ -146,9 +146,8 @@ test("activity disclosure keeps shared outer gaps and hit target through expansi
   }, MISSING_GAP);
   await show.click();
   const activationY = Number(await hide.getAttribute("data-activation-y"));
-  const activationGap = Number(await hide.getAttribute("data-activation-gap"));
 
-  expect(activationGap).toBeGreaterThan(MIN_READER_GAP);
+  expect(Number(await hide.getAttribute("data-activation-gap"))).toBeGreaterThan(MIN_READER_GAP);
   await expect(hide).toHaveAttribute("aria-expanded", "true");
   await expect.poll(async () => Math.max(...(await gapErrors(true)))).toBeLessThan(1);
   const expandedBox = await hide.boundingBox();

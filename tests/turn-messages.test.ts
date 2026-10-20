@@ -63,15 +63,13 @@ await test("legacy phase-less history keeps its last reply, and commentary-only 
   const final = items.at(LAST_ITEM_INDEX);
 
   assert.ok(final);
-  const onlyFinal = turnMessages({ ...turn, items: [final] }, false);
 
   assert.equal(
-    onlyFinal.some((entry) => entry.kind === "activity"),
+    turnMessages({ ...turn, items: [final] }, false).some((entry) => entry.kind === "activity"),
     false
   );
-  const interrupted = turnMessages({ ...turn, status: "interrupted", items: [items[1]] }, false);
 
-  assert.equal(interrupted[0].kind, "message");
+  assert.equal(turnMessages({ ...turn, status: "interrupted", items: [items[1]] }, false)[0].kind, "message");
 });
 
 await test("uninterrupted activity still collapses with the final answer outside", () => {

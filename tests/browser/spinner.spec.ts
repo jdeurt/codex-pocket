@@ -118,9 +118,8 @@ test("tool-managed GIF animates in grayscale across desktop/mobile, persists thr
       const slot = page.locator("[data-activity-spinner]");
 
       await ready(page);
-      const img = slot.locator("img");
 
-      await expect(img).toBeVisible();
+      await expect(slot.locator("img")).toBeVisible();
       await expect
         .poll(() =>
           page.evaluate(() => {

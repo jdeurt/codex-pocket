@@ -294,14 +294,14 @@ test("native browser clipboard receives the decoded text", async ({ page, contex
   }
 
   const { markdown, writes } = await showChat(page, marker(text));
-  const isAvailable = await page.evaluate(() => "clipboard" in navigator);
+  const isAvailable = await page.evaluate(() => "clipboard" in globalThis.navigator);
 
   test.skip(!isAvailable, "Native clipboard is unavailable in this browser environment.");
   await markdown.getByRole("button", { name: "Copy text", exact: true }).click();
   await expect(markdown.getByRole("status")).toHaveText("Copied");
 
   if (browserName === "chromium") {
-    expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(text);
+    expect(await page.evaluate(() => globalThis.navigator.clipboard.readText())).toBe(text);
   } else {
     // WebKit requires a real paste gesture for clipboard read access.
     const composer = page.getByRole("textbox", { name: "Message Pocket" });

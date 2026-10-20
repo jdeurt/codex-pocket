@@ -115,9 +115,8 @@ await test("payloads retain full replies that fit and limit actual encrypted byt
     assert.ok(text.startsWith(String(body)));
     assert.ok(!String(body).endsWith("…"));
     assert.ok(!String(body).includes("�"));
-    const encrypted = webpush.generateRequestDetails(device, payload);
 
-    assert.ok(Buffer.byteLength(encrypted.body) <= MAX_ENCRYPTED_BYTES);
+    assert.ok(Buffer.byteLength(webpush.generateRequestDetails(device, payload).body) <= MAX_ENCRYPTED_BYTES);
 
     if (text === texts[0]) {
       assert.equal(body, text.trim());

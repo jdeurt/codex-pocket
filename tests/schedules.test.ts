@@ -25,9 +25,11 @@ await test("one-time events, recurring dates, exclusions and DST resolve to UTC 
   );
 
   assert.equal(await nextOccurrence(repeating, Date.parse("2026-10-31T16:00:00Z")), Date.parse("2026-11-02T17:00:00Z"));
-  const additional = normalizeCalendar(`${input.calendar}\nRDATE:20261022T180000Z`);
 
-  assert.equal(await nextOccurrence(additional, FIRST), Date.parse("2026-10-22T18:00:00Z"));
+  assert.equal(
+    await nextOccurrence(normalizeCalendar(`${input.calendar}\nRDATE:20261022T180000Z`), FIRST),
+    Date.parse("2026-10-22T18:00:00Z")
+  );
 });
 
 await test("invalid dates, floating dates, timezones and ambiguous event shapes are rejected", () => {

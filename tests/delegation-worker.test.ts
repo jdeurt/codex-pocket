@@ -110,7 +110,7 @@ await test(
     await worker.until(() => worker.starts().length === CAPACITY + THREE_MORE_STARTS);
     assert.equal(worker.starts().at(LAST_INDEX)?.text, "followup-two");
     assert.deepEqual(
-      store.queue.list(owner, String(first.childId)).map((command) => command.status),
+      store.queue.list(owner, first.childId).map((command) => command.status),
       ["completed", "completed", "running"]
     );
   }
@@ -134,12 +134,10 @@ await test(
 
     await tool(childMcp, "message_parent", { message: "Cross-process report" });
     await worker.until((events) =>
-      events.some((entry) => entry.event === "mail" && String(entry.text).includes("Cross-process report"))
+      events.some((entry) => entry.event === "mail" && entry.text.includes("Cross-process report"))
     );
     await worker.call("ask", { childId: child.id });
-    await worker.until((events) =>
-      events.some((entry) => entry.event === "mail" && String(entry.text).includes("request"))
-    );
+    await worker.until((events) => events.some((entry) => entry.event === "mail" && entry.text.includes("request")));
     const request = store.mail.requests(owner, String(child.id))[0];
 
     await tool(client, "side_pocket_answer", {
@@ -270,9 +268,13 @@ await test(
 
     assert.equal(claimed.length, CAPACITY);
     assert.equal(new Set(claimed.map((command) => command.id)).size, CAPACITY);
-    const commands = children.flatMap((child) => store.queue.list(owner, String(child.id)));
 
-    assert.equal(commands.filter((command) => command.status === "running").length, CAPACITY);
+    assert.equal(
+      children
+        .flatMap((child) => store.queue.list(owner, String(child.id)))
+        .filter((command) => command.status === "running").length,
+      CAPACITY
+    );
   }
 );
 
