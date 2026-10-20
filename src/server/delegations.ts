@@ -93,7 +93,7 @@ Insert a new child and its first command only after retry and native-policy chec
         value.idempotencyKey,
         fingerprint
       );
-    this.queue.send(parentId, id, "initial", value.body);
+    this.queue.send(parentId, id, "initial", value.body, "queue");
     log().info({ parentId, childId: id, input: value }, "side_pocket.created");
 
     return this.get(parentId, id);
@@ -277,7 +277,9 @@ Atomically persist close intent and cancel queued work and pending native reques
         }
 
         this.db
-          .prepare("UPDATE delegation_commands SET status='cancelled' WHERE childId=? AND status='queued'")
+          .prepare(
+            "UPDATE delegation_commands SET status='cancelled' WHERE childId=? AND status IN ('queued','pending')"
+          )
           .run(id);
         this.mail.cancelRequests(id);
 
@@ -313,7 +315,7 @@ Record interrupted native commands as uncertain without replaying their work.
   recover(parentId: string) {
     for (const child of this.list(parentId)) {
       for (const command of this.queue.list(parentId, child.id)) {
-        if (command.status !== "running") {
+        if (command.status !== "running" && command.status !== "sending") {
           continue;
         }
 

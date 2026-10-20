@@ -22,7 +22,7 @@ async function startThread(rpc: CodexRpc, config: Config) {
     approvalPolicy: "on-request",
     sandbox: "read-only",
     ephemeral: false,
-    developerInstructions: pocketInstructions(string(effective.developer_instructions), false),
+    developerInstructions: pocketInstructions(string(effective.developer_instructions)),
   });
   const threadId = started.thread.id;
 

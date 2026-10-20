@@ -1,4 +1,5 @@
 import { type DelegationCommand, delegationCommandSchema, pocket, storedPocketSchema } from "./delegation-data";
+import { CommandSteering } from "./delegation-steering";
 import type Database from "better-sqlite3";
 import { type DelegationNotifications } from "./delegation-notifications";
 import { type DelegationStore } from "./delegations";
@@ -11,6 +12,8 @@ export const MAX_CONCURRENT_CHILDREN = 8;
 Own durable child commands and preserve the global eight-slot native execution cap.
 */
 export class DelegationQueue {
+  readonly steering: CommandSteering;
+
   /**
 Bind the native command database and its concrete child and notification owners.
 @param db - Private native delegation database shared by immediate transactions.
@@ -21,7 +24,9 @@ Bind the native command database and its concrete child and notification owners.
     private db: Database.Database,
     private store: DelegationStore,
     private notifications: DelegationNotifications
-  ) {}
+  ) {
+    this.steering = new CommandSteering(db, notifications);
+  }
 
   /**
 Insert a validated new command only after retry and child-state guards succeed.
@@ -29,14 +34,44 @@ Insert a validated new command only after retry and child-state guards succeed.
 @param childId - Managed child accepting the command.
 @param key - Validated stable command retry identity.
 @param text - Validated exact command body.
-@returns Validated newly persisted queued command.
+@param mode - Current-task correction or explicitly separate later assignment.
+@param supersedes - Canonical selected assignment identities retained for retry comparison.
+@returns Validated message receipt bound to its assignment when one exists.
 */
-  private insertCommand(parentId: string, childId: string, key: string, text: string) {
+  private insertCommand(
+    parentId: string,
+    childId: string,
+    key: string,
+    text: string,
+    mode: "steer" | "queue",
+    supersedes: string
+  ) {
     const id = crypto.randomUUID();
+    const commands = this.list(parentId, childId);
+    const child = this.store.get(parentId, childId);
+    const current =
+      commands.find((entry) => entry.status === "running") ??
+      (child.sessionId ? undefined : commands.find((entry) => entry.key === "initial" && entry.status === "queued"));
+    const target = mode === "steer" ? current : undefined;
 
     this.db
-      .prepare("INSERT INTO delegation_commands VALUES (?,?,?,?,?,'queued',NULL,?)")
-      .run(id, childId, parentId, key, text, Date.now());
+      .prepare(
+        `INSERT INTO delegation_commands
+      (id,childId,parentId,key,body,status,result,createdAt,mode,targetId,supersedes)
+      VALUES (?,?,?,?,?,?,NULL,?,?,?,?)`
+      )
+      .run(
+        id,
+        childId,
+        parentId,
+        key,
+        text,
+        target ? "pending" : "queued",
+        Date.now(),
+        mode,
+        target?.id ?? null,
+        supersedes
+      );
     this.notifications.changed();
 
     return delegationCommandSchema.parse(this.db.prepare("SELECT * FROM delegation_commands WHERE id=?").get(id));
@@ -49,7 +84,8 @@ Claim the oldest queued command while the caller holds the immediate capacity tr
 @returns Claimed command, or undefined when no queued command remains.
 */
   private claimNext(parentId: string, childId: string) {
-    const command = this.list(parentId, childId).find((entry) => entry.status === "queued");
+    const queued = this.list(parentId, childId).filter((entry) => entry.status === "queued");
+    const command = queued.find((entry) => entry.mode === "steer") ?? queued.at(0);
 
     if (!command) {
       return;
@@ -82,10 +118,21 @@ Persist a scoped follow-up once, retaining retries before closed-child rejection
 @param childId - Managed child accepting the follow-up.
 @param key - Stable retry identity reused for the same body.
 @param body - Exact follow-up body parsed by the shared command schema.
-@returns Existing or newly queued native command.
+@param mode - Current-task steering by default; queue only explicitly distinct work.
+@param supersedes - Selected unsent assignments atomically withdrawn by this send.
+@returns Existing receipt, pending active correction, or capacity-gated saved-session assignment.
 */
-  send(parentId: string, childId: string, key: string, body: string) {
+  send(
+    parentId: string,
+    childId: string,
+    key: string,
+    body: string,
+    mode: "steer" | "queue" = "steer",
+    supersedes: string[] = []
+  ) {
     const text = commandText(key, body);
+    const selected = [...new Set(supersedes)].toSorted((left, right) => left.localeCompare(right));
+    const replacement = JSON.stringify(selected);
 
     return this.db
       .transaction(() => {
@@ -95,8 +142,10 @@ Persist a scoped follow-up once, retaining retries before closed-child rejection
           .parse(this.db.prepare("SELECT * FROM delegation_commands WHERE childId=? AND key=?").get(childId, key));
 
         if (existing) {
-          if (existing.body !== text) {
-            throw new Error("This message key already belongs to different text.");
+          if (existing.body !== text || existing.mode !== mode || existing.supersedes !== replacement) {
+            throw new Error(
+              "This message key already belongs to different text, delivery mode, or superseding selection."
+            );
           }
 
           return existing;
@@ -108,7 +157,9 @@ Persist a scoped follow-up once, retaining retries before closed-child rejection
           );
         }
 
-        return this.insertCommand(parentId, childId, key, text);
+        this.steering.cancel(parentId, childId, selected, `Superseded by send key ${key}`);
+
+        return this.insertCommand(parentId, childId, key, text, mode, replacement);
       })
       .immediate();
   }
@@ -180,6 +231,7 @@ Persist a command outcome before applying its guarded child lifecycle transition
   finish(command: DelegationCommand, status: DelegationCommand["status"], result: string) {
     this.db.prepare("UPDATE delegation_commands SET status=?,result=? WHERE id=?").run(status, result, command.id);
     this.finishChild(command, status);
+    this.steering.release(command.id);
   }
 
   /**

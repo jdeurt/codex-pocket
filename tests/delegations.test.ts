@@ -113,7 +113,7 @@ function resumedSavedChild(store: DelegationStore, child: SidePocket) {
   const first = savedAssignment(store, child);
 
   assert.ok(first);
-  store.queue.send(owner, child.id, "second", "Queued work");
+  store.queue.send(owner, child.id, "second", "Queued work", "queue");
   assert.equal(store.queue.claim(owner, child.id), undefined);
   store.closeChild(owner, child.id);
   assert.equal(store.queue.list(owner, child.id)[1].status, "cancelled");

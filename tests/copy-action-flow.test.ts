@@ -21,14 +21,14 @@ Checks the canonical main prompt retains both configured instructions and litera
 function verifyPrompt(existing: string, instructions: string) {
   assert.ok(instructions.startsWith(existing + "\n\n"));
 
-  for (const preserved of ["Pocket displays image-view output", "Use side_pocket_list", "schedule_create"]) {
+  for (const preserved of ["Image-view output and tool image content", "side_pocket_list", "schedule_create"]) {
     assert.ok(instructions.includes(preserved));
   }
 
-  assert.ok(instructions.includes("To offer a dedicated Copy text button"));
+  assert.ok(instructions.includes("Use a copy button when requested"));
   assert.ok(instructions.includes('```pocket-copy\n"Line 1\\nLine 2"\n```'));
-  assert.ok(instructions.includes(String.raw`quotes as \"`));
-  assert.ok(instructions.includes("backslashes as \\\\"));
+  assert.ok(instructions.includes("Use JSON.stringify to encode the exact text"));
+  assert.ok(instructions.includes("newlines, quotes, and backslashes"));
 }
 
 /**
@@ -86,7 +86,7 @@ async function verifyRequests(log: string, instructions: string) {
 
   for (const session of sessions) {
     assert.equal(session.params.developerInstructions, instructions);
-    assert.equal(session.params.developerInstructions.split("To offer a dedicated Copy text button").length, 2);
+    assert.equal(session.params.developerInstructions.split("Use a copy button when requested").length, 2);
   }
 
   assert.equal(messages.filter((message) => message.method === "config/read").length, 2);
@@ -115,7 +115,7 @@ async function checkPrompt(directory: string) {
       log,
     ],
   });
-  const instructions = pocketInstructions(existing, false);
+  const instructions = pocketInstructions(existing);
 
   verifyPrompt(existing, instructions);
   await freshProcesses(config, instructions);

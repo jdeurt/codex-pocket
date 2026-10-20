@@ -3,7 +3,9 @@ import {
   type Harness,
   type HarnessAdapter,
   type HarnessResult,
+  type SteeringResult,
 } from "../../src/server/harness/types";
+import { ClaudeAdapter } from "../../src/server/harness/claude";
 import type { HostEvent } from "./delegation-protocol";
 
 /**
@@ -68,6 +70,16 @@ export class SimulatedAdapter implements HarnessAdapter {
       this.reject = reject;
       this.emit({ event: "started", id, childId: this.options.child.id, harness: this.harness, text });
     });
+  }
+
+  /**
+  Accepts a simulated active correction without allocating another native process.
+  @returns Native acceptance receipt for this simulator.
+  */
+  steer(): Promise<SteeringResult> {
+    return this.harness === "claude"
+      ? new ClaudeAdapter(this.options).steer()
+      : Promise.resolve({ status: "accepted", turnId: "simulated-active-turn" });
   }
 
   /**

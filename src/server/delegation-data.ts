@@ -27,11 +27,26 @@ export const storedPocketSchema = z.object({
   createKey: z.string(),
   fingerprint: z.string(),
 });
-export const commandStatusSchema = z.enum(["queued", "running", "completed", "failed", "unknown", "cancelled"]);
+export const commandStatusSchema = z.enum([
+  "queued",
+  "running",
+  "completed",
+  "failed",
+  "unknown",
+  "cancelled",
+  "pending",
+  "sending",
+  "accepted",
+  "unsupported",
+]);
 export const delegationCommandSchema = z.object({
   id: z.string(),
   childId: z.string(),
   parentId: z.string(),
+  mode: z.enum(["steer", "queue"]),
+  targetId: z.string().nullable(),
+  turnId: z.string().nullable(),
+  supersedes: z.string(),
   body: z.string(),
   key: z.string(),
   createdAt: z.number(),

@@ -91,7 +91,12 @@ async function answerAndCloseChild(flow: Flow, worker: Peer, client: Client, chi
   assert.equal(flow.store.get(owner, child.id).status, "running");
   await worker.call("ask", { childId: child.id });
   await state(flow.store, () => flow.store.mail.requests(owner, child.id).length === 2);
-  await tool(client, "side_pocket_send", { id: child.id, message: "cancel queued", idempotencyKey: "cancel" });
+  await tool(client, "side_pocket_send", {
+    id: child.id,
+    message: "cancel queued",
+    mode: "queue",
+    idempotencyKey: "cancel",
+  });
 
   return await tool(client, "side_pocket_close", { id: child.id });
 }

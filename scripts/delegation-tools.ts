@@ -8,6 +8,13 @@ import { z } from "zod";
 const CLOSE_TIMEOUT_MS = 15_000;
 const idSchema = z.object({ id: z.uuid() }).strict();
 const answerSchema = idSchema.extend({ requestId: z.uuid(), answer: z.record(z.string(), z.unknown()) });
+const sendSchema = idSchema.extend({
+  message: delegationBody,
+  idempotencyKey: delegationKey,
+  mode: z.enum(["steer", "queue"]).default("steer"),
+  supersedes: z.array(z.uuid()).default([]),
+});
+const cancelSchema = idSchema.extend({ commandIds: z.array(z.uuid()).min(1), reason: delegationBody });
 
 /**
 Waits for host-confirmed native closure after recording a durable close request.
@@ -122,10 +129,27 @@ export function registerDelegationTools(server: McpServer, owner: string) {
     "side_pocket_send",
     {
       description:
-        "Send a follow-up or answer to a Side Pocket by ID. Messages run in order after its current turn. Reuse idempotencyKey when retrying the same send.",
-      inputSchema: idSchema.extend({ message: delegationBody, idempotencyKey: delegationKey }),
+        "Steer the current task by default. Active steering uses its existing execution slot and bypasses later assignments. Set mode=queue only for an explicitly distinct later task. Idle delivery resumes the saved session subject to normal capacity. The returned receipt is durable. pending or sending does not prove native acceptance. Inspect side_pocket_get for accepted, unsupported, failed, or unknown outcomes. Do not resend unknown outcomes with a new key. supersedes atomically cancels only selected unsent queued assignments. It preserves unrelated work and audit history. Reuse idempotencyKey only for identical retries.",
+      inputSchema: sendSchema,
     },
-    ({ id, message, idempotencyKey }) => toolResult(() => delegations().queue.send(owner, id, idempotencyKey, message))
+    ({ id, message, idempotencyKey, mode, supersedes }) =>
+      toolResult(() => delegations().queue.send(owner, id, idempotencyKey, message, mode, supersedes))
+  );
+  server.registerTool(
+    "side_pocket_cancel",
+    {
+      description:
+        "Cancel exact unsent queued assignment IDs with an audit reason, preserving unrelated work and native in-flight deliveries. Repeating cancellation does not resend work or replace the original audit reason.",
+      inputSchema: cancelSchema,
+    },
+    ({ id, commandIds, reason }) =>
+      toolResult(() => {
+        const store = delegations();
+
+        store.get(owner, id);
+
+        return { cancelled: store.queue.steering.cancel(owner, id, commandIds, reason) };
+      })
   );
   server.registerTool(
     "side_pocket_answer",
