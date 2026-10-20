@@ -5,6 +5,11 @@ import { z } from "zod";
 
 const MAX_PATH_LENGTH = 4096;
 
+/**
+Registers managed spinner operations with a main-session authorization check on every call.
+@param server - Native MCP server receiving spinner tools.
+@param owner - Main Pocket thread identity.
+*/
 export function registerSpinnerTools(server: McpServer, owner: string) {
   const mainOnly = (operation: () => unknown) =>
     toolResult(() => {

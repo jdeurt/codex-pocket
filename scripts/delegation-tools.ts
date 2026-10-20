@@ -7,7 +7,14 @@ import { z } from "zod";
 
 const CLOSE_TIMEOUT_MS = 15_000;
 const idSchema = z.object({ id: z.uuid() }).strict();
+const answerSchema = idSchema.extend({ requestId: z.uuid(), answer: z.record(z.string(), z.unknown()) });
 
+/**
+Waits for host-confirmed native closure after recording a durable close request.
+@param owner - Parent identity authorizing the child.
+@param id - Child identity to close.
+@returns Closed child record; a timeout leaves the durable request intact.
+*/
 async function closeChild(owner: string, id: string) {
   const store = delegations();
 
@@ -55,6 +62,11 @@ async function closeChild(owner: string, id: string) {
   });
 }
 
+/**
+Registers parent-scoped delegation tools with durable idempotency and confirmed closure.
+@param server - Native MCP server receiving the tools.
+@param owner - Parent identity authorizing every operation.
+*/
 export function registerDelegationTools(server: McpServer, owner: string) {
   server.registerTool(
     "side_pocket_capabilities",
@@ -120,7 +132,7 @@ export function registerDelegationTools(server: McpServer, owner: string) {
     {
       description:
         "Answer a pending harness question/approval using its request ID from side_pocket_get. For ordinary message_parent questions, reply with side_pocket_send.",
-      inputSchema: idSchema.extend({ requestId: z.uuid(), answer: z.record(z.string(), z.unknown()) }),
+      inputSchema: answerSchema,
     },
     ({ id, requestId, answer }) => toolResult(() => delegations().mail.answer(owner, id, requestId, answer))
   );
