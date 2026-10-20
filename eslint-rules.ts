@@ -73,30 +73,45 @@ function isDeclarationPrefix(statement: unknown): boolean {
 const constOnTop: Rule.RuleModule = {
   meta: {
     type: "suggestion",
-    docs: { description: "Keep const and let declarations in the declaration prefix of their scope." },
+    docs: { description: "Keep const and let declarations in separate groups at the beginning of their scope." },
     schema: [],
-    messages: { move: "Declare this variable at the top of its scope, before executable statements." },
+    messages: {
+      move: "Declare this variable at the top of its scope, before executable statements.",
+      group: "Keep {{kind}} declarations in one group. Do not interleave const and let declarations.",
+    },
   },
   create(context) {
+    function report(declaration: unknown, messageId: "move" | "group", kind: "const" | "let") {
+      const location = property(declaration, "loc");
+      const start = property(location, "start");
+      const line = property(start, "line");
+      const column = property(start, "column");
+
+      if (typeof line === "number" && typeof column === "number") {
+        context.report({ loc: { line, column }, messageId, data: { kind } });
+      }
+    }
+
     function inspectBody(body: unknown[]) {
+      const seenKinds = new Set<string>();
+
       let hasExecutableStatement = false;
+      let previousKind: string | undefined;
 
       for (const statement of body) {
         const declaration = declarationOf(statement);
         const kind = property(declaration, "kind");
 
-        if (
-          hasExecutableStatement &&
-          typeOf(declaration) === "VariableDeclaration" &&
-          (kind === "const" || kind === "let")
-        ) {
-          const location = property(declaration, "loc");
-          const start = property(location, "start");
-          const line = property(start, "line");
-          const column = property(start, "column");
+        if (typeOf(declaration) === "VariableDeclaration" && (kind === "const" || kind === "let")) {
+          if (hasExecutableStatement) {
+            report(declaration, "move", kind);
+          } else if (property(declaration, "declare") !== true) {
+            if (kind !== previousKind && seenKinds.has(kind)) {
+              report(declaration, "group", kind);
+            }
 
-          if (typeof line === "number" && typeof column === "number") {
-            context.report({ loc: { line, column }, messageId: "move" });
+            seenKinds.add(kind);
+            previousKind = kind;
           }
         }
 
