@@ -2,11 +2,16 @@
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { CodeBlock, CodeBlockContent } from "@/components/ui/code-block";
 import { type PendingRequest, object, pretty, string } from "@/lib/protocol";
+import { type Question, questionsSchema } from "@/lib/questions";
 import { Button } from "@/components/ui/button";
 import { QuestionForm } from "./question-form";
-import { questionsSchema } from "@/lib/questions";
 import { useState } from "react";
 
+/**
+Display native approval details using the shared code-block presentation.
+@param props - Normalized pending native request whose arguments remain display data.
+@returns The approval description and exact request details.
+*/
 function ApprovalDetails({ request }: { request: PendingRequest }) {
   return (
     <>
@@ -26,6 +31,11 @@ function ApprovalDetails({ request }: { request: PendingRequest }) {
   );
 }
 
+/**
+Present the native approval choices and caller-owned response state.
+@param props - Pending request, sending state and the callback that sends its answer.
+@returns The existing approval controls.
+*/
 function Approval({
   request,
   sending,
@@ -35,7 +45,7 @@ function Approval({
   sending: boolean;
   submit: (result: unknown) => Promise<void>;
 }) {
-  const permission = request.method === "item/permissions/requestApproval";
+  const isPermission = request.method === "item/permissions/requestApproval";
   const decisions = request.params.availableDecisions;
   const canAccept = !Array.isArray(decisions) || decisions.includes("accept");
   const canDecline = !Array.isArray(decisions) || decisions.includes("decline");
@@ -48,14 +58,17 @@ function Approval({
         {canDecline && (
           <Button
             disabled={sending}
-            onClick={() => void submit(permission ? { allow: false } : { decision: "decline" })}
+            onClick={() => void submit(isPermission ? { allow: false } : { decision: "decline" })}
             variant="outline"
           >
             Decline
           </Button>
         )}
         {canAccept && (
-          <Button disabled={sending} onClick={() => void submit(permission ? { allow: true } : { decision: "accept" })}>
+          <Button
+            disabled={sending}
+            onClick={() => void submit(isPermission ? { allow: true } : { decision: "accept" })}
+          >
             Approve once
           </Button>
         )}
@@ -64,36 +77,30 @@ function Approval({
   );
 }
 
-export function Prompt({
+/**
+Present editable question, approval or terminal-only content for a normalized pending request.
+@param props - Native request, validated questions and caller-owned answer state.
+@returns The matching request controls and any failed-answer message.
+*/
+function PromptForm({
   request,
-  answer,
+  questions,
+  sending,
+  submit,
+  error,
 }: {
   request: PendingRequest;
-  answer: (id: string | number, result: unknown) => Promise<void>;
+  questions: Question[] | undefined;
+  sending: boolean;
+  submit: (result: unknown) => Promise<void>;
+  error: string;
 }) {
-  const [sending, setSending] = useState(false);
-  const [error, setError] = useState("");
-
-  async function submit(result: unknown) {
-    setSending(true);
-    setError("");
-
-    try {
-      await answer(request.id, result);
-    } catch (error_) {
-      setError(error_ instanceof Error ? error_.message : "Couldn't send your answer.");
-    } finally {
-      setSending(false);
-    }
-  }
-
-  const questions = questionsSchema.safeParse(request.params.questions);
   let title = "Input needed on your computer";
   let content = <p>Handle this request in the terminal on your computer.</p>;
 
-  if (request.method === "item/tool/requestUserInput" && questions.success) {
+  if (questions && request.method === "item/tool/requestUserInput") {
     title = "A question for you";
-    content = <QuestionForm questions={questions.data} sending={sending} submit={submit} />;
+    content = <QuestionForm questions={questions} sending={sending} submit={submit} />;
   } else if (
     [
       "item/commandExecution/requestApproval",
@@ -115,5 +122,70 @@ export function Prompt({
         </div>
       </AlertDescription>
     </Alert>
+  );
+}
+
+/**
+Select user-input questions or native approval controls for a pending request.
+@param props - Normalized request and the callback that owns sending its answer.
+@returns The matching existing request form.
+*/
+export function Prompt({
+  request,
+  answer,
+  readOnly = false,
+}: {
+  request: PendingRequest;
+  readOnly?: boolean;
+  answer?: (id: string | number, result: unknown) => Promise<void>;
+}) {
+  const [sending, setSending] = useState(false);
+  const [error, setError] = useState("");
+
+  async function submit(result: unknown) {
+    if (readOnly || !answer) {
+      return;
+    }
+
+    setSending(true);
+    setError("");
+
+    try {
+      await answer(request.id, result);
+    } catch (error_) {
+      setError(error_ instanceof Error ? error_.message : "Couldn't send your answer.");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  const questions = questionsSchema.safeParse(request.params.questions);
+
+  if (readOnly) {
+    return (
+      <Alert className="prompt">
+        <AlertTitle>Waiting for input</AlertTitle>
+        <AlertDescription>
+          <div className="flex w-full flex-col gap-4">
+            {questions.success ? (
+              questions.data.map((question) => <p key={question.id}>{question.question}</p>)
+            ) : (
+              <p>{string(request.params.reason) || "This agent has a pending request."}</p>
+            )}
+            <p>Read only. Handle this request from the parent chat or on your computer.</p>
+          </div>
+        </AlertDescription>
+      </Alert>
+    );
+  }
+
+  return (
+    <PromptForm
+      request={request}
+      questions={questions.success ? questions.data : undefined}
+      sending={sending}
+      submit={submit}
+      error={error}
+    />
   );
 }

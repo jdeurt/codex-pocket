@@ -1,13 +1,15 @@
 "use client";
-
 import * as React from "react";
-import { cva, type VariantProps } from "class-variance-authority";
+import { type VariantProps, cva } from "class-variance-authority";
+import { Button } from "@/components/ui/button";
+import { Textarea } from "@/components/ui/textarea";
 import { cn } from "cn";
 
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-
+/**
+Compose an input region whose child controls retain their native focus behavior.
+@param props - Native attributes, children and the declared appearance or composition options.
+@returns The composed element with caller props and classes preserved.
+*/
 function InputGroup({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -40,6 +42,11 @@ const inputGroupAddonVariants = cva(
   }
 );
 
+/**
+Place input decorations at the selected inline or block edge.
+@param props - Native attributes, children and the declared appearance or composition options.
+@returns The composed element with caller props and classes preserved.
+*/
 function InputGroupAddon({
   className,
   align = "inline-start",
@@ -52,9 +59,10 @@ function InputGroupAddon({
       data-align={align}
       className={cn(inputGroupAddonVariants({ align }), className)}
       onClick={(e) => {
-        if ((e.target as HTMLElement).closest("button")) {
+        if (e.target instanceof Element && e.target.closest("button")) {
           return;
         }
+
         e.currentTarget.parentElement?.querySelector("input")?.focus();
       }}
       {...props}
@@ -76,6 +84,11 @@ const inputGroupButtonVariants = cva("flex items-center gap-2 text-sm shadow-non
   },
 });
 
+/**
+Render an input action with the shared compact button dimensions.
+@param props - Native attributes, children and the declared appearance or composition options.
+@returns The composed element with caller props and classes preserved.
+*/
 function InputGroupButton({
   className,
   type = "button",
@@ -97,31 +110,11 @@ function InputGroupButton({
   );
 }
 
-function InputGroupText({ className, ...props }: React.ComponentProps<"span">) {
-  return (
-    <span
-      className={cn(
-        "flex items-center gap-2 text-sm text-muted-foreground [&_svg]:pointer-events-none [&_svg:not([class*='size-'])]:size-4",
-        className
-      )}
-      {...props}
-    />
-  );
-}
-
-function InputGroupInput({ className, ...props }: React.ComponentProps<"input">) {
-  return (
-    <Input
-      data-slot="input-group-control"
-      className={cn(
-        "flex-1 rounded-none border-0 bg-transparent shadow-none ring-0 focus-visible:ring-0 disabled:bg-transparent aria-invalid:ring-0 dark:bg-transparent dark:disabled:bg-transparent",
-        className
-      )}
-      {...props}
-    />
-  );
-}
-
+/**
+Forward multiline text entry through the shared input-group control styling.
+@param props - Native attributes, children and the declared appearance or composition options.
+@returns The composed element with caller props and classes preserved.
+*/
 function InputGroupTextarea({ className, ...props }: React.ComponentProps<"textarea">) {
   return (
     <Textarea
@@ -135,4 +128,4 @@ function InputGroupTextarea({ className, ...props }: React.ComponentProps<"texta
   );
 }
 
-export { InputGroup, InputGroupAddon, InputGroupButton, InputGroupText, InputGroupInput, InputGroupTextarea };
+export { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea };

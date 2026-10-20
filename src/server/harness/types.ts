@@ -1,5 +1,5 @@
+import type { Data, Item } from "../../lib/protocol";
 import type { Config } from "../config";
-import type { Data } from "../../lib/protocol";
 
 export type Harness = "codex" | "claude";
 export interface ParentPolicy {
@@ -32,17 +32,22 @@ export interface HarnessResult {
 }
 export interface HarnessMessage {
   id: string;
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "tool";
   text: string;
+  item?: Item;
 }
 export interface HarnessCallbacks {
   request: (request: HarnessRequest) => Promise<unknown>;
   output: (text: string) => void;
   metadata: (data: Data) => void;
 }
+export type SteeringResult =
+  { status: "accepted"; turnId: string } | { status: "idle" | "unsupported" | "failed" | "unknown"; detail: string };
+
 export interface HarnessAdapter {
   open(): Promise<string>;
   run(id: string, text: string): Promise<HarnessResult>;
+  steer(id: string, text: string): Promise<SteeringResult>;
   history(): Promise<HarnessMessage[]>;
   interrupt(): Promise<void>;
   archive(): Promise<void>;
@@ -56,8 +61,17 @@ export interface AdapterOptions {
 }
 
 export const harnessCapabilities = {
-  codex: { savedSessions: true, queuedFollowups: true, interrupt: true, questions: true, permissions: "native" },
+  codex: {
+    steering: "Native turn/steer with expectedTurnId; acknowledgement confirms acceptance, not consumption",
+    savedSessions: true,
+    queuedFollowups: true,
+    interrupt: true,
+    questions: true,
+    permissions: "native",
+  },
   claude: {
+    steering:
+      "Unsupported: the installed public SDK has no conditional active-turn steering acknowledgement. Streaming input can queue a later turn.",
     savedSessions: true,
     queuedFollowups: true,
     interrupt: true,

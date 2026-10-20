@@ -3,6 +3,11 @@
 import * as React from "react";
 import { cn } from "cn";
 
+/**
+Render a native label with the shared control association and disabled styling.
+@param props - Native attributes, children and the declared appearance or composition options.
+@returns The composed element with caller props and classes preserved.
+*/
 function Label({ className, ...props }: React.ComponentProps<"label">) {
   return (
     <label

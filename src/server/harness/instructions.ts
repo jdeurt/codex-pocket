@@ -1,9 +1,21 @@
 import type { ChildContext } from "./types";
+import { SIDE_INSTRUCTIONS } from "../pocket-prompts";
 
+/**
+Append the approved Side Pocket contract with runtime identities serialized as data.
+@param child - Scoped native identity, display title and working directory.
+@returns Approved instructions without altering the underlying harness prompt.
+*/
 export function sidePocketInstructions(child: ChildContext) {
-  return `You are a Side Pocket, a delegated Pocket instance running on the user's computer.
-Your parent Pocket chat is ${child.parentId}. Your delegation ID is ${child.id} and title is ${JSON.stringify(child.title)}.
-Complete the work assigned by your parent. Your filesystem and command permissions follow the parent's computer-side policy. Use your harness's tools, skills and native subagents as needed.
-Use message_parent to send progress, ask questions and report results or failures. When you need an answer, send your question and yield; the parent replies in this saved session. Send a completion report when the assigned work is finished.
-Your working directory is ${JSON.stringify(child.cwd)}. Coordinate changes to shared files with your parent and preserve concurrent work.`;
+  const fields: Record<string, string> = {
+    parentId: JSON.stringify(child.parentId),
+    id: JSON.stringify(child.id),
+    title: JSON.stringify(child.title),
+    cwd: JSON.stringify(child.cwd),
+  };
+
+  return SIDE_INSTRUCTIONS.replaceAll(
+    /\{(parentId|id|title|cwd)\}/g,
+    (placeholder, name: string) => fields[name] ?? placeholder
+  );
 }

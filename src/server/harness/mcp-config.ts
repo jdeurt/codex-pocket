@@ -1,5 +1,10 @@
 import type { AdapterOptions } from "./types";
 
+/**
+Disable nested main-session tooling and configure only this child's authorized parent-message connection.
+@param server - Concrete parent-message command, arguments and environment when available.
+@returns Native Codex configuration overrides retaining the existing child tool restrictions.
+*/
 export function codexParentTools(server: AdapterOptions["parentTools"]) {
   const overrides: Record<string, unknown> = {
     "mcp_servers.pocket.enabled": false,

@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
-import { readSnapshot } from "../scripts/read-snapshot.mjs";
+import { readSnapshot } from "../scripts/read-snapshot";
 import test from "node:test";
 
+/**
+Replays wire fragments in their original order and closes the source stream.
+@param chunks - Encoded SSE fragments, including partial UTF-8 sequences.
+@returns Native readable stream consumed by the production snapshot reader.
+*/
 function stream(chunks: Uint8Array[]) {
   return new ReadableStream<Uint8Array>({
     start(controller) {
@@ -14,7 +19,7 @@ function stream(chunks: Uint8Array[]) {
   });
 }
 
-test("snapshot reads wait for a complete event across large fragmented UTF-8 frames and keepalives", async () => {
+await test("snapshot reads wait for a complete event across large fragmented UTF-8 frames and keepalives", async () => {
   const REPEATS = 20_000;
   const CHUNK_BYTES = 2047;
   const state = { connection: "connected", text: "A reply 👋 with quoted text. ".repeat(REPEATS) };
@@ -28,7 +33,8 @@ test("snapshot reads wait for a complete event across large fragmented UTF-8 fra
   assert.deepEqual(await readSnapshot(stream(chunks)), state);
 });
 
-test("snapshot reads reject an incomplete final frame instead of parsing a partial JSON chunk", async () => {
+await test("snapshot reads reject an incomplete final frame instead of parsing a partial JSON chunk", async () => {
   const chunks = [new TextEncoder().encode('data: {"text":"not finished')];
+
   await assert.rejects(readSnapshot(stream(chunks)), /before a complete data event/);
 });

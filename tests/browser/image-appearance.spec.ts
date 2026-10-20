@@ -1,8 +1,14 @@
 import { type Page, test } from "@playwright/test";
+import { BROWSER_ORIGIN } from "../fixtures/browser-defaults";
 import { checkImageAppearance } from "./image-appearance";
 import { initialSnapshot } from "../../src/lib/protocol";
 import path from "node:path";
 
+/**
+Mounts a saved image through offline canonical chat state and actual image routing.
+@param page - Isolated browser receiving the saved-image fixture.
+@returns Rendered message row containing the saved image.
+*/
 async function showImage(page: Page) {
   const state = {
     ...initialSnapshot,
@@ -22,10 +28,11 @@ async function showImage(page: Page) {
       },
     ],
   };
+
   await page.route("**/api/events", (route) =>
     route.fulfill({ contentType: "text/event-stream", body: `data: ${JSON.stringify(state)}\n\n` })
   );
-  await page.goto("http://127.0.0.1:3101/");
+  await page.goto(BROWSER_ORIGIN);
 
   return page
     .locator('[data-slot="message-scroller-item"]')
@@ -36,9 +43,12 @@ test("images keep their appearance through hover, press, touch and keyboard prev
   page,
   browser,
 }) => {
-  await checkImageAppearance(page, await showImage(page), "phone");
-  await page.screenshot({ path: ".local/image-appearance-phone.png", fullPage: true });
-  const desktop = await browser.newPage({ viewport: { width: 1024, height: 768 }, isMobile: false, hasTouch: false });
+  const desktop = await test.step("Check phone gestures before opening the desktop viewport", async () => {
+    await checkImageAppearance(page, await showImage(page), "phone");
+    await page.screenshot({ path: ".local/image-appearance-phone.png", fullPage: true });
+
+    return await browser.newPage({ viewport: { width: 1024, height: 768 }, isMobile: false, hasTouch: false });
+  });
 
   try {
     await checkImageAppearance(desktop, await showImage(desktop), "desktop");

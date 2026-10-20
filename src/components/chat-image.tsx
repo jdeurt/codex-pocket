@@ -19,6 +19,11 @@ import { useState } from "react";
 const IMAGE_WIDTH = 1200;
 const IMAGE_HEIGHT = 900;
 
+/**
+Display a guarded image and its native preview drawer with loading and failure states.
+@param props - Normalized source and optional accessible image description.
+@returns The image attachment and existing preview composition.
+*/
 export function ChatImage({ source, alt = "Image from Pocket" }: { source: string; alt?: string }) {
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -46,7 +51,9 @@ export function ChatImage({ source, alt = "Image from Pocket" }: { source: strin
               loading="eager"
               decoding="async"
               referrerPolicy="no-referrer"
-              onLoad={() => setLoaded(true)}
+              onLoad={() => {
+                setLoaded(true);
+              }}
               onError={() => {
                 setFailed(true);
                 reportClient("image.failed", { source: src.startsWith("data:") ? "inline image" : src }, "error");

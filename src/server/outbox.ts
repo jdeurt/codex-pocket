@@ -1,6 +1,7 @@
+import { type QueuedMessage, queuedMessageSchema } from "../lib/protocol";
 import { readLocal, writeLocal } from "./local-state";
-import type { FileAttachment } from "../lib/attachments";
-import type { QueuedMessage } from "../lib/protocol";
+import { type FileAttachment } from "../lib/attachments";
+import { z } from "zod";
 
 const RECEIPT_LIMIT = 1000;
 
@@ -10,21 +11,33 @@ export interface Receipt {
   attachments?: FileAttachment[];
   status: QueuedMessage["status"];
 }
-interface Outbox {
-  threadId: string;
-  receipts: Receipt[];
-}
+export const outboxSchema = z.object({ threadId: z.string(), receipts: z.array(queuedMessageSchema) });
 
-export async function restoreReceipts(threadId: string) {
-  const outbox = await readLocal<Outbox>("outbox.json", { threadId, receipts: [] });
-
-  if (outbox.threadId !== threadId && outbox.receipts.some((r) => r.status !== "sent")) {
+/**
+Reject a parent switch while the previous parent's outbox contains unresolved delivery.
+@param outbox - Persisted outbox validated by its shared schema.
+@param threadId - Current configured parent identity.
+@returns The current parent's receipts, or an empty list after a safe parent switch.
+*/
+function ownedReceipts(outbox: z.infer<typeof outboxSchema>, threadId: string) {
+  if (outbox.threadId !== threadId && outbox.receipts.some((receipt) => receipt.status !== "sent")) {
     throw new Error(
       "The previous thread has undelivered messages. Resolve .local/outbox.json before changing threads."
     );
   }
 
-  const receipts = outbox.threadId === threadId ? outbox.receipts : [];
+  return outbox.threadId === threadId ? outbox.receipts : [];
+}
+
+/**
+Restore saved receipts and preserve interrupted sends as unknown without replay.
+@param threadId - Configured parent that must own any undelivered messages.
+@returns Restored receipts scoped to this parent.
+*/
+export async function restoreReceipts(threadId: string) {
+  const outbox = outboxSchema.parse(await readLocal("outbox.json", { threadId, receipts: [] }));
+
+  const receipts = ownedReceipts(outbox, threadId);
 
   for (const receipt of receipts) {
     if (receipt.status === "sending") {
@@ -34,6 +47,13 @@ export async function restoreReceipts(threadId: string) {
 
   return receipts;
 }
+
+/**
+Persist unresolved and attachment receipts while bounding plain completed history.
+@param threadId - Parent conversation owning these receipts.
+@param receipts - Current ordered delivery records.
+@returns Exact retained receipt list written to private storage.
+*/
 export async function persistReceipts(threadId: string, receipts: Receipt[]) {
   const recent = [
     // Attachment receipts also hold the saved message's display metadata.
@@ -41,6 +61,7 @@ export async function persistReceipts(threadId: string, receipts: Receipt[]) {
     ...receipts.filter((r) => r.status === "sent" && !r.attachments?.length).slice(-RECEIPT_LIMIT),
     ...receipts.filter((r) => r.status !== "sent"),
   ];
+
   await writeLocal("outbox.json", { threadId, receipts: recent });
 
   return recent;

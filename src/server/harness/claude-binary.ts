@@ -2,6 +2,10 @@ import { accessSync, constants } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+/**
+Resolve the configured Claude executable or the existing native PATH and installation candidates.
+@returns First executable candidate, or undefined when Claude is unavailable.
+*/
 export function findClaudeBinary() {
   const configured = process.env.POCKET_CLAUDE_BINARY;
   const name = configured ?? "claude";
@@ -33,6 +37,10 @@ export function findClaudeBinary() {
   });
 }
 
+/**
+Require an executable native Claude installation before acquiring its harness process.
+@returns Resolved executable path, or the existing operator setup error.
+*/
 export function requireClaudeBinary() {
   const binary = findClaudeBinary();
 

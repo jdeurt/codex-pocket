@@ -10,16 +10,42 @@ import {
 import { createECDH, randomBytes } from "node:crypto";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { notificationDeviceId, notificationPresence } from "../src/server/notification-presence";
+import test, { type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import path from "node:path";
-import test from "node:test";
 import { tmpdir } from "node:os";
 import webpush from "web-push";
+import { z } from "zod";
 
+/**
+Replay silent and hidden native completions through persistence without claiming a notification receipt.
+@param sent - Captured outbound deliveries, which must remain empty throughout.
+*/
+async function replaySilentTurns(sent: { endpoint: string; body: unknown }[]) {
+  const WHITESPACE_LENGTH = 3;
+  const outputs = [
+    [],
+    [{ id: "blank", type: "agentMessage", phase: "final_answer", text: " ".repeat(WHITESPACE_LENGTH) }],
+    [{ id: "commentary", type: "agentMessage", phase: "commentary", text: "Working" }],
+    [{ id: "tool", type: "commandExecution", command: "true", status: "completed" }],
+  ];
+
+  for (const items of outputs) {
+    await notifyTurnComplete("thread", { id: "turn", status: "completed", items });
+    assert.deepEqual(sent, []);
+  }
+}
+
+/**
+Creates valid ephemeral Web Push subscription keys for the private delivery fixture.
+@param endpoint - Private fixture endpoint receiving the encrypted push.
+@returns Native subscription with valid P-256 and authentication key material.
+*/
 function subscription(endpoint: string) {
   const key = createECDH("prime256v1");
-  key.generateKeys();
   const AUTH_BYTES = 16;
+
+  key.generateKeys();
 
   return {
     endpoint,
@@ -27,128 +53,94 @@ function subscription(endpoint: string) {
   };
 }
 
-test("push keys stay stable and concurrent subscription saves preserve both devices with private storage", async () => {
-  const directory = await mkdtemp(path.join(tmpdir(), "pocket-push-"));
-  const previous = process.env.CODEX_POCKET_STATE_DIR;
-  process.env.CODEX_POCKET_STATE_DIR = directory;
+/**
+Verify stored subscription order, key identity and private filesystem permissions.
+@param directory - Private directory after subscription writes complete.
+@param publicKey - Original stable public key.
+@param devices - Expected subscription ordering after the phone is saved again.
+@returns Completion of storage assertions.
+*/
+async function assertPrivateSubscriptionFile(
+  directory: string,
+  publicKey: string,
+  devices: webpush.PushSubscription[]
+) {
+  const PERMISSION_MASK = 0o777;
+  const PRIVATE_FILE_MODE = 0o600;
+  const file = path.join(directory, "push.json");
+  const state = object(JSON.parse(await readFile(file, "utf8")));
 
-  try {
-    const keys = await Promise.all([pushPublicKey(), pushPublicKey()]);
-    assert.equal(keys[0], keys[1]);
-    const phone = subscription("https://push.example/phone");
-    const tablet = subscription("https://push.example/tablet");
-    await Promise.all([saveSubscription(phone), saveSubscription(tablet)]);
-    await saveSubscription(phone);
-    const file = path.join(directory, "push.json");
-    const state = object(JSON.parse(await readFile(file, "utf8")));
-    assert.deepEqual(state.subscriptions, [tablet, phone]);
-    assert.equal(object(state.keys).publicKey, keys[0]);
-    const PERMISSION_MASK = 0o777;
-    const PRIVATE_FILE_MODE = 0o600;
-    const info = await stat(file);
-    assert.equal(info.mode & PERMISSION_MASK, PRIVATE_FILE_MODE);
-  } finally {
-    if (previous === undefined) {
-      delete process.env.CODEX_POCKET_STATE_DIR;
-    } else {
-      process.env.CODEX_POCKET_STATE_DIR = previous;
-    }
+  const info = await stat(file);
 
-    await rm(directory, { recursive: true, force: true });
-  }
-});
+  assert.deepEqual(state.subscriptions, devices);
+  assert.equal(object(state.keys).publicKey, publicKey);
+  assert.equal(info.mode & PERMISSION_MASK, PRIVATE_FILE_MODE);
+}
 
-test("subscriptions require HTTPS and browser encryption keys", () => {
-  const valid = subscription("https://push.example/device");
-  assert.deepEqual(subscriptionSchema.parse(valid), valid);
-  assert.throws(() => subscriptionSchema.parse({ ...valid, endpoint: "http://push.example/device" }));
-  assert.throws(() => subscriptionSchema.parse({ ...valid, keys: { auth: "bad", p256dh: "bad" } }));
-});
+/**
+Persist two devices concurrently, then move the phone to the newest position.
+@param directory - Private storage directory selected by the outer replay.
+@param publicKey - Stable key returned before device creation.
+@returns Completion of native persistence assertions.
+*/
+async function persistDevices(directory: string, publicKey: string) {
+  const phone = subscription("https://push.example/phone");
+  const tablet = subscription("https://push.example/tablet");
 
-test("completion notifications contain the final reply, keep tap routing and use fallbacks without final text", () => {
-  const turn: Turn = {
-    id: "turn",
-    status: "completed",
-    items: [
-      { id: "progress", type: "agentMessage", phase: "commentary", text: "Still working" },
-      { id: "reply", type: "agentMessage", phase: "final_answer", text: "A full response 👋" },
-    ],
-  };
-  const notification = completionNotification("thread", turn);
-  assert.equal(notification.title, "Pocket");
-  assert.equal(notification.body, "A full response 👋");
-  assert.equal(notification.url, "/");
-  assert.equal(notification.tag, "thread:turn");
-  assert.notEqual(completionNotification("thread", { ...turn, id: "next" }).tag, notification.tag);
-  assert.match(completionNotification("thread", { ...turn, items: [turn.items[0]] }).body, /finished/);
-  assert.match(completionNotification("thread", { ...turn, status: "failed", items: [] }).body, /stopped/);
-  assert.equal(
-    completionNotification("thread", {
-      ...turn,
-      items: [{ id: "legacy", type: "agentMessage", text: "Older Codex reply" }],
-    }).body,
-    "Older Codex reply"
-  );
-});
+  await Promise.all([saveSubscription(phone), saveSubscription(tablet)]);
+  await saveSubscription(phone);
+  await assertPrivateSubscriptionFile(directory, publicKey, [tablet, phone]);
+}
 
-test("payloads retain full replies that fit and limit actual encrypted bytes without splitting Unicode", () => {
-  const device = subscription("https://push.example/size-check");
-  const MAX_ENCRYPTED_BYTES = 4096;
-  const LONG_REPETITIONS = 5000;
-  const SHORT_REPETITIONS = 20;
-  const texts = ["All of this reply is included. ".repeat(SHORT_REPETITIONS), '👩🏽‍💻漢字\n\t"\\'.repeat(LONG_REPETITIONS)];
+/**
+Verify stable key creation before generating and storing two native subscriptions.
+@param directory - Private storage directory selected by the outer replay.
+@returns Completion of stable-key and storage assertions.
+*/
+async function checkPrivateSubscriptions(directory: string) {
+  const keys = await Promise.all([pushPublicKey(), pushPublicKey()]);
 
-  for (const text of texts) {
-    const turn: Turn = { id: "turn", status: "completed", items: [{ id: "reply", type: "agentMessage", text }] };
-    const payload = completionPayload("thread", turn);
-    const body = object(JSON.parse(payload)).body;
-    assert.equal(typeof body, "string");
-    assert.ok(text.startsWith(String(body)));
-    assert.ok(!String(body).endsWith("…"));
-    assert.ok(!String(body).includes("�"));
-    const encrypted = webpush.generateRequestDetails(device, payload);
-    assert.ok(Buffer.byteLength(encrypted.body ?? "") <= MAX_ENCRYPTED_BYTES);
+  assert.equal(keys[0], keys[1]);
+  await persistDevices(directory, keys[0]);
+}
 
-    if (text === texts[0]) {
-      assert.equal(body, text.trim());
-    } else {
-      assert.ok(String(body).length < text.length);
-    }
-  }
-});
-
-test("delivery skips only the acknowledged foreground device, keeps background delivery and deduplicates", async (t) => {
-  const directory = await mkdtemp(path.join(tmpdir(), "pocket-push-delivery-"));
-  const previousState = process.env.CODEX_POCKET_STATE_DIR;
-  const previousThread = process.env.CODEX_THREAD_ID;
-  const previousOrigins = process.env.CODEX_ALLOWED_ORIGINS;
-  process.env.CODEX_POCKET_STATE_DIR = directory;
-  process.env.CODEX_THREAD_ID = "push-test";
-  process.env.CODEX_ALLOWED_ORIGINS = "https://pocket.example";
+/**
+Replay foreground suppression, deduplication and background delivery with native subscriptions.
+@param context - Native test context installing the outbound delivery spy.
+@param sent - Captured outbound native payloads for the private replay.
+@returns Completion of all device routing assertions.
+*/
+async function replayDelivery(context: TestContext, sent: { endpoint: string; body: unknown }[]) {
   const phone = subscription("https://push.example/foreground-phone");
   const tablet = subscription("https://push.example/background-tablet");
   const disconnect = notificationPresence.connect(notificationDeviceId(phone.endpoint), (challengeId) => {
     notificationPresence.acknowledge(notificationDeviceId(phone.endpoint), challengeId);
   });
-  const sent: { endpoint: string; body: unknown }[] = [];
-  t.mock.method(
+
+  context.mock.method(
     webpush,
     "sendNotification",
-    async (...[device, payload]: Parameters<typeof webpush.sendNotification>) => {
-      sent.push({ endpoint: device.endpoint, body: object(JSON.parse(String(payload))).body });
+    (...[device, payload]: Parameters<typeof webpush.sendNotification>) => {
+      const encoded = z.string().parse(payload);
+      const message = object(JSON.parse(encoded));
 
-      return { statusCode: 201, body: "", headers: {} };
+      sent.push({ endpoint: device.endpoint, body: message.body });
+
+      return Promise.resolve({ statusCode: 201, body: "", headers: {} });
     }
   );
 
   try {
-    await saveSubscription(phone);
-    await saveSubscription(tablet);
     const turn: Turn = {
       id: "turn",
       status: "completed",
       items: [{ id: "reply", type: "agentMessage", text: "Done" }],
     };
+
+    await saveSubscription(phone);
+    await saveSubscription(tablet);
+
+    await replaySilentTurns(sent);
     await notifyTurnComplete("thread", turn);
     await notifyTurnComplete("thread", turn);
     assert.deepEqual(sent, [{ endpoint: tablet.endpoint, body: "Done" }]);
@@ -163,12 +155,137 @@ test("delivery skips only the acknowledged foreground device, keeps background d
     );
   } finally {
     disconnect();
+  }
+}
 
-    for (const [name, value] of Object.entries({
+/**
+Require a visible completion before preparing its encrypted delivery payload.
+@param turn - Completed native fixture turn.
+@returns Serialized notification payload.
+*/
+function visiblePayload(turn: Turn) {
+  const notification = completionNotification("thread", turn);
+
+  assert.ok(notification);
+
+  return completionPayload(notification);
+}
+
+/**
+Encrypt the actual completion payload and require the browser delivery byte limit.
+@param device - Native subscription with valid ephemeral encryption keys.
+@param payload - Encoded completion notification.
+@param limit - Maximum encrypted byte count accepted by the delivery service.
+*/
+function assertEncryptedLimit(device: webpush.PushSubscription, payload: string, limit: number) {
+  const encrypted = webpush.generateRequestDetails(device, payload).body;
+
+  assert.ok(Buffer.byteLength(encrypted) <= limit);
+}
+
+await test("push keys stay stable and concurrent subscription saves preserve both devices with private storage", async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), "pocket-push-"));
+  const previous = process.env.CODEX_POCKET_STATE_DIR;
+
+  process.env.CODEX_POCKET_STATE_DIR = directory;
+
+  try {
+    await checkPrivateSubscriptions(directory);
+  } finally {
+    if (previous === undefined) {
+      delete process.env.CODEX_POCKET_STATE_DIR;
+    } else {
+      process.env.CODEX_POCKET_STATE_DIR = previous;
+    }
+
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
+await test("subscriptions require HTTPS and browser encryption keys", () => {
+  const valid = subscription("https://push.example/device");
+
+  assert.deepEqual(subscriptionSchema.parse(valid), valid);
+  assert.throws(() => subscriptionSchema.parse({ ...valid, endpoint: "http://push.example/device" }));
+  assert.throws(() => subscriptionSchema.parse({ ...valid, keys: { auth: "bad", p256dh: "bad" } }));
+});
+
+await test("completion notifications contain the final reply, keep tap routing and suppress turns without final output", () => {
+  const turn: Turn = {
+    id: "turn",
+    status: "completed",
+    items: [
+      { id: "progress", type: "agentMessage", phase: "commentary", text: "Still working" },
+      { id: "reply", type: "agentMessage", phase: "final_answer", text: "A full response 👋" },
+    ],
+  };
+  const notification = completionNotification("thread", turn);
+
+  assert.ok(notification);
+  assert.equal(notification.title, "Pocket");
+  assert.equal(notification.body, "A full response 👋");
+  assert.equal(notification.url, "/");
+  assert.equal(notification.tag, "thread:turn");
+  assert.notEqual(completionNotification("thread", { ...turn, id: "next" })?.tag, notification.tag);
+  assert.equal(completionNotification("thread", { ...turn, items: [turn.items[0]] }), undefined);
+  assert.equal(completionNotification("thread", { ...turn, status: "failed", items: [] }), undefined);
+  assert.equal(
+    completionNotification("thread", {
+      ...turn,
+      items: [{ id: "legacy", type: "agentMessage", text: "Older Codex reply" }],
+    })?.body,
+    "Older Codex reply"
+  );
+});
+
+await test("payloads retain full replies that fit and limit actual encrypted bytes without splitting Unicode", () => {
+  const device = subscription("https://push.example/size-check");
+  const MAX_ENCRYPTED_BYTES = 4096;
+  const LONG_REPETITIONS = 5000;
+  const SHORT_REPETITIONS = 20;
+  const texts = ["All of this reply is included. ".repeat(SHORT_REPETITIONS), '👩🏽‍💻漢字\n\t"\\'.repeat(LONG_REPETITIONS)];
+
+  for (const text of texts) {
+    const turn: Turn = { id: "turn", status: "completed", items: [{ id: "reply", type: "agentMessage", text }] };
+    const payload = visiblePayload(turn);
+    const body = object(JSON.parse(payload)).body;
+
+    assert.ok(typeof body === "string");
+    assert.ok(text.startsWith(body));
+    assert.ok(!body.endsWith("…"));
+    assert.ok(!body.includes("�"));
+
+    assertEncryptedLimit(device, payload, MAX_ENCRYPTED_BYTES);
+
+    if (text === texts[0]) {
+      assert.equal(body, text.trim());
+    } else {
+      assert.ok(body.length < text.length);
+    }
+  }
+});
+
+await test("delivery skips only the acknowledged foreground device, keeps background delivery and deduplicates", async (t) => {
+  const directory = await mkdtemp(path.join(tmpdir(), "pocket-push-delivery-"));
+  const previousState = process.env.CODEX_POCKET_STATE_DIR;
+  const previousThread = process.env.CODEX_THREAD_ID;
+  const previousOrigins = process.env.CODEX_ALLOWED_ORIGINS;
+  const sent: { endpoint: string; body: unknown }[] = [];
+
+  process.env.CODEX_POCKET_STATE_DIR = directory;
+  process.env.CODEX_THREAD_ID = "push-test";
+  process.env.CODEX_ALLOWED_ORIGINS = "https://pocket.example";
+
+  try {
+    await replayDelivery(t, sent);
+  } finally {
+    const previousEnvironment = {
       CODEX_POCKET_STATE_DIR: previousState,
       CODEX_THREAD_ID: previousThread,
       CODEX_ALLOWED_ORIGINS: previousOrigins,
-    })) {
+    };
+
+    for (const [name, value] of Object.entries(previousEnvironment)) {
       if (value === undefined) {
         Reflect.deleteProperty(process.env, name);
       } else {

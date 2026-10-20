@@ -1,0 +1,30 @@
+import { type McpServer } from "@modelcontextprotocol/server";
+import { callSession } from "../src/server/session-client";
+import { sessionSettingsSchema } from "../src/server/session-settings";
+import { toolResult } from "../src/server/mcp-result";
+import { z } from "zod";
+
+/**
+Expose parent-only inspection and explicit settings changes through the existing host connection.
+@param server - Main Pocket MCP server; never registered on the child MCP surface.
+*/
+export function registerSessionTools(server: McpServer) {
+  server.registerTool(
+    "pocket_session_inspect",
+    {
+      description:
+        "Inspect this main Pocket's effective model, effort, active turn and reported context/token usage. Unknown values remain null.",
+      inputSchema: z.object({}).strict(),
+    },
+    () => toolResult(() => callSession())
+  );
+  server.registerTool(
+    "pocket_session_settings",
+    {
+      description:
+        "Explicitly change this main Pocket's model or reasoning effort for subsequent turns. Active work and existing delegates retain their settings. Accepted settings persist across reconnects/restarts. Never retry an uncertain result without inspection.",
+      inputSchema: sessionSettingsSchema,
+    },
+    (settings) => toolResult(() => callSession(settings))
+  );
+}

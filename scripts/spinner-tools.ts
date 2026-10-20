@@ -1,12 +1,17 @@
 import { spinnerId, spinners } from "../src/server/spinners";
-import type { McpServer } from "@modelcontextprotocol/server";
+import { type McpServer } from "@modelcontextprotocol/server";
 import { toolResult } from "../src/server/mcp-result";
 import { z } from "zod";
 
 const MAX_PATH_LENGTH = 4096;
 
+/**
+Registers managed spinner operations with a main-session authorization check on every call.
+@param server - Native MCP server receiving spinner tools.
+@param owner - Main Pocket thread identity.
+*/
 export function registerSpinnerTools(server: McpServer, owner: string) {
-  const mainOnly = (operation: () => unknown | Promise<unknown>) =>
+  const mainOnly = (operation: () => unknown) =>
     toolResult(() => {
       // Check on every invocation, even if a child re-enables the main MCP server.
       if (
@@ -20,6 +25,7 @@ export function registerSpinnerTools(server: McpServer, owner: string) {
 
       return operation();
     });
+
   server.registerTool(
     "spinner_set",
     {

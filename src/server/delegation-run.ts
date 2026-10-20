@@ -1,0 +1,187 @@
+import type { DelegationCommand, DelegationStore, SidePocket } from "./delegations";
+import type { HarnessAdapter, HarnessResult } from "./harness/types";
+import { log } from "./logging";
+
+/**
+Owns one claimed command from native session opening through confirmed process cleanup.
+*/
+export class DelegationRun {
+  private isSending = false;
+
+  private ready = Promise.withResolvers<boolean>();
+
+  private settled = false;
+
+  private deliveries = new Map<string, Promise<void>>();
+  exitStatus?: "confirmed" | "uncertain";
+
+  /**
+  Binds a durable command to the adapter that will execute it.
+  @param store - Durable delegation owner.
+  @param child - Claimed child identity and saved session.
+  @param command - Persisted command claimed for this child.
+  @param adapter - Native process resource retained until cleanup is confirmed.
+  */
+  constructor(
+    private store: DelegationStore,
+    private child: SidePocket,
+    readonly command: DelegationCommand,
+    readonly adapter: HarnessAdapter
+  ) {}
+
+  /**
+  Persists a terminal result, suppressing duplicate completion mail and respecting cancellation.
+  @param result - Native harness outcome.
+  */
+  private complete(result: HarnessResult) {
+    const { child, command } = this;
+    const isClosing = this.store.get(child.parentId, child.id).status === "closing";
+    const shouldNotify =
+      !isClosing && (!this.store.mail.hasMessage(child.id, command.id) || result.status !== "completed");
+    const status = result.status === "failed" ? "failed" : "completed";
+
+    this.store.queue.recordResult(
+      command,
+      isClosing ? "cancelled" : status,
+      JSON.stringify(result),
+      shouldNotify ? { sourceId: `result:${command.id}`, kind: "completion", payload: result } : undefined
+    );
+    log().info({ childId: child.id, commandId: command.id, result, closing: isClosing }, "side_pocket.completed");
+  }
+
+  /**
+  Records pre-send failures separately from uncertain attempted sends.
+  @param error - Failure raised while opening or executing the native session.
+  */
+  private failed(error: unknown) {
+    const { child, command } = this;
+    const message = error instanceof Error ? error.message : String(error);
+    const isClosing = this.store.get(child.parentId, child.id).status === "closing";
+    const status = this.isSending ? "unknown" : "failed";
+
+    this.store.queue.recordResult(
+      command,
+      isClosing ? "cancelled" : status,
+      message,
+      isClosing
+        ? undefined
+        : { sourceId: `error:${command.id}`, kind: "failure", payload: { message, commandId: command.id } }
+    );
+    log().error({ error, childId: child.id, commandId: command.id }, "side_pocket.failed");
+  }
+
+  /**
+  Opens the saved session and checks cancellation before attempting the command.
+  @returns Completion of command execution and result persistence.
+  */
+  private async send() {
+    const { child, command, adapter } = this;
+    const sessionId = await adapter.open();
+
+    this.store.setSession(child.parentId, child.id, sessionId);
+    log().info(
+      { childId: child.id, parentId: child.parentId, harness: child.harness, sessionId, commandId: command.id },
+      "side_pocket.started"
+    );
+
+    if (this.store.get(child.parentId, child.id).status === "closing") {
+      this.store.queue.finish(command, "cancelled", "Closed before sending.");
+
+      return;
+    }
+
+    this.isSending = true;
+    await this.runTurn();
+  }
+
+  /**
+  Publish readiness after the native assignment starts and fence completion against active deliveries.
+  */
+  private async runTurn() {
+    const result = this.adapter.run(this.command.id, this.command.body);
+
+    this.ready.resolve(true);
+
+    try {
+      const outcome = await result;
+
+      this.settled = true;
+      await Promise.all(this.deliveries.values());
+      this.complete(outcome);
+    } finally {
+      this.settled = true;
+      this.ready.resolve(false);
+    }
+  }
+
+  /**
+  Confirms process exit or records uncertainty so the worker retains the occupied slot.
+  @returns Completion of native cleanup and its durable outcome.
+  */
+  private async close() {
+    try {
+      await this.adapter.close();
+      this.exitStatus = "confirmed";
+    } catch (error) {
+      this.store.setStatus(this.child.parentId, this.child.id, "unknown");
+      log().error({ error, childId: this.child.id }, "side_pocket.cleanup_failed");
+      this.exitStatus = "uncertain";
+    }
+  }
+
+  /**
+  Deliver a correction only while this exact assignment still owns an active native turn.
+  @param command - Claimed correction with a stable native message identity.
+  */
+  private async deliverCurrent(command: DelegationCommand) {
+    const isReady = await this.ready.promise;
+    const result =
+      isReady && !this.settled
+        ? await this.adapter.steer(command.id, command.body)
+        : { status: "idle" as const, detail: "The owned assignment ended before native delivery. Nothing was sent." };
+
+    this.store.queue.steering.finish(command, result);
+  }
+
+  /**
+  Retain uncertain native attempts and release the completion fence after persistence.
+  @param command - Correction acquired by this run's worker.
+  */
+  private async deliver(command: DelegationCommand) {
+    try {
+      await this.deliverCurrent(command);
+    } catch (error) {
+      this.store.queue.steering.finish(command, {
+        status: "unknown",
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      this.deliveries.delete(command.id);
+    }
+  }
+
+  /**
+  Register correction delivery before native completion can release this assignment's process.
+  @param command - Correction already marked attempted in the durable ledger.
+  */
+  steer(command: DelegationCommand) {
+    this.deliveries.set(command.id, this.deliver(command));
+  }
+
+  /**
+  Runs the command with durable failure recording and unconditional native cleanup.
+  @returns Completion of execution and cleanup; persistence failures can reject.
+  */
+  async execute() {
+    try {
+      await this.send();
+    } catch (error) {
+      this.failed(error);
+    } finally {
+      this.settled = true;
+      this.ready.resolve(false);
+      await Promise.all(this.deliveries.values());
+      await this.close();
+    }
+  }
+}

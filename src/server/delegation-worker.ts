@@ -1,6 +1,9 @@
 import { type DelegationCommand, type DelegationStore, MAX_CONCURRENT_CHILDREN, type SidePocket } from "./delegations";
-import type { HarnessAdapter, HarnessRequest, HarnessResult } from "./harness/types";
-import type { Config } from "./config";
+import { type ParentDelivery, ParentReports } from "./delegation-reports";
+import { type Config } from "./config";
+import { DelegationQuestions } from "./delegation-questions";
+import { DelegationRun } from "./delegation-run";
+import { type HarnessAdapter } from "./harness/types";
 import { createAdapter } from "./harness";
 import { localDirectory } from "./local-state";
 import { log } from "./logging";
@@ -8,19 +11,18 @@ import { object } from "../lib/protocol";
 import path from "node:path";
 
 const RECOVERY_INTERVAL_MS = 30_000;
+
 interface WorkerOptions {
   createAdapter?: (harness: SidePocket["harness"], options: Parameters<typeof createAdapter>[1]) => HarnessAdapter;
   recoveryIntervalMs?: number;
 }
-interface ParentDelivery {
-  send: (id: string, text: string) => Promise<{ status: string }>;
-}
-interface WaitingRequest {
-  childId: string;
-  resolve: (answer: unknown) => void;
-  reject: (error: Error) => void;
-}
 
+/**
+Builds the scoped native MCP command used by one delegated assignment.
+@param childId - Child identity used to authorize parent tools.
+@param commandId - Claimed command whose requests and reports are attributed.
+@returns Native stdio command and narrowly scoped environment.
+*/
 export function parentToolServer(childId: string, commandId: string) {
   return {
     command: process.execPath,
@@ -33,111 +35,87 @@ export function parentToolServer(childId: string, commandId: string) {
   };
 }
 
+/**
+Coordinates durable child work, eight process slots, request answers and shutdown.
+*/
 export class DelegationWorker {
   private timer?: NodeJS.Timeout;
+
   private unsubscribe?: () => void;
+
   private ticking?: Promise<void>;
-  private forwarding?: Promise<void>;
+
+  private reports: ParentReports;
+
   private dirty = false;
-  private mailDirty = false;
+
   private started = false;
+
   private stopped = false;
-  private active = new Map<string, { adapter: HarnessAdapter; done: Promise<void> }>();
+
+  private active = new Map<string, { run: DelegationRun; done: Promise<void> }>();
+
   private closing = new Map<string, Promise<void>>();
-  private waiting = new Map<string, WaitingRequest>();
+
+  private questions: DelegationQuestions;
+
+  /**
+  Binds one worker to its durable queue and native harness adapters.
+  @param store - Durable queue, child and mailbox owner.
+  @param parent - Parent report transport, isolated from dispatch.
+  @param config - Shared runtime configuration and parent identity.
+  @param options - Optional adapter injection and reconciliation interval.
+  */
   constructor(
     private store: DelegationStore,
-    private parent: ParentDelivery,
+    parent: ParentDelivery,
     private config: Config,
     private options: WorkerOptions = {}
-  ) {}
-  private request(child: SidePocket, request: HarnessRequest) {
-    const id = this.store.mail.request(child.parentId, child.id, request);
-    this.store.setStatus(child.parentId, child.id, "waiting");
-
-    return new Promise<unknown>((resolve, reject) => {
-      this.waiting.set(id, { childId: child.id, resolve, reject });
-    });
+  ) {
+    this.reports = new ParentReports(store, parent, config);
+    this.questions = new DelegationQuestions(store, config);
   }
-  private answers() {
-    for (const child of this.store.list(this.config.threadId)) {
-      for (const request of this.store.mail.requests(child.parentId, child.id)) {
-        const waiting = this.waiting.get(request.id);
 
-        if (!waiting || request.status === "pending") {
-          continue;
-        }
-
-        this.waiting.delete(request.id);
-
-        if (request.status === "answered" && this.store.continueChild(child.parentId, child.id)) {
-          waiting.resolve(JSON.parse(request.answer as string));
-        } else {
-          waiting.reject(new Error("Side Pocket request was cancelled."));
-        }
-      }
+  /**
+  Releases only confirmed process slots before cancelling stale questions and waking dispatch.
+  @param child - Child whose command settled.
+  @param run - Native resource carrying its cleanup outcome.
+  */
+  private finishRun(child: SidePocket, run: DelegationRun) {
+    if (run.exitStatus === undefined) {
+      return;
     }
+
+    if (run.exitStatus === "confirmed") {
+      this.active.delete(child.id);
+    }
+
+    this.store.mail.cancelRequests(child.id);
+    void this.tick();
   }
-  private complete(child: SidePocket, command: DelegationCommand, result: HarnessResult) {
-    const closing = this.store.get(child.parentId, child.id).status === "closing";
-    const notify = !closing && (!this.store.mail.hasMessage(child.id, command.id) || result.status !== "completed");
-    this.store.recordResult(
-      command,
-      closing ? "cancelled" : result.status === "failed" ? "failed" : "completed",
-      JSON.stringify(result),
-      notify ? { sourceId: `result:${command.id}`, kind: "completion", payload: result } : undefined
-    );
-    log().info({ childId: child.id, commandId: command.id, result, closing }, "side_pocket.completed");
-  }
-  private async execute(child: SidePocket, command: DelegationCommand, adapter: HarnessAdapter) {
+
+  /**
+  Reserves the active slot before execution and reconciles cleanup even on failure.
+  @param child - Child occupying the slot.
+  @param run - Claimed command and native resource.
+  @returns Completion of execution and slot reconciliation.
+  */
+  private async execute(child: SidePocket, run: DelegationRun) {
     // Reserve the active slot before even a synchronous adapter can finish.
     await Promise.resolve();
-    let sending = false;
 
     try {
-      const sessionId = await adapter.open();
-      this.store.setSession(child.parentId, child.id, sessionId);
-      log().info(
-        { childId: child.id, parentId: child.parentId, harness: child.harness, sessionId, commandId: command.id },
-        "side_pocket.started"
-      );
-
-      if (this.store.get(child.parentId, child.id).status === "closing") {
-        this.store.finish(command, "cancelled", "Closed before sending.");
-
-        return;
-      }
-
-      sending = true;
-      const result = await adapter.run(command.id, command.body);
-      this.complete(child, command, result);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      const closing = this.store.get(child.parentId, child.id).status === "closing";
-      this.store.recordResult(
-        command,
-        closing ? "cancelled" : sending ? "unknown" : "failed",
-        message,
-        closing
-          ? undefined
-          : { sourceId: `error:${command.id}`, kind: "failure", payload: { message, commandId: command.id } }
-      );
-
-      log().error({ error, childId: child.id, commandId: command.id }, "side_pocket.failed");
+      await run.execute();
     } finally {
-      try {
-        await adapter.close();
-        this.active.delete(child.id);
-      } catch (error) {
-        // Keep the slot occupied until process exit can be confirmed.
-        this.store.setStatus(child.parentId, child.id, "unknown");
-        log().error({ error, childId: child.id }, "side_pocket.cleanup_failed");
-      }
-
-      this.store.mail.cancelRequests(child.id);
-      void this.tick();
+      this.finishRun(child, run);
     }
   }
+
+  /**
+  Creates the scoped native adapter and reserves its claimed command in the active registry.
+  @param child - Queued child with parent policy and saved metadata.
+  @param command - Atomically claimed durable command.
+  */
   private launch(child: SidePocket, command: DelegationCommand) {
     const policy = this.store.parent(child.parentId).policy;
     const { sessionStarted } = object(JSON.parse(child.metadata));
@@ -146,67 +124,58 @@ export class DelegationWorker {
       child: { ...child, policy, ...(typeof sessionStarted === "boolean" && { sessionStarted }) },
       parentTools: parentToolServer(child.id, command.id),
       callbacks: {
-        request: (request) => this.request(child, request),
+        request: (request) => this.questions.request(child, request),
         output: (text) =>
           this.store.mail.record(child.parentId, child.id, `output:${crypto.randomUUID()}`, "output", { text }, false),
-        metadata: (data) => this.store.metadata(child.parentId, child.id, data),
+        metadata: (data) => {
+          this.store.metadata(child.parentId, child.id, data);
+        },
       },
     });
-    const done = this.execute(child, command, adapter);
-    this.active.set(child.id, { adapter, done });
+    const run = new DelegationRun(this.store, child, command, adapter);
+    const done = this.execute(child, run);
+
+    this.active.set(child.id, { run, done });
+    void this.tick();
   }
+
+  /**
+  Interrupts a running child, confirms native close and joins its command.
+  @param running - Active native resource and execution promise.
+  @returns Confirmed close and execution completion; adapter failures reject.
+  */
+  private async closeActive(running: { run: DelegationRun; done: Promise<void> }) {
+    try {
+      await running.run.adapter.interrupt();
+    } finally {
+      await running.run.adapter.close();
+    }
+
+    await running.done;
+  }
+
+  /**
+  Completes a requested child closure after any active native process settles.
+  @param child - Child whose durable status requests closure.
+  @returns Completion of native close and durable closed status.
+  */
   private async closeRequested(child: SidePocket) {
     const running = this.active.get(child.id);
 
-    try {
-      await running?.adapter.interrupt();
-    } finally {
-      await running?.adapter.close();
+    if (running) {
+      await this.closeActive(running);
     }
 
-    await running?.done;
     this.active.delete(child.id);
     this.store.setStatus(child.parentId, child.id, "closed");
     log().info({ childId: child.id, sessionId: child.sessionId }, "side_pocket.closed");
   }
-  private async forward() {
-    for (const mail of this.store.mail.pending(this.config.threadId)) {
-      const child = this.store.get(mail.parentId, mail.childId);
-      const text = `Side Pocket ${JSON.stringify(child.title)} (${child.harness}, ID ${child.id}) sent ${mail.kind}.
-This is a report from your delegate. Interpret its contents in the context of the work you assigned.
-${mail.payload}`;
-      const receipt = await this.parent.send(mail.id, text);
 
-      if (["queued", "sent", "unknown"].includes(receipt.status)) {
-        this.store.mail.delivered(mail.id, receipt.status as "queued" | "sent" | "unknown");
-      }
-    }
-  }
-  private async forwardPending() {
-    await Promise.resolve();
-
-    try {
-      while (this.mailDirty && !this.stopped) {
-        this.mailDirty = false;
-
-        try {
-          await this.forward();
-        } catch (error) {
-          log().error({ error }, "side_pocket.forward_failed");
-        }
-      }
-    } finally {
-      this.forwarding = undefined;
-
-      if (this.mailDirty && !this.stopped) {
-        this.forwardSoon();
-      }
-    }
-  }
-  private forwardSoon() {
-    this.mailDirty = true;
-    this.forwarding ??= this.forwardPending();
-  }
+  /**
+  Logs closure failures and always releases the in-progress closure marker.
+  @param child - Child whose closure is being coordinated.
+  @returns Completion of this closure attempt.
+  */
   private async closeSafely(child: SidePocket) {
     try {
       await this.closeRequested(child);
@@ -216,17 +185,28 @@ ${mail.payload}`;
       this.closing.delete(child.id);
     }
   }
+
+  /**
+  Closes requested children and claims queued work only when process capacity is available.
+  */
   private dispatch() {
+    for (const command of this.store.queue.steering.pending(this.config.threadId)) {
+      const running = this.active.get(command.childId);
+
+      if (running?.run.command.id === command.targetId && this.store.queue.steering.claim(command)) {
+        running.run.steer(command);
+      }
+    }
+
     for (const child of this.store.list(this.config.threadId)) {
       if (child.status !== "closing" || this.closing.has(child.id)) {
         continue;
       }
 
-      const closing = this.closeSafely(child);
-      this.closing.set(child.id, closing);
+      this.closing.set(child.id, this.closeSafely(child));
     }
 
-    for (const child of this.store.queuedChildren(this.config.threadId)) {
+    for (const child of this.store.queue.queuedChildren(this.config.threadId)) {
       if (this.active.size >= MAX_CONCURRENT_CHILDREN) {
         break;
       }
@@ -235,28 +215,48 @@ ${mail.payload}`;
         continue;
       }
 
-      const command = this.store.claim(child.parentId, child.id);
+      this.claim(child);
+    }
+  }
 
-      if (command) {
-        this.launch(child, command);
+  /**
+  Atomically claims the next command before launching its native resource.
+  @param child - Eligible queued child with an available process slot.
+  */
+  private claim(child: SidePocket) {
+    const command = this.store.queue.claim(child.parentId, child.id);
+
+    if (command) {
+      this.launch(child, command);
+    }
+  }
+
+  /**
+  Processes synchronous queue wakeups without waiting for parent report delivery.
+  */
+  private flush() {
+    while (this.dirty && !this.stopped) {
+      this.dirty = false;
+
+      try {
+        this.questions.answers();
+        this.dispatch();
+        this.reports.queue();
+      } catch (error) {
+        log().error({ error }, "side_pocket.worker_failed");
       }
     }
   }
+
+  /**
+  Reserves a dispatch promise before work and preserves wakeups received during cleanup.
+  @returns Completion of this dispatch drain.
+  */
   private async drain() {
     await Promise.resolve();
 
     try {
-      while (this.dirty && !this.stopped) {
-        this.dirty = false;
-
-        try {
-          this.answers();
-          this.dispatch();
-          this.forwardSoon();
-        } catch (error) {
-          log().error({ error }, "side_pocket.worker_failed");
-        }
-      }
+      this.flush();
     } finally {
       this.ticking = undefined;
 
@@ -265,6 +265,26 @@ ${mail.payload}`;
       }
     }
   }
+
+  /**
+  Closes the active-process snapshot after dispatch stops, then joins executions and closures.
+  @returns Completion of native process and closure settlement.
+  */
+  private async closeAll() {
+    const running = this.active.values().toArray();
+
+    for (const entry of running) {
+      await entry.run.adapter.close();
+    }
+
+    await Promise.allSettled(running.map((entry) => entry.done));
+    await Promise.allSettled(this.closing.values());
+  }
+
+  /**
+  Coalesces a queue wakeup into the current dispatch drain.
+  @returns Completion of pending dispatch work, or immediate completion after stop.
+  */
   async tick() {
     if (this.stopped) {
       return;
@@ -274,6 +294,10 @@ ${mail.payload}`;
     this.ticking ??= this.drain();
     await this.ticking;
   }
+
+  /**
+  Recovers persisted work, subscribes to commit wakeups and starts bounded reconciliation once.
+  */
   start() {
     if (this.started) {
       return;
@@ -288,25 +312,20 @@ ${mail.payload}`;
     this.timer.unref();
     void this.tick();
   }
+
+  /**
+  Stops wakeups, rejects pending questions and joins native processes and parent delivery.
+  @returns Completion of worker shutdown; native close failures reject.
+  */
   async stop() {
     this.stopped = true;
+    this.reports.stop();
     this.unsubscribe?.();
     clearInterval(this.timer);
 
-    for (const waiting of this.waiting.values()) {
-      waiting.reject(new Error("Pocket is stopping; this request can be continued in the saved session."));
-    }
-
-    this.waiting.clear();
+    this.questions.stop();
     await this.ticking;
-    const running = this.active.values().toArray();
-
-    for (const entry of running) {
-      await entry.adapter.close();
-    }
-
-    await Promise.allSettled(running.map((entry) => entry.done));
-    await Promise.allSettled(this.closing.values());
-    await this.forwarding;
+    await this.closeAll();
+    await this.reports.settled();
   }
 }

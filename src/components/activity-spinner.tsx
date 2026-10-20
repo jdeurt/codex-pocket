@@ -1,55 +1,88 @@
 "use client";
-
 import "./activity-spinner.css";
+import { type SpinnerPreference, spinnerPreferenceSchema } from "@/lib/spinner";
 import { useEffect, useId, useState, useSyncExternalStore } from "react";
 import { Spinner } from "@/components/ui/spinner";
-import type { SpinnerPreference } from "@/lib/spinner";
 
 const POLL_MS = 2000;
 const motionQuery = "(prefers-reduced-motion: reduce)";
+/**
+Observe the native reduced-motion preference for one mounted spinner.
+@param callback - Stable external-store listener registered for media-query changes.
+@returns Cleanup that removes the same listener.
+*/
 const subscribeMotion = (callback: () => void) => {
   const media = globalThis.matchMedia(motionQuery);
+
   media.addEventListener("change", callback);
 
-  return () => media.removeEventListener("change", callback);
+  return () => {
+    media.removeEventListener("change", callback);
+  };
 };
-const reducedMotion = () => globalThis.matchMedia(motionQuery).matches;
-const staticMotion = () => true;
+/**
+Read the current browser reduced-motion preference.
+@returns Whether optional custom image motion should be avoided.
+*/
+const isReducedMotion = () => globalThis.matchMedia(motionQuery).matches;
+/**
+Use the conservative static-motion snapshot during server rendering.
+@returns True, keeping animated custom assets out of the server snapshot.
+*/
+const isStaticMotion = () => true;
 
+/**
+Display the selected custom spinner with reduced-motion and reconnect-safe preference updates.
+@returns The custom image or native fallback loading indicator.
+*/
 export function ActivitySpinner() {
   const filterId = `spinner-tone-${useId().replaceAll(":", "")}`;
   const [current, setCurrent] = useState<SpinnerPreference["current"]>(null);
   const [loaded, setLoaded] = useState("");
   const [failed, setFailed] = useState("");
-  const reduce = useSyncExternalStore(subscribeMotion, reducedMotion, staticMotion);
+  const isMotionReduced = useSyncExternalStore(subscribeMotion, isReducedMotion, isStaticMotion);
+
+  const showImage = current && !isMotionReduced && failed !== current.id;
 
   useEffect(() => {
+    let isRefreshing = false;
+
     const abort = new AbortController();
-    let refreshing = false;
-    const refresh = async () => {
-      if (document.hidden || refreshing || abort.signal.aborted) {
+
+    async function readPreference() {
+      const response = await fetch("/api/spinner", { cache: "no-store", signal: abort.signal });
+
+      if (response.ok) {
+        setCurrent(spinnerPreferenceSchema.parse(await response.json()).current);
+      }
+    }
+
+    async function refresh() {
+      if (isRefreshing || document.hidden || abort.signal.aborted) {
         return;
       }
 
-      refreshing = true;
+      isRefreshing = true;
 
       try {
-        const response = await fetch("/api/spinner", { cache: "no-store", signal: abort.signal });
-
-        if (response.ok && !abort.signal.aborted) {
-          const preference = (await response.json()) as SpinnerPreference;
-          setCurrent(preference.current);
-        }
+        await readPreference();
       } catch {
         // Keep the last preference through a transient disconnect; initial state is the SVG.
       } finally {
-        refreshing = false;
+        isRefreshing = false;
       }
-    };
+    }
+
     const visible = () => void refresh();
-    document.addEventListener("visibilitychange", visible);
-    void refresh();
-    const timer = setInterval(() => void refresh(), POLL_MS);
+
+    function startPolling() {
+      document.addEventListener("visibilitychange", visible);
+      void refresh();
+
+      return setInterval(() => void refresh(), POLL_MS);
+    }
+
+    const timer = startPolling();
 
     return () => {
       abort.abort();
@@ -57,8 +90,6 @@ export function ActivitySpinner() {
       document.removeEventListener("visibilitychange", visible);
     };
   }, []);
-
-  const showImage = current && !reduce && failed !== current.id;
 
   return (
     <span className="custom-activity-spinner-slot" aria-hidden="true" data-activity-spinner="">
@@ -90,11 +121,15 @@ export function ActivitySpinner() {
           className="custom-activity-spinner-image"
           style={current.tone ? { filter: `url("#${filterId}")`, opacity: 1 } : undefined}
           src={`/api/spinner/${current.id}`}
-          width={32}
-          height={32}
+          width={28}
+          height={28}
           alt=""
-          onLoad={() => setLoaded(current.id)}
-          onError={() => setFailed(current.id)}
+          onLoad={() => {
+            setLoaded(current.id);
+          }}
+          onError={() => {
+            setFailed(current.id);
+          }}
         />
       )}
     </span>

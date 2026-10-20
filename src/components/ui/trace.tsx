@@ -1,9 +1,14 @@
 import * as React from "react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { ACTIVITY_TRANSITION } from "@/lib/activity-motion";
+import { ChevronRightIcon } from "lucide-react";
 import { cn } from "cn";
 
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { ChevronRightIcon } from "lucide-react";
-
+/**
+Group related assistant activity lines using the shared trace layout.
+@param props - Native attributes, children and the declared appearance or composition options.
+@returns The composed element with caller props and classes preserved.
+*/
 function Trace({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -17,6 +22,11 @@ function Trace({ className, ...props }: React.ComponentProps<"div">) {
   );
 }
 
+/**
+Present one activity line with its declared status and connector treatment.
+@param props - Native attributes, children and the declared appearance or composition options.
+@returns The composed element with caller props and classes preserved.
+*/
 function TraceLine({
   className,
   status,
@@ -44,6 +54,11 @@ function TraceLine({
   );
 }
 
+/**
+Reserve the existing icon slot within an activity line.
+@param props - Native attributes, children and the declared appearance or composition options.
+@returns The composed element with caller props and classes preserved.
+*/
 function TraceIcon({ className, ...props }: React.ComponentProps<"span">) {
   return (
     <span
@@ -58,22 +73,22 @@ function TraceIcon({ className, ...props }: React.ComponentProps<"span">) {
   );
 }
 
+/**
+Keep an activity title truncated within the available line width.
+@param props - Native attributes, children and the declared appearance or composition options.
+@returns The composed element with caller props and classes preserved.
+*/
 function TraceTitle({ className, ...props }: React.ComponentProps<"span">) {
   return (
     <span data-slot="trace-title" className={cn("min-w-0 truncate motion-reduce:shimmer-none", className)} {...props} />
   );
 }
 
-function TraceDescription({ className, ...props }: React.ComponentProps<"span">) {
-  return (
-    <span
-      data-slot="trace-description"
-      className={cn("shrink-0 text-muted-foreground/70 tabular-nums", className)}
-      {...props}
-    />
-  );
-}
-
+/**
+Delegate expandable activity state to the existing disclosure primitive.
+@param props - Native attributes, children and the declared appearance or composition options.
+@returns The composed element with caller props and classes preserved.
+*/
 function TraceCollapsible({
   className,
   ...props
@@ -90,6 +105,11 @@ function TraceCollapsible({
   );
 }
 
+/**
+Render a keyboard-operable activity disclosure trigger with its existing chevron.
+@param props - Native attributes, children and the declared appearance or composition options.
+@returns The composed element with caller props and classes preserved.
+*/
 function TraceCollapsibleTrigger({
   className,
   children,
@@ -108,23 +128,33 @@ function TraceCollapsibleTrigger({
       {...props}
     >
       {children}
-      <TraceIcon className="transition-transform duration-200 motion-reduce:transition-none group-aria-expanded/trace-collapsible-trigger:rotate-90">
+      <TraceIcon
+        style={ACTIVITY_TRANSITION}
+        className="transition-transform motion-reduce:transition-none group-aria-expanded/trace-collapsible-trigger:rotate-90"
+      >
         <ChevronRightIcon />
       </TraceIcon>
     </CollapsibleTrigger>
   );
 }
 
+/**
+Render expanded activity content using its declared messages or default layout.
+@param props - Native attributes, children and the declared appearance or composition options.
+@returns The composed element with caller props and classes preserved.
+*/
 function TraceCollapsibleContent({
   className,
   children,
   variant = "default",
+  style,
   ...props
 }: React.ComponentProps<typeof CollapsibleContent> & { variant?: "default" | "messages" }) {
   return (
     <CollapsibleContent
       data-slot="trace-collapsible-content"
-      className="h-(--collapsible-panel-height) min-w-0 overflow-hidden transition-[height] duration-200 motion-reduce:transition-none data-ending-style:h-0 data-starting-style:h-0"
+      className="h-(--collapsible-panel-height) min-w-0 overflow-hidden transition-[height] motion-reduce:transition-none data-ending-style:h-0 data-starting-style:h-0"
+      style={(state) => ({ ...ACTIVITY_TRANSITION, ...(typeof style === "function" ? style(state) : style) })}
       {...props}
     >
       <div
@@ -143,13 +173,4 @@ function TraceCollapsibleContent({
   );
 }
 
-export {
-  Trace,
-  TraceLine,
-  TraceIcon,
-  TraceTitle,
-  TraceDescription,
-  TraceCollapsible,
-  TraceCollapsibleTrigger,
-  TraceCollapsibleContent,
-};
+export { Trace, TraceCollapsible, TraceCollapsibleContent, TraceCollapsibleTrigger, TraceIcon, TraceLine, TraceTitle };

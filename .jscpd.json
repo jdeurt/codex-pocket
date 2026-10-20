@@ -1,0 +1,20 @@
+{
+  "path": ["."],
+  "reporters": ["ai", "json"],
+  "output": ".local/review/jscpd",
+  "ignore": [
+    "**/node_modules/**",
+    "**/.next/**",
+    "**/.local/**",
+    "**/test-results/**",
+    "**/playwright-report/**",
+    "**/package-lock.json",
+    "**/next-env.d.ts"
+  ],
+  "ignoreIdentifiers": true,
+  "ignoreLiterals": true,
+  "ignoreAnnotations": true,
+  "maxGapLines": 2,
+  "similarity": 0.7,
+  "crossFormats": "js-ts"
+}

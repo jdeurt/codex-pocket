@@ -1,28 +1,37 @@
 import { delegationBody, delegationInput, delegationKey, delegations } from "../src/server/delegations";
-import type { McpServer } from "@modelcontextprotocol/server";
+import { type McpServer } from "@modelcontextprotocol/server";
 import { findClaudeBinary } from "../src/server/harness/claude-binary";
 import { harnessCapabilities } from "../src/server/harness/types";
 import { toolResult } from "../src/server/mcp-result";
 import { z } from "zod";
 
 const CLOSE_TIMEOUT_MS = 15_000;
-const idSchema = z.object({ id: z.string().uuid() }).strict();
+const idSchema = z.object({ id: z.uuid() }).strict();
+const answerSchema = idSchema.extend({ requestId: z.uuid(), answer: z.record(z.string(), z.unknown()) });
+const sendSchema = idSchema.extend({
+  message: delegationBody,
+  idempotencyKey: delegationKey,
+  mode: z.enum(["steer", "queue"]).default("steer"),
+  supersedes: z.array(z.uuid()).default([]),
+});
+const cancelSchema = idSchema.extend({ commandIds: z.array(z.uuid()).min(1), reason: delegationBody });
 
+/**
+Waits for host-confirmed native closure after recording a durable close request.
+@param owner - Parent identity authorizing the child.
+@param id - Child identity to close.
+@returns Closed child record; a timeout leaves the durable request intact.
+*/
 async function closeChild(owner: string, id: string) {
   const store = delegations();
 
   return new Promise<ReturnType<typeof store.get>>((resolve, reject) => {
-    // Cleanup captures this before the subscription is installed.
-    // eslint-disable-next-line prefer-const
-    let unsubscribe: (() => void) | undefined;
-    // The cleanup callback runs after this timer has been installed.
-    // eslint-disable-next-line prefer-const
-    let timer: NodeJS.Timeout | undefined;
+    const resources: { timer?: NodeJS.Timeout; unsubscribe?: () => void } = {};
     const cleanup = () => {
-      clearTimeout(timer);
-      unsubscribe?.();
+      clearTimeout(resources.timer);
+      resources.unsubscribe?.();
     };
-    const check = () => {
+    const isSatisfied = () => {
       const child = store.get(owner, id);
 
       if (child.status === "closed") {
@@ -34,10 +43,11 @@ async function closeChild(owner: string, id: string) {
 
       return false;
     };
-    unsubscribe = store.subscribe(check);
-    timer = setTimeout(() => {
+
+    resources.unsubscribe = store.subscribe(isSatisfied);
+    resources.timer = setTimeout(() => {
       // A final read covers a lost close notification without another poller.
-      if (check()) {
+      if (isSatisfied()) {
         return;
       }
 
@@ -51,14 +61,19 @@ async function closeChild(owner: string, id: string) {
 
     try {
       store.closeChild(owner, id);
-      check();
+      isSatisfied();
     } catch (error) {
       cleanup();
-      reject(error);
+      reject(error instanceof Error ? error : new Error("Operation failed.", { cause: error }));
     }
   });
 }
 
+/**
+Registers parent-scoped delegation tools with durable idempotency and confirmed closure.
+@param server - Native MCP server receiving the tools.
+@param owner - Parent identity authorizing every operation.
+*/
 export function registerDelegationTools(server: McpServer, owner: string) {
   server.registerTool(
     "side_pocket_capabilities",
@@ -104,7 +119,7 @@ export function registerDelegationTools(server: McpServer, owner: string) {
 
         return {
           ...store.get(owner, id),
-          commands: store.commands(owner, id),
+          commands: store.queue.list(owner, id),
           messages: store.mail.history(owner, id),
           requests: store.mail.requests(owner, id),
         };
@@ -114,17 +129,34 @@ export function registerDelegationTools(server: McpServer, owner: string) {
     "side_pocket_send",
     {
       description:
-        "Send a follow-up or answer to a Side Pocket by ID. Messages run in order after its current turn. Reuse idempotencyKey when retrying the same send.",
-      inputSchema: idSchema.extend({ message: delegationBody, idempotencyKey: delegationKey }),
+        "Steer the current task by default. Active steering uses its existing execution slot and bypasses later assignments. Set mode=queue only for an explicitly distinct later task. Idle delivery resumes the saved session subject to normal capacity. The returned receipt is durable. pending or sending does not prove native acceptance. Inspect side_pocket_get for accepted, unsupported, failed, or unknown outcomes. Do not resend unknown outcomes with a new key. supersedes atomically cancels only selected unsent queued assignments. It preserves unrelated work and audit history. Reuse idempotencyKey only for identical retries.",
+      inputSchema: sendSchema,
     },
-    ({ id, message, idempotencyKey }) => toolResult(() => delegations().send(owner, id, idempotencyKey, message))
+    ({ id, message, idempotencyKey, mode, supersedes }) =>
+      toolResult(() => delegations().queue.send(owner, id, idempotencyKey, message, mode, supersedes))
+  );
+  server.registerTool(
+    "side_pocket_cancel",
+    {
+      description:
+        "Cancel exact unsent queued assignment IDs with an audit reason, preserving unrelated work and native in-flight deliveries. Repeating cancellation does not resend work or replace the original audit reason.",
+      inputSchema: cancelSchema,
+    },
+    ({ id, commandIds, reason }) =>
+      toolResult(() => {
+        const store = delegations();
+
+        store.get(owner, id);
+
+        return { cancelled: store.queue.steering.cancel(owner, id, commandIds, reason) };
+      })
   );
   server.registerTool(
     "side_pocket_answer",
     {
       description:
         "Answer a pending harness question/approval using its request ID from side_pocket_get. For ordinary message_parent questions, reply with side_pocket_send.",
-      inputSchema: idSchema.extend({ requestId: z.string().uuid(), answer: z.record(z.string(), z.unknown()) }),
+      inputSchema: answerSchema,
     },
     ({ id, requestId, answer }) => toolResult(() => delegations().mail.answer(owner, id, requestId, answer))
   );

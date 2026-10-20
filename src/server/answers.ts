@@ -3,10 +3,15 @@ import { MAX_MESSAGE_LENGTH } from "../lib/constants";
 import { z } from "zod";
 
 const approval = z.object({ decision: z.enum(["accept", "decline", "cancel"]) }).strict();
-const answers = z
-  .object({ answers: z.record(z.string(), z.object({ answers: z.array(z.string().max(MAX_MESSAGE_LENGTH)).min(1) })) })
-  .strict();
+const questionAnswerSchema = z.object({ answers: z.array(z.string().max(MAX_MESSAGE_LENGTH)).min(1) });
+const answers = z.object({ answers: z.record(z.string(), questionAnswerSchema) }).strict();
 
+/**
+Validate a phone answer against the exact pending native question or approval.
+@param request - Normalized request determining question IDs or available decisions.
+@param input - Untrusted answer body received from the phone.
+@returns Native response restricted to the requested decision or turn-scoped permissions.
+*/
 export function validateAnswer(request: PendingRequest, input: unknown): unknown {
   if (["item/commandExecution/requestApproval", "item/fileChange/requestApproval"].includes(request.method)) {
     const result = approval.parse(input);
@@ -24,7 +29,7 @@ export function validateAnswer(request: PendingRequest, input: unknown): unknown
     const questions = z.array(z.object({ id: z.string() })).parse(request.params.questions);
 
     if (
-      questions.some((q) => result.answers[q.id] === undefined) ||
+      questions.some((q) => !Object.hasOwn(result.answers, q.id)) ||
       Object.keys(result.answers).some((id) => questions.every((q) => q.id !== id))
     ) {
       throw new Error("Answer each question.");

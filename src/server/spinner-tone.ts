@@ -18,9 +18,28 @@ const ENVELOPE_MARGIN = 0.1;
 const MIN_CONTRAST = 0.5;
 const MAX_CONTRAST = 2;
 const PRECISION = 1_000_000;
+/**
+Bound a native luminance parameter without changing values already inside the envelope.
+@param value - Computed luminance parameter.
+@param low - Existing lower envelope bound.
+@param high - Existing upper envelope bound.
+@returns Parameter within the existing inclusive envelope.
+*/
 const clamp = (value: number, low: number, high: number) => Math.max(low, Math.min(high, value));
+/**
+Round persisted tone coefficients to the existing fixed precision.
+@param value - Computed finite tone coefficient.
+@returns Coefficient rounded to the existing millionth precision.
+*/
 const rounded = (value: number) => Math.round(value * PRECISION) / PRECISION;
 
+/**
+Find a weighted histogram quantile using the existing inclusive cumulative threshold.
+@param histogram - Native luminance bins accumulated from all decoded frames.
+@param weight - Total visible alpha weight.
+@param fraction - Requested existing lower, median or upper quantile.
+@returns Normalized luminance at the weighted quantile.
+*/
 function percentile(histogram: Float64Array, weight: number, fraction: number) {
   let sum = 0;
 
@@ -35,11 +54,33 @@ function percentile(histogram: Float64Array, weight: number, fraction: number) {
   return 1;
 }
 
-export function spinnerTone(rgba: Buffer): SpinnerTone {
-  const histogram = new Float64Array(CHANNEL_MAX + 1);
-  let weight = 0;
-  let minimum = 1;
-  let maximum = 0;
+interface LuminanceStats {
+  histogram: Float64Array;
+  weight: number;
+  minimum: number;
+  maximum: number;
+}
+
+/**
+Accumulate one visible pixel's alpha weight and native luminance extrema.
+@param stats - Concrete image histogram and extrema accumulator.
+@param value - Rounded native sRGB luminance bin.
+@param alpha - Visible alpha weight between zero and one.
+*/
+function accumulateLuminance(stats: LuminanceStats, value: number, alpha: number) {
+  stats.histogram[value] += alpha;
+  stats.weight += alpha;
+  stats.minimum = Math.min(stats.minimum, value / CHANNEL_MAX);
+  stats.maximum = Math.max(stats.maximum, value / CHANNEL_MAX);
+}
+
+/**
+Accumulate all decoded frames while excluding fully transparent RGB from tone decisions.
+@param rgba - Native decoded RGBA bytes for every validated image frame.
+@returns Weighted histogram and extrema after requiring visible pixels.
+*/
+function imageLuminance(rgba: Buffer): LuminanceStats {
+  const stats = { histogram: new Float64Array(CHANNEL_MAX + 1), weight: 0, minimum: 1, maximum: 0 };
 
   // Pool every decoded frame. Transparent RGB has no vote; partial alpha contributes proportionally.
   for (let pixel = 0; pixel < rgba.length; pixel += RGBA_CHANNELS) {
@@ -49,17 +90,27 @@ export function spinnerTone(rgba: Buffer): SpinnerTone {
       continue;
     }
 
-    const value = Math.round(RED_LUMA * rgba[pixel] + GREEN_LUMA * rgba[pixel + 1] + BLUE_LUMA * rgba[pixel + 2]);
-    histogram[value] += alpha;
-    weight += alpha;
-    minimum = Math.min(minimum, value / CHANNEL_MAX);
-    maximum = Math.max(maximum, value / CHANNEL_MAX);
+    accumulateLuminance(
+      stats,
+      Math.round(RED_LUMA * rgba[pixel] + GREEN_LUMA * rgba[pixel + 1] + BLUE_LUMA * rgba[pixel + 2]),
+      alpha
+    );
   }
 
-  if (weight === 0) {
+  if (stats.weight === 0) {
     throw new Error("A spinner needs visible pixels.");
   }
 
+  return stats;
+}
+
+/**
+Compute the existing shared grayscale envelope from every frame's weighted luminance.
+@param rgba - Native validated RGBA bytes whose animation shares one stable tone.
+@returns Version-one contrast and brightness coefficients preserving visible extrema.
+*/
+export function spinnerTone(rgba: Buffer): SpinnerTone {
+  const { histogram, weight, minimum, maximum } = imageLuminance(rgba);
   const paletteSpan = FOREGROUND - BACKGROUND;
   const targetLow = BACKGROUND + TARGET_SHADOW * paletteSpan;
   const targetSpan = FOREGROUND - targetLow;

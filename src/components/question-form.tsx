@@ -4,8 +4,13 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useId, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import type { Question } from "@/lib/questions";
+import { type Question } from "@/lib/questions";
 
+/**
+Render one question using its declared text, secret or option input behavior.
+@param props - Question definition, current value and the callback that owns its update.
+@returns The existing labeled native question control.
+*/
 function QuestionField({
   question,
   value,
@@ -27,7 +32,9 @@ function QuestionField({
           orientation="vertical"
           className="prompt-options"
           value={value ? [value] : []}
-          onValueChange={(selected) => change(selected[0] ?? "")}
+          onValueChange={(selected) => {
+            change(selected[0] ?? "");
+          }}
           disabled={disabled}
         >
           {question.options.map((option) => (
@@ -49,13 +56,20 @@ function QuestionField({
           autoComplete="off"
           disabled={disabled}
           value={value}
-          onChange={(event) => change(event.target.value)}
+          onChange={(event) => {
+            change(event.target.value);
+          }}
         />
       </Field>
     </FieldSet>
   );
 }
 
+/**
+Collect and submit answers for the current native question set.
+@param props - Normalized questions, sending state and the caller-owned submission callback.
+@returns The current question fields and submit control.
+*/
 export function QuestionForm({
   questions,
   sending,
@@ -65,7 +79,7 @@ export function QuestionForm({
   sending: boolean;
   submit: (result: unknown) => Promise<void>;
 }) {
-  const [values, setValues] = useState<Record<string, string>>({});
+  const [values, setValues] = useState<Partial<Record<string, string>>>({});
 
   return (
     <form
@@ -82,7 +96,9 @@ export function QuestionForm({
             key={question.id}
             question={question}
             value={values[question.id] ?? ""}
-            change={(value) => setValues({ ...values, [question.id]: value })}
+            change={(value) => {
+              setValues({ ...values, [question.id]: value });
+            }}
             disabled={sending}
           />
         ))}

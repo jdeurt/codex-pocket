@@ -1,6 +1,11 @@
 import * as React from "react";
 import { cn } from "cn";
 
+/**
+Forward native multiline input behavior with the shared focus and validation treatment.
+@param props - Native attributes, children and the declared appearance or composition options.
+@returns The composed element with caller props and classes preserved.
+*/
 function Textarea({ className, ...props }: React.ComponentProps<"textarea">) {
   return (
     <textarea

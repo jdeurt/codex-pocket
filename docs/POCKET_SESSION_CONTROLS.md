@@ -1,0 +1,24 @@
+# Pocket session controls
+
+The main Pocket MCP server exposes only `pocket_session_inspect` and `pocket_session_settings`. The host supplies its own control origin. The same host/origin guard protects `/api/session`; mutations also require an allowed origin and JSON content type. Child MCP servers do not register these tools. Requests cannot select another thread, change permissions, or supply an arbitrary RPC method.
+
+The installed Codex 0.163.0 app-server JSON schema was inspected locally for the matrix below. Native availability alone is not a promise that Pocket exposes an operation.
+
+| Capability                                      | Native surface                                         | Pocket behavior                                                                                                                |
+| ----------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------ |
+| Model and effort inspection                     | `thread/read` configured `model` and `reasoningEffort` | Existing parent snapshot, explicitly distinguished from per-turn telemetry                                                     |
+| Model and effort mutation                       | `thread/settings/update`                               | Strict model/effort fields, serialized on the existing bridge, followed by native readback and parent-scoped local persistence |
+| Active turn and connection                      | Existing bridge snapshot                               | Read only; mutation does not start, cancel or restart a turn                                                                   |
+| Token accounting and model context window       | `thread/tokenUsage/updated`                            | Original total/last counters and subset metadata; missing observations remain null                                             |
+| Remaining context and utilization               | No exact live occupancy field in this usage contract   | Null, with an explicit accounting-versus-occupancy explanation                                                                 |
+| Last observed compaction                        | `thread/compacted` notification                        | Observation timestamp when received; unavailable after an unobserved historical compaction                                     |
+| Model catalog                                   | `model/list`                                           | Candidate only; not exposed by these tools                                                                                     |
+| Rate limits and account status                  | `account/rateLimits/read`, `account/read`              | Candidate only; not exposed                                                                                                    |
+| Manual compaction                               | `thread/compact/start`                                 | Candidate only; not exposed                                                                                                    |
+| Parent queue inspection/cancellation/reordering | Existing Pocket ledger and routes                      | Separate existing ownership; no new generic control operation                                                                  |
+| Delegate steering and queue cancellation        | `turn/steer`, Pocket command ledger                    | Existing typed `side_pocket_send` and `side_pocket_cancel` tools; Claude active steering is explicitly unsupported             |
+| Background terminals                            | Native process/terminal capabilities                   | Candidate only; no generic terminal/RPC forwarding                                                                             |
+
+Settings affect subsequent turns. Accepted settings are read back before being saved in private `session-settings.json` under the configured thread ID. Reconnect/resume restores only that parent's settings. Future delegates using inherited defaults see the updated policy; existing delegates retain their own configuration. Native acceptance followed by failed readback or persistence is reported as uncertain; inspect before retrying. Transport calls are not automatically replayed.
+
+`tests/session-controls-flow.test.ts` exercises the real bridge against an isolated native-protocol fixture: active work survives mutation, settings survive a fresh bridge, and captured calls contain no turn execution or permission changes. This verifies protocol integration without spending tokens or changing the user's live chat. Live authenticated provider behavior is a separate check.

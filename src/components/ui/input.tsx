@@ -2,6 +2,11 @@ import * as React from "react";
 import { Input as InputPrimitive } from "@base-ui/react/input";
 import { cn } from "cn";
 
+/**
+Forward native text-input behavior through the Base UI input primitive.
+@param props - Native attributes, children and the declared appearance or composition options.
+@returns The composed element with caller props and classes preserved.
+*/
 function Input({ className, type, ...props }: React.ComponentProps<"input">) {
   return (
     <InputPrimitive

@@ -1,95 +1,169 @@
-import type { ChildContext, Harness, ParentPolicy } from "./harness/types";
+import {
+  type ParentContext,
+  type SidePocket,
+  parentContextSchema,
+  pocket,
+  storedPocketSchema,
+} from "./delegation-data";
+import { delegationDatabase, lastCommandStatus } from "./delegation-db";
+import { DelegateReportStore } from "./delegate-report-store";
 import { DelegationMailbox } from "./delegation-mail";
 import { DelegationNotifications } from "./delegation-notifications";
+import { DelegationQueue } from "./delegation-queue";
 import { claudePermissions } from "./harness/permissions";
 import { createHash } from "node:crypto";
-import { delegationDatabase } from "./delegation-db";
-import { localDirectory } from "./local-state";
+import { delegationInput } from "./delegation-input";
 import { log } from "./logging";
 import { requireClaudeBinary } from "./harness/claude-binary";
 import { z } from "zod";
 
-const MAX_TITLE_LENGTH = 160;
-const MAX_BODY_LENGTH = 32_768;
-export const MAX_CONCURRENT_CHILDREN = 8;
-export const delegationKey = z.string().trim().min(1).max(MAX_TITLE_LENGTH);
-export const delegationBody = z.string().trim().min(1).max(MAX_BODY_LENGTH);
-export const delegationInput = z
-  .object({
-    title: z.string().trim().min(1).max(MAX_TITLE_LENGTH),
-    body: delegationBody,
-    harness: z.enum(["codex", "claude"]).default("codex"),
-    cwd: z.string().startsWith("/").optional(),
-    model: z.string().min(1).optional(),
-    effort: z.enum(["minimal", "low", "medium", "high", "xhigh", "max"]).optional(),
-    idempotencyKey: delegationKey,
-  })
-  .strict();
-export interface SidePocket extends ChildContext {
-  harness: Harness;
-  status: "idle" | "running" | "waiting" | "closing" | "closed" | "unknown";
-  createdAt: number;
-  updatedAt: number;
-  metadata: string;
-}
-interface StoredPocket extends Omit<SidePocket, "policy"> {
-  policy: string;
-  fingerprint: string;
-}
-export interface DelegationCommand {
-  id: string;
-  childId: string;
-  parentId: string;
-  body: string;
-  status: "queued" | "running" | "completed" | "failed" | "unknown" | "cancelled";
-  result: string | null;
-}
-interface ParentContext {
-  cwd: string;
-  policy: ParentPolicy;
-}
+const RECOVERY_MESSAGE =
+  "Pocket restarted during this turn. Its outcome is unknown. Inspect the saved history and send a follow-up to continue; the original work will not be replayed automatically.";
 
-function pocket(row: StoredPocket): SidePocket {
-  return { ...row, policy: JSON.parse(row.policy) };
-}
+export { delegations } from "./delegation-runtime";
+export { MAX_CONCURRENT_CHILDREN } from "./delegation-queue";
+export { delegationInput, delegationKey, delegationBody } from "./delegation-input";
 
+export type { DelegationCommand, ParentContext, SidePocket, StoredPocket } from "./delegation-data";
+
+/**
+Own private parent and child identities, composing their durable mailbox and command queue.
+*/
 export class DelegationStore {
   private db;
+
   private notifications: DelegationNotifications;
+
   readonly mail: DelegationMailbox;
+
+  readonly reports: DelegateReportStore;
+
+  readonly queue: DelegationQueue;
+
+  /**
+Read the newest persisted command outcome for one parent-owned child.
+@param parentId - Recorded parent scope.
+@param childId - Managed child whose latest outcome is requested.
+@returns Latest validated command status, or undefined when no command exists.
+*/
+  lastCommandStatus = (parentId: string, childId: string) => lastCommandStatus(this.db, parentId, childId);
+
+  /**
+Acquire private persistence, committed-change hints and concrete mailbox and queue owners.
+@param directory - Private state directory used by this process or isolated fixture.
+*/
   constructor(directory: string) {
     this.db = delegationDatabase(directory);
     this.notifications = new DelegationNotifications(directory);
+    this.reports = new DelegateReportStore(this.db);
     this.mail = new DelegationMailbox(this.db, this.notifications.changed);
+    this.queue = new DelegationQueue(this.db, this, this.notifications);
   }
+
+  /**
+Insert a new child and its first command only after retry and native-policy checks succeed.
+@param parentId - Recorded parent scope.
+@param value - Validated creation input with its stable retry identity.
+@param parent - Recorded native parent context and effective policy.
+@param fingerprint - Exact normalized-input digest already checked for retries.
+@returns Newly persisted normalized child identity.
+*/
+  private insertChild(
+    parentId: string,
+    value: z.infer<typeof delegationInput>,
+    parent: ParentContext,
+    fingerprint: string
+  ) {
+    const id = crypto.randomUUID();
+    const now = Date.now();
+
+    this.db
+      .prepare(
+        `INSERT INTO side_pockets
+        (id,parentId,title,harness,cwd,model,effort,policy,status,createdAt,updatedAt,createKey,fingerprint)
+        VALUES (?,?,?,?,?,?,?,?,'idle',?,?,?,?)`
+      )
+      .run(
+        id,
+        parentId,
+        value.title,
+        value.harness,
+        value.cwd ?? parent.cwd,
+        value.model ?? null,
+        value.effort ?? null,
+        JSON.stringify(parent.policy),
+        now,
+        now,
+        value.idempotencyKey,
+        fingerprint
+      );
+    this.queue.send(parentId, id, "initial", value.body, "queue");
+    log().info({ parentId, childId: id, input: value }, "side_pocket.created");
+
+    return this.get(parentId, id);
+  }
+
+  /**
+Observe committed delegation changes through the existing native directory watcher.
+@param listener - Owner callback that rechecks persisted work.
+@returns Cleanup releasing this exact change subscription.
+*/
   subscribe(listener: () => void) {
     return this.notifications.subscribe(listener);
   }
+
+  /**
+Persist the native parent's effective working directory and access policy.
+@param id - Native parent conversation identity.
+@param context - Validated native parent context inherited by managed children.
+*/
   saveParent(id: string, context: ParentContext) {
     this.db
       .prepare("INSERT INTO delegation_parents VALUES (?,?) ON CONFLICT(id) DO UPDATE SET context=excluded.context")
       .run(id, JSON.stringify(context));
   }
+
+  /**
+Require and validate the recorded native parent context before child operations.
+@param id - Native parent conversation identity.
+@returns Validated parent context or the existing unconfigured-parent error.
+*/
   parent(id: string): ParentContext {
-    const row = this.db.prepare("SELECT context FROM delegation_parents WHERE id=?").get(id) as
-      { context: string } | undefined;
+    const row = z
+      .object({ context: z.string() })
+      .optional()
+      .parse(this.db.prepare("SELECT context FROM delegation_parents WHERE id=?").get(id));
 
     if (!row) {
       throw new Error("Parent Pocket must connect before delegating work.");
     }
 
-    return JSON.parse(row.context);
+    return parentContextSchema.parse(JSON.parse(row.context));
   }
+
+  /**
+Read normalized managed children within the recorded parent scope.
+@param parentId - Recorded parent scope.
+@returns Persisted children in deterministic creation order.
+*/
   list(parentId: string) {
-    const rows = this.db
-      .prepare("SELECT * FROM side_pockets WHERE parentId=? ORDER BY createdAt,id")
-      .all(parentId) as StoredPocket[];
+    const rows = z
+      .array(storedPocketSchema)
+      .parse(this.db.prepare("SELECT * FROM side_pockets WHERE parentId=? ORDER BY createdAt,id").all(parentId));
 
     return rows.map((row) => pocket(row));
   }
+
+  /**
+Require a normalized child belonging to the exact recorded parent.
+@param parentId - Recorded parent scope.
+@param id - Managed child identity requested within that scope.
+@returns Normalized persisted child or the existing ownership error.
+*/
   get(parentId: string, id: string) {
-    const row = this.db.prepare("SELECT * FROM side_pockets WHERE parentId=? AND id=?").get(parentId, id) as
-      StoredPocket | undefined;
+    const row = storedPocketSchema
+      .optional()
+      .parse(this.db.prepare("SELECT * FROM side_pockets WHERE parentId=? AND id=?").get(parentId, id));
 
     if (!row) {
       throw new Error("Side Pocket not found for this parent. Use side_pocket_list to look up titles and IDs.");
@@ -97,6 +171,13 @@ export class DelegationStore {
 
     return pocket(row);
   }
+
+  /**
+Validate creation input and deduplicate it inside the existing immediate transaction.
+@param parentId - Recorded parent scope.
+@param input - Untrusted creation input with a stable idempotency key.
+@returns Existing identical child or a new child with its initial queued assignment.
+*/
   create(parentId: string, input: unknown) {
     const value = delegationInput.parse(input);
     const parent = this.parent(parentId);
@@ -104,9 +185,13 @@ export class DelegationStore {
 
     return this.db
       .transaction(() => {
-        const existing = this.db
-          .prepare("SELECT * FROM side_pockets WHERE parentId=? AND createKey=?")
-          .get(parentId, value.idempotencyKey) as StoredPocket | undefined;
+        const existing = storedPocketSchema
+          .optional()
+          .parse(
+            this.db
+              .prepare("SELECT * FROM side_pockets WHERE parentId=? AND createKey=?")
+              .get(parentId, value.idempotencyKey)
+          );
 
         if (existing) {
           if (existing.fingerprint !== fingerprint) {
@@ -121,119 +206,30 @@ export class DelegationStore {
           requireClaudeBinary();
         }
 
-        const id = crypto.randomUUID();
-        const now = Date.now();
-        this.db
-          .prepare(
-            `INSERT INTO side_pockets
-        (id,parentId,title,harness,cwd,model,effort,policy,status,createdAt,updatedAt,createKey,fingerprint)
-        VALUES (?,?,?,?,?,?,?,?,'idle',?,?,?,?)`
-          )
-          .run(
-            id,
-            parentId,
-            value.title,
-            value.harness,
-            value.cwd ?? parent.cwd,
-            value.model ?? null,
-            value.effort ?? null,
-            JSON.stringify(parent.policy),
-            now,
-            now,
-            value.idempotencyKey,
-            fingerprint
-          );
-        this.send(parentId, id, "initial", value.body);
-        log().info({ parentId, childId: id, input: value }, "side_pocket.created");
-
-        return this.get(parentId, id);
+        return this.insertChild(parentId, value, parent, fingerprint);
       })
       .immediate();
   }
-  send(parentId: string, childId: string, key: string, body: string) {
-    delegationKey.parse(key);
-    const text = delegationBody.parse(body);
 
-    return this.db
-      .transaction(() => {
-        const child = this.get(parentId, childId);
-        const existing = this.db
-          .prepare("SELECT * FROM delegation_commands WHERE childId=? AND key=?")
-          .get(childId, key) as DelegationCommand | undefined;
-
-        if (existing) {
-          if (existing.body !== text) {
-            throw new Error("This message key already belongs to different text.");
-          }
-
-          return existing;
-        }
-
-        if (["closing", "closed", "unknown"].includes(child.status)) {
-          throw new Error(
-            "Resume this Side Pocket before sending more work. Inspect unknown outcomes before continuing."
-          );
-        }
-
-        const id = crypto.randomUUID();
-        this.db
-          .prepare("INSERT INTO delegation_commands VALUES (?,?,?,?,?,'queued',NULL,?)")
-          .run(id, childId, parentId, key, text, Date.now());
-        this.notifications.changed();
-
-        return this.db.prepare("SELECT * FROM delegation_commands WHERE id=?").get(id) as DelegationCommand;
-      })
-      .immediate();
-  }
-  commands(parentId: string, childId: string) {
-    return this.db
-      .prepare("SELECT * FROM delegation_commands WHERE parentId=? AND childId=? ORDER BY createdAt,rowid")
-      .all(parentId, childId) as DelegationCommand[];
-  }
-  claim(parentId: string, childId: string) {
-    return this.db
-      .transaction(() => {
-        const child = this.get(parentId, childId);
-        const { count } = this.db
-          .prepare("SELECT count(*) AS count FROM delegation_commands WHERE status='running'")
-          .get() as { count: number };
-
-        if (child.status !== "idle" || count >= MAX_CONCURRENT_CHILDREN) {
-          return;
-        }
-
-        const command = this.commands(parentId, childId).find((entry) => entry.status === "queued");
-
-        if (!command) {
-          return;
-        }
-
-        this.db.prepare("UPDATE delegation_commands SET status='running' WHERE id=?").run(command.id);
-        this.db
-          .prepare("UPDATE side_pockets SET status='running',policy=?,updatedAt=? WHERE parentId=? AND id=?")
-          .run(JSON.stringify(this.parent(parentId).policy), Date.now(), parentId, childId);
-
-        return command;
-      })
-      .immediate();
-  }
-  queuedChildren(parentId: string) {
-    const rows = this.db
-      .prepare(
-        `SELECT p.* FROM delegation_commands c JOIN side_pockets p ON p.id=c.childId
-      WHERE c.parentId=? AND c.status='queued' AND p.status='idle'
-      ORDER BY c.createdAt,c.rowid`
-      )
-      .all(parentId) as StoredPocket[];
-
-    return rows.map((row) => pocket(row));
-  }
+  /**
+Persist a parent-owned child's lifecycle state before publishing a committed-change hint.
+@param parentId - Recorded parent scope.
+@param id - Managed child identity.
+@param status - Existing persisted child lifecycle state.
+*/
   setStatus(parentId: string, id: string, status: SidePocket["status"]) {
     this.db
       .prepare("UPDATE side_pockets SET status=?,updatedAt=? WHERE parentId=? AND id=?")
       .run(status, Date.now(), parentId, id);
     this.notifications.changed();
   }
+
+  /**
+Resume only waiting or running children without undoing a concurrent persisted close request.
+@param parentId - Recorded parent scope.
+@param id - Managed child whose native request was answered.
+@returns Whether the guarded persisted transition succeeded.
+*/
   continueChild(parentId: string, id: string) {
     // A concurrent answer must never undo a persisted close request.
     return (
@@ -244,38 +240,37 @@ export class DelegationStore {
         .run(Date.now(), parentId, id).changes > 0
     );
   }
+
+  /**
+Persist the native saved session identity for one parent-owned child.
+@param parentId - Recorded parent scope.
+@param id - Managed child identity.
+@param sessionId - Native saved session identity retained across follow-ups.
+*/
   setSession(parentId: string, id: string, sessionId: string) {
     this.db
       .prepare("UPDATE side_pockets SET sessionId=?,updatedAt=? WHERE parentId=? AND id=?")
       .run(sessionId, Date.now(), parentId, id);
   }
+
+  /**
+Merge native lifecycle display metadata into the child's private persisted JSON.
+@param parentId - Recorded parent scope.
+@param id - Managed child identity.
+@param data - Native metadata patch serialized for SQLite's existing JSON merge.
+*/
   metadata(parentId: string, id: string, data: unknown) {
     this.db
       .prepare("UPDATE side_pockets SET metadata=json_patch(metadata,?) WHERE parentId=? AND id=?")
       .run(JSON.stringify(data), parentId, id);
   }
-  finish(command: DelegationCommand, status: DelegationCommand["status"], result: string) {
-    this.db.prepare("UPDATE delegation_commands SET status=?,result=? WHERE id=?").run(status, result, command.id);
-    const child = this.get(command.parentId, command.childId);
 
-    if (!["closing", "closed"].includes(child.status)) {
-      this.setStatus(command.parentId, command.childId, status === "unknown" ? "unknown" : "idle");
-    }
-  }
-  recordResult(
-    command: DelegationCommand,
-    status: DelegationCommand["status"],
-    result: string,
-    report?: { sourceId: string; kind: string; payload: unknown }
-  ) {
-    this.db.transaction(() => {
-      this.finish(command, status, result);
-
-      if (report) {
-        this.mail.record(command.parentId, command.childId, report.sourceId, report.kind, report.payload);
-      }
-    })();
-  }
+  /**
+Atomically persist close intent and cancel queued work and pending native requests.
+@param parentId - Recorded parent scope.
+@param id - Managed child to close without deleting its saved identity.
+@returns Updated persisted child including an already closed child.
+*/
   closeChild(parentId: string, id: string) {
     return this.db
       .transaction(() => {
@@ -286,7 +281,9 @@ export class DelegationStore {
         }
 
         this.db
-          .prepare("UPDATE delegation_commands SET status='cancelled' WHERE childId=? AND status='queued'")
+          .prepare(
+            "UPDATE delegation_commands SET status='cancelled' WHERE childId=? AND status IN ('queued','pending')"
+          )
           .run(id);
         this.mail.cancelRequests(id);
 
@@ -294,6 +291,13 @@ export class DelegationStore {
       })
       .immediate();
   }
+
+  /**
+Reopen a closed or uncertain saved child only after any native close has finished.
+@param parentId - Recorded parent scope.
+@param id - Saved managed child identity to retain.
+@returns Updated child retaining its original identity and native saved session.
+*/
   resume(parentId: string, id: string) {
     const child = this.get(parentId, id);
 
@@ -307,19 +311,22 @@ export class DelegationStore {
 
     return this.get(parentId, id);
   }
+
+  /**
+Record interrupted native commands as uncertain without replaying their work.
+@param parentId - Configured parent whose persisted child work is being recovered.
+*/
   recover(parentId: string) {
     for (const child of this.list(parentId)) {
-      for (const command of this.commands(parentId, child.id)) {
-        if (command.status !== "running") {
+      for (const command of this.queue.list(parentId, child.id)) {
+        if (command.status !== "running" && command.status !== "sending") {
           continue;
         }
 
-        const message =
-          "Pocket restarted during this turn. Its outcome is unknown. Inspect the saved history and send a follow-up to continue; the original work will not be replayed automatically.";
-        this.recordResult(command, "unknown", message, {
+        this.queue.recordResult(command, "unknown", RECOVERY_MESSAGE, {
           sourceId: `recovery:${command.id}`,
           kind: "recovery",
-          payload: { message, commandId: command.id },
+          payload: { message: RECOVERY_MESSAGE, commandId: command.id },
         });
         log().info({ childId: child.id, commandId: command.id }, "side_pocket.recovered");
       }
@@ -327,23 +334,12 @@ export class DelegationStore {
       this.mail.cancelRequests(child.id);
     }
   }
+
+  /**
+Release only this store's notification watcher and private database handle.
+*/
   close() {
     this.notifications.close();
     this.db.close();
   }
-}
-
-declare global {
-  var codexPocketDelegations: DelegationStore | undefined;
-}
-
-export function delegations() {
-  if (!globalThis.codexPocketDelegations) {
-    Object.defineProperty(globalThis, "codexPocketDelegations", {
-      value: new DelegationStore(localDirectory()),
-      configurable: true,
-    });
-  }
-
-  return globalThis.codexPocketDelegations as DelegationStore;
 }
