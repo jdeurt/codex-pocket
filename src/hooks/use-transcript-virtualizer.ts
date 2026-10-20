@@ -77,7 +77,7 @@ export function useTranscriptVirtualizer(
   const [store] = useState(() => {
     const listeners = new Set<() => void>();
     const state: { layout: TranscriptLayout } = { layout: { rows: [], size: 0, offset: 0, height: 0, atEnd: true } };
-    const publish = (instance: MessageVirtualizer) => {
+    const cacheLayout = (instance: MessageVirtualizer) => {
       const next = readLayout(instance);
       const previous = state.layout;
 
@@ -88,10 +88,20 @@ export function useTranscriptVirtualizer(
         next.height === previous.height &&
         next.atEnd === previous.atEnd
       ) {
-        return;
+        return previous;
       }
 
       state.layout = next;
+
+      return next;
+    };
+    const publish = (instance: MessageVirtualizer) => {
+      const previous = state.layout;
+      const next = cacheLayout(instance);
+
+      if (previous === next) {
+        return;
+      }
 
       for (const listener of listeners) {
         listener();
@@ -108,8 +118,7 @@ export function useTranscriptVirtualizer(
     state.layout = readLayout(virtualizer);
 
     return {
-      virtualizer,
-      configure: (nextOptions: MessageOptions, nextAdjust: typeof adjust, renderedLayout: TranscriptLayout) => {
+      configure: (nextOptions: MessageOptions, nextAdjust: typeof adjust) => {
         virtualizer.setOptions({
           observeElementOffset,
           observeElementRect,
@@ -121,8 +130,11 @@ export function useTranscriptVirtualizer(
           },
         });
         virtualizer.shouldAdjustScrollPositionOnItemSizeChange = nextAdjust;
-        publish(virtualizer);
+        cacheLayout(virtualizer);
 
+        return virtualizer;
+      },
+      commit: (renderedLayout: TranscriptLayout) => {
         // Native anchor/follow updates require the new sizer to be committed.
         if (state.layout !== renderedLayout) {
           return;
@@ -141,12 +153,13 @@ export function useTranscriptVirtualizer(
       },
     };
   });
+  // Configure before React commits new rows: native follow checks the previous DOM extent.
+  const virtualizer = store.configure(options, adjust);
   const layout = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
-  const virtualizer = store.virtualizer;
 
   useLayoutEffect(() => virtualizer._didMount(), [virtualizer]);
   useLayoutEffect(() => {
-    store.configure(options, adjust, layout);
+    store.commit(layout);
   });
 
   return { virtualizer, layout };
