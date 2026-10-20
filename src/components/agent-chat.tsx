@@ -11,18 +11,18 @@ Read a selected agent transcript without enabling mutation or model execution.
 @param props - Selected normalized agent and the callback that returns to the list.
 @returns The centered agent header and read-only conversation.
 */
-export function AgentChat({ agent, back }: { agent: AgentEntry; back: () => void }) {
-  const { data, error } = useAgentRead(`/api/agents?agent=${encodeURIComponent(agent.id)}`, agentTranscriptSchema);
+export function AgentChat({ id, agent, back }: { id: string; agent?: AgentEntry; back: () => void }) {
+  const { data, error } = useAgentRead(`/api/agents?agent=${encodeURIComponent(id)}`, agentTranscriptSchema);
   const heading = useRef<HTMLHeadingElement>(null);
 
   const current = data?.agent ?? agent;
-  const metadata = [current.model, current.reasoningEffort ? `${current.reasoningEffort} reasoning` : undefined]
+  const metadata = [current?.model, current?.reasoningEffort ? `${current.reasoningEffort} reasoning` : undefined]
     .filter(Boolean)
     .join(" · ");
 
   useEffect(() => {
     heading.current?.focus();
-  }, [agent.id]);
+  }, [id]);
 
   return (
     <div className="agent-chat">
@@ -34,14 +34,14 @@ export function AgentChat({ agent, back }: { agent: AgentEntry; back: () => void
           <h1 ref={heading} tabIndex={-1}>
             Side Pocket
           </h1>
-          <p className="agent-chat-name" title={current.name}>
-            {current.name}
+          <p className="agent-chat-name" title={current?.name ?? "Agent"}>
+            {current?.name ?? "Agent"}
           </p>
           {metadata && <p aria-label="Model and reasoning effort">{metadata}</p>}
         </div>
         <span className="size-11 shrink-0" aria-hidden="true" />
       </header>
-      {current.status === "failed" && (
+      {current?.status === "failed" && (
         <p className="agent-notice" role="alert">
           This agent’s last turn failed. Its saved messages are shown below.
         </p>

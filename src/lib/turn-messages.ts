@@ -75,6 +75,7 @@ function messageEntries(turn: Turn, isActive: boolean): TurnEntry[] {
   const messages = turn.items.filter(
     (item) =>
       item.type === "toolTrace" ||
+      item.type === "delegateReport" ||
       (["userMessage", "agentMessage", "imageOutput"].includes(item.type) &&
         ((Array.isArray(item.images) && item.images.length > 0) ||
           (Array.isArray(item.attachments) && item.attachments.length > 0) ||

@@ -1,5 +1,6 @@
 import type { Bridge } from "./bridge-session";
 import type { Snapshot } from "../lib/protocol";
+import { delegations } from "./delegations";
 import { log } from "./logging";
 import { noStore } from "./http";
 import { visibleSnapshot } from "./visible-snapshot";
@@ -19,6 +20,8 @@ export class SnapshotStream {
   private heartbeat?: NodeJS.Timeout;
 
   private isClosed = false;
+
+  private unsubscribeReports?: () => void;
 
   private readonly stream: ReadableStream<Uint8Array>;
 
@@ -62,7 +65,9 @@ export class SnapshotStream {
   @returns Encoded server-sent event containing only visible state.
   */
   private encoded(state: Snapshot) {
-    const visible = visibleSnapshot(state);
+    const visible = visibleSnapshot(state, {
+      reports: state.threadId ? delegations().summaries.list(state.threadId) : [],
+    });
 
     return this.encoder.encode(`data: ${JSON.stringify(visible)}\n\n`);
   }
@@ -91,6 +96,7 @@ export class SnapshotStream {
       }
     }, HEARTBEAT_MS);
     this.bridge.snapshots.addEventListener("snapshot", this.changed);
+    this.unsubscribeReports = delegations().subscribe(this.changed);
     this.request.signal.addEventListener("abort", this.abort, { once: true });
     this.send(this.bridge.snapshot);
     void this.bridge
@@ -115,6 +121,7 @@ export class SnapshotStream {
     this.isClosed = true;
     log().info({ connectionId: this.connectionId }, "sse.closed");
     clearInterval(this.heartbeat);
+    this.unsubscribeReports?.();
     this.bridge.snapshots.removeEventListener("snapshot", this.changed);
     this.request.signal.removeEventListener("abort", this.abort);
 

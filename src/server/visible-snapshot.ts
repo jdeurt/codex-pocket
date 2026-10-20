@@ -1,3 +1,4 @@
+import { type DelegateReport } from "../lib/delegate-reports";
 import { type Item, type Snapshot, object, string } from "../lib/protocol";
 import { itemImageSources, itemImageUrl } from "../lib/images";
 import { currentActivity } from "./activity";
@@ -79,7 +80,20 @@ Exclude internal work and preserve explicit restart and original-file rows befor
 @param hasTools - Whether native tool traces belong in this read-only view.
 @returns The existing phone display projection, including deliberate empty output.
 */
-function displayItem(item: Item, scheduled: Set<string>, hasTools: boolean): Item | Item[] {
+function displayItem(
+  item: Item,
+  scheduled: Set<string>,
+  hasTools: boolean,
+  reports: Map<string, DelegateReport>
+): Item | Item[] {
+  const report = reports.get(string(item.clientId));
+
+  if (item.type === "userMessage" && report) {
+    reports.delete(report.id);
+
+    return { id: report.id, type: "delegateReport", delegateReport: report };
+  }
+
   if (item.type === "pocketRestart") {
     return { id: item.id, type: item.type };
   }
@@ -100,8 +114,24 @@ Expose only canonical messages and explicit display projections to the phone.
 @returns Snapshot with internal work hidden and guarded visible outputs normalized.
 */
 // Only messages and explicitly projected display items leave the computer.
-export function visibleSnapshot(state: Snapshot, options: { tools?: boolean } = {}): Snapshot {
+export function visibleSnapshot(
+  state: Snapshot,
+  options: { tools?: boolean; reports?: DelegateReport[] } = {}
+): Snapshot {
   const scheduled = new Set(Object.keys(state.scheduled));
+  const reports = new Map((options.reports ?? []).map((report) => [report.id, report]));
+  const turns = projectRestarts(state).map((turn) => ({
+    ...turn,
+    items: turn.items.flatMap<Item>((item) => displayItem(item, scheduled, options.tools === true, reports)),
+  }));
+
+  for (const report of reports.values()) {
+    turns.push({
+      id: report.id,
+      status: "completed",
+      items: [{ id: report.id, type: "delegateReport", delegateReport: report }],
+    });
+  }
 
   return {
     ...state,
@@ -110,9 +140,6 @@ export function visibleSnapshot(state: Snapshot, options: { tools?: boolean } = 
     scheduled: {},
     restartEvents: undefined,
     queue: state.queue.filter((message) => !scheduled.has(message.id) && !isInternal(message.id)),
-    turns: projectRestarts(state).map((turn) => ({
-      ...turn,
-      items: turn.items.flatMap<Item>((item) => displayItem(item, scheduled, options.tools === true)),
-    })),
+    turns,
   };
 }
