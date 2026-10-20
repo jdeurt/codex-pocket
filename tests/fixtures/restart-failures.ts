@@ -1,6 +1,6 @@
+import { type RestartHost, restartFile } from "./restart-host";
 import { type RestartSnapshots, appendRecovery, events } from "./restart-state";
 import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
-import { type RestartHost } from "./restart-host";
 import assert from "node:assert/strict";
 import path from "node:path";
 
@@ -14,7 +14,7 @@ async function failedResume(host: RestartHost, directory: string) {
   const failed = await host.request();
 
   assert.match(failed.error ?? "", /Fixture resume failed/);
-  await assert.rejects(readFile(path.join(directory, "restart-events.json")), { code: "ENOENT" });
+  await assert.rejects(readFile(restartFile(directory)), { code: "ENOENT" });
   await unlink(path.join(directory, "fail-resume"));
   await writeFile(path.join(directory, "fail-history"), "yes");
 }
@@ -29,7 +29,7 @@ async function failedHistory(host: RestartHost, directory: string) {
   const incomplete = await host.request();
 
   assert.match(incomplete.error ?? "", /Fixture history failed/);
-  await assert.rejects(readFile(path.join(directory, "restart-events.json")), { code: "ENOENT" });
+  await assert.rejects(readFile(restartFile(directory)), { code: "ENOENT" });
   await unlink(path.join(directory, "fail-history"));
 }
 

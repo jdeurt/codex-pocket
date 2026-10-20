@@ -6,6 +6,7 @@ const MAX_MOUNTED_ROWS = 250;
 const MIN_HIT_TARGET = 44;
 const ANCHOR_TOLERANCE = 3;
 const ACTIVITY_MESSAGES = 3;
+const FINAL_PARAGRAPHS = 4;
 const MIN_READER_GAP = 90;
 const MISSING_GAP = -1;
 
@@ -79,7 +80,13 @@ test("activity disclosure keeps shared outer gaps and hit target through expansi
             phase: "commentary",
             text: `Visible activity detail ${String(index)}`,
           })),
-          { id: "after-control", type: "agentMessage", phase: "final_answer", text: "Final visible block" },
+          {
+            id: "after-control",
+            type: "agentMessage",
+            phase: "final_answer",
+            // Leave enough actual transcript below the control to activate it away from the end.
+            text: "Final visible block\n\n".repeat(FINAL_PARAGRAPHS).trim(),
+          },
         ],
       },
     ],

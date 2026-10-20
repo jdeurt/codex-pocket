@@ -1,8 +1,8 @@
+import { type RestartHost, restartFile } from "./restart-host";
 import { type RestartSnapshots, appendRecovery, events } from "./restart-state";
 import { type Snapshot, type Turn, initialSnapshot, object, string } from "../../src/lib/protocol";
 import { readFile, writeFile } from "node:fs/promises";
 import { RECOVERY_PROMPT } from "../../src/server/recovery";
-import { type RestartHost } from "./restart-host";
 import assert from "node:assert/strict";
 import { failedAndPendingChecks } from "./restart-failures";
 import path from "node:path";
@@ -50,7 +50,7 @@ Proves repeated hydration neither starts another native process nor changes pers
 @returns Completion of repeated reconnect and durable-file checks.
 */
 async function stableReconnects(host: RestartHost, directory: string, restarted: RestartSnapshots) {
-  const persisted = await readFile(path.join(directory, "restart-events.json"), "utf8");
+  const persisted = await readFile(restartFile(directory), "utf8");
   const processes = await readFile(path.join(directory, "fake-processes.jsonl"), "utf8");
 
   assert.equal(processes.trim().split("\n").length, 2);
@@ -61,7 +61,7 @@ async function stableReconnects(host: RestartHost, directory: string, restarted:
     assert.deepEqual(events(reconnected.visible), events(restarted.visible));
   }
 
-  assert.equal(await readFile(path.join(directory, "restart-events.json"), "utf8"), persisted);
+  assert.equal(await readFile(restartFile(directory), "utf8"), persisted);
   assert.equal(await readFile(path.join(directory, "fake-processes.jsonl"), "utf8"), processes);
   await writeFile(path.join(directory, "snapshot.json"), JSON.stringify(restarted.visible));
 }

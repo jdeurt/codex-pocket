@@ -42,6 +42,12 @@ export async function checkSpinnerTone(
 ) {
   const fixtures = await createTonalFixtures(directory);
   const transforms = new Set<string>();
+  const dismiss = page.getByRole("button", { name: "Dismiss notification prompt", exact: true });
+
+  // The prompt's shadow reaches the composer row; isolate the image's own tonal response.
+  if ((await dismiss.count()) > 0) {
+    await dismiss.click();
+  }
 
   for (const [name, bands] of Object.entries(TONAL_BANDS)) {
     const levels = Object.values(bands);
