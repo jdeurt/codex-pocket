@@ -2,7 +2,7 @@ import { control, lifecycle } from "./agent-replay";
 import { expect, test } from "@playwright/test";
 import { HTTP_FORBIDDEN } from "../../src/lib/constants";
 import { checkAgentAccess } from "./agent-api";
-import { checkAgentCache } from "./agent-cache";
+import { checkAgentCache, checkAgentReconnect } from "./agent-cache";
 import { checkAgentScroll } from "./agent-scroll";
 import { checkAgentTools } from "./agent-tools";
 import { checkAgentUploads } from "./agent-uploads";
@@ -26,6 +26,10 @@ test("offline replay: discovery stays light, unchanged history is cached, change
 
 test("offline replay: parent uploads and centered header survive read-only child navigation", async ({ page }) => {
   await checkAgentUploads(page);
+});
+
+test("offline replay: slow native discovery retains the agent list and reconnects", async ({ page, request }) => {
+  await checkAgentReconnect(page, request, control);
 });
 
 test("offline replay: MCP and dynamic saved output, errors and images use shared read-only traces", async ({

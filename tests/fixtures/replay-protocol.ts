@@ -9,6 +9,7 @@ export const fixtureRequestSchema = z.object({
 });
 export const replayLogSchema = z.object({
   method: z.string(),
+  stage: z.string().optional(),
   threadId: z.string().optional(),
   id: z.union([z.string(), z.number()]).optional(),
   itemsView: z.string().optional(),

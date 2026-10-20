@@ -195,6 +195,12 @@ Tracks concurrent child-history reads and applies the fake native history latenc
 function deliverResult(id: string | number, method: string, params: Record<string, unknown>, result: unknown) {
   const isHistory = params.threadId !== replayParent && ["thread/turns/list", "thread/items/list"].includes(method);
 
+  if (method === "thread/list" && stage() === "discovery-held") {
+    setTimeout(() => deliverResult(id, method, params, result), HISTORY_DELAY_MS);
+
+    return;
+  }
+
   if (!isHistory) {
     emit({ id, result });
 
@@ -254,6 +260,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       sortDirection: request.params.sortDirection,
       limit: request.params.limit,
       cursor: request.params.cursor,
+      stage: stage(),
     }) + "\n"
   );
 
