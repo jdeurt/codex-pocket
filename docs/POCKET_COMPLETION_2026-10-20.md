@@ -19,7 +19,9 @@ Juan authorized resuming the stopped handoff, retaining original delegate report
 
 ## Verification
 
-The complete browser suite passed 176 tests with four expected skips. Additional geometry coverage passed ten cases with two WebKit-only skips in Chromium. Measurements assert header centers and 44px hit targets, the 8px report icon gap, a 16px transcript gain with zero inset, a retained 34px simulated inset, rotation bounds and keyboard bounds. Native files, Markdown, swipe thresholds, selection retention, streaming code and virtual remounts pass on desktop/phone Chromium and WebKit.
+Initial handoff verification passed 176 browser tests with four expected skips. Additional geometry coverage passed ten cases with two WebKit-only skips in Chromium. That initial version retained a 34px simulated bottom inset. Native files, Markdown, swipe thresholds, selection retention, streaming code and virtual remounts passed on desktop/phone Chromium and WebKit.
+
+Follow-up layout checks measure the updated 34px-to-18px PWA inset, the matching 16px transcript gain, rotation and keyboard bounds, and the 16px gap from the last visible transcript component to the status text. Fractional message heights are retained in the virtualizer to prevent accumulated rounding error; the scroll fade is disabled at the transcript end so the final component remains visible.
 
 The complete server/workflow suite passed 88 tests in the isolated offline environment. Formatting, zero-warning lint, strict types and the production build passed. The same complete suite also passed while the SDK's bundled native executable was temporarily removed from this worktree and then restored.
 
