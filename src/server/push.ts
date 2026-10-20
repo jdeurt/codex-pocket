@@ -1,9 +1,11 @@
-import { type Turn, string } from "../lib/protocol";
+import { hasMessageText, messageText, turnMessages } from "../lib/turn-messages";
 import { readLocal, writeLocal } from "./local-state";
 import { type NotificationPayload } from "../lib/notification-payload";
+import { type Turn } from "../lib/protocol";
 import { log } from "./logging";
 import { notificationPresence } from "./notification-presence";
 import { readConfig } from "./config";
+import { visibleTurn } from "./visible-snapshot";
 import webpush from "web-push";
 import { z } from "zod";
 
@@ -112,22 +114,29 @@ export async function saveSubscription(input: unknown) {
 }
 
 /**
-Select the final native assistant reply and preserve the existing completion fallback and tap route.
+Select a rendered final assistant reply or visible image output for completion delivery.
 @param threadId - Owning parent identity included only in the existing notification tag.
 @param turn - Completed native turn whose final assistant output is selected.
-@returns Shared completion-notification payload with the existing root tap route.
+@returns Shared completion payload, or undefined when the turn ended without a visible reply.
 */
-export function completionNotification(threadId: string, turn: Turn): NotificationPayload {
-  const replies = turn.items.filter((item) => item.type === "agentMessage");
+export function completionNotification(threadId: string, turn: Turn): NotificationPayload | undefined {
+  const messages = turnMessages(visibleTurn(turn), false).flatMap((entry) =>
+    entry.kind === "message" ? [entry.item] : []
+  );
+  const replies = messages.filter((item) => item.type === "agentMessage");
   const reply = replies.findLast((item) => item.phase === "final_answer") ?? replies.findLast((item) => !item.phase);
+  const image = messages.findLast((item) => item.type === "imageOutput");
+
+  if (!reply && !image) {
+    return;
+  }
 
   return {
     title: "Pocket",
     body:
-      string(reply?.text).trim() ||
-      (turn.status === "completed"
-        ? "Pocket finished. Your response is ready."
-        : "Pocket stopped. Open Pocket to see what happened."),
+      reply && hasMessageText(reply)
+        ? messageText(reply).trim()
+        : "Pocket sent an image or attachment.",
     tag: `${threadId}:${turn.id}`,
     url: "/",
   };
@@ -163,13 +172,11 @@ function boundedPayload(notification: NotificationPayload) {
 }
 
 /**
-Preserve full replies that fit and bound only oversized serialized completion notifications.
-@param threadId - Owning parent identity used by the notification tag.
-@param turn - Completed native turn providing the final assistant response.
+Preserve full visible replies that fit and bound only oversized serialized completion notifications.
+@param notification - Eligible visible completion selected before receipt claiming.
 @returns Shared notification JSON within the existing encrypted-push byte budget.
 */
-export function completionPayload(threadId: string, turn: Turn) {
-  const notification = completionNotification(threadId, turn);
+function completionPayload(notification: NotificationPayload) {
   const payload = JSON.stringify(notification);
 
   return Buffer.byteLength(payload) <= MAX_PAYLOAD_BYTES ? payload : boundedPayload(notification);
@@ -181,12 +188,14 @@ Deliver a claimed completion only to devices without a fresh foreground acknowle
 @param subject - Configured HTTPS origin required for the native VAPID subject.
 @param threadId - Owning parent identity retained in diagnostics and the existing notification tag.
 @param turn - Native completed turn whose response is delivered.
+@param payload - Serialized visible reply selected before claiming its receipt.
 */
 async function sendCompletion(
   delivery: Pick<PushState, "keys" | "subscriptions">,
   subject: string,
   threadId: string,
-  turn: Turn
+  turn: Turn,
+  payload: string
 ) {
   const expired = new Set<string>();
 
@@ -199,7 +208,7 @@ async function sendCompletion(
       }
 
       try {
-        await webpush.sendNotification(subscription, completionPayload(threadId, turn), {
+        await webpush.sendNotification(subscription, payload, {
           vapidDetails: { ...delivery.keys, subject },
           TTL: PUSH_TTL_SECONDS,
           timeout: PUSH_TIMEOUT_MS,
@@ -233,8 +242,14 @@ Require the configured HTTPS subject after claiming the receipt and before any n
 @param delivery - Validated key and subscription snapshot from the durable receipt operation.
 @param threadId - Owning parent identity.
 @param turn - Native completed turn whose response is being delivered.
+@param payload - Serialized visible reply owned by this claimed receipt.
 */
-async function deliverCompletion(delivery: Pick<PushState, "keys" | "subscriptions">, threadId: string, turn: Turn) {
+async function deliverCompletion(
+  delivery: Pick<PushState, "keys" | "subscriptions">,
+  threadId: string,
+  turn: Turn,
+  payload: string
+) {
   const config = await readConfig();
   const subject = config?.allowedOrigins.find((origin) => origin.startsWith("https:"));
 
@@ -242,15 +257,21 @@ async function deliverCompletion(delivery: Pick<PushState, "keys" | "subscriptio
     throw new Error("Push notifications require a configured HTTPS origin.");
   }
 
-  await sendCompletion(delivery, subject, threadId, turn);
+  await sendCompletion(delivery, subject, threadId, turn, payload);
 }
 
 /**
-Claim and persist a completion receipt before foreground-aware native delivery, without duplicate replay.
+Require visible assistant output before claiming a durable, foreground-aware completion delivery.
 @param threadId - Owning parent identity used by the stable receipt.
 @param turn - Native completed turn whose identity is deduplicated.
 */
 export async function notifyTurnComplete(threadId: string, turn: Turn) {
+  const notification = completionNotification(threadId, turn);
+
+  if (!notification) {
+    return;
+  }
+
   const delivery = await withState((state) => {
     const receipt = `${threadId}:${turn.id}`;
 
@@ -267,5 +288,5 @@ export async function notifyTurnComplete(threadId: string, turn: Turn) {
     return;
   }
 
-  await deliverCompletion(delivery, threadId, turn);
+  await deliverCompletion(delivery, threadId, turn, completionPayload(notification));
 }

@@ -1,5 +1,5 @@
 import { type DelegateReport } from "../lib/delegate-reports";
-import { type Item, type Snapshot, object, string } from "../lib/protocol";
+import { type Item, type Snapshot, type Turn, object, string } from "../lib/protocol";
 import { itemImageSources, itemImageUrl } from "../lib/images";
 import { currentActivity } from "./activity";
 import { delegationMessagePrefix } from "./delegation-mail";
@@ -78,6 +78,7 @@ Exclude internal work and preserve explicit restart and original-file rows befor
 @param item - Canonical native or restart item.
 @param scheduled - Hidden scheduled message identities for this snapshot.
 @param hasTools - Whether native tool traces belong in this read-only view.
+@param reports - Pending display projections consumed by their original delivery identity.
 @returns The existing phone display projection, including deliberate empty output.
 */
 function displayItem(
@@ -108,6 +109,21 @@ function displayItem(
 }
 
 /**
+Project one native turn through the shared visible-message and image boundary.
+@param turn - Canonical native or restart-projected turn.
+@param options - Hidden scheduled identities and the existing opt-in for native tool traces.
+@returns Turn containing only the phone's normalized display items.
+*/
+export function visibleTurn(turn: Turn, options: { scheduled?: Set<string>; tools?: boolean; reports?: Map<string, DelegateReport> } = {}): Turn {
+  const scheduled = options.scheduled ?? new Set<string>();
+
+  return {
+    ...turn,
+    items: turn.items.flatMap<Item>((item) => displayItem(item, scheduled, options.tools === true, options.reports ?? new Map())),
+  };
+}
+
+/**
 Expose only canonical messages and explicit display projections to the phone.
 @param state - Internal parent or agent snapshot whose ownership has already been checked.
 @param options - Existing opt-in for read-only native tool traces.
@@ -120,10 +136,7 @@ export function visibleSnapshot(
 ): Snapshot {
   const scheduled = new Set(Object.keys(state.scheduled));
   const reports = new Map((options.reports ?? []).map((report) => [report.id, report]));
-  const turns = projectRestarts(state).map((turn) => ({
-    ...turn,
-    items: turn.items.flatMap<Item>((item) => displayItem(item, scheduled, options.tools === true, reports)),
-  }));
+  const turns = projectRestarts(state).map((turn) => visibleTurn(turn, { scheduled, tools: options.tools, reports }));
 
   for (const report of reports.values()) {
     turns.push({
