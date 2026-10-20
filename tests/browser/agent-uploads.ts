@@ -23,7 +23,8 @@ async function headers(page: Page) {
 
     const offset = await test.step(`Measure centered header at ${String(width)}px`, async () => {
       await page.setViewportSize({ width, height: 1000 });
-      await expect(header.locator("svg, .brand")).toHaveCount(0);
+      await expect(header.locator(".thread-heading svg, .brand")).toHaveCount(0);
+      await expect(header.getByRole("button", { name: "Open Pockets", exact: true })).toBeVisible();
       await expect(header.getByRole("heading", { name: "Pocket", exact: true })).toBeVisible();
 
       return await header.evaluate((element) => {
