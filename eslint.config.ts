@@ -161,6 +161,8 @@ export function createConfig(options: { typed?: boolean; tsconfigRootDir?: strin
         "unicorn/no-repeated-call-wrappers": "warn",
         "unicorn/try-complexity": "warn",
         "unicorn/no-array-reduce": "off",
+        // User-authorized policy: allow null values while retaining TypeScript null-safety checks.
+        "unicorn/no-null": "off",
         "unicorn/name-replacements": "off",
         "unicorn/filename-case": ["error", { cases: { kebabCase: true, pascalCase: true } }],
       },
