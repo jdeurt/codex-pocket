@@ -35,7 +35,7 @@ await runNextFixture("uploads", UPLOAD_ORIGIN, {
   CODEX_THREAD_ID: "upload-replay-parent",
   CODEX_CWD: process.cwd(),
   CODEX_BINARY: process.execPath,
-  CODEX_SERVER_ARGS: JSON.stringify([path.resolve("tests/fixtures/uploads-rpc.mjs")]),
+  CODEX_SERVER_ARGS: JSON.stringify(["--import", "tsx", path.resolve("tests/fixtures/uploads-rpc.ts")]),
   CODEX_POCKET_STATE_DIR: path.join(directory, "state"),
   CLAUDE_CONFIG_DIR: path.join(directory, "claude"),
   CODEX_ALLOWED_ORIGINS: UPLOAD_ORIGIN,

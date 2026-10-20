@@ -1,247 +1,195 @@
-import { type APIResponse, expect, test } from "@playwright/test";
-import { MAX_FILE_BYTES, attachmentUrl, fileAttachmentSchema } from "../../src/lib/attachments";
-import { readFile, writeFile } from "node:fs/promises";
+import { MAX_FILE_BYTES, attachmentUrl } from "../../src/lib/attachments";
+import { control, deliveredCount, directory, requests } from "./replay-state";
+import { expect, test } from "@playwright/test";
 import assert from "node:assert/strict";
 import { outboxSchema } from "../../src/server/outbox";
 import path from "node:path";
+import { readFile } from "node:fs/promises";
 import sharp from "sharp";
-import { uploadRequestSchema } from "../fixtures/replay-protocol";
-import { z } from "zod";
 
-const directory = path.resolve(".local/uploads-replay");
-const origin = "http://127.0.0.1:3118";
 const MIXED_FILE_COUNT = 3;
-const control = (action: string) =>
-  writeFile(path.join(directory, "control.json"), JSON.stringify({ id: crypto.randomUUID(), action }));
-
-async function requests() {
-  try {
-    const text = await readFile(path.join(directory, "requests.jsonl"), "utf8");
-
-    return text
-      .trim()
-      .split("\n")
-      .filter(Boolean)
-      .map((line) => uploadRequestSchema.parse(JSON.parse(line)));
-  } catch {
-    return [];
-  }
-}
-
-async function ok(promise: Promise<APIResponse>) {
-  const response = await promise;
-
-  return response.ok();
-}
-
-async function deliveredCount(id: string) {
-  const entries = await requests();
-
-  return entries.filter((entry) => entry.clientUserMessageId === id).length;
-}
 
 test("pick, retry, remove, file-only send, reload, queued recovery and real stored bytes", async ({ page }, info) => {
   const attach = page.getByRole("button", { name: "Attach images or files", exact: true });
   const picker = page.locator('input[type="file"]');
   const send = page.getByRole("button", { name: "Send message", exact: true });
   const selected = page.getByRole("list", { name: "Selected attachments" });
+  const png = await test.step("Connect the offline upload session", async () => {
+    await page.goto("/");
+    await expect(attach).toBeEnabled();
+    await control("complete");
+    await expect(page.locator("header [role=status]")).toHaveText("Connected");
 
-  await page.goto("/");
-
-  await expect(attach).toBeEnabled();
-  await control("complete");
-  await expect(page.locator("header [role=status]")).toHaveText("Connected");
-  const png = await sharp({ create: { width: 100, height: 70, channels: 3, background: "#e38c39" } })
-    .png()
-    .toBuffer();
+    return await sharp({ create: { width: 100, height: 70, channels: 3, background: "#e38c39" } })
+      .png()
+      .toBuffer();
+  });
   const photoName = `${info.project.name}-photo.png`;
   const textName = `${info.project.name}-notes.txt`;
   const textBytes = Buffer.from("Readable uploaded notes.\nSecond line.");
   const photo = { name: photoName, mimeType: "image/png", buffer: png };
   const text = { name: textName, mimeType: "text/plain", buffer: textBytes };
+  const photoRequests = await test.step("Select, remove, restore and send a native photo", async () => {
+    const nativeChooser = await test.step("Activate the native file chooser", async () => {
+      const chooser = page.waitForEvent("filechooser");
 
-  // Real native chooser activation, followed by browser file selection.
-  const chooser = page.waitForEvent("filechooser");
+      await attach.click();
 
-  await attach.click();
-  const nativeChooser = await chooser;
+      return await chooser;
+    });
 
-  await nativeChooser.setFiles([photo, text]);
-  await expect(selected.getByText("Ready to send", { exact: true })).toHaveCount(2);
-  await expect(send).toBeEnabled();
-  await selected.getByRole("button", { name: `Remove ${textName}` }).click();
-  await expect(selected.getByText(textName, { exact: true })).toHaveCount(0);
-  await page.reload();
-  await expect(selected.getByText(photoName, { exact: true })).toBeVisible();
-  await expect(selected.getByText("Ready to send", { exact: true })).toBeVisible();
-  await page.screenshot({ path: path.join(directory, `${info.project.name}-selected.png`) });
-  await send.click();
-  await expect(selected).toHaveCount(0);
-  await expect(
-    page.getByRole("list", { name: "Attachments", exact: true }).getByText(photoName, { exact: true })
-  ).toBeVisible();
-  const photoRequests = await requests();
-  const photoRequest = photoRequests.findLast((request) =>
-    request.input.some((part: { type: string }) => part.type === "localImage")
-  );
+    await nativeChooser.setFiles([photo, text]);
+    await expect(selected.getByText("Ready to send", { exact: true })).toHaveCount(2);
+    await expect(send).toBeEnabled();
+    await selected.getByRole("button", { name: `Remove ${textName}` }).click();
+    await expect(selected.getByText(textName, { exact: true })).toHaveCount(0);
+    await page.reload();
+    await expect(selected.getByText(photoName, { exact: true })).toBeVisible();
+    await expect(selected.getByText("Ready to send", { exact: true })).toBeVisible();
+    await page.screenshot({ path: path.join(directory, `${info.project.name}-selected.png`) });
+    await send.click();
+    await expect(selected).toHaveCount(0);
+    await expect(
+      page.getByRole("list", { name: "Attachments", exact: true }).getByText(photoName, { exact: true })
+    ).toBeVisible();
 
-  assert.ok(photoRequest);
-  expect(photoRequest.bytes[0].size).toBeGreaterThan(0);
-  expect(photoRequest.input.map((part: { type: string }) => part.type)).toEqual(["localImage", "text"]);
-  expect(Buffer.from(photoRequest.files[0].base64, "base64")).toEqual(png);
-
-  // An upload failure keeps the Blob, survives reload, then retries using the same ID.
-  let failedId = "";
-
-  await page.route("**/api/uploads?**", async (route) => {
-    if (route.request().method() === "PUT") {
-      failedId = new URL(route.request().url()).searchParams.get("id") ?? "";
-      await route.abort("failed");
-    } else {
-      await route.continue();
-    }
+    return await requests();
   });
-  await picker.setInputFiles([text]);
-  await expect(selected.getByText(/Upload interrupted/)).toBeVisible();
-  await page.unroute("**/api/uploads?**");
-  await page.reload();
-  await selected.getByRole("button", { name: `Retry ${textName}` }).click();
-  await expect(selected.getByText("Ready to send", { exact: true })).toBeVisible();
+  const failedId = await test.step("Verify photo bytes and recover an interrupted file upload", async () => {
+    const photoRequest = photoRequests.findLast((request) => request.input.some((part) => part.type === "localImage"));
+
+    let interruptedId = "";
+
+    assert.ok(photoRequest);
+    expect(photoRequest.bytes[0].size).toBeGreaterThan(0);
+    expect(photoRequest.input.map((part) => part.type)).toEqual(["localImage", "text"]);
+    expect(Buffer.from(photoRequest.files[0].base64, "base64")).toEqual(png);
+    // Keep the Blob across reload and retry the same upload identity.
+    await page.route("**/api/uploads?**", async (route) => {
+      if (route.request().method() === "PUT") {
+        interruptedId = new URL(route.request().url()).searchParams.get("id") ?? "";
+        await route.abort("failed");
+      } else {
+        await route.continue();
+      }
+    });
+    await picker.setInputFiles([text]);
+    await expect(selected.getByText(/Upload interrupted/)).toBeVisible();
+    await page.unroute("**/api/uploads?**");
+    await page.reload();
+    await selected.getByRole("button", { name: `Retry ${textName}` }).click();
+    await expect(selected.getByText("Ready to send", { exact: true })).toBeVisible();
+
+    return interruptedId;
+  });
   const recoveredBytes = await page.request.get(`/api/uploads?id=${failedId}`);
-
-  expect(await recoveredBytes.body()).toEqual(textBytes);
-
   const binaryName = `${info.project.name}-archive.bin`;
   const pdfName = `${info.project.name}-document.pdf`;
   const binary = Buffer.from("AP8eCsgtAH4=", "base64");
+  const receipt = await test.step("Queue mixed files after losing the HTTP acknowledgement", async () => {
+    expect(await recoveredBytes.body()).toEqual(textBytes);
+    await picker.setInputFiles([
+      { name: binaryName, mimeType: "application/octet-stream", buffer: binary },
+      { name: pdfName, mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4\nPocket test bytes\n%%EOF") },
+    ]);
+    await expect(selected.getByText("Ready to send", { exact: true })).toHaveCount(MIXED_FILE_COUNT);
 
-  await picker.setInputFiles([
-    { name: binaryName, mimeType: "application/octet-stream", buffer: binary },
-    { name: pdfName, mimeType: "application/pdf", buffer: Buffer.from("%PDF-1.4\nPocket test bytes\n%%EOF") },
-  ]);
-  await expect(selected.getByText("Ready to send", { exact: true })).toHaveCount(MIXED_FILE_COUNT);
-  const message = `${info.project.name} files and text`;
+    return await test.step("Retry the durably accepted message and inspect its receipt", async () => {
+      const message = `${info.project.name} files and text`;
 
-  await page.getByRole("textbox", { name: "Message Pocket" }).fill(message);
-  // Lose the HTTP acknowledgement after Pocket has durably accepted the queue entry.
-  await page.route("**/api/messages", async (route) => {
-    await route.fetch();
-    await route.abort("failed");
-  });
-  await send.click();
-  await expect(page.getByText(/Your message is saved here/)).toBeVisible();
-  await page.unroute("**/api/messages");
-  await page.reload();
-  await expect(page.getByRole("textbox", { name: "Message Pocket" })).toHaveValue(message);
-  await expect(selected.getByText("Ready to send", { exact: true })).toHaveCount(MIXED_FILE_COUNT);
-  await send.click();
-  await expect(selected).toHaveCount(0);
-  await expect(page.getByText("Queued", { exact: true }).last()).toBeVisible();
-  const outbox = outboxSchema.parse(JSON.parse(await readFile(path.join(directory, "state/outbox.json"), "utf8")));
-  const receipt = outbox.receipts.find((entry: { text: string }) => entry.text === message);
+      await page.getByRole("textbox", { name: "Message Pocket" }).fill(message);
+      await page.route("**/api/messages", async (route) => {
+        await route.fetch();
+        await route.abort("failed");
+      });
+      await send.click();
+      await expect(page.getByText(/Your message is saved here/)).toBeVisible();
+      await page.unroute("**/api/messages");
+      await page.reload();
+      await expect(page.getByRole("textbox", { name: "Message Pocket" })).toHaveValue(message);
+      await expect(selected.getByText("Ready to send", { exact: true })).toHaveCount(MIXED_FILE_COUNT);
+      await send.click();
+      await expect(selected).toHaveCount(0);
+      await expect(page.getByText("Queued", { exact: true }).last()).toBeVisible();
 
-  assert.ok(receipt?.attachments);
-  expect(receipt.attachments).toHaveLength(MIXED_FILE_COUNT);
-  expect(receipt.attachments[0].id).toBe(failedId);
+      return await test.step("Read the durable outbox receipt", async () => {
+        const source = await readFile(path.join(directory, "state/outbox.json"), "utf8");
+        const outbox = outboxSchema.parse(JSON.parse(source));
+        const queued = outbox.receipts.find((entry) => entry.text === message);
 
-  // Kill only the fake harness; reconnect hydrates the persisted outbox and history.
-  await control("disconnect");
-  await expect(
-    page
-      .getByRole("status")
-      .filter({ hasText: /Reconnecting|Disconnected/ })
-      .first()
-  ).toBeVisible();
-  await page.reload();
-  await expect(attach).toBeEnabled();
-  await expect(page.locator("header [role=status]")).toHaveText("Working");
-  await control("complete");
-  await expect.poll(() => deliveredCount(receipt.id)).toBe(1);
-  const captured = await requests();
-  const delivered = captured.find((request) => request.clientUserMessageId === receipt.id);
+        assert.ok(queued?.attachments);
+        expect(queued.attachments).toHaveLength(MIXED_FILE_COUNT);
+        expect(queued.attachments[0].id).toBe(failedId);
 
-  assert.ok(delivered);
-  expect(delivered.bytes).toHaveLength(MIXED_FILE_COUNT);
-  expect(Buffer.from(delivered.files.find((file) => file.name === binaryName)?.base64 ?? "", "base64")).toEqual(binary);
-  expect(Buffer.from(delivered.files.find((file) => file.name === textName)?.base64 ?? "", "base64")).toEqual(
-    textBytes
-  );
-  await expect(
-    page.getByRole("list", { name: "Attachments", exact: true }).getByText(textName, { exact: true }).last()
-  ).toBeVisible();
-  await page.reload();
-  await expect(selected).toHaveCount(0);
-  await expect(
-    page.getByRole("list", { name: "Attachments", exact: true }).getByText(binaryName, { exact: true }).last()
-  ).toBeVisible();
-  const binaryFile = receipt.attachments.find((file: { name: string }) => file.name === binaryName);
-
-  assert.ok(binaryFile);
-  const download = await page.request.get(attachmentUrl(binaryFile.id));
-
-  expect(download.headers()["content-type"]).toBe("application/octet-stream");
-  expect(download.headers()["content-disposition"]).toContain("attachment;");
-  expect(await download.body()).toEqual(binary);
-  await page.screenshot({ path: path.join(directory, `${info.project.name}-delivered.png`) });
-  await control("complete");
-
-  // Server image validation and client bounds keep recoverable errors near the selection.
-  await picker.setInputFiles({ name: "broken.png", mimeType: "image/png", buffer: Buffer.from("not an image") });
-  await expect(selected.getByText(/This image couldn't be read/)).toBeVisible();
-  await expect(send).toBeDisabled();
-  await selected.getByRole("button", { name: "Remove broken.png" }).click();
-  await picker.setInputFiles({
-    name: "too-big.bin",
-    mimeType: "application/octet-stream",
-    buffer: Buffer.alloc(MAX_FILE_BYTES + 1),
-  });
-  await expect(page.getByText("Choose nonempty files up to 25 MB each.")).toBeVisible();
-  await expect(selected).toHaveCount(0);
-});
-
-test("API confines IDs, origins, filenames, content and retries", async ({ request }) => {
-  const id = crypto.randomUUID();
-  const url = `/api/uploads?${new URLSearchParams({ id, name: "safe.html", type: "text/html" })}`;
-  const options = {
-    headers: { Origin: origin, "Content-Type": "application/octet-stream" },
-    data: Buffer.from("<script>alert('test')</script>"),
-  };
-  const first = await request.put(url, options);
-
-  expect(first.ok()).toBeTruthy();
-  const firstBody = z.object({ file: fileAttachmentSchema }).parse(await first.json());
-
-  expect(firstBody.file.kind).toBe("file");
-  expect(await ok(request.put(url, options))).toBeTruthy();
-  expect(await ok(request.put(url, { ...options, data: Buffer.from("changed") }))).toBeFalsy();
-  const downloaded = await request.get(`/api/uploads?id=${id}`);
-
-  expect(downloaded.headers()["content-type"]).toBe("application/octet-stream");
-  expect(downloaded.headers()["content-security-policy"]).toContain("sandbox");
-  expect(
-    await ok(request.put(`/api/uploads?id=${crypto.randomUUID()}&name=..%2Fevil&type=text%2Fplain`, options))
-  ).toBeFalsy();
-  expect(await ok(request.get("/api/uploads?id=../../etc/passwd"))).toBeFalsy();
-  expect(await ok(request.get(`/api/uploads?id=${crypto.randomUUID()}`))).toBeFalsy();
-  const unrelatedId = await readFile(path.join(directory, "unrelated-id.txt"), "utf8");
-
-  expect(await ok(request.get(`/api/uploads?id=${unrelatedId}`))).toBeFalsy();
-  expect(
-    await ok(request.put(url, { ...options, headers: { ...options.headers, Origin: "https://evil.example" } }))
-  ).toBeFalsy();
-  expect(await ok(request.get(`/api/uploads?id=${id}&preview=1`))).toBeFalsy();
-  const oversized = await request.put(
-    `/api/uploads?id=${crypto.randomUUID()}&name=big.bin&type=application%2Foctet-stream`,
-    { ...options, data: Buffer.alloc(MAX_FILE_BYTES + 1) }
-  );
-
-  expect(oversized.ok()).toBeFalsy();
-  const emptyMessage = await request.post("/api/messages", {
-    headers: { Origin: origin },
-    data: { id: crypto.randomUUID(), text: "" },
+        return queued;
+      });
+    });
   });
 
-  expect(emptyMessage.ok()).toBeFalsy();
+  await test.step("Reconnect and deliver the persisted submission exactly once", async () => {
+    // Kill only the fake harness; reconnect hydrates the persisted outbox and history.
+    await control("disconnect");
+    await expect(
+      page
+        .getByRole("status")
+        .filter({ hasText: /Reconnecting|Disconnected/ })
+        .first()
+    ).toBeVisible();
+    await page.reload();
+    await expect(attach).toBeEnabled();
+    await expect(page.locator("header [role=status]")).toHaveText("Working");
+    await control("complete");
+    await expect.poll(() => deliveredCount(receipt.id)).toBe(1);
+    await test.step("Verify native mixed-file receipts", async () => {
+      const captured = await requests();
+      const delivered = captured.find((request) => request.clientUserMessageId === receipt.id);
+
+      assert.ok(delivered);
+      expect(delivered.bytes).toHaveLength(MIXED_FILE_COUNT);
+      expect(Buffer.from(delivered.files.find((file) => file.name === binaryName)?.base64 ?? "", "base64")).toEqual(
+        binary
+      );
+      expect(Buffer.from(delivered.files.find((file) => file.name === textName)?.base64 ?? "", "base64")).toEqual(
+        textBytes
+      );
+    });
+    await expect(
+      page.getByRole("list", { name: "Attachments", exact: true }).getByText(textName, { exact: true }).last()
+    ).toBeVisible();
+    await page.reload();
+    await expect(selected).toHaveCount(0);
+    await expect(
+      page.getByRole("list", { name: "Attachments", exact: true }).getByText(binaryName, { exact: true }).last()
+    ).toBeVisible();
+    await test.step("Download the managed binary attachment", async () => {
+      const download = await test.step("Resolve the confirmed managed attachment", async () => {
+        const binaryFile = receipt.attachments?.find((file) => file.name === binaryName);
+
+        assert.ok(binaryFile);
+
+        return await page.request.get(attachmentUrl(binaryFile.id));
+      });
+
+      expect(download.headers()["content-type"]).toBe("application/octet-stream");
+      expect(download.headers()["content-disposition"]).toContain("attachment;");
+      expect(await download.body()).toEqual(binary);
+    });
+    await page.screenshot({ path: path.join(directory, `${info.project.name}-delivered.png`) });
+    await control("complete");
+  });
+  await test.step("Keep validation errors recoverable beside attachment selection", async () => {
+    await picker.setInputFiles({ name: "broken.png", mimeType: "image/png", buffer: Buffer.from("not an image") });
+    await expect(selected.getByText(/This image couldn't be read/)).toBeVisible();
+    await expect(send).toBeDisabled();
+    await selected.getByRole("button", { name: "Remove broken.png" }).click();
+    await picker.setInputFiles({
+      name: "too-big.bin",
+      mimeType: "application/octet-stream",
+      buffer: Buffer.alloc(MAX_FILE_BYTES + 1),
+    });
+    await expect(page.getByText("Choose nonempty files up to 25 MB each.")).toBeVisible();
+    await expect(selected).toHaveCount(0);
+  });
 });
 
 test("keyboard picker, upload progress, parent draft and IME sending", async ({ page, isMobile }, info) => {
@@ -249,36 +197,43 @@ test("keyboard picker, upload progress, parent draft and IME sending", async ({ 
   const textarea = page.getByRole("textbox", { name: "Message Pocket" });
   const send = page.getByRole("button", { name: "Send message", exact: true });
   const selected = page.getByRole("list", { name: "Selected attachments" });
+  const draft = await test.step("Connect the parent draft session", async () => {
+    await page.goto("/");
+    await expect(attach).toBeEnabled();
+    await control("complete");
+    await expect(page.locator("header [role=status]")).toHaveText("Connected");
 
-  await page.goto("/");
-
-  await expect(attach).toBeEnabled();
-  await control("complete");
-  await expect(page.locator("header [role=status]")).toHaveText("Connected");
-  const draft = `${info.project.name} keyboard draft`;
-
-  await textarea.fill(draft);
-  await page.reload();
-  await expect(textarea).toHaveValue(draft);
-  const uploadGate = Promise.withResolvers<boolean>();
-
-  await page.route("**/api/uploads?**", async (route) => {
-    if (route.request().method() === "PUT") {
-      await uploadGate.promise;
-    }
-
-    await route.continue();
+    return `${info.project.name} keyboard draft`;
   });
-  await expect(attach).toBeEnabled();
-  await attach.focus();
-  const chooser = page.waitForEvent("filechooser");
+  const uploadGate = await test.step("Restore the parent draft after reload", async () => {
+    await textarea.fill(draft);
+    await page.reload();
+    await expect(textarea).toHaveValue(draft);
 
-  await attach.press("Enter");
-  const nativeChooser = await chooser;
+    return Promise.withResolvers<boolean>();
+  });
+  const nativeChooser = await test.step("Activate the keyboard picker while uploads are gated", async () => {
+    await page.route("**/api/uploads?**", async (route) => {
+      if (route.request().method() === "PUT") {
+        await uploadGate.promise;
+      }
+
+      await route.continue();
+    });
+    await expect(attach).toBeEnabled();
+    await attach.focus();
+
+    return await test.step("Press Enter on the native chooser", async () => {
+      const chooser = page.waitForEvent("filechooser");
+
+      await attach.press("Enter");
+
+      return await chooser;
+    });
+  });
   const name = `${info.project.name}-keyboard.txt`;
 
   await nativeChooser.setFiles({ name, mimeType: "text/plain", buffer: Buffer.from("Keyboard upload") });
-
   await expect(selected.getByRole("progressbar", { name: `Uploading ${name}` })).toBeVisible();
   await expect(send).toBeDisabled();
   uploadGate.resolve(true);
@@ -289,7 +244,6 @@ test("keyboard picker, upload progress, parent draft and IME sending", async ({ 
   await textarea.press("Shift+Enter");
   await expect(textarea).toHaveValue(`${draft}\n`);
   await textarea.fill(draft);
-
   await textarea.press("Enter");
 
   if (isMobile) {
@@ -305,73 +259,5 @@ test("keyboard picker, upload progress, parent draft and IME sending", async ({ 
       return entries.filter((entry) => entry.input.some((part) => part.type === "text" && part.text === draft)).length;
     })
     .toBe(1);
-  await control("complete");
-});
-
-test("animated GIF exposes its durable original path to harness tools", async ({ page }, info) => {
-  const edge = 16;
-  const channels = 3;
-  const white = 0xff;
-  const firstDelay = 80;
-  const secondDelay = 120;
-  const frame = Buffer.alloc(edge * edge * channels);
-  const gif = await sharp(Buffer.concat([frame, Buffer.alloc(frame.length, white)]), {
-    raw: { width: edge, height: edge * 2, channels, pageHeight: edge },
-  })
-    .gif({ delay: [firstDelay, secondDelay], loop: 0 })
-    .toBuffer();
-  const sourceMetadata = await sharp(gif, { animated: true }).metadata();
-
-  expect(sourceMetadata.pages).toBe(2);
-  await page.goto("/");
-  await expect(page.getByRole("button", { name: "Attach images or files", exact: true })).toBeEnabled();
-  await control("complete");
-  await expect(page.locator("header [role=status]")).toHaveText("Connected");
-  const name = `${info.project.name}-animated-spinner.gif`;
-
-  await page.locator('input[type="file"]').setInputFiles({ name, mimeType: "image/gif", buffer: gif });
-  await expect(
-    page.getByRole("list", { name: "Selected attachments" }).getByText("Ready to send", { exact: true })
-  ).toBeVisible();
-  await page.reload();
-  await expect(
-    page.getByRole("list", { name: "Selected attachments" }).getByText("Ready to send", { exact: true })
-  ).toBeVisible();
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
-  await expect(page.getByRole("list", { name: "Selected attachments" })).toHaveCount(0);
-  const captured = await requests();
-  const delivered = captured.findLast((request) => request.files.some((file) => file.name === name));
-
-  assert.ok(delivered);
-  expect(delivered.input.map((part: { type: string }) => part.type)).toEqual(["localImage", "text"]);
-  const original = delivered.files.find((file: { name?: string }) => file.name === name);
-
-  assert.ok(original);
-  expect(original.mediaType).toBe("image/gif");
-  expect(Buffer.from(original.base64, "base64")).toEqual(gif);
-  const durableBytes = await readFile(original.path);
-
-  expect(durableBytes).toEqual(gif);
-  const metadata = await sharp(durableBytes, { animated: true }).metadata();
-
-  expect(metadata.pages).toBe(2);
-  expect(metadata.delay).toEqual(sourceMetadata.delay);
-  expect(metadata.loop).toBe(0);
-  const imageInput = delivered.input.find((part) => part.type === "localImage");
-
-  assert.ok(imageInput);
-  const imagePath = imageInput.path;
-
-  expect(imagePath).not.toBe(original.path);
-  const preview = await sharp(imagePath).metadata();
-
-  expect(preview.format).toBe("png");
-  const fileCard = page.getByRole("list", { name: "Attachments", exact: true }).getByText(name, { exact: true });
-  const download = await page.request.get(attachmentUrl(path.basename(path.dirname(original.path))));
-
-  expect(await download.body()).toEqual(gif);
-  await page.reload();
-  expect(await readFile(original.path)).toEqual(gif);
-  await expect(fileCard).toBeVisible();
   await control("complete");
 });
