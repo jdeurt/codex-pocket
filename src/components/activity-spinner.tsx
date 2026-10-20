@@ -94,7 +94,7 @@ export function ActivitySpinner() {
   return (
     <span className="custom-activity-spinner-slot" aria-hidden="true" data-activity-spinner="">
       {(!showImage || loaded !== current.id) && (
-        <Spinner className="activity-spinner custom-activity-spinner-fallback" role={undefined} />
+        <Spinner className="activity-spinner custom-activity-spinner-fallback" viewBox="2 2 20 20" role={undefined} />
       )}
       {showImage && current.tone && (
         <svg width="0" height="0" className="custom-activity-spinner-filter">

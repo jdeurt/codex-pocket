@@ -680,6 +680,11 @@
   color: var(--muted-foreground);
   font-size: 13px;
 }
+.agent-preview[aria-busy="true"] {
+  display: flex;
+  align-items: center;
+  height: 1lh;
+}
 .agent-chat-header {
   gap: 8px;
   padding-inline: 14px;

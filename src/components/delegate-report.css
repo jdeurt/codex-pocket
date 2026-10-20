@@ -1,8 +1,8 @@
 .delegate-report {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: 8px;
-  width: fit-content;
+  width: 100%;
   max-width: 100%;
   padding: 0;
   border: 0;
@@ -18,10 +18,20 @@
   outline-offset: 4px;
   border-radius: 2px;
 }
-.delegate-report-icon {
-  align-self: flex-start;
+.delegate-report-icon,
+.delegate-report-chevron {
   flex: 0 0 16px;
   width: 16px;
   height: 16px;
-  margin-top: 0.35em;
+}
+.delegate-report[aria-expanded="true"] .delegate-report-chevron {
+  transform: rotate(180deg);
+}
+.delegate-report-details {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  padding-top: 8px;
+  color: var(--muted-foreground);
 }

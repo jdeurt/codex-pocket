@@ -1,45 +1,72 @@
 const MAX_READS = 4;
-const queue: { priority: number; run: () => Promise<void> }[] = [];
-const state = { active: 0 };
+const MAX_BACKGROUND_READS = MAX_READS - 1;
+const queue: { key?: string; priority: number; run: () => Promise<void> }[] = [];
+const state = { active: 0, background: 0 };
 
 /**
-Start queued transcript reads by priority while respecting the shared concurrency limit.
+Start queued reads by priority, reserving capacity for the selected transcript.
 */
 function drain() {
   queue.sort((a, b) => a.priority - b.priority);
 
   while (state.active < MAX_READS && queue.length > 0) {
-    const next = queue.shift();
+    const next = queue[0];
+    const isBackground = next.priority > 0;
 
-    if (!next) {
+    if (isBackground && state.background >= MAX_BACKGROUND_READS) {
       return;
     }
 
+    queue.shift();
     state.active++;
-    void next.run();
+
+    if (isBackground) {
+      state.background++;
+    }
+
+    void next.run().finally(() => {
+      state.active--;
+
+      if (isBackground) {
+        state.background--;
+      }
+
+      drain();
+    });
   }
 }
 
-// Selected chats have priority over background list previews. Every harness
-// transcript read shares this limit, including simultaneous image requests.
 /**
-Queue a native transcript read behind higher-priority selected-chat reads.
-@param read - Native read operation whose completion releases its pool slot.
-@param priority - Lower values run before background list previews.
-@returns The read result, or the original normalized read failure.
+Promote a queued preview hydration when its conversation is selected.
+@param key - Exact scoped native source already used to coalesce the read.
 */
-export function agentRead<T>(read: () => Promise<T>, priority = 0): Promise<T> {
+export function promoteAgentRead(key: string) {
+  for (const entry of queue) {
+    if (entry.key === key) {
+      entry.priority = 0;
+    }
+  }
+
+  drain();
+}
+
+/**
+Queue native history while retaining a foreground slot and the overall concurrency limit.
+@param read - Native operation whose completion releases its pool slot.
+@param priority - Zero selects a foreground read; higher values are background work.
+@param key - Optional scoped identity allowing a queued read to become foreground work.
+@returns Native read result or normalized failure.
+*/
+export function agentRead<T>(read: () => Promise<T>, priority = 0, key?: string): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     queue.push({
+      key,
       priority,
       run: async () => {
         try {
           resolve(await read());
         } catch (error) {
           reject(error instanceof Error ? error : new Error("Agent history read failed.", { cause: error }));
-        } finally {
-          state.active--;
-          drain();
         }
       },
     });

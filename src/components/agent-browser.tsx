@@ -149,6 +149,7 @@ export function AgentBrowser({
               .toArray()
               .toSorted((a, b) => Number(isActiveAgent(b)) - Number(isActiveAgent(a)) || a.name.localeCompare(b.name))}
             hidden={!!selectedId}
+            isLoading={!data && !error}
             error={error}
             warnings={data?.warnings ?? []}
             rows={rows}

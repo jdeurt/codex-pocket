@@ -104,7 +104,7 @@ test.afterAll(async () => {
   }
 });
 
-test("tool-managed GIF animates in grayscale across desktop/mobile, persists through restart, and resets without shifting", async ({
+test("tool-managed GIF animates in grayscale across desktop/mobile, persists through restart, and resets without moving the status row", async ({
   browser,
   browserName,
 }) => {
