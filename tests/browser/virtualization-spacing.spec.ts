@@ -4,7 +4,7 @@ import { mount, publish } from "./virtualization-fixture";
 
 const STATUS_HEIGHT = 44;
 const INPUT_GAP = 10;
-const VISIBLE_STATUS_GAP = 16;
+const VISIBLE_STATUS_GAP = 24;
 const viewport = '[data-slot="message-scroller-viewport"]';
 
 /** Measure from the final visible component to status text, excluding the reserved hit area.
@@ -28,7 +28,7 @@ async function expectStatusGap(page: Page, selector: string) {
   await expect(page.locator(viewport)).toHaveCSS("mask-image", "none");
 }
 
-test("visible messages keep their shared outer gap while status stays in the composer", async ({ page }) => {
+test("visible messages keep their shared outer gap while status stays at the transcript tail", async ({ page }) => {
   const state: Snapshot = {
     ...initialSnapshot,
     connection: "connected",
@@ -52,7 +52,7 @@ test("visible messages keep their shared outer gap while status stays in the com
     { id: "gap-last", type: "agentMessage", text: "Last assistant paragraph\n\n" },
     { id: "gap-last", type: "agentMessage", text: "Last assistant block\n\n```ts\nconst gap = true;\n```\n\n" },
   ];
-  const emptyFooter = page.locator('[data-slot="transcript-footer"]');
+  const emptyFooter = page.locator('[data-slot="transcript-pending"]');
 
   await mount(page, state);
 
@@ -159,8 +159,8 @@ test("visible messages keep their shared outer gap while status stays in the com
   state.queue = [{ id: "gap-queued", text: "First queued bubble", status: "sent" }];
   await publish(page, state);
   await expect(page.getByRole("status", { name: "Pocket activity" })).toBeVisible();
-  await expect(page.locator(".transcript .activity-indicator")).toHaveCount(0);
-  await expect(page.locator(".composer-wrap .activity-row")).toHaveCSS("height", `${String(STATUS_HEIGHT)}px`);
+  await expect(page.locator(".transcript .activity-indicator")).toHaveCount(1);
+  await expect(page.locator(".transcript .activity-row")).toHaveCSS("height", `${String(STATUS_HEIGHT)}px`);
   await expect
     .poll(() =>
       page.locator(".activity-row").evaluate((row) => {

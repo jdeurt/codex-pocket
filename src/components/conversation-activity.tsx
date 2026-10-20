@@ -5,7 +5,7 @@ import { ActivitySpinner } from "./activity-spinner";
 import { type ReactNode } from "react";
 import { type Snapshot } from "@/lib/protocol";
 
-/** Render current work independently of transcript scrolling or composer notices.
+/** Render current work and agents within the reserved transcript status row.
 @param props - Current parent state and optional agents control sharing the reserved row.
 @returns The activity row and its accessible status content.
 */

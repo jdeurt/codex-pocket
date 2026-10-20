@@ -34,7 +34,7 @@ async function layout(page: Page) {
     const box = footer?.getBoundingClientRect();
     const send = shell.querySelector('[aria-label="Send message"]')?.getBoundingClientRect();
     const composer = shell.querySelector(".composer")?.getBoundingClientRect();
-    const activity = footer?.querySelector(".activity-row")?.getBoundingClientRect();
+    const activity = shell.querySelector(".activity-row")?.getBoundingClientRect();
 
     if (!footer || !viewport || !box || !send || !composer || !activity) {
       throw new Error("The composer, status row and transcript must be mounted before measurement.");

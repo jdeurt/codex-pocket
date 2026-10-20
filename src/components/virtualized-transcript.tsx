@@ -35,8 +35,7 @@ import { ChatMessage } from "./chat-message";
 import { TranscriptFooter } from "./transcript-footer";
 
 const PADDING_START = 24;
-// The 44px reserved row centers a 20px label 12px below its top: 4 + 12 = 16px.
-const PADDING_END = 4;
+const PADDING_END = 10;
 const LAST_ITEM = -1;
 const ACTIVITY_LOOKAHEAD_VIEWPORTS = 3;
 
@@ -114,6 +113,7 @@ function MeasuredTranscript({
   storageKey,
   rows,
   footer,
+  status,
   expanded,
   toggle,
   suspended,
@@ -122,6 +122,7 @@ function MeasuredTranscript({
   storageKey?: string;
   rows: Row[];
   footer: ReactNode[];
+  status?: ReactNode;
   expanded: Set<string>;
   toggle: (id: string) => void;
   suspended: boolean;
@@ -223,8 +224,8 @@ function MeasuredTranscript({
             onPointerDown={resumeFollow}
             onKeyDown={resumeFollow}
           >
-            <div className="transcript" style={{ paddingBlock: 0 }}>
-              <div style={{ height: layout.size, position: "relative" }}>
+            <div className="transcript" style={{ paddingBlock: 0, minHeight: "100%", justifyContent: "flex-end" }}>
+              <div style={{ height: layout.size, position: "relative", flexShrink: 0 }}>
                 <div
                   className="absolute top-0 left-0 w-full min-w-0"
                   style={{ transform: `translateY(${String(blockStart)}px)` }}
@@ -269,6 +270,7 @@ function MeasuredTranscript({
                     footerRow={footerRow}
                     blockStart={blockStart}
                     measure={measure}
+                    status={status}
                   >
                     {footer}
                   </TranscriptFooter>
@@ -305,11 +307,13 @@ export function VirtualizedTranscript({
   storageKey,
   turns,
   children,
+  status,
   suspended = false,
 }: {
   storageKey?: string;
   turns: TranscriptTurn[];
   children: ReactNode;
+  status?: ReactNode;
   suspended?: boolean;
 }) {
   const [bookmark] = useState(() => readTranscriptBookmark(storageKey));
@@ -322,6 +326,7 @@ export function VirtualizedTranscript({
       storageKey={storageKey}
       rows={rows}
       footer={Children.toArray(children)}
+      status={status}
       expanded={expanded}
       suspended={suspended}
       toggle={(id) => {

@@ -1,6 +1,7 @@
 "use client";
 import { type ReactNode } from "react";
 import { type VirtualItem } from "@tanstack/react-virtual";
+import { cn } from "cn";
 
 const LAST_ITEM = -1;
 
@@ -16,6 +17,7 @@ export function TranscriptFooter({
   blockStart,
   measure,
   children,
+  status,
 }: {
   count: number;
   messages: VirtualItem[];
@@ -23,6 +25,7 @@ export function TranscriptFooter({
   blockStart: number;
   measure: (element: HTMLElement | null) => void;
   children: ReactNode;
+  status?: ReactNode;
 }) {
   const hasTail = count === 0 || messages.at(LAST_ITEM)?.index === count - 1;
 
@@ -31,13 +34,19 @@ export function TranscriptFooter({
       ref={measure}
       data-index={count}
       data-slot="transcript-footer"
-      className={`message-flow w-full min-w-0 ${count > 0 ? "[&:not(:empty)]:pt-(--message-block-gap)" : ""}`}
+      className="w-full min-w-0"
       style={{
         position: hasTail ? "static" : "absolute",
         transform: hasTail ? undefined : `translateY(${String((footerRow?.start ?? 0) - blockStart)}px)`,
       }}
     >
-      {children}
+      <div
+        data-slot="transcript-pending"
+        className={cn("message-flow", count > 0 && "[&:not(:empty)]:pt-(--message-block-gap)")}
+      >
+        {children}
+      </div>
+      {status && <div className="transcript-status">{status}</div>}
     </div>
   );
 }

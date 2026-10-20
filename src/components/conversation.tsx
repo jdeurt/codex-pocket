@@ -117,6 +117,7 @@ export function Conversation({
         storageKey={readOnly ? undefined : state.threadId}
         turns={messages}
         suspended={suspended}
+        status={showActivity && <ConversationActivity state={state} control={activityControl} />}
       >
         <ConversationEmpty
           connection={state.connection}
@@ -155,7 +156,6 @@ export function Conversation({
           </MessageScrollerItem>
         ))}
       </VirtualizedTranscript>
-      {showActivity && <ConversationActivity state={state} control={activityControl} />}
     </>
   );
 }

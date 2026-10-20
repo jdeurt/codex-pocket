@@ -74,14 +74,14 @@ function tailGeometry(page: Page) {
   return page.locator(".activity-row").evaluate((row) => {
     const scroller = globalThis.document.querySelector('[data-slot="message-scroller-viewport"]');
     const composer = globalThis.document.querySelector(".composer-wrap");
-    const input = globalThis.document.querySelector(".composer");
 
     return {
       rowHeight: row.getBoundingClientRect().height,
       rowTop: row.getBoundingClientRect().top,
-      inputGap: (input?.getBoundingClientRect().top ?? 0) - row.getBoundingClientRect().bottom,
+      inputGap: (composer?.getBoundingClientRect().top ?? 0) - row.getBoundingClientRect().bottom,
       viewportHeight: scroller?.getBoundingClientRect().height,
       composerTop: composer?.getBoundingClientRect().top,
+      viewportBottom: scroller?.getBoundingClientRect().bottom,
     };
   });
 }
@@ -191,11 +191,13 @@ test("agent presence retains activity-line geometry and a mobile hit target", as
   await expect(page.getByRole("status", { name: "Pocket activity" })).toHaveCount(0);
   await expect.poll(() => tailGeometry(page)).toEqual(original);
   expect(original.rowHeight).toBe(HIT_TARGET);
-  expect(original.inputGap).toBe(COMPOSER_GAP);
+  // The native scroll offset rounds fractional content heights to physical pixels.
+  expect(Math.abs(original.inputGap - COMPOSER_GAP)).toBeLessThan(ALIGNMENT_TOLERANCE);
+  expect(original.viewportBottom).toBe(original.composerTop);
   expect(writes).toEqual([]);
 });
 
-test("jump after activity collapse reaches the agent control and the actual transcript end", async ({ page }) => {
+test("jump after activity collapse reaches the agent control and the actual transcript end", async ({ page }, info) => {
   const state: Snapshot = {
     ...history(),
     activeTurnId: "live",
@@ -238,6 +240,16 @@ test("jump after activity collapse reaches the agent control and the actual tran
     element.scrollBy({ top: -distance, behavior: "instant" });
   }, READER_DISTANCE);
   await expect(latest).toBeVisible();
+  await expect(agent).not.toBeInViewport();
+  await expect(page.locator(viewport)).not.toHaveCSS("mask-image", "none");
+  await expect
+    .poll(async () => {
+      const measured = await tailGeometry(page);
+
+      return measured.viewportBottom === measured.composerTop;
+    })
+    .toBe(true);
+  await page.screenshot({ path: `.local/composer-fade-${info.project.name}.png` });
   await latest.click();
   await expect(latest).toHaveCount(0);
   await expect
