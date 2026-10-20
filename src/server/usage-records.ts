@@ -4,6 +4,7 @@ export interface UsageRecord {
   id: string;
   sessionId: string;
   parentId: string | null;
+  forkedFromId: string | null;
   harness: "codex" | "claude";
   model: string;
   timestamp: string;
@@ -14,6 +15,7 @@ export interface UsageRecord {
 export interface UsageSession {
   id: string;
   parentId: string | null;
+  forkedFromId: string | null;
   model: string;
   cumulative: Record<string, number>;
 }
@@ -28,9 +30,11 @@ export function usageNumbers(value: unknown, prefix = ""): Record<string, number
   return Object.fromEntries(
     Object.entries(object(value)).flatMap(([key, entry]) => {
       const name = prefix ? `${prefix}.${key}` : key;
+
       if (typeof entry === "number" && Number.isFinite(entry) && entry >= 0) {
         return [[name, entry]];
       }
+
       return entry && typeof entry === "object" ? Object.entries(usageNumbers(entry, name)) : [];
     })
   );
@@ -52,20 +56,8 @@ export function codexUsage(
   const info = object(payload.info);
   const totals = usageNumbers(info.total_token_usage);
   const timestamp = string(row.timestamp);
-
-  if (row.type === "session_meta") {
-    session.id = string(payload.id) || session.id;
-    session.parentId =
-      string(payload.forked_from_id) ||
-      string(object(object(object(payload.source).subagent).thread_spawn).parent_thread_id) ||
-      null;
-  }
-  if (row.type === "turn_context") {
-    session.model = string(payload.model) || session.model;
-  }
-  if (payload.type !== "token_count" || Object.keys(totals).length === 0) {
-    return;
-  }
+  const nativeSource = object(payload.source);
+  const subagent = object(nativeSource.subagent);
 
   const categories = Object.fromEntries(
     Object.entries(totals).map(([key, value]) => [
@@ -75,7 +67,21 @@ export function codexUsage(
         : (usageNumbers(info.last_token_usage)[key] ?? value),
     ])
   );
+
+  if (row.type === "session_meta") {
+    session.id = string(payload.id) || session.id;
+    session.forkedFromId = string(payload.forked_from_id) || null;
+    session.parentId = string(payload.forked_from_id) || string(object(subagent.thread_spawn).parent_thread_id) || null;
+  } else if (row.type === "turn_context") {
+    session.model = string(payload.model) || session.model;
+  }
+
+  if (payload.type !== "token_count" || Object.keys(totals).length === 0) {
+    return;
+  }
+
   session.cumulative = totals;
+
   if (Object.values(categories).every((value) => value === 0)) {
     return;
   }
@@ -84,6 +90,7 @@ export function codexUsage(
     id: `${session.id}:${timestamp}:${JSON.stringify(totals)}`,
     sessionId: session.id,
     parentId: session.parentId,
+    forkedFromId: session.forkedFromId,
     harness: "codex",
     model: session.model,
     timestamp,
@@ -110,10 +117,12 @@ export function claudeUsage(row: Record<string, unknown>, source: string): Usage
   if (!sessionId || !request || Object.keys(categories).length === 0) {
     return;
   }
+
   return {
     id: `${sessionId}:${request}`,
     sessionId,
     parentId: agent ? parent : null,
+    forkedFromId: null,
     harness: "claude",
     model: string(message.model) || "unknown",
     timestamp: string(row.timestamp),

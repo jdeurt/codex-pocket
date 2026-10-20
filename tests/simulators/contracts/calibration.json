@@ -1,0 +1,32 @@
+{
+  "codexVersion": "codex-cli 0.163.0-alpha.10.2",
+  "claudeVersion": "2.1.292 (Claude Code)",
+  "expectedReply": "POCKET_SIMULATOR_OK",
+  "codex": {
+    "passed": [
+      "initialize",
+      "ephemeral-read-rejection",
+      "model-effort-readback",
+      "idle-steer-rejection",
+      "idle-interrupt-rejection",
+      "streamed-turn-completion",
+      "filesystem-write-read-copy-list-metadata-remove"
+    ]
+  },
+  "claude": {
+    "passed": [
+      "initialize",
+      "model-catalog",
+      "idle-interrupt-receipt",
+      "mcp-catalog",
+      "set-model",
+      "set-permissions",
+      "streamed-turn-completion"
+    ]
+  },
+  "date": "2026-10-20",
+  "scope": "Isolated ephemeral Codex thread and nonpersistent Claude session; native authentication used only by the explicit calibration command.",
+  "additionalObservedBehavior": {
+    "config/mcpServer/reload": "null params return an empty object; result schema absent from native generator"
+  }
+}

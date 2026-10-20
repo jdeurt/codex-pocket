@@ -1,6 +1,6 @@
-import { type DelegateReport } from "../lib/delegate-reports";
 import { type Item, type Snapshot, type Turn, object, string } from "../lib/protocol";
 import { itemImageSources, itemImageUrl } from "../lib/images";
+import { type DelegateReport } from "../lib/delegate-reports";
 import { currentActivity } from "./activity";
 import { delegationMessagePrefix } from "./delegation-mail";
 import { isRecoveryMessageId } from "./recovery";
@@ -89,7 +89,7 @@ function displayItem(
 ): Item | Item[] {
   const report = reports.get(string(item.clientId));
 
-  if (item.type === "userMessage" && report) {
+  if (report && item.type === "userMessage") {
     reports.delete(report.id);
 
     return { id: report.id, type: "delegateReport", delegateReport: report };

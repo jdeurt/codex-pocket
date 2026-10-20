@@ -1,9 +1,12 @@
+import { type UsagePrice, estimatedCost } from "./usage-cost";
 import { type UsageRecord, type UsageSession, claudeUsage, codexUsage } from "./usage-records";
-import { createReadStream } from "node:fs";
 import { createInterface } from "node:readline";
+import { createReadStream } from "node:fs";
 import { object } from "../lib/protocol";
 import path from "node:path";
 import { readdir } from "node:fs/promises";
+
+const HARNESSES = ["codex", "claude"] as const;
 
 export interface UsageWindow {
   start?: string;
@@ -23,16 +26,19 @@ async function sessionFiles(directory: string): Promise<string[]> {
     const nested = await Promise.all(
       entries.map((entry) => {
         const filename = path.join(directory, entry.name);
+
         return entry.isDirectory()
           ? sessionFiles(filename)
           : Promise.resolve(entry.isFile() && entry.name.endsWith(".jsonl") ? [filename] : []);
       })
     );
-    return nested.flat().toSorted();
+
+    return nested.flat().toSorted((left, right) => left.localeCompare(right));
   } catch (error) {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") {
       return [];
     }
+
     throw error;
   }
 }
@@ -43,11 +49,13 @@ Compare reported instants to an explicit half-open interval or an IANA local cal
 @param window - Validated caller-selected interval.
 @returns Whether this event belongs to the requested report.
 */
-function inWindow(timestamp: string, window: UsageWindow) {
+function isInWindow(timestamp: string, window: UsageWindow) {
   const time = Date.parse(timestamp);
+
   if (!Number.isFinite(time)) {
     return false;
   }
+
   if (window.day) {
     return (
       new Intl.DateTimeFormat("en-CA", {
@@ -58,7 +66,38 @@ function inWindow(timestamp: string, window: UsageWindow) {
       }).format(time) === window.day
     );
   }
+
   return time >= Date.parse(window.start ?? "") && time < Date.parse(window.end ?? "");
+}
+
+/**
+Decode a saved record without treating normalization failures as malformed JSON.
+@param line - One native JSONL line.
+@returns Parsed native object or null for a truncated or malformed line.
+*/
+function parseUsageLine(line: string) {
+  try {
+    return object(JSON.parse(line));
+  } catch {
+    return null;
+  }
+}
+
+/**
+Normalize one parsed record with the selected native harness adapter.
+@param row - Decoded native object.
+@param session - Rolling Codex metadata and counters.
+@param filename - Original source file.
+@param harness - Provider format owning the source.
+@returns Incremental native usage when this row contains it.
+*/
+function normalizeUsage(
+  row: Record<string, unknown>,
+  session: UsageSession,
+  filename: string,
+  harness: "codex" | "claude"
+) {
+  return harness === "codex" ? codexUsage(row, session, filename) : claudeUsage(row, filename);
 }
 
 /**
@@ -70,20 +109,29 @@ Read native cumulative accounting from the beginning so interval boundaries do n
 */
 async function readUsage(filename: string, harness: "codex" | "claude", records: Map<string, UsageRecord>) {
   const lines = createInterface({ input: createReadStream(filename), crlfDelay: Infinity });
-  const session: UsageSession = { id: path.basename(filename), parentId: null, model: "unknown", cumulative: {} };
+  const session: UsageSession = {
+    id: path.basename(filename),
+    parentId: null,
+    forkedFromId: null,
+    model: "unknown",
+    cumulative: {},
+  };
+
   let malformed = 0;
 
   for await (const line of lines) {
-    try {
-      const row = object(JSON.parse(line));
-      const record = harness === "codex" ? codexUsage(row, session, filename) : claudeUsage(row, filename);
-      if (record) {
-        records.set(`${harness}:${record.id}`, record);
-      }
-    } catch {
+    const row = parseUsageLine(line);
+    const record = row === null ? undefined : normalizeUsage(row, session, filename, harness);
+
+    if (row === null) {
       malformed++;
     }
+
+    if (record) {
+      records.set(`${harness}:${record.id}`, record);
+    }
   }
+
   return malformed;
 }
 
@@ -119,56 +167,92 @@ function groupedUsage(records: UsageRecord[]) {
       records: 0,
       sources: new Set<string>(),
     };
+
     for (const [category, value] of Object.entries(record.categories)) {
       group.categories[category] = (group.categories[category] ?? 0) + value;
     }
+
     if (record.reportedCostUSD !== null) {
       group.reportedCostUSD = (group.reportedCostUSD ?? 0) + record.reportedCostUSD;
     }
+
     group.records++;
     group.sources.add(record.source);
     groups.set(key, group);
   }
-  return [...groups.values()].map((group) => ({
-    ...group,
-    sources: [...group.sources],
-    status: "usage observed; session completion unknown",
-    cost: {
-      reportedUSD: group.reportedCostUSD,
-      billedUSD: null,
-      estimatedUSD: null,
-      pricingSource: null,
-      pricingDate: null,
-      serviceTier: null,
-    },
-  }));
+
+  return groups
+    .values()
+    .map((group) => ({
+      ...group,
+      sources: [...group.sources],
+      status: "usage observed; session completion unknown",
+      cost: {
+        reportedUSD: group.reportedCostUSD,
+        billedUSD: null,
+        subscriptionUsage: null,
+      },
+    }))
+    .toArray();
 }
 
 /**
-Collect local saved usage from both harnesses, retaining provenance and missing coverage instead of inventing zero spend.
-@param window - Explicit time interval or local calendar day.
-@param roots - Native Codex and Claude session roots chosen by the caller.
-@returns Repeatable JSON report suitable for both CLI export and further analysis.
+Recognize copied fork history using the ancestor's original event identity, leaving new child usage distinct.
+@param record - Candidate native usage observation.
+@param records - All collected native events, including those outside the report interval.
+@returns Whether the exact inherited counter event is already attributed to its source chat.
 */
-export async function usageReport(window: UsageWindow, roots: { codex: string; claude: string }) {
-  const records = new Map<string, UsageRecord>();
-  const sources = { codex: await sessionFiles(roots.codex), claude: await sessionFiles(roots.claude) };
-  let malformedLines = 0;
+function isInheritedUsage(record: UsageRecord, records: Map<string, UsageRecord>) {
+  const suffix = record.id.slice(record.sessionId.length);
 
-  for (const harness of ["codex", "claude"] as const) {
-    for (const filename of sources[harness]) {
-      malformedLines += await readUsage(filename, harness, records);
-    }
-  }
+  return record.forkedFromId !== null && records.has(`${record.harness}:${record.forkedFromId}${suffix}`);
+}
 
-  const selected = [...records.values()].filter((record) => inWindow(record.timestamp, window));
-  const chats = groupedUsage(selected);
+/**
+Build grouped report totals after collection, excluding inherited fork observations already attributed to an ancestor.
+@param window - Requested interval.
+@param sources - Inspected source file inventory.
+@param records - Deduplicated native observations.
+@param malformedLines - Count of unreadable JSON records.
+@param prices - Explicit dated pricing sources.
+@returns Exportable usage report and honest coverage gaps.
+*/
+function assembleReport(
+  window: UsageWindow,
+  sources: { codex: string[]; claude: string[] },
+  records: Map<string, UsageRecord>,
+  malformedLines: number,
+  prices: UsagePrice[]
+) {
+  const selected = records
+    .values()
+    .filter((record) => isInWindow(record.timestamp, window) && !isInheritedUsage(record, records))
+    .toArray();
+  const chats = groupedUsage(selected).map((chat) => ({
+    ...chat,
+    name: null,
+    estimate: estimatedCost(
+      selected.filter(
+        (record) =>
+          record.sessionId === chat.sessionId && record.model === chat.model && record.harness === chat.harness
+      ),
+      prices
+    ),
+  }));
+  const totals = groupedUsage(
+    selected.map((record) => ({
+      ...record,
+      sessionId: record.parentId ? "delegated" : "parent unknown",
+      parentId: null,
+    }))
+  );
 
   return {
     window,
     unit: "tokens",
     generatedAt: new Date().toISOString(),
     chats,
+    totals,
     coverage: {
       files: { codex: sources.codex.length, claude: sources.claude.length },
       malformedLines,
@@ -193,4 +277,32 @@ export async function usageReport(window: UsageWindow, roots: { codex: string; c
     },
     records: selected,
   };
+}
+
+/**
+Collect local saved usage from both harnesses, retaining provenance and missing coverage instead of inventing zero spend.
+@param window - Explicit time interval or local calendar day.
+@param roots - Native Codex and Claude session roots chosen by the caller.
+@param prices - Explicit dated price records used for estimates only.
+@returns Repeatable JSON report suitable for both CLI export and further analysis.
+*/
+export async function usageReport(
+  window: UsageWindow,
+  roots: { codex: string; claude: string },
+  prices: UsagePrice[] = []
+) {
+  const records = new Map<string, UsageRecord>();
+  const sources = { codex: await sessionFiles(roots.codex), claude: await sessionFiles(roots.claude) };
+
+  let malformedLines = 0;
+
+  for (const harness of HARNESSES) {
+    const files = sources[harness];
+
+    for (const filename of files) {
+      malformedLines += await readUsage(filename, harness, records);
+    }
+  }
+
+  return assembleReport(window, sources, records, malformedLines, prices);
 }

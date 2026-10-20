@@ -1,6 +1,6 @@
+import { type NativeFlow, correction, transcript } from "./fixtures/delegation-native";
 import { type SidePocket, delegationCommandSchema } from "../src/server/delegation-data";
 import { TEST_TIMEOUT_MS, assignment, fixture, owner, state, tool } from "./fixtures/delegation-flow";
-import { type NativeFlow, correction, transcript } from "./fixtures/delegation-native";
 import Database from "better-sqlite3";
 import assert from "node:assert/strict";
 import path from "node:path";

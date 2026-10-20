@@ -45,13 +45,13 @@ export function AgentBrowser({
   open,
   selectedId,
   onSelect,
-  returnFocus,
+  returnFocusRef,
   onOpenChange,
 }: {
   open: boolean;
   selectedId: string | null;
   onSelect: (id: string | null) => void;
-  returnFocus: RefObject<HTMLElement | null>;
+  returnFocusRef: RefObject<HTMLElement | null>;
   onOpenChange: (isOpen: boolean) => void;
 }) {
   const indicator = useContext(ActivityIndicatorContext);
@@ -79,7 +79,7 @@ export function AgentBrowser({
   }
 
   function back() {
-    if (returnFocus.current) {
+    if (returnFocusRef.current) {
       onOpenChange(false);
       onSelect(null);
 
@@ -132,9 +132,9 @@ export function AgentBrowser({
         <Dialog.Popup
           className="agents-panel"
           finalFocus={() => {
-            const target = returnFocus.current;
+            const target = returnFocusRef.current;
 
-            returnFocus.current = null;
+            returnFocusRef.current = null;
 
             return target?.isConnected ? target : agentTriggerFocus();
           }}

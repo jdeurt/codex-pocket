@@ -13,6 +13,7 @@ export const contextUsageSchema = z.object({
   last: tokenBreakdownSchema,
   modelContextWindow: z.number().positive().nullable().optional(),
 });
+
 export type ContextUsage = z.infer<typeof contextUsageSchema>;
 
 /**

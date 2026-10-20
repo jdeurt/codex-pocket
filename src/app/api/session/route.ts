@@ -6,6 +6,19 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
+Validate and dispatch the allowed native settings mutation after HTTP authorization.
+@param request - Authorized mutation request.
+@returns Effective settings response.
+*/
+async function updateSettings(request: Request) {
+  const body = await readBody(request);
+  const settings = sessionSettingsSchema.parse(body);
+  const result = await bridge.session.update(settings);
+
+  return Response.json(result, { headers: noStore });
+}
+
+/**
 Inspect this Pocket's connected session without exposing arbitrary native RPC.
 @param request - Host and origin checked request.
 @returns Effective parent settings and native usage availability.
@@ -15,7 +28,7 @@ export async function GET(request: Request) {
     await guard(request);
     await bridge.ensureConnected();
 
-    return Response.json(bridge.sessionInfo(), { headers: noStore });
+    return Response.json(bridge.session.info(), { headers: noStore });
   } catch (error) {
     return errorResponse(error);
   }
@@ -30,9 +43,7 @@ export async function POST(request: Request) {
   try {
     await guard(request, true);
 
-    return Response.json(await bridge.updateSession(sessionSettingsSchema.parse(await readBody(request))), {
-      headers: noStore,
-    });
+    return await updateSettings(request);
   } catch (error) {
     return errorResponse(error);
   }

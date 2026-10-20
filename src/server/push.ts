@@ -125,9 +125,9 @@ export function completionNotification(threadId: string, turn: Turn): Notificati
   );
   const replies = messages.filter((item) => item.type === "agentMessage");
   const reply = replies.findLast((item) => item.phase === "final_answer") ?? replies.findLast((item) => !item.phase);
-  const image = messages.findLast((item) => item.type === "imageOutput");
+  const hasImage = messages.some((item) => item.type === "imageOutput");
 
-  if (!reply && !image) {
+  if (!reply && !hasImage) {
     return;
   }
 
@@ -258,17 +258,12 @@ async function deliverCompletion(
 }
 
 /**
-Require visible assistant output before claiming a durable, foreground-aware completion delivery.
-@param threadId - Owning parent identity used by the stable receipt.
-@param turn - Native completed turn whose identity is deduplicated.
+Claim an eligible visible completion before its single foreground-aware delivery attempt.
+@param threadId - Exact owning parent.
+@param turn - Completed native turn.
+@param notification - Canonical visible completion selected before receipt claiming.
 */
-export async function notifyTurnComplete(threadId: string, turn: Turn) {
-  const notification = completionNotification(threadId, turn);
-
-  if (!notification) {
-    return;
-  }
-
+async function notifyVisible(threadId: string, turn: Turn, notification: NotificationPayload) {
   const delivery = await withState((state) => {
     const receipt = `${threadId}:${turn.id}`;
 
@@ -286,4 +281,17 @@ export async function notifyTurnComplete(threadId: string, turn: Turn) {
   }
 
   await deliverCompletion(delivery, threadId, turn, completionPayload(notification));
+}
+
+/**
+Require visible assistant output before claiming any durable push receipt.
+@param threadId - Exact owning parent.
+@param turn - Completed native turn.
+*/
+export async function notifyTurnComplete(threadId: string, turn: Turn) {
+  const notification = completionNotification(threadId, turn);
+
+  if (notification) {
+    await notifyVisible(threadId, turn, notification);
+  }
 }

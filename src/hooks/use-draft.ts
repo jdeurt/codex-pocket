@@ -1,5 +1,5 @@
 "use client";
-import { useSyncExternalStore } from "react";
+import { useEffect, useRef, useSyncExternalStore } from "react";
 
 const memory = { draft: "" };
 const key = "codex-pocket-draft";
@@ -70,4 +70,32 @@ export function useDraft() {
   const value = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
   return [value, setDraft] as const;
+}
+
+/**
+Recover a persisted uncertain send once without replacing a newer local draft.
+@param pending - Durable outbound record awaiting reconciliation.
+@param draft - Current composer text.
+@param isSending - Whether a new send currently owns the composer.
+@param update - Stable draft setter.
+*/
+export function useRecoveredDraft(
+  pending: { id: string; text: string } | null | undefined,
+  draft: string,
+  isSending: boolean,
+  update: (value: string) => void
+) {
+  const recovered = useRef<string | undefined>(undefined);
+
+  useEffect(() => {
+    if (!pending || recovered.current === pending.id) {
+      return;
+    }
+
+    recovered.current = pending.id;
+
+    if (!draft && !isSending) {
+      update(pending.text);
+    }
+  }, [pending, draft, isSending, update]);
 }

@@ -8,8 +8,9 @@ import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } fro
 import { clientError, reportClient } from "@/lib/client-logging";
 import { stageMessage, updateDelivery, useThread } from "@/hooks/use-thread";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AgentNavigationContext } from "@/lib/agent-navigation-context";
+import { useDraft, useRecoveredDraft } from "@/hooks/use-draft";
 import { AgentBrowser } from "./agent-browser";
+import { AgentNavigationContext } from "@/lib/agent-navigation-context";
 import { ComposerAttachments } from "./composer-attachments";
 import { Conversation } from "./conversation";
 import { type FileAttachment } from "@/lib/attachments";
@@ -18,7 +19,7 @@ import { connectionStatus } from "@/lib/connection-status";
 import { modelDescription } from "@/lib/model-description";
 import { post } from "@/lib/client-api";
 import { useComposerViewport } from "@/hooks/use-composer-viewport";
-import { useDraft } from "@/hooks/use-draft";
+import { usePathname } from "next/navigation";
 
 /**
 Require visible text or files and wait until every selected upload has a receipt.
@@ -31,12 +32,28 @@ function hasMessage(text: string, files: DraftAttachment[]) {
 }
 
 /**
+Present the first actionable send, attachment or connection error beside the composer.
+@param props - Error sources in the order users can act on them.
+@returns The shared error alert when any source has failed.
+*/
+function ComposerError({ errors }: { errors: (string | undefined)[] }) {
+  const error = errors.find(Boolean);
+
+  return error ? (
+    <Alert variant="destructive" className="mb-3">
+      <AlertDescription>{error}</AlertDescription>
+    </Alert>
+  ) : null;
+}
+
+/**
 Compose the active parent conversation, durable draft, uploads and message delivery controls.
 @returns The parent chat and its existing navigation, notices and composer.
 */
 export function Chat() {
   const { state, connected: streamConnected } = useThread();
   const [draft, setDraft] = useDraft();
+  const isViewingFile = usePathname() === "/files";
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [agentsOpen, setAgentsOpen] = useState(false);
@@ -51,24 +68,23 @@ export function Chat() {
   const textarea = useRef<HTMLTextAreaElement>(null);
 
   const filePicker = useRef<HTMLInputElement>(null);
-  const recoveredMessage = useRef<string | undefined>(undefined);
   const attachments = useAttachments(state.threadId);
   const isConnected = streamConnected && state.connection === "connected";
   const status = connectionStatus(state, streamConnected);
 
+  const agentControl = (
+    <AgentBrowser
+      open={agentsOpen}
+      selectedId={selectedAgent}
+      onSelect={setSelectedAgent}
+      returnFocusRef={agentReturnFocus}
+      onOpenChange={setAgentsOpen}
+    />
+  );
+
   useComposerViewport(textarea);
 
-  useEffect(() => {
-    if (!attachments.pending || recoveredMessage.current === attachments.pending.id) {
-      return;
-    }
-
-    recoveredMessage.current = attachments.pending.id;
-
-    if (!draft && !sending) {
-      setDraft(attachments.pending.text);
-    }
-  }, [attachments.pending, draft, sending, setDraft]);
+  useRecoveredDraft(attachments.pending, draft, sending, setDraft);
 
   useEffect(() => {
     if ("serviceWorker" in navigator && process.env.NODE_ENV === "production") {
@@ -144,26 +160,10 @@ export function Chat() {
           </div>
           <span className="header-balance" aria-hidden="true" />
         </header>
-        <Conversation
-          state={state}
-          suspended={agentsOpen}
-          activityControl={
-            <AgentBrowser
-              open={agentsOpen}
-              selectedId={selectedAgent}
-              onSelect={setSelectedAgent}
-              returnFocus={agentReturnFocus}
-              onOpenChange={setAgentsOpen}
-            />
-          }
-        />
+        <Conversation state={state} suspended={agentsOpen || isViewingFile} activityControl={agentControl} />
         <footer className="composer-wrap">
           <NotificationPrompt />
-          {(error || attachments.error || state.error) && (
-            <Alert variant="destructive" className="mb-3">
-              <AlertDescription>{error || attachments.error || state.error}</AlertDescription>
-            </Alert>
-          )}
+          <ComposerError errors={[error, attachments.error, state.error]} />
           <form
             onSubmit={(event) => {
               event.preventDefault();

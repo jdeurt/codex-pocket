@@ -3,6 +3,7 @@ import type { Config } from "./config";
 import { contextUsageSchema } from "../lib/usage";
 import { notifyTurnComplete } from "./push";
 import { reduceEvent } from "./reducer";
+import { schedules } from "./schedules";
 import { writeLocal } from "./local-state";
 
 /**
@@ -15,24 +16,32 @@ export function applyBridgeEvent(state: Snapshot, config: Config | undefined, ev
   if (event.id === undefined) {
     reduceEvent(state, event);
 
-    if (event.method === "thread/tokenUsage/updated") {
-      const usage = contextUsageSchema.safeParse(event.params.tokenUsage);
+    switch (event.method) {
+      case "thread/tokenUsage/updated": {
+        const usage = contextUsageSchema.safeParse(event.params.tokenUsage);
 
-      if (usage.success) {
-        state.usage = usage.data;
+        if (usage.success) {
+          state.usage = usage.data;
+        }
+
+        break;
       }
-    }
 
-    if (event.method === "thread/compacted") {
-      state.lastCompactionAt = Date.now();
-    }
+      case "thread/compacted": {
+        state.lastCompactionAt = Date.now();
+        break;
+      }
 
-    if (event.method === "serverRequest/resolved" || event.method === "turn/completed") {
-      if (event.method === "turn/completed") {
+      case "turn/completed": {
         state.requests = state.requests.filter((r) => r.params.turnId !== event.params.turn?.id);
+        void writeLocal("requests.json", state.requests).catch(console.error);
+        break;
       }
 
-      void writeLocal("requests.json", state.requests).catch(console.error);
+      case "serverRequest/resolved": {
+        void writeLocal("requests.json", state.requests).catch(console.error);
+        break;
+      }
     }
 
     if (config && event.method === "turn/completed" && event.params.turn) {
@@ -45,5 +54,21 @@ export function applyBridgeEvent(state: Snapshot, config: Config | undefined, ev
     state.requests.push({ ...event, id: event.id });
     void writeLocal("requests.json", state.requests).catch(console.error);
     console.info(`\nCodex needs input on this computer: ${event.method}\nRun: npm run desktop -- requests\n`);
+  }
+}
+
+/**
+Project pending schedule metadata into the canonical parent snapshot.
+@param state - Existing canonical parent state.
+@param config - Server-owned parent configuration, absent before setup.
+*/
+export function refreshSnapshotSchedules(state: Snapshot, config?: Config) {
+  if (config) {
+    state.scheduled = Object.fromEntries(
+      schedules()
+        .occurrences.list(config.threadId)
+        .filter((run) => run.status !== "cancelled")
+        .map((run) => [run.id, { title: run.title, scheduledAt: run.scheduledAt }])
+    );
   }
 }

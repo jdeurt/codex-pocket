@@ -13,8 +13,42 @@ const fileSchema = z.object({
   type: z.string(),
   markdown: z.string().nullable(),
 });
-const SWIPE_FRACTION = 1 / 3;
+const SWIPE_DIVISOR = 3;
+const LAST_COMPONENT = -1;
 const EDGE_WIDTH = 32;
+
+/**
+Render loaded Markdown with chat semantics or let the browser handle a native file.
+@param props - Validated file metadata, load error and same-origin content URL.
+@returns Content appropriate to the current loading state.
+*/
+function FileContent({ file, error, url }: { file: z.infer<typeof fileSchema> | null; error: string; url: string }) {
+  if (error) {
+    return <p role="alert">{error}</p>;
+  }
+
+  if (!file) {
+    return <p role="status">Loading…</p>;
+  }
+
+  if (file.type === "application/octet-stream") {
+    return (
+      <a href={url} download={file.name}>
+        Download {file.name}
+      </a>
+    );
+  }
+
+  if (file.markdown === null) {
+    return <iframe title={file.name} src={url} sandbox="allow-same-origin allow-downloads" />;
+  }
+
+  return (
+    <Markdown allowCopyActions fileBase={file.filename}>
+      {file.markdown}
+    </Markdown>
+  );
+}
 
 /**
 Show a native file or the exact chat Markdown renderer while retaining the covered parent route.
@@ -37,6 +71,23 @@ export function FileViewer({ filename, overlay = false }: { filename: string; ov
   };
   const url = `/api/files?path=${encodeURIComponent(filename)}`;
 
+  function movePointer(event: React.PointerEvent<HTMLDialogElement>, start: { x: number; y: number }) {
+    const x = event.clientX - start.x;
+
+    if (Math.abs(event.clientY - start.y) > Math.max(EDGE_WIDTH, x)) {
+      drag.current = null;
+      setOffset(0);
+
+      return;
+    }
+
+    setOffset(Math.max(0, x));
+
+    if (x > EDGE_WIDTH) {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }
+  }
+
   useEffect(() => {
     const controller = new AbortController();
 
@@ -45,13 +96,15 @@ export function FileViewer({ filename, overlay = false }: { filename: string; ov
         if (!response.ok) {
           throw new Error("File is unavailable.");
         }
+
         setFile(fileSchema.parse(await response.json()));
       })
-      .catch((failure: unknown) => {
+      .catch((error_: unknown) => {
         if (!controller.signal.aborted) {
-          setError(failure instanceof Error ? failure.message : "File is unavailable.");
+          setError(error_ instanceof Error ? error_.message : "File is unavailable.");
         }
       });
+
     return () => {
       controller.abort();
     };
@@ -72,28 +125,34 @@ export function FileViewer({ filename, overlay = false }: { filename: string; ov
         back();
       }}
       onPointerDown={(event) => {
-        if (event.clientX <= EDGE_WIDTH && !window.getSelection()?.toString()) {
-          drag.current = { x: event.clientX, y: event.clientY };
+        if (
+          !(event.target instanceof HTMLElement) ||
+          !event.target.classList.contains("file-viewer-edge") ||
+          globalThis.getSelection()?.toString()
+        ) {
+          return;
         }
+
+        event.preventDefault();
+        drag.current = { x: event.clientX, y: event.clientY };
+        event.currentTarget.setPointerCapture(event.pointerId);
       }}
       onPointerMove={(event) => {
         const start = drag.current;
+
         if (!start) {
           return;
         }
-        const x = event.clientX - start.x;
-        if (Math.abs(event.clientY - start.y) > Math.max(EDGE_WIDTH, x)) {
-          drag.current = null;
-          setOffset(0);
-          return;
-        }
-        setOffset(Math.max(0, x));
+
+        movePointer(event, start);
       }}
       onPointerUp={() => {
         drag.current = null;
-        if (offset >= window.innerWidth * SWIPE_FRACTION) {
+
+        if (offset >= window.innerWidth / SWIPE_DIVISOR) {
           back();
         }
+
         setOffset(0);
       }}
       onPointerCancel={() => {
@@ -105,20 +164,11 @@ export function FileViewer({ filename, overlay = false }: { filename: string; ov
         <Button variant="ghost" size="icon-xl" aria-label="Back to chat" onClick={back}>
           <ArrowLeftIcon />
         </Button>
-        <h1 title={file?.name}>{file?.name ?? filename.split("/").at(-1)}</h1>
+        <h1 title={file?.name}>{file?.name ?? filename.split("/").at(LAST_COMPONENT)}</h1>
       </header>
+      <div className="file-viewer-edge" aria-hidden="true" />
       <div className="file-viewer-content">
-        {error ? (
-          <p role="alert">{error}</p>
-        ) : file?.markdown !== null && file?.markdown !== undefined ? (
-          <Markdown allowCopyActions fileBase={file.filename}>
-            {file.markdown}
-          </Markdown>
-        ) : file ? (
-          <iframe title={file.name} src={url} sandbox="allow-same-origin allow-downloads" />
-        ) : (
-          <p role="status">Loading…</p>
-        )}
+        <FileContent file={file} error={error} url={url} />
       </div>
     </dialog>
   );

@@ -1,4 +1,18 @@
 /**
+Resolve an already classified local source relative to the currently viewed file.
+@param href - Local source with remote schemes excluded.
+@param base - Current absolute file, when viewing Markdown.
+@returns Local path with source line annotations removed.
+*/
+function resolvedFileLink(href: string, base?: string) {
+  const source = href.replace(/(?::\d+(?::\d+)?)?(?:#L?\d+)?$/, "");
+  const encoded =
+    base || href.startsWith("file:") ? new URL(source, base ? `file://${base}` : undefined).pathname : source;
+
+  return decodeURIComponent(encoded);
+}
+
+/**
 Resolve local Markdown links while leaving web URLs and fragments to the browser.
 @param href - Original parser-owned link or image source.
 @param base - Optional absolute file whose directory owns relative references.
@@ -13,11 +27,11 @@ export function localFileLink(href: string, base?: string) {
     return;
   }
 
-  const value = href.startsWith("file:")
-    ? decodeURIComponent(new URL(href).pathname)
-    : href.replace(/(?::\d+(?::\d+)?)?(?:#L?\d+)?$/, "");
-
-  return base ? decodeURIComponent(new URL(value, `file://${base}`).pathname) : value;
+  try {
+    return resolvedFileLink(href, base);
+  } catch {
+    return;
+  }
 }
 
 /**

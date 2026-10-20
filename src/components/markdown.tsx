@@ -2,16 +2,17 @@
 import { CodeBlock, CodeBlockContent } from "@/components/ui/code-block";
 import { type ComponentProps, memo } from "react";
 import ReactMarkdown, { type ExtraProps, defaultUrlTransform } from "react-markdown";
+import { fileViewerUrl, localFileLink } from "@/lib/file-links";
 import { hasMarkdownOutput, markdownPlugins } from "@/lib/markdown-content";
 import { AttachmentGroup } from "@/components/ui/attachment";
 import { ChatImage } from "./chat-image";
 import { CopyAction } from "./copy-action";
-import { Table } from "@/components/ui/table";
 import Link from "next/link";
-import { fileViewerUrl, localFileLink } from "@/lib/file-links";
+import { MarkdownSelection } from "./markdown-selection";
+import { Table } from "@/components/ui/table";
+import { imageUrl } from "@/lib/images";
 import { rehypeReveal } from "@/lib/rehype-reveal";
 import { useContentReveal } from "@/hooks/use-content-reveal";
-import { imageUrl } from "@/lib/images";
 
 /**
 Avoid a second native pre wrapper around the shared code-block renderer.
@@ -34,13 +35,23 @@ function MarkdownLiteralCode({ children, className, node }: ComponentProps<"code
       .map((child) => child.value)
       .join("")
       .replace(/\n$/, "") ?? "";
+  const from = node?.properties["data-pocket-reveal-from"];
+  const content =
+    typeof from === "number" && from < text.length ? (
+      <span>
+        {text.slice(0, from)}
+        <span data-pocket-fresh="">{text.slice(from)}</span>
+      </span>
+    ) : (
+      text
+    );
 
   return className || text.includes("\n") ? (
     <CodeBlock>
-      <CodeBlockContent>{text}</CodeBlockContent>
+      <CodeBlockContent>{content}</CodeBlockContent>
     </CodeBlock>
   ) : (
-    <code>{children}</code>
+    <code>{typeof from === "number" ? content : children}</code>
   );
 }
 
@@ -117,19 +128,20 @@ export const Markdown = memo(function MarkdownContent({
   }
 
   return (
-    <div ref={container} className="markdown">
+    <MarkdownSelection containerRef={container}>
       <ReactMarkdown
         remarkPlugins={markdownPlugins(allowCopyActions)}
         rehypePlugins={revealFrom === undefined ? [] : [[rehypeReveal, { source, from: revealFrom }]]}
         urlTransform={(url, key) => {
           const local = localFileLink(url, fileBase);
+
           if (key === "href" && local) {
             return fileViewerUrl(local);
           }
-          if (key === "src" && fileBase && local) {
-            return `/api/files?path=${encodeURIComponent(local)}`;
-          }
-          return markdownUrl(url, key, imageBase);
+
+          return key === "src" && fileBase && local
+            ? `/api/files?path=${encodeURIComponent(local)}`
+            : markdownUrl(url, key, imageBase);
         }}
         components={{
           table: ({ children }) => (
@@ -161,6 +173,6 @@ export const Markdown = memo(function MarkdownContent({
       >
         {source}
       </ReactMarkdown>
-    </div>
+    </MarkdownSelection>
   );
 });

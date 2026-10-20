@@ -16,9 +16,6 @@ export function AgentChat({ id, agent, back }: { id: string; agent?: AgentEntry;
   const heading = useRef<HTMLHeadingElement>(null);
 
   const current = data?.agent ?? agent;
-  const metadata = [current?.model, current?.reasoningEffort ? `${current.reasoningEffort} reasoning` : undefined]
-    .filter(Boolean)
-    .join(" · ");
 
   useEffect(() => {
     heading.current?.focus();
@@ -37,7 +34,6 @@ export function AgentChat({ id, agent, back }: { id: string; agent?: AgentEntry;
           <p className="agent-chat-name" title={current?.name ?? "Agent"}>
             {current?.name ?? "Agent"}
           </p>
-          {metadata && <p aria-label="Model and reasoning effort">{metadata}</p>}
         </div>
         <span className="size-11 shrink-0" aria-hidden="true" />
       </header>

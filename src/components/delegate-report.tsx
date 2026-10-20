@@ -3,12 +3,12 @@ import "./delegate-report.css";
 import { Bubble, BubbleContent } from "./ui/bubble";
 import { Message, MessageContent } from "./ui/message";
 import { AgentNavigationContext } from "@/lib/agent-navigation-context";
-import { type DelegateReport as Report } from "@/lib/delegate-reports";
 import { MessageCircleIcon } from "lucide-react";
+import { type DelegateReport as Report } from "@/lib/delegate-reports";
 import { useContext } from "react";
 
 /**
-Display only the muted incoming-report icon and streamed paraphrase using the shared message text size.
+Display the original incoming report with a muted icon and the shared message text size.
 @param props - Durable display projection retaining its sending agent's read-only navigation identity.
 @returns A keyboard-accessible report that opens the existing agent browser without sending input.
 */

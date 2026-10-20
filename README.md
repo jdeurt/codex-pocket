@@ -153,16 +153,17 @@ The parent has these tools:
 | `side_pocket_create`       | Choose a harness, title and body; optionally choose a folder, model and effort |
 | `side_pocket_list`         | Look up titles, IDs, saved sessions and lifecycle states                       |
 | `side_pocket_get`          | Inspect a child's messages, delivery results and pending harness requests      |
-| `side_pocket_send`         | Send follow-up work or an answer by child ID                                   |
+| `side_pocket_send`         | Steer current work; explicitly queue a distinct later task                     |
+| `side_pocket_cancel`       | Cancel selected unsent queued assignments with an audit reason                 |
 | `side_pocket_answer`       | Answer a harness request using its child ID and request ID                     |
 | `side_pocket_close`        | Stop the actual harness process and cancel queued work                         |
 | `side_pocket_resume`       | Reopen the same saved child identity for later messages                        |
 
-Create and send require an `idempotencyKey`. Retrying the same operation with the same key returns its existing identity/delivery; different content with that key is rejected. Follow-ups run in order after the current child turn. Closing waits for host confirmation of process exit and retains conversation history. Resume makes the child ready for the next send; the harness process starts when work arrives and exits after its turn.
+Create and send require an `idempotencyKey`. Retrying the same operation with the same key returns its existing identity/delivery; different content with that key is rejected. `side_pocket_send` defaults to `mode: "steer"` for current-task corrections and answers. Active Codex steering uses its existing slot and checks the expected turn ID; acceptance does not prove the model consumed the message. Active Claude steering returns an explicit unsupported outcome. Use `mode: "queue"` only for an explicitly distinct later task. `supersedes` and `side_pocket_cancel` cancel selected unsent assignments while preserving unrelated work and uncertain deliveries. Closing waits for host confirmation of process exit and retains conversation history. Resume makes the child ready for the next send; the harness process starts when work arrives and exits after its turn.
 
 Each child's Pocket tool is `message_parent`, which accepts `{ "message": "..." }` and routes it to the recorded parent. Identical messages within one child turn reuse the same delivery. Children use it for questions, progress and completion reports. A question ends the child's current turn; the parent answers with `side_pocket_send` in the same saved session. Pocket scheduling and Side Pocket management tools belong to the main session. The host also handles native Codex questions/approvals and sends a completion fallback when a child has not messaged its parent.
 
-Delegate reports reach the parent through its durable outbox, waking it when idle. Those injected inputs stay internal; the parent's ordinary replies appear on the phone. Children default to the parent's folder. Coordinate file ownership or provide separate worktrees for concurrent changes. Pocket runs up to eight child turns concurrently across both harnesses; main Pocket is excluded. Eligible assignments run in queue order across children, with each child's follow-ups kept sequential.
+Delegate reports reach the parent through its durable outbox, waking it when idle. The phone displays original incoming reports as muted clickable messages, preserving questions, choices and blockers. Opening one shows its sending agent's existing read-only chat and retains the parent draft and position. Original parent delivery remains unchanged; reports are not paraphrased. Children default to the parent's folder. Coordinate file ownership or provide separate worktrees for concurrent changes. Pocket runs up to eight child turns concurrently across both harnesses; main Pocket is excluded. Eligible assignments run in queue order across children, with each child's follow-ups kept sequential.
 
 Delegation dispatch and delivery wake on local filesystem notifications shared by the host and MCP processes. Enqueue, child mail, harness requests/answers, cancellation, closure and completion publish a coalesced hint after the SQLite transaction commits. Startup scans persisted work, and child process exit wakes dispatch as soon as a slot is free. The host reconciles every 30 seconds to cover lost filesystem notifications, a writer exiting between commit and notification, and pending parent delivery retries. SQLite claims and stable message IDs remain authoritative; the notification file contains no work payload. A slow parent delivery or child shutdown does not block other dispatch or answer handling. The close tool waits for closure notifications with a final state check at its 15-second deadline.
 
@@ -175,6 +176,45 @@ Pocket displays generated images, image-view output, MCP/tool image content and 
 Chat thumbnails keep the image’s proportions without cropping, with rounded corners and no decorative frame. Previews align with message text; image attachments and Markdown images in the same paragraph share a row when they fit and wrap with consistent spacing. Tap an image for the existing screen-fitted preview. Swipe down to dismiss it, use the touch-size close control, tap outside it or press Escape. The viewer follows the swipe and slides down on dismissal; reduced motion disables its transitions.
 
 Local and tool images go through Pocket's guarded image endpoint. It validates raster content, limits input to 25 MiB and 40 million pixels, and serves WebP thumbnails/previews. SVG is unsupported by that endpoint. Remote HTTP(S) images load directly in the browser. Tool image bytes are omitted from live snapshots and summarized by size in diagnostics. Removed or inaccessible local files show an unavailable state.
+
+## Local documents and session controls
+
+Local Markdown links open a full-screen file viewer with a basename header, a back button and deliberate edge swipe-back. The parent conversation stays mounted. Markdown uses the chat renderer, including tables, copy actions and file-relative links/images. Other supported types use the browser's native frame; unknown types offer a download. File reads require the existing host/origin boundary, accept regular local files up to 64 MiB (Markdown up to 2 MiB), and sandbox active content. They do not fetch remote URLs on the computer.
+
+Main Pocket has two typed tools: `pocket_session_inspect` reports its model, effort, active turn and native token accounting; `pocket_session_settings` accepts only `model` and/or `effort`. Changes use the existing connection, read back native settings and persist for this parent across reconnects/restarts. They affect subsequent turns and future default-inheriting delegates; active turns and existing delegates retain their settings. Permission changes and arbitrary RPC methods are outside this surface. Unknown context occupancy and remaining capacity stay `null`. See the [capability matrix](docs/POCKET_SESSION_CONTROLS.md).
+
+## Usage reports
+
+Run a local native-record report with an explicit interval or an IANA local calendar day:
+
+```sh
+npm run usage -- --day 2026-10-20 --timezone America/Los_Angeles
+npm run usage -- --start 2026-10-20T00:00:00-07:00 --end 2026-10-21T00:00:00-07:00 --timezone America/Los_Angeles --format markdown
+```
+
+The default roots are `$CODEX_HOME/sessions` (or `~/.codex/sessions`) and `$CLAUDE_CONFIG_DIR/projects` (or `~/.claude/projects`). Override them with `--codex-dir` and `--claude-dir`. JSON includes per-chat/per-model and ancestry-grouped totals, original token categories, source paths, subset relationships, deduplicated records and missing-coverage notes. Repeated cumulative Codex counters, resumed file copies, inherited fork history and repeated Claude requests are deduplicated. Cloud work appears only when its native records are available locally.
+
+Billed charges and subscription consumption remain unknown. Native reported USD is retained separately. To compute an explicitly labeled token-price estimate, pass `--prices prices.json` containing records like this (replace the illustrative rates and source with dated pricing you intend to use):
+
+```json
+[
+  {
+    "harness": "codex",
+    "model": "your-model",
+    "currency": "USD",
+    "source": "Your dated pricing source",
+    "date": "2026-10-20",
+    "serviceTier": null,
+    "perMillion": {
+      "uncached_input_tokens": 1,
+      "cached_input_tokens": 0.5,
+      "output_tokens": 2
+    }
+  }
+]
+```
+
+A missing rate for a used category leaves that estimate unknown. Claude pricing can also include `cache_creation_input_tokens`. Cached/reasoning subset counters are never added twice. Running sessions and incomplete or missing logs can leave the report incomplete.
 
 ## Environment variables
 
@@ -249,10 +289,14 @@ npm run test:delegation
 
 `npm run lint` runs ESLint with **`--max-warnings=0`**. The root `eslint.config.ts` contains the engineering rules directly, including TypeScript ESLint's `strictTypeChecked` and `stylisticTypeChecked` presets, the unsafe-type-assertion rule, and project-service type information rooted in this repository. The root `prettier.config.mjs` contains the formatting options directly. `npm run typecheck` keeps strict TypeScript and `noImplicitAny` enabled; typed lint also rejects unsafe `any` assignment, member access, calls, and returns. Project-owned TypeScript and TSX, including `src/components/ui/**`, receive typed lint coverage. Generated build output, dependency directories, and local test/cache artifacts are excluded. The two application overrides preserve Node's event API and protocol/storage/React `null` values.
 
-Build first with `npm run build`. Browser tests use the real installed Codex process, make model calls in a new integration-test thread, and archive that thread afterward. They use port 3101 and a separate ignored state directory. Install Playwright's Chromium once with `npx playwright install chromium` if it is unavailable.
+`npm test` runs the complete server/workflow suite with an empty `PATH`, disposable home and no inherited credentials. `npm run test:simulators` selects the reusable native-protocol simulator flows. `npm run test:simulators:native` explicitly runs shared assertions against authenticated Codex and Claude instances. See [the simulator contracts and coverage](docs/POCKET_SIMULATORS.md).
+
+Build first with `npm run build`. Default browser tests use local protocol fixtures on separate test servers. The explicit `test:e2e:live` command enables the real Codex project, makes model calls in a new integration-test thread, and archives it afterward. Install the browser engines with `npx playwright install chromium webkit` if unavailable.
 
 `npm run test:recovery` uses a separate real Codex chat to check an empty start, resumed history, hidden recovery inputs, visible replies, connection deduplication and recovery after stopping an in-progress command. It archives the test chat afterward. Push completed work with normal Git pushes; do not force-push or rewrite remote history.
 
 `npm run test:harnesses` makes real Codex and Claude calls to check unrestricted access, saved-session resume, history and native tool availability. `npm run test:delegation` uses a real Codex parent to create both harnesses, exchange child questions and parent answers, close actual processes and resume the same saved sessions. Both use separate ignored state and require local sign-in.
 
 References: [Codex app-server](https://developers.openai.com/codex/app-server/), [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk/overview), [shadcn chat components](https://ui.shadcn.com/docs/components/base/message-scroller), [Next.js PWA guide](https://nextjs.org/docs/app/guides/progressive-web-apps).
+
+Duplication review uses the committed `.jscpd.json` with similarity `0.7`, normalized identifiers/literals/annotations, up to two gap lines and JavaScript/TypeScript cross-format matching. Run `npm run review:duplicates` and `npm run review:dead-code`; reports stay under ignored `.local/review/jscpd`. Findings require source/caller review. Generated and dependency artifacts are excluded; authored source and tests remain included.

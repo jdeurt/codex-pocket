@@ -1,10 +1,11 @@
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
-import { readFile, writeFile } from "node:fs/promises";
 import { agentCatalogSchema, agentTranscriptSchema, isActiveAgent } from "../../src/lib/agents";
+import { readFile, writeFile } from "node:fs/promises";
 import { replayLogSchema } from "../fixtures/replay-protocol";
 import { z } from "zod";
 
 const LAST_TURN = -1;
+const ACTIVE_AGENT_COUNT = 6;
 const directory = ".local/agent-browser-replay";
 const ARCHIVED_TURNS = 40;
 const MAX_READS = 4;
@@ -43,44 +44,49 @@ Checks that warm catalog requests and the real agent dialog remain usable while 
 @returns The last verified catalog timestamp retained while discovery cannot complete.
 */
 async function heldDiscovery(page: Page, request: APIRequestContext) {
-  await expect
-    .poll(async () => {
-      const response = await request.get("/api/agents", { timeout: CACHED_READ_TIMEOUT_MS });
-      const captured = await journal();
-
-      expect(response.ok()).toBeTruthy();
-
-      return captured.entries.filter((entry) => entry.method === "thread/list" && entry.stage === "discovery-held")
-        .length;
-    })
-    .toBe(1);
-
   const verified =
     await test.step("Keep known agents available without awaiting the held native response", async () => {
-      const response = await request.get("/api/agents", { timeout: CACHED_READ_TIMEOUT_MS });
+      const response = await test.step("Await the held discovery request", async () => {
+        await expect
+          .poll(async () => {
+            const heldResponse = await request.get("/api/agents", { timeout: CACHED_READ_TIMEOUT_MS });
+            const captured = await journal();
+
+            expect(heldResponse.ok()).toBeTruthy();
+
+            return captured.entries.filter(
+              (entry) => entry.method === "thread/list" && entry.stage === "discovery-held"
+            ).length;
+          })
+          .toBe(1);
+
+        return request.get("/api/agents", { timeout: CACHED_READ_TIMEOUT_MS });
+      });
       const catalog = agentCatalogSchema.parse(await response.json());
 
-      expect(catalog.agents.filter(isActiveAgent)).toHaveLength(6);
+      expect(catalog.agents.filter(isActiveAgent)).toHaveLength(ACTIVE_AGENT_COUNT);
 
       return catalog.updatedAt;
     });
 
-  for (let read = 0; read < REPEATED_CATALOG_READS; read++) {
-    const response = await request.get("/api/agents?view=list", { timeout: CACHED_READ_TIMEOUT_MS });
-    const catalog = agentCatalogSchema.parse(await response.json());
+  const captured = await test.step("Repeated reads use the verified catalog", async () => {
+    for (let read = 0; read < REPEATED_CATALOG_READS; read++) {
+      const response = await request.get("/api/agents?view=list", { timeout: CACHED_READ_TIMEOUT_MS });
+      const catalog = agentCatalogSchema.parse(await response.json());
 
-    expect(catalog.updatedAt).toBe(verified);
-    expect(catalog.agents.filter(isActiveAgent)).toHaveLength(6);
-  }
+      expect(catalog.updatedAt).toBe(verified);
+      expect(catalog.agents.filter(isActiveAgent)).toHaveLength(ACTIVE_AGENT_COUNT);
+    }
 
-  const captured = await journal();
+    return journal();
+  });
 
   expect(
     captured.entries.filter((entry) => entry.method === "thread/list" && entry.stage === "discovery-held")
   ).toHaveLength(1);
   await expect(page.getByRole("dialog", { name: "Agents", exact: true })).toBeVisible();
   await expect(page.getByText("Updates unavailable. Reconnecting automatically.", { exact: true })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "6 agents", exact: true })).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "6 agents", exact: true, includeHidden: true })).toHaveCount(1);
 
   return verified;
 }
@@ -96,19 +102,19 @@ export async function checkAgentReconnect(
   request: APIRequestContext,
   control: (stage: string) => Promise<void>
 ) {
-  await page.goto("/");
-  await page.getByRole("textbox", { name: "Message Pocket" }).fill("Retained during slow discovery");
-  await page.getByRole("button", { name: "6 agents", exact: true }).click();
-  await expect(page.getByRole("dialog", { name: "Agents", exact: true })).toBeVisible();
-  await control("discovery-held");
+  const verified = await test.step("Hold discovery with an open agent dialog", async () => {
+    await page.goto("/");
+    await page.getByRole("textbox", { name: "Message Pocket" }).fill("Retained during slow discovery");
+    await page.getByRole("button", { name: "6 agents", exact: true }).click();
+    await expect(page.getByRole("dialog", { name: "Agents", exact: true })).toBeVisible();
+    await control("discovery-held");
 
-  let verified = 0;
-
-  try {
-    verified = await heldDiscovery(page, request);
-  } finally {
-    await control("updated");
-  }
+    try {
+      return await heldDiscovery(page, request);
+    } finally {
+      await control("updated");
+    }
+  });
 
   await expect
     .poll(async () => {

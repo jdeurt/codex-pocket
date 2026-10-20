@@ -66,7 +66,7 @@ export class SnapshotStream {
   */
   private encoded(state: Snapshot) {
     const visible = visibleSnapshot(state, {
-      reports: state.threadId ? delegations().summaries.list(state.threadId) : [],
+      reports: state.threadId ? delegations().reports.list(state.threadId) : [],
     });
 
     return this.encoder.encode(`data: ${JSON.stringify(visible)}\n\n`);

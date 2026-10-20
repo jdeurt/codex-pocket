@@ -1,13 +1,13 @@
-import { type DelegateReport } from "../lib/delegate-reports";
-import { type Database } from "better-sqlite3";
-import { delegationMailSchema } from "./delegation-data";
 import { object, string } from "../lib/protocol";
+import { type Database } from "better-sqlite3";
+import { type DelegateReport } from "../lib/delegate-reports";
+import { delegationMailSchema } from "./delegation-data";
 import { z } from "zod";
 
 /**
 Project original reports without inference, leaving parent delivery and evidence unchanged.
 */
-export class DelegateSummaryStore {
+export class DelegateReportStore {
   /**
 Bind the canonical private mailbox database.
 @param db - Existing delegation database with parent-scoped originals.

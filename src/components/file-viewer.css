@@ -59,3 +59,14 @@
     transition: none;
   }
 }
+
+.file-viewer-edge {
+  position: absolute;
+  z-index: 1;
+  left: 0;
+  top: calc(60px + env(safe-area-inset-top));
+  bottom: 0;
+  width: 16px;
+  touch-action: pan-y;
+  user-select: none;
+}

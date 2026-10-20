@@ -8,6 +8,7 @@ import { readFile } from "node:fs/promises";
 import sharp from "sharp";
 import { viewport } from "./virtualization-measure";
 
+const LONG_STATUS_REPETITIONS = 4;
 const HIT_TARGET = 44;
 const ACTIVITY_COUNT = 120;
 const READER_DISTANCE = 200;
@@ -90,7 +91,7 @@ for (const isCustom of [false, true]) {
     const state: Snapshot = {
       ...history(),
       activeTurnId: "live",
-      activity: "Inspecting the current work and preserving the conversation layout. ".repeat(4),
+      activity: "Inspecting the current work and preserving the conversation layout. ".repeat(LONG_STATUS_REPETITIONS),
     };
     const writes = await mount(page, state);
     const original =

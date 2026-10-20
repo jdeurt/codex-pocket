@@ -18,6 +18,25 @@ import webpush from "web-push";
 import { z } from "zod";
 
 /**
+Replay silent and hidden native completions through persistence without claiming a notification receipt.
+@param sent - Captured outbound deliveries, which must remain empty throughout.
+*/
+async function replaySilentTurns(sent: { endpoint: string; body: unknown }[]) {
+  const WHITESPACE_LENGTH = 3;
+  const outputs = [
+    [],
+    [{ id: "blank", type: "agentMessage", phase: "final_answer", text: " ".repeat(WHITESPACE_LENGTH) }],
+    [{ id: "commentary", type: "agentMessage", phase: "commentary", text: "Working" }],
+    [{ id: "tool", type: "commandExecution", command: "true", status: "completed" }],
+  ];
+
+  for (const items of outputs) {
+    await notifyTurnComplete("thread", { id: "turn", status: "completed", items });
+    assert.deepEqual(sent, []);
+  }
+}
+
+/**
 Creates valid ephemeral Web Push subscription keys for the private delivery fixture.
 @param endpoint - Private fixture endpoint receiving the encrypted push.
 @returns Native subscription with valid P-256 and authentication key material.
@@ -140,21 +159,16 @@ async function replayDelivery(context: TestContext, sent: { endpoint: string; bo
 }
 
 /**
-Replay silent and hidden native completions through persistence without claiming a notification receipt.
-@param sent - Captured outbound deliveries, which must remain empty throughout.
+Require a visible completion before preparing its encrypted delivery payload.
+@param turn - Completed native fixture turn.
+@returns Serialized notification payload.
 */
-async function replaySilentTurns(sent: { endpoint: string; body: unknown }[]) {
-  const outputs = [
-    [],
-    [{ id: "blank", type: "agentMessage", phase: "final_answer", text: " ".repeat(3) }],
-    [{ id: "commentary", type: "agentMessage", phase: "commentary", text: "Working" }],
-    [{ id: "tool", type: "commandExecution", command: "true", status: "completed" }],
-  ];
+function visiblePayload(turn: Turn) {
+  const notification = completionNotification("thread", turn);
 
-  for (const items of outputs) {
-    await notifyTurnComplete("thread", { id: "turn", status: "completed", items });
-    assert.deepEqual(sent, []);
-  }
+  assert.ok(notification);
+
+  return completionPayload(notification);
 }
 
 /**
@@ -233,11 +247,7 @@ await test("payloads retain full replies that fit and limit actual encrypted byt
 
   for (const text of texts) {
     const turn: Turn = { id: "turn", status: "completed", items: [{ id: "reply", type: "agentMessage", text }] };
-    const notification = completionNotification("thread", turn);
-
-    assert.ok(notification);
-
-    const payload = completionPayload(notification);
+    const payload = visiblePayload(turn);
     const body = object(JSON.parse(payload)).body;
 
     assert.ok(typeof body === "string");

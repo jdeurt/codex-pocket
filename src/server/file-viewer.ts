@@ -26,20 +26,27 @@ const types: Record<string, string> = {
 };
 
 /**
-Resolve one authorized local file without fetching remote URLs or reading devices/directories.
-@param source - Local path or file URL selected by the phone.
-@returns Canonical filename, native MIME type, size and optional Markdown source.
+Require a configured local path before resolving the native filesystem target.
+@param source - Caller-selected local path or file URL.
+@returns Canonical native filename within the configured computer's file surface.
 */
-export async function viewerFile(source: string) {
+async function configuredFile(source: string) {
   const config = await readConfig();
 
   if (!config || (/^[a-z][\w+.-]*:/i.test(source) && !source.startsWith("file:"))) {
     throw new Error("A configured Pocket and a local file are required.");
   }
 
-  const filename = await realpath(
-    source.startsWith("file:") ? fileURLToPath(source) : path.resolve(config.cwd, source)
-  );
+  return realpath(source.startsWith("file:") ? fileURLToPath(source) : path.resolve(config.cwd, source));
+}
+
+/**
+Resolve one authorized local file without fetching remote URLs or reading devices/directories.
+@param source - Local path or file URL selected by the phone.
+@returns Canonical filename, native MIME type, size and optional Markdown source.
+*/
+export async function viewerFile(source: string) {
+  const filename = await configuredFile(source);
   const info = await stat(filename);
   const type = types[path.extname(filename).toLowerCase()] ?? "application/octet-stream";
 

@@ -1,21 +1,17 @@
 import { type Config, readConfig } from "./config";
 import { RpcDiagnosticEvent, RpcDisconnectEvent, RpcNotificationEvent } from "./rpc-events";
 import { type RpcEvent, type Snapshot } from "../lib/protocol";
+import { applyBridgeEvent, refreshSnapshotSchedules } from "./bridge-events";
 import { BridgeOutbox } from "./bridge-outbox";
 import { BridgeSnapshots } from "./bridge-snapshots";
 import { CodexRpc } from "./rpc";
-import { applyBridgeEvent } from "./bridge-events";
+import { SessionControls } from "./session-controls";
 import { loadHistory } from "./history";
 import { log } from "./logging";
 import { recordRestart } from "./restart-events";
 import { resolveDesktopReplies } from "./desktop";
 import { resumePocket } from "./pocket-runtime";
-import { schedules } from "./schedules";
 import { validateAnswer } from "./answers";
-import { contextUsage } from "../lib/usage";
-import { saveSessionSettings, type sessionSettingsSchema } from "./session-settings";
-import { string } from "../lib/protocol";
-import { type z } from "zod";
 import { writeLocal } from "./local-state";
 
 const DESKTOP_REPLY_INTERVAL_MS = 750;
@@ -41,6 +37,14 @@ export class Bridge {
   private disposed = false;
 
   readonly snapshots = new BridgeSnapshots();
+
+  readonly session = new SessionControls(
+    this,
+    (operation) => this.exclusive(operation),
+    () => {
+      this.snapshots.publish(this.messages.entries);
+    }
+  );
 
   /**
   Bind durable receipt delivery to this bridge's canonical snapshot owner.
@@ -282,80 +286,10 @@ export class Bridge {
   }
 
   /**
-  Inspect the parent session using native event state and honest unknown usage values.
-  @returns Effective settings, active identity, persistence timing and usage provenance.
-  */
-  sessionInfo() {
-    return {
-      threadId: this.snapshot.threadId,
-      model: this.snapshot.model ?? null,
-      effort: this.snapshot.reasoningEffort ?? null,
-      activeTurnId: this.snapshot.activeTurnId ?? null,
-      connection: this.snapshot.connection,
-      usage: contextUsage(this.snapshot.usage),
-      lastCompactionAt: this.snapshot.lastCompactionAt ?? null,
-      effectiveFor: "subsequent turns; active work is unchanged",
-      persistence: "Pocket saves accepted settings for this parent across reconnects and restarts",
-    };
-  }
-
-  /**
-  Serialize an explicit model/effort change on this parent's existing native connection.
-  @param settings - Strict allowlisted model and effort fields, without permissions or arbitrary RPC.
-  @returns Effective native readback after durable local persistence.
-  */
-  updateSession(settings: z.infer<typeof sessionSettingsSchema>) {
-    return this.exclusive(async () => {
-      await this.ensureConnected();
-
-      const rpc = this.agentReader();
-      const threadId = this.snapshot.threadId;
-
-      if (!threadId) {
-        throw new Error("Configure a parent chat first.");
-      }
-
-      await rpc.request("thread/settings/update", { threadId, ...settings });
-
-      return this.readSessionSettings(rpc, threadId);
-    });
-  }
-
-  /**
-  Confirm effective settings through a native read before retaining them for reconnect.
-  @param rpc - Existing connected native transport.
-  @param threadId - Server-owned parent identity.
-  @returns Current parent control state after readback and persistence.
-  */
-  private async readSessionSettings(rpc: CodexRpc, threadId: string) {
-    const { thread } = await rpc.request("thread/read", { threadId, includeTurns: false });
-    const model = string(thread.model);
-    const effort = string(thread.reasoningEffort);
-
-    if (!model) {
-      throw new Error("Native settings were accepted but readback is unavailable. Inspect before retrying.");
-    }
-
-    await saveSessionSettings(threadId, { model, ...(effort && { effort }) });
-    this.snapshot.model = model;
-    this.snapshot.reasoningEffort = effort || null;
-    this.snapshots.publish(this.messages.entries);
-
-    return this.sessionInfo();
-  }
-
-  /**
   Refresh pending schedule delivery metadata for the configured parent.
   */
   refreshScheduled() {
-    if (this.config) {
-      this.snapshot.scheduled = Object.fromEntries(
-        schedules()
-          .occurrences.list(this.config.threadId)
-          .filter((run) => run.status !== "cancelled")
-          .map((run) => [run.id, { title: run.title, scheduledAt: run.scheduledAt }])
-      );
-    }
+    refreshSnapshotSchedules(this.snapshot, this.config);
   }
 
   /**
@@ -411,7 +345,6 @@ export class Bridge {
     }
 
     this.snapshots.close();
-
     this.rpc?.close();
   }
 }

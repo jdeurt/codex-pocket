@@ -1,8 +1,8 @@
+import { checkAgentCache, checkAgentReconnect } from "./agent-cache";
 import { control, lifecycle } from "./agent-replay";
 import { expect, test } from "@playwright/test";
 import { HTTP_FORBIDDEN } from "../../src/lib/constants";
 import { checkAgentAccess } from "./agent-api";
-import { checkAgentCache, checkAgentReconnect } from "./agent-cache";
 import { checkAgentScroll } from "./agent-scroll";
 import { checkAgentTools } from "./agent-tools";
 import { checkAgentUploads } from "./agent-uploads";
@@ -91,7 +91,7 @@ test("offline replay: mobile/desktop read-only navigation, ellipsis, focus and p
   await expect(dialog.locator(".agent-chat-header").getByRole("button")).toHaveCount(1);
   await expect(dialog.getByRole("button", { name: "Back to agents", exact: true })).toBeVisible();
   await expect(dialog.locator(".agent-read-only")).toHaveCount(0);
-  await expect(dialog.getByLabel("Model and reasoning effort")).toHaveText("gpt-replay · high reasoning");
+  await expect(dialog.getByLabel("Model and reasoning effort")).toHaveCount(0);
   await expect(dialog.getByText("Saved native-codex result", { exact: true })).toBeVisible();
   await expect(dialog.getByRole("textbox")).toHaveCount(0);
   await expect(dialog.getByRole("button", { name: /Send|Approve|Decline|Interrupt|Resume|Restart/i })).toHaveCount(0);
