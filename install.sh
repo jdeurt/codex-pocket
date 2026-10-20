@@ -4,20 +4,49 @@ umask 077
 
 case "${1:-}" in
   --help|-h)
-    printf 'Install Pocket on this Mac: ./install.sh [--yes]\n\n--yes keeps saved settings and uses defaults without setup questions.\n'
+    printf 'Install or update Pocket on this Mac: bash install.sh [--yes]\n\n--yes keeps saved settings and uses defaults without setup questions.\n'
     exit 0
     ;;
 esac
+if [ "$#" -gt 1 ] || { [ "$#" -eq 1 ] && [ "$1" != --yes ]; }; then
+  printf 'Usage: install.sh [--yes]\n' >&2
+  exit 1
+fi
 
 if [ "$(/usr/bin/uname -s)" != Darwin ]; then
   printf 'This installer requires macOS.\n' >&2
   exit 1
 fi
 
-pocket_root="$(cd "$(dirname "$0")" && pwd -P)"
-pocket_runtime="$pocket_root/.local/node"
+pocket_home="$HOME/.pocket"
+pocket_root="$pocket_home/source"
 pocket_node_version=24.22.0
-mkdir -p "$pocket_root/.local"
+pocket_runtime="$pocket_home/runtimes/node-$pocket_node_version"
+pocket_download=""
+mkdir -p "$pocket_home/runtimes"
+if ! mkdir "$pocket_home/bootstrap.lock" 2>/dev/null; then
+  printf 'Another Pocket update is active. If it was interrupted, remove ~/.pocket/bootstrap.lock and retry.\n' >&2
+  exit 1
+fi
+pocket_cleanup() {
+  if [ -n "$pocket_download" ]; then rm -rf "${pocket_download:?}"; fi
+  rmdir "$pocket_home/bootstrap.lock"
+}
+trap pocket_cleanup EXIT
+
+if [ -d "$pocket_root/.git" ]; then
+  if [ -n "$(git -C "$pocket_root" status --porcelain)" ]; then
+    printf 'The managed ~/.pocket/source checkout has local changes. Save them elsewhere before updating.\n' >&2
+    exit 1
+  fi
+  git -C "$pocket_root" fetch origin main
+  git -C "$pocket_root" checkout --detach FETCH_HEAD
+elif [ -e "$pocket_root" ]; then
+  printf '~/.pocket/source exists but is not a Git checkout. Move it aside before installing.\n' >&2
+  exit 1
+else
+  git clone --branch main --single-branch https://github.com/jdeurt/codex-pocket.git "$pocket_root"
+fi
 
 if ! "$pocket_runtime/bin/node" -e 'if (process.versions.node !== process.argv[1]) process.exit(1)' "$pocket_node_version" 2>/dev/null || [ ! -x "$pocket_runtime/bin/npm" ]; then
   case "$(/usr/bin/uname -m)" in
@@ -25,8 +54,7 @@ if ! "$pocket_runtime/bin/node" -e 'if (process.versions.node !== process.argv[1
     x86_64) pocket_arch=x64 ;;
     *) printf 'Unsupported Mac architecture.\n' >&2; exit 1 ;;
   esac
-  pocket_download="$(mktemp -d "$pocket_root/.local/node-download.XXXXXX")"
-  trap 'rm -rf "${pocket_download:?}"' EXIT
+  pocket_download="$(mktemp -d "$pocket_home/node-download.XXXXXX")"
   printf 'Downloading the private Node.js 24 runtime…\n'
   curl --fail --silent --show-error --location --proto '=https' --retry 3 \
     "https://nodejs.org/dist/v$pocket_node_version/SHASUMS256.txt" -o "$pocket_download/SHASUMS256.txt"
@@ -46,9 +74,13 @@ if ! "$pocket_runtime/bin/node" -e 'if (process.versions.node !== process.argv[1
   fi
   mv "$pocket_download/runtime" "$pocket_runtime"
   rm -rf "${pocket_download:?}"
-  trap - EXIT
+  pocket_download=""
 fi
 
 export PATH="$pocket_runtime/bin:$PATH"
 cd "$pocket_root"
-exec "$pocket_runtime/bin/node" "$pocket_root/scripts/install.mjs" "$@"
+if [ -t 1 ] && [ -r /dev/tty ]; then
+  "$pocket_runtime/bin/node" "$pocket_root/scripts/install.mjs" "$@" </dev/tty
+else
+  "$pocket_runtime/bin/node" "$pocket_root/scripts/install.mjs" "$@"
+fi

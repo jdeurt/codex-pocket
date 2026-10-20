@@ -1,3 +1,5 @@
+import { homedir } from "node:os";
+import path from "node:path";
 import { z } from "zod";
 
 export const configSchema = z
@@ -26,7 +28,7 @@ async function configuredEnvironment(): Promise<Config> {
 
   return configSchema.parseAsync({
     threadId: process.env.CODEX_THREAD_ID,
-    cwd: process.env.CODEX_CWD ?? process.cwd(),
+    cwd: process.env.CODEX_CWD ?? path.join(homedir(), ".pocket", "workspace"),
     codexBinary: process.env.CODEX_BINARY ?? "codex",
     serverArgs,
     activeMessageMode: process.env.CODEX_ACTIVE_MESSAGE_MODE ?? "steer",

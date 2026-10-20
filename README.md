@@ -8,29 +8,31 @@ Open the top-left **Pockets** menu to create named conversations, see their curr
 
 ## Install on a Mac
 
-Keep the checkout in a permanent folder, such as `~/Developer/codex-pocket`. Double-click **Install.command**, or run:
+Run this from any directory with authenticated Git and GitHub CLI access to this private repository:
 
 ```sh
-./install.sh
+gh api repos/jdeurt/codex-pocket/contents/install.sh -H 'Accept: application/vnd.github.raw+json' | bash
 ```
 
-The installer downloads a private Node.js 24 runtime from the official distribution and verifies its checksum. It finds an existing Codex executable, including the desktop app’s bundled CLI, or installs Codex privately. It guides you through sign-in when needed, asks for a working folder and optional phone HTTPS address, installs dependencies, creates or reuses a saved Pocket chat, checks and builds the app, and starts its login service. Pocket opens in your Mac’s browser after interactive setup.
+Or run `./install.sh` from an existing checkout. Both entry points fetch the latest `main` into `~/.pocket/source`, download and checksum a private Node.js 24 runtime, and build an isolated release. The installer finds Codex locally or installs it privately, guides first-time sign-in, and asks for a working directory and optional phone HTTPS address. First setup creates a saved Pocket conversation and runs a short welcome turn; updates reuse it.
 
-Use the current Codex permissions or choose full access during first setup. Existing model, reasoning effort, access settings, credentials and saved chat are preserved when rerunning the installer. Pocket always uses Codex for its main conversation.
+Everything installed belongs under `~/.pocket`: configuration in `~/.pocket/.env.local`, conversation data in `data/`, logs in `logs/`, the default working folder in `workspace/`, source in `source/`, and built versions in `releases/`. `current` selects the accepted release. Node runtimes live in `runtimes/`; an optional private Codex installation lives in `codex/`. Setup starts fresh and does not import another checkout's settings or data.
 
-For agent-driven installation with saved settings or defaults:
+The installer adds `~/.pocket/bin` to zsh or bash PATH. Open a new terminal, or run `export PATH="$HOME/.pocket/bin:$PATH"` in the current one. Other shells can add that directory to their executable search path.
+
+For unattended installation, requiring an existing Codex login:
 
 ```sh
-./install.sh --yes
+gh api repos/jdeurt/codex-pocket/contents/install.sh -H 'Accept: application/vnd.github.raw+json' | bash -s -- --yes
 ```
 
-Unattended setup requires Codex to be signed in already. The installer preserves `.env.local` and `.local/`, including the outbox, schedules, Side Pockets, push subscriptions and logs. It stops the installed service before replacing dependencies or build assets. An unrelated application using port 3000, or a Pocket service owned by another checkout, must be resolved before installation continues.
+Dependency installation, setup, checks and production compilation finish before Pocket is stopped. A failed build discards only the candidate. A failed launch restores the previous configuration, selected release and login service. Successful releases are retained for recovery; persistent data is shared and never replaced by a build.
 
 Optional setup inputs:
 
 | Variable            | Purpose                                                                         |
 | ------------------- | ------------------------------------------------------------------------------- |
-| `POCKET_CWD`        | Working folder; defaults to the saved folder or `~/Developer`                   |
+| `POCKET_CWD`        | Working folder; defaults to the saved folder or `~/.pocket/workspace`           |
 | `POCKET_ORIGIN`     | Optional HTTPS origin for phone access, such as `https://pocket.example.com`    |
 | `POCKET_THREAD_ID`  | Existing saved chat to select; an explicit empty value creates a new chat       |
 | `CODEX_BINARY`      | Explicit Codex executable, otherwise detected automatically                     |
@@ -49,42 +51,26 @@ Configure model and reasoning effort through Codex settings or additional proces
 
 Pocket listens on `http://127.0.0.1:3000`. Use an HTTPS reverse proxy or tunnel of your choice to reach that address from your phone. Networking is configured separately from Pocket. Preserve the external Host/Origin headers and allow long-lived server-sent event connections without response buffering.
 
-Set `POCKET_ORIGIN=https://pocket.example.com` when running the installer, or add that origin to `CODEX_ALLOWED_ORIGINS` in `.env.local` and restart. Origins have no path, query or fragment. Local setup works without a phone address. Open the HTTPS address on the phone and add Pocket to the Home Screen for PWA notifications.
+Set `POCKET_ORIGIN=https://pocket.example.com` when running the installer, or add that origin to `CODEX_ALLOWED_ORIGINS` in `~/.pocket/.env.local` and restart. Origins have no path, query or fragment. Local setup works without a phone address. Open the HTTPS address on the phone and add Pocket to the Home Screen for PWA notifications.
 
 Access to that address grants control of the configured Codex conversations. Use your proxy or network’s access controls for the intended operators; Pocket has no separate account system. The Mac must be awake and its user logged in.
 
 ## Operate and update
 
-After pulling an update, rerun the installer:
+Run these commands from any directory:
 
 ```sh
-git pull --ff-only
-./install.sh --yes
+pocket update   # Fetch latest main, build, validate, then switch releases
+pocket start    # Start the saved login service
+pocket stop     # Stop it without deleting data or configuration
+pocket restart # Restart the saved release
 ```
 
-Use normal Git pushes. Never force-push or rewrite remote history. Wait for active Codex turns unless the operator requests a full restart. The installer handles the complete stop/dependencies/check/build/start sequence; building while the old server is running can leave it requesting missing assets.
+Wait for active Codex turns before an update or restart unless interruption is intended. A build failure leaves the existing server and its assets intact. The installer locks concurrent updates and refuses to overwrite edits in the managed source checkout. It never rewrites remote history. If an installer is forcibly terminated, confirm it has exited before removing a stale `~/.pocket/bootstrap.lock` or `~/.pocket/install.lock` directory and retrying.
 
-The login service is `gui/$(id -u)/dev.pocket.web`, installed at `~/Library/LaunchAgents/dev.pocket.web.plist`. It uses launchd’s Interactive process class and starts at login or after a crash. Its Node runtime lives in `.local/node`; keep this checkout and its runtime in place. The service binds only to loopback.
+The login service is `gui/$(id -u)/dev.pocket.web`, installed at `~/Library/LaunchAgents/dev.pocket.web.plist`. It starts at login, restarts after a crash, and binds only to loopback. After editing `~/.pocket/.env.local`, use `pocket restart`. Inspect service state with `launchctl print "gui/$(id -u)/dev.pocket.web"`. Startup logs are `~/.pocket/logs/pocket.log` and `pocket.err.log`. Existing proxy and tunnel routes are outside the installer.
 
-After editing `.env.local`, restart with:
-
-```sh
-launchctl kickstart -k "gui/$(id -u)/dev.pocket.web"
-```
-
-Inspect service state with `launchctl print "gui/$(id -u)/dev.pocket.web"`. Startup logs are `.local/logs/pocket.log` and `.local/logs/pocket.err.log`; structured diagnostics are described below. An installation failure reports the failing step and preserves local configuration/state; rerun the installer after resolving it. Existing proxy/tunnel routes are outside the installer’s scope.
-
-For development, prepend the private runtime to PATH and install dependencies:
-
-```sh
-export PATH="$PWD/.local/node/bin:$PATH"
-npm ci
-npm run dev
-```
-
-For manual setup, use `npm run setup` after installing dependencies. `POCKET_ORIGIN` is optional; use `POCKET_THREAD_ID` to choose a saved chat. The helper ignores Codex’s inherited `CODEX_THREAD_ID` and otherwise preserves the chat in `.env.local`. For a foreground production server, build with `npm run build` while the installed service is stopped, then run `npm start`.
-
-Agent verification should confirm the title, effective model/effort, real replies, optimistic send confirmation, live updates, reload history and failed-send drafts. Check local HTTP and the configured external HTTPS address as appropriate. Follow operator instructions when they are checking the live phone themselves. Do not commit local environment values, credentials, thread IDs, logs or databases.
+For development, use Node.js 24 in a separate checkout, then run `npm ci` and `npm run dev`. Manual `npm run setup` writes that checkout's `.env.local`; set `CODEX_POCKET_STATE_DIR` to a disposable directory to keep development separate from the installed data. Do not edit or build inside an accepted release directory.
 
 ## Notifications
 
@@ -94,7 +80,7 @@ Pocket sends an encrypted Web Push notification when Codex ends a turn while the
 
 Pocket suppresses a completion push only after that subscription's visible page answers a fresh foreground probe. Visibility on another device cannot mute this device. Hidden pages close their presence connection, reconnects establish a new connection, and unanswered probes expire after 1.5 seconds so a stale stream cannot keep a suspended phone muted. Suppression happens before sending the push: the service worker always displays received pushes, as [WebKit requires](https://webkit.org/blog/12945/meet-web-push/).
 
-VAPID keys, device subscriptions and notification receipts are generated automatically and saved privately in `.local/push.json`. Keep this file across restarts and deployments. Deleting it invalidates existing device subscriptions, which must then be enabled again. Expired subscriptions are removed when their push service rejects them. No API key or paid notification service is needed.
+VAPID keys, device subscriptions and notification receipts are generated automatically and saved privately in `~/.pocket/data/push.json`. Keep this file across restarts and deployments. Deleting it invalidates existing device subscriptions, which must then be enabled again. Expired subscriptions are removed when their push service rejects them. No API key or paid notification service is needed.
 
 After setup or an update, reopen the installed iPhone PWA to load the current client. Verify that a reply produces no notification while Pocket is visible, then background or lock the phone before a reply completes and confirm its text appears in a notification. Tap it to check that Pocket opens, and repeat after reconnecting. Keep Pocket open on a second device while the phone is backgrounded to verify device isolation. This visible delivery check must happen on the actual phone; a desktop browser emulator does not verify iOS notification delivery.
 
@@ -108,7 +94,7 @@ Markdown tables size columns to their widest value, wrapping long content at 24r
 
 When Codex starts with existing conversation history, Pocket sends one hidden restart-recovery prompt through the normal durable outbox. It asks the agent to continue unfinished work and inspect any expected subagents or delegated jobs before resuming them. The injected prompt stays hidden by its internal message identity, including queued sends and reloaded history; the agent's activity, replies, questions and notifications behave normally. Empty chats do not receive it, and browser/SSE reconnects do not trigger another prompt. Pending recovery sends are reused; uncertain ones remain in the outbox for inspection. Look for `recovery.queued` and its message ID in the RPC/delivery logs.
 
-Pocket adds session guidance through Codex’s developer instructions while preserving the built-in system prompt. The current Codex CLI can retain earlier developer instructions when resuming an existing chat. Pocket preserves that saved history. If a clean instruction context is needed, explicitly create a new chat with `POCKET_THREAD_ID='' ./install.sh --yes`; this selects a new conversation.
+Pocket adds session guidance through Codex’s developer instructions while preserving the built-in system prompt. The current Codex CLI can retain earlier developer instructions when resuming an existing chat. Pocket preserves that saved history. If a clean instruction context is needed, explicitly create a new chat with `POCKET_THREAD_ID='' pocket update`; this selects a new conversation.
 
 ## Scheduled tasks
 
@@ -135,7 +121,7 @@ RRULE supports recurrence fields such as COUNT or UTC UNTIL, and RDATE/EXDATE ad
 
 When due, Pocket silently injects the body into the real Codex chat using the same steering/queueing mode as phone messages. The trigger, title and injected user-message body stay hidden from the phone, including queued tasks and reloaded history. The agent's responses, questions and approval requests appear normally, and its responses can mention task details. A one-time event becomes inactive after it fires.
 
-Schedules and immutable delivery history live in owner-private `.local/schedules.sqlite` with SQLite WAL. Keep the database and its `-wal`/`-shm` files across updates; use SQLite backup facilities for a consistent live backup. Deleting a task cancels future occurrences and pending deliveries, while retaining delivery history so previous triggers remain hidden. Messages already accepted or in flight cannot be recalled.
+Schedules and immutable delivery history live in owner-private `~/.pocket/data/schedules.sqlite` with SQLite WAL. Keep the database and its `-wal`/`-shm` files across updates; use SQLite backup facilities for a consistent live backup. Deleting a task cancels future occurrences and pending deliveries, while retaining delivery history so previous triggers remain hidden. Messages already accepted or in flight cannot be recalled.
 
 Tasks run only while this Mac is awake and Pocket is running. After downtime, Pocket sends one overdue occurrence per task and advances a repeated task to its next future occurrence; it does not flood the chat with every missed repetition. After a restart, scheduled deliveries reuse each run's durable message ID. An uncertain Codex acknowledgment is retained for inspection rather than automatically replayed. Diagnose `schedule.*` events alongside the matching outbox receipt before retrying anything.
 
@@ -143,7 +129,7 @@ Tasks run only while this Mac is awake and Pocket is running. After downtime, Po
 
 Main Pocket runs Codex. It can delegate work to independent **Side Pockets** using either Codex or Claude Code. Each child has a title, ID, working folder and saved harness session. Ask Pocket to delegate a task and name the desired harness when it matters.
 
-Claude delegation requires Claude Code installed and signed in on this Mac. Pocket discovers the executable on PATH or in standard install locations; set `POCKET_CLAUDE_BINARY` in `.env.local` for another location. The adapter uses the official Claude Agent SDK with the local executable and authentication. `POCKET_CLAUDE_MODEL` sets its default model; a creation-time model overrides that default. Codex children inherit the parent's model by default. Children inherit reasoning effort; Claude maps Codex `minimal` to `low`.
+Claude delegation requires Claude Code installed and signed in on this Mac. Pocket discovers the executable on PATH or in standard install locations; set `POCKET_CLAUDE_BINARY` in `~/.pocket/.env.local` for another location. The adapter uses the official Claude Agent SDK with the local executable and authentication. `POCKET_CLAUDE_MODEL` sets its default model; a creation-time model overrides that default. Codex children inherit the parent's model by default. Children inherit reasoning effort; Claude maps Codex `minimal` to `low`.
 
 Access follows the main Codex parent's effective policy. A parent with `danger-full-access` and approval policy `never` maps to Claude `bypassPermissions`, permission skipping enabled and sandbox disabled. Claude rejects other parent permission profiles because their filesystem/network/approval rules cannot be mapped exactly. Codex children use the native sandbox and approval settings. Pocket reports these capabilities to the parent. Native harness tools, skills and subagents remain available.
 
@@ -169,7 +155,7 @@ Delegate reports reach the parent through its durable outbox, waking it when idl
 
 Delegation dispatch and delivery wake on local filesystem notifications shared by the host and MCP processes. Enqueue, child mail, harness requests/answers, cancellation, closure and completion publish a coalesced hint after the SQLite transaction commits. Startup scans persisted work, and child process exit wakes dispatch as soon as a slot is free. The host reconciles every 30 seconds to cover lost filesystem notifications, a writer exiting between commit and notification, and pending parent delivery retries. SQLite claims and stable message IDs remain authoritative; the notification file contains no work payload. A slow parent delivery or child shutdown does not block other dispatch or answer handling. The close tool waits for closure notifications with a final state check at its 15-second deadline.
 
-State and delivery history live in owner-private `.local/delegations.sqlite` with SQLite WAL. Keep it and its `-wal`/`-shm` files across deployments, along with the harnesses' native saved-session storage. If Pocket stops during a child send, that outcome becomes unknown and the parent receives a recovery report. Inspect the saved history before resuming and sending continuation instructions; uncertain work is not replayed automatically. Pending parent reports retain stable delivery IDs across restarts. Logs use `side_pocket.*` events alongside normal RPC and outbox diagnostics.
+State and delivery history live in owner-private `~/.pocket/data/delegations.sqlite` with SQLite WAL. Keep it and its `-wal`/`-shm` files across deployments, along with the harnesses' native saved-session storage. If Pocket stops during a child send, that outcome becomes unknown and the parent receives a recovery report. Inspect the saved history before resuming and sending continuation instructions; uncertain work is not replayed automatically. Pending parent reports retain stable delivery IDs across restarts. Logs use `side_pocket.*` events alongside normal RPC and outbox diagnostics.
 
 ## Images
 
@@ -238,7 +224,7 @@ The default transport owns a local `codex app-server` process. It resumes the sa
 
 Pending sends appear locally before the network round trip. Codex client message IDs reconcile them with confirmed history, including steering messages, without duplicating identical text. Failed or uncertain sends stay visible.
 
-Queue mode persists pending sends across bridge restarts. Delivery receipts deduplicate repeated message IDs. If the process dies before acknowledging a send, its delivery becomes uncertain and the bridge leaves it for inspection in `.local/outbox.json`; it does not replay that message automatically. Check the Codex thread before resolving the local outbox.
+Queue mode persists pending sends across bridge restarts. Delivery receipts deduplicate repeated message IDs. If the process dies before acknowledging a send, its delivery becomes uncertain and the bridge leaves it for inspection in `~/.pocket/data/outbox.json`; it does not replay that message automatically. Check the Codex thread before resolving the local outbox.
 
 Questions, command approvals, file approvals and permission requests are supported on the phone. An unfamiliar request stays pending and asks you to handle it on the computer. To inspect and answer one using the exact app-server response format:
 
@@ -247,30 +233,30 @@ npm run desktop -- requests
 npm run desktop -- respond REQUEST_ID '{"decision":"decline"}'
 ```
 
-Keep `.env.local` and `.local/` private. The service worker caches the offline page only; conversation history and requests always come from the computer. Drafts stay in browser storage. Phone suspension disconnects the view while Codex continues on the computer; reopening the app restores the conversation.
+Keep `~/.pocket/` private. The service worker caches the offline page only; conversation history and requests always come from the computer. Drafts stay in browser storage. Phone suspension disconnects the view while Codex continues on the computer; reopening the app restores the conversation.
 
 ## Diagnostics
 
-Pocket writes structured Pino JSONL logs under `.local/logs/`. Each file is named with its ISO creation timestamp, for example `2026-10-19T05:00:00.000Z.jsonl`. It starts a new file before the next record would exceed 10 MiB and keeps the latest 20 files. A single oversized record stays intact in its own file.
+Pocket writes structured Pino JSONL logs under `~/.pocket/logs/`. Each file is named with its ISO creation timestamp, for example `2026-10-19T05:00:00.000Z.jsonl`. It starts a new file before the next record would exceed 10 MiB and keeps the latest 20 files. A single oversized record stays intact in its own file.
 
 Logs cover server startup and errors, HTTP requests and request IDs, SSE connections, message receipt/delivery, Codex RPC requests/responses/events/stderr, push delivery and browser failures. Conversation and tool activity are included for diagnosis. Credential fields are redacted; log files are owner-only and ignored by Git. launchd's startup/stdout fallback remains in `pocket.log` and `pocket.err.log`.
 
 Browser diagnostics are queued locally while Pocket is unreachable and uploaded after reconnecting. Network and non-JSON restart failures retain the message in the composer for retry.
 
 ```sh
-rg 'http.invalid_response|message.failed|codex.rpc.timeout|bridge.failed|push.failed' .local/logs/*.jsonl
+rg 'http.invalid_response|message.failed|codex.rpc.timeout|bridge.failed|push.failed' ~/.pocket/logs/*.jsonl
 ```
 
-For an agent diagnosing a failed phone send: read the browser's request/message ID, correlate it with HTTP and Codex RPC logs, then inspect `.local/outbox.json` and the Codex thread before retrying. An uncertain delivery must not be replayed automatically. Check launchd state, local HTTP and any configured HTTPS endpoint, the configured origins and recent server errors if the client is stuck connecting.
+For an agent diagnosing a failed phone send: read the browser's request/message ID, correlate it with HTTP and Codex RPC logs, then inspect `~/.pocket/data/outbox.json` and the Codex thread before retrying. An uncertain delivery must not be replayed automatically. Check launchd state, local HTTP and any configured HTTPS endpoint, the configured origins and recent server errors if the client is stuck connecting.
 
 Optional environment settings:
 
-| Variable                     | Default       |
-| ---------------------------- | ------------- |
-| `CODEX_POCKET_LOG_DIR`       | `.local/logs` |
-| `CODEX_POCKET_LOG_LEVEL`     | `debug`       |
-| `CODEX_POCKET_LOG_MAX_BYTES` | `10485760`    |
-| `CODEX_POCKET_LOG_MAX_FILES` | `20`          |
+| Variable                     | Default          |
+| ---------------------------- | ---------------- |
+| `CODEX_POCKET_LOG_DIR`       | `~/.pocket/logs` |
+| `CODEX_POCKET_LOG_LEVEL`     | `debug`          |
+| `CODEX_POCKET_LOG_MAX_BYTES` | `10485760`       |
+| `CODEX_POCKET_LOG_MAX_FILES` | `20`             |
 
 ## Checks
 

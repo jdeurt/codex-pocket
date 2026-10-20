@@ -26,7 +26,6 @@
     "test:harnesses": "tsx scripts/harness-check.ts",
     "test:delegation": "tsx scripts/delegation-check.ts",
     "setup": "tsx scripts/configure.ts",
-    "service:install": "tsx scripts/install-service.ts",
     "test:server:live": "env POCKET_LIVE_TESTS=1 tsx scripts/live-server.ts",
     "test:e2e:live": "env -u NO_COLOR POCKET_LIVE_TESTS=1 playwright test --project=live",
     "test:e2e:uploads": "env -u NO_COLOR playwright test --project='uploads-*'",
