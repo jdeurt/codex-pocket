@@ -1,5 +1,7 @@
 # Approved Pocket prompt update
 
+> Historical record from October 20, 2026. Status, instructions, and verification below describe that point in time and may be superseded. Use the [current documentation](../README.md) for setup and supported behavior.
+
 Implementation is stopped at Juan's request. These approved blocks are preserved
 as requirements; the WIP prompt resources have not been deployed.
 

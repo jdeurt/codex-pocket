@@ -1,5 +1,7 @@
 # Pocket handoff completion — October 20, 2026
 
+> Historical record from October 20, 2026. Status, instructions, and verification below describe that point in time and may be superseded. Use the [current documentation](../README.md) for setup and supported behavior.
+
 Juan authorized resuming the stopped handoff, retaining original delegate reports, adding JSCPD at similarity 0.7, and merging through a development branch. Integration uses `finish/pocket-handoff-2026-10-20`, starting from `4911d73` and merging the six saved implementation branches. The composer-focus fix was already in that baseline. The original working checkout and live private state were preserved.
 
 ## Delivered behavior
@@ -9,13 +11,13 @@ Juan authorized resuming the stopped handoff, retaining original delegate report
 - Agent presence, long/empty activity text and the notification banner retain stable footer geometry. The custom spinner is 28px inside its existing 32px slot; the default SVG remains 16px. The previous focus/end-follow repair remains intact.
 - Incoming delegate reports display their original text and open the sending agent's read-only conversation. Questions, choices, blockers and full parent delivery remain intact. No summarizer inference runs.
 - Blank, parser-hidden, bookkeeping-only and commentary-only completions return before claiming notification receipts. Visible replies/images retain foreground suppression and deduplication.
-- Parent-only model/effort controls reuse the existing serialized connection, read back native settings, and persist them across reconnects. Token accounting and observed compaction are exposed; exact remaining context stays unknown. See [the capability matrix](POCKET_SESSION_CONTROLS.md).
+- Parent-only model/effort controls reuse the existing serialized connection, read back native settings, and persist them across reconnects. Token accounting and observed compaction are exposed; exact remaining context stays unknown. See [the capability matrix](../session-controls.md).
 - Local files open through an intercepted full-screen route retaining the parent draft and position. Markdown uses the chat renderer and relative file resolution; images/PDFs use native frames, and unknown types offer downloads. The header has a 44px back target and an 8px gap. A dedicated empty edge strip owns deliberate swipe-back without capturing links or selected text.
 - Installed iOS layout uses `max(0px, safe-area-inset-bottom - 16px)` below the composer. A 34px reported inset leaves 18px of padding, moving the input down 16px and giving that space to the transcript. Zero and small insets clamp to zero; the reserved status row keeps its 44px height and 10px input gap.
 - Newly arriving literal Markdown and code suffixes get a 100ms opacity reveal. Prior content stays opaque, animations cancel rather than queue, virtual remounts do not replay them, and reduced motion disables them. React's pre-mutation selection snapshot preserves unchanged selected text through Markdown node replacement.
 - `npm run usage` reads native Codex/Claude records for an explicit interval or local day. It retains category/provenance/parent information, deduplicates resumed/forked/cumulative records, and separates native reported costs from optional dated price estimates and unknown billing/subscription charges.
 - `.jscpd.json` sets similarity 0.7 with identifier/literal/annotation normalization, two gap lines and JS/TS cross-format matching. Authored source and tests are included.
-- Complete installed Codex/Claude interface snapshots and reusable protocol simulators support offline testing. Normal `npm test` uses an empty home/PATH and no inherited credentials. Shared conformance flows also pass against isolated real instances. The [simulator guide](POCKET_SIMULATORS.md) distinguishes stateful behavior, explicit scenarios and native-calibrated coverage.
+- Complete installed Codex/Claude interface snapshots and reusable protocol simulators support offline testing. Normal `npm test` uses an empty home/PATH and no inherited credentials. Shared conformance flows also pass against isolated real instances. The [simulator guide](../simulators.md) distinguishes stateful behavior, explicit scenarios and native-calibrated coverage.
 
 ## Verification
 
