@@ -39,7 +39,7 @@ Measures the actual attachment card, bubble interior and neighboring message tex
 async function metrics(bubble: Locator) {
   return bubble.evaluate((element) => {
     const query = (selector: string, root: Element = element) => {
-      const node = root.querySelector<HTMLElement>(selector);
+      const node = root.querySelector(selector);
 
       if (!node) {
         throw new Error(`Missing rendered element: ${selector}`);
@@ -53,7 +53,7 @@ async function metrics(bubble: Locator) {
     function contentMetrics(container: HTMLElement) {
       const group = query('[aria-label="Attachments"]', content);
       const rows = [...group.children].filter((row): row is HTMLElement => row instanceof HTMLElement);
-      const text = content.querySelector<HTMLElement>(":scope > p");
+      const text = content.querySelector(":scope > p");
       const first = rows[0].getBoundingClientRect();
       const icon = query("svg", rows[0]).getBoundingClientRect();
       const name = query("span", rows[0]).getBoundingClientRect();
