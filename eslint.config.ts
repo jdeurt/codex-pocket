@@ -25,9 +25,6 @@ export default defineConfig([
       "playwright-report/**",
       "test-results/**",
       "next-env.d.ts",
-      "src/components/ui/**",
-      "src/hooks/use-highlighted-code.ts",
-      "src/lib/highlighter.tsx",
     ],
   },
 
