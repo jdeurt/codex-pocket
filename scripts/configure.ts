@@ -20,7 +20,7 @@ async function setup() {
   const serverArgs: unknown = JSON.parse(process.env.CODEX_SERVER_ARGS ?? '["app-server","--listen","stdio://"]');
   const config = configSchema.parse({
     threadId: requestedThreadId?.length ? requestedThreadId : "setup",
-    cwd: process.env.CODEX_CWD ?? path.join(homedir(), "Developer"),
+    cwd: process.env.CODEX_CWD ?? path.join(homedir(), ".pocket", "workspace"),
     codexBinary: process.env.CODEX_BINARY ?? "codex",
     serverArgs,
   });

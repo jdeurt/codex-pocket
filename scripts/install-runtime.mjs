@@ -1,15 +1,12 @@
 import { URL, fileURLToPath } from "node:url";
 import { access, realpath } from "node:fs/promises";
 import { constants } from "node:fs";
-import { createServer } from "node:net";
 import { homedir } from "node:os";
 import path from "node:path";
-import { setTimeout } from "node:timers/promises";
 import { spawnSync } from "node:child_process";
 
+export const home = path.join(homedir(), ".pocket");
 export const root = path.resolve(fileURLToPath(new URL("..", import.meta.url)));
-const STOP_RETRIES = 80;
-const STOP_INTERVAL_MS = 250;
 const MAX_TCP_PORT = 65_535;
 const NPM_CLI = path.resolve(path.dirname(process.execPath), "../lib/node_modules/npm/bin/npm-cli.js");
 
@@ -18,9 +15,10 @@ Runs an installer subprocess and rejects unsuccessful exit or spawn failure.
 @param {string} command - Executable path.
 @param {string[]} args - Literal argument vector.
 @param {NodeJS.ProcessEnv} [environment] - Child environment, defaulting to this process.
+@param {string} [directory] - Isolated release or owning checkout.
 */
-export function run(command, args, environment = process.env) {
-  const result = spawnSync(command, args, { stdio: "inherit", env: environment });
+export function run(command, args, environment = process.env, directory = root) {
+  const result = spawnSync(command, args, { stdio: "inherit", env: environment, cwd: directory });
 
   if (result.error || result.status !== 0) {
     throw new Error(`${path.basename(command)} failed${result.error ? `: ${result.error.message}` : "."}`);
@@ -31,9 +29,10 @@ export function run(command, args, environment = process.env) {
 Runs Pocket's private Node runtime with its adjacent npm CLI.
 @param {string[]} args - npm argument vector.
 @param {NodeJS.ProcessEnv} [environment] - Child environment.
+@param {string} [directory] - Isolated release or owning checkout.
 */
-export function npm(args, environment = process.env) {
-  run(process.execPath, [NPM_CLI, ...args], environment);
+export function npm(args, environment = process.env, directory = root) {
+  run(process.execPath, [NPM_CLI, ...args], environment, directory);
 }
 
 /**
@@ -78,74 +77,11 @@ export function configuredPort(saved) {
 }
 
 /**
-Checks whether the loopback port can be bound and closes the probe immediately.
-@param {number} port - Valid TCP port.
-@returns {Promise<boolean>} Whether the port is free; unrelated socket errors reject.
-*/
-async function isPortAvailable(port) {
-  return new Promise((resolve, reject) => {
-    const probe = createServer();
-
-    probe.once("error", (error) => {
-      if (error instanceof Error && "code" in error && error.code === "EADDRINUSE") {
-        resolve(false);
-      } else {
-        reject(error);
-      }
-    });
-    probe.listen(port, "127.0.0.1", () => {
-      probe.close(() => {
-        resolve(true);
-      });
-    });
-  });
-}
-
-/**
-Stops only this checkout's login service and waits for its port to be released.
-@param {number} port - Configured loopback port.
-@param {number} userId - Verified logged-in macOS user ID.
-@returns {Promise<void>} Completion of owned-service shutdown; foreign ownership or occupied port rejects.
-*/
-export async function stopService(port, userId) {
-  const target = `gui/${String(userId)}/dev.pocket.web`;
-  const isPresent = spawnSync("/bin/launchctl", ["print", target], { stdio: "ignore" }).status === 0;
-
-  if (isPresent) {
-    const plist = path.join(homedir(), "Library/LaunchAgents/dev.pocket.web.plist");
-    const location = spawnSync("/usr/bin/plutil", ["-extract", "WorkingDirectory", "raw", "-o", "-", plist], {
-      encoding: "utf8",
-    });
-
-    if (location.status !== 0 || path.resolve(location.stdout.trim()) !== root) {
-      throw new Error("Another Pocket checkout owns the login service. Run its installer to update that installation.");
-    }
-
-    console.info("Stopping Pocket before replacing dependencies and build assets…");
-    run("/bin/launchctl", ["bootout", target]);
-  }
-
-  for (let attempt = 0; attempt <= STOP_RETRIES; attempt += 1) {
-    if (await isPortAvailable(port)) {
-      return;
-    }
-
-    if (!isPresent || attempt === STOP_RETRIES) {
-      throw new Error(
-        `Port ${String(port)} is in use. Stop the application using that port, then run this installer again.`
-      );
-    }
-
-    await setTimeout(STOP_INTERVAL_MS);
-  }
-}
-
-/**
 Checks the executable produced by the completed private npm installation.
 @returns {Promise<string>} Canonical executable path; missing output rejects.
 */
 async function installedCodex() {
-  const installed = await executable(path.join(root, ".local/codex/node_modules/.bin/codex"));
+  const installed = await executable(path.join(home, "codex/node_modules/.bin/codex"));
 
   if (!installed) {
     throw new Error("Codex installation did not create an executable.");
@@ -160,7 +96,7 @@ Installs a private Codex executable after all existing candidates are exhausted.
 */
 async function installCodex() {
   console.info("Installing Codex privately for Pocket…");
-  npm(["install", "--prefix", path.join(root, ".local/codex"), "--no-save", "--package-lock=false", "@openai/codex"]);
+  npm(["install", "--prefix", path.join(home, "codex"), "--no-save", "--package-lock=false", "@openai/codex"]);
 
   return await installedCodex();
 }
@@ -175,7 +111,7 @@ export async function findCodex(saved) {
   const candidates = [
     ...(preferred ? [preferred] : []),
     "codex",
-    path.join(root, ".local/codex/node_modules/.bin/codex"),
+    path.join(home, "codex/node_modules/.bin/codex"),
     "/Applications/Codex.app/Contents/Resources/codex",
     "/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex",
     path.join(homedir(), "Applications/Codex.app/Contents/Resources/codex"),

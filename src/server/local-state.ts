@@ -1,4 +1,5 @@
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { homedir } from "node:os";
 import path from "node:path";
 
 /**
@@ -6,7 +7,9 @@ Resolve Pocket's explicitly configured private state directory.
 @returns Absolute private state directory for this process.
 */
 export const localDirectory = () =>
-  path.resolve(/* turbopackIgnore: true */ process.env.CODEX_POCKET_STATE_DIR ?? ".local");
+  path.resolve(
+    /* turbopackIgnore: true */ process.env.CODEX_POCKET_STATE_DIR ?? path.join(homedir(), ".pocket", "data")
+  );
 
 /**
 Write JSON to a fresh private sibling file before atomic replacement.

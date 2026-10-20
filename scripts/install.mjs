@@ -1,7 +1,10 @@
-import { configuredPort, findCodex, npm, root, run, stopService } from "./install-runtime.mjs";
+import { configuredPort, findCodex, home, npm, root, run } from "./install-runtime.mjs";
+import { installRelease, withInstallLock } from "./install-release.mjs";
 import { mkdir, readFile } from "node:fs/promises";
 import { createInterface } from "node:readline/promises";
 import { homedir } from "node:os";
+import { installPath } from "./install-commands.mjs";
+import { loginService } from "./install-launchd.mjs";
 import { parseEnv } from "node:util";
 import path from "node:path";
 import { setupOrigin } from "./setup-env.ts";
@@ -16,7 +19,7 @@ Reads private saved configuration, treating only a missing dotenv file as empty.
 */
 async function savedEnvironment() {
   try {
-    return parseEnv(await readFile(path.join(root, ".env.local"), "utf8"));
+    return parseEnv(await readFile(path.join(home, ".env.local"), "utf8"));
   } catch (error) {
     if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
       throw error;
@@ -75,7 +78,7 @@ Collects working-folder and phone-origin choices in their original prompt order.
 */
 async function settings(saved, prompt) {
   const port = configuredPort(saved);
-  const defaultFolder = process.env.POCKET_CWD ?? saved.CODEX_CWD ?? path.join(homedir(), "Developer");
+  const defaultFolder = process.env.POCKET_CWD ?? saved.CODEX_CWD ?? path.join(home, "workspace");
   const folder = await ask(prompt, "Working folder", defaultFolder);
   const cwd = path.resolve(folder === "~" ? homedir() : folder.replace(/^~\//, () => `${homedir()}/`));
   const existingOrigin = saved.CODEX_ALLOWED_ORIGINS?.split(",").find((origin) => origin.startsWith("https://"));
@@ -160,6 +163,7 @@ Runs the ordered installer after all platform and option guards have succeeded.
 async function install(userId, isInteractive, prompt) {
   const saved = await savedEnvironment();
   const { port, cwd, origin, environment } = await settings(saved, prompt);
+  const service = await loginService(home, port, userId, { ...saved, ...environment });
 
   if (!saved.CODEX_SERVER_ARGS && !process.env.CODEX_SERVER_ARGS) {
     environment.CODEX_SERVER_ARGS = await selectedServerArgs(prompt);
@@ -167,21 +171,36 @@ async function install(userId, isInteractive, prompt) {
 
   await mkdir(cwd, { recursive: true });
   await prepareCodex(saved, environment, isInteractive);
-  await stopService(port, userId);
-  console.info("Installing Pocket's dependencies…");
-  npm(["ci", "--include=dev", "--no-audit", "--no-fund"]);
-  npm(["run", "setup"], environment);
-  run(process.execPath, [path.join(root, "node_modules/next/dist/bin/next"), "typegen"], environment);
-  npm(["run", "check"]);
+  await installRelease(
+    root,
+    home,
+    (release) => {
+      console.info("Installing dependencies and building a separate Pocket release…");
+      npm(["ci", "--include=dev", "--no-audit", "--no-fund"], environment, release);
+      run(process.execPath, [path.join(release, "node_modules/next/dist/bin/next"), "typegen"], environment, release);
+      npm(["run", "check"], environment, release);
 
-  if (process.env.CI === "true") {
-    npm(["test"]);
+      if (process.env.CI === "true") {
+        npm(["test"], environment, release);
+      }
+
+      npm(["run", "build"], environment, release);
+      npm(["run", "setup"], environment, release);
+    },
+    service
+  );
+
+  try {
+    await installPath();
+  } catch (error) {
+    console.error(
+      `Pocket is running, but PATH setup failed: ${error instanceof Error ? error.message : String(error)}`
+    );
   }
 
-  npm(["run", "build"]);
-  npm(["run", "service:install"], environment);
+  console.info("Open a new terminal to use: pocket update, pocket start, pocket stop, pocket restart.");
   console.info(`\nPocket is installed and starts at login. Open ${origin || `http://127.0.0.1:${String(port)}`}`);
-  console.info("Configuration: .env.local   State and logs: .local/");
+  console.info("Configuration: ~/.pocket/.env.local   Data: ~/.pocket/data   Logs: ~/.pocket/logs");
 
   if (isInteractive) {
     spawnSync("/usr/bin/open", [origin || `http://127.0.0.1:${String(port)}`], { stdio: "ignore" });
@@ -198,7 +217,7 @@ async function guidedInstall(userId) {
   const prompt = isInteractive ? createInterface({ input: process.stdin, output: process.stdout }) : undefined;
 
   try {
-    await install(userId, isInteractive, prompt);
+    await withInstallLock(home, () => install(userId, isInteractive, prompt));
   } catch (error) {
     console.error(`\nPocket installation stopped: ${error instanceof Error ? error.message : String(error)}`);
     console.error(
