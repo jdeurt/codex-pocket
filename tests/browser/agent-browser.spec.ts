@@ -1,61 +1,17 @@
-import { HTTP_FORBIDDEN, HTTP_NOT_FOUND } from "../../src/lib/constants";
-import { agentCatalogSchema, agentTranscriptSchema, isActiveAgent } from "../../src/lib/agents";
-import { claudeSession, longName } from "../fixtures/agent-browser-data";
+import { control, lifecycle } from "./agent-replay";
 import { expect, test } from "@playwright/test";
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import Database from "better-sqlite3";
+import { HTTP_FORBIDDEN } from "../../src/lib/constants";
+import { checkAgentAccess } from "./agent-api";
 import { checkAgentCache } from "./agent-cache";
 import { checkAgentScroll } from "./agent-scroll";
 import { checkAgentTools } from "./agent-tools";
 import { checkAgentUploads } from "./agent-uploads";
-import { replayLogSchema } from "../fixtures/replay-protocol";
-import { z } from "zod";
+import { longName } from "../fixtures/agent-browser-data";
+import { mkdir } from "node:fs/promises";
 
 // OFFLINE whole-flow replay: real Next routes, SQLite, JSON-RPC transport, Claude
 // SDK saved-history reader and shared browser renderers; no live inference/auth.
-const ACTIVE_COUNT = 6;
 const LONG_NAME_PREFIX = 40;
-const METHOD_NOT_ALLOWED = 405;
-const directory = ".local/agent-browser-replay";
-
-/**
-Atomically advances the private native replay without exposing a partial control file.
-@param stage - Named replay stage consumed by the fake RPC child.
-@returns Completion of the control-file replacement.
-*/
-async function control(stage: string) {
-  await writeFile(`${directory}/control.tmp`, JSON.stringify({ stage }));
-  await rename(`${directory}/control.tmp`, `${directory}/control.json`);
-}
-
-/**
-Reads the replay's persisted managed-child identities at the fixture boundary.
-@returns Validated title-to-native-identity mapping.
-*/
-async function ids() {
-  return z.record(z.string(), z.string()).parse(JSON.parse(await readFile(`${directory}/ids.json`, "utf8")));
-}
-
-/**
-Updates private SQLite fixture lifecycle state before discovery assertions.
-@param isSettled - Whether both active managed children have reached their idle fixture state.
-@returns Completion of the existing status/request updates.
-*/
-async function lifecycle(isSettled = false) {
-  const entries = await ids();
-  const db = new Database(`${directory}/state/delegations.sqlite`);
-
-  db.prepare("UPDATE side_pockets SET status=? WHERE id=?").run(
-    isSettled ? "idle" : "waiting",
-    entries["Codex Side Pocket"]
-  );
-  db.prepare("UPDATE side_pockets SET status=? WHERE id=?").run(
-    isSettled ? "idle" : "running",
-    entries["Claude Side Pocket"]
-  );
-  db.prepare("UPDATE delegation_requests SET status='pending' WHERE childId=?").run(entries["Codex Side Pocket"]);
-  db.close();
-}
 
 test.beforeEach(async () => {
   await control("initial");
@@ -83,106 +39,7 @@ test("offline replay: scoped discovery, complete normalized histories and GET-on
   page,
   request,
 }) => {
-  await page.goto("/");
-  await expect(page.getByRole("button", { name: "6 agents", exact: true })).toBeVisible();
-  await mkdir(".local/agent-browser-screenshots", { recursive: true });
-  await page.screenshot({ animations: "disabled", path: ".local/agent-browser-screenshots/mobile-parent.png" });
-  const catalog = await request.get("/api/agents");
-
-  expect(catalog.ok()).toBeTruthy();
-  const data = agentCatalogSchema.parse(await catalog.json());
-
-  expect(data.agents.filter(isActiveAgent)).toHaveLength(ACTIVE_COUNT);
-  expect(data.agents.filter((agent) => agent.name === "Codex Side Pocket")).toHaveLength(1);
-  expect(data.agents.some((agent) => /PRIVATE|Duplicate/.test(agent.name))).toBeFalsy();
-  expect(data.agents.find((agent) => agent.id === "codex:native-grandchild")?.parentId).toBe("codex:native-codex");
-  expect(data.agents.find((agent) => agent.id === `claude:${claudeSession}:a-nested`)?.parentId).toBe(
-    `claude:${claudeSession}:a-replay`
-  );
-  expect(data.agents.find((agent) => agent.id === "codex:side-native")?.status).toBe("running");
-  expect(data.agents.find((agent) => agent.id === "codex:stale-codex")?.status).toBe("unknown");
-  const entries = await ids();
-
-  for (const id of [
-    "codex:unrelated",
-    "codex:unrelated-grandchild",
-    `pocket:${entries.private}`,
-    "../secrets",
-    "replay-parent",
-  ]) {
-    const denied = await request.get(`/api/agents?agent=${encodeURIComponent(id)}&parent=unrelated-parent`);
-
-    expect(denied.status()).toBe(HTTP_NOT_FOUND);
-  }
-
-  const crossOrigin = await request.get("/api/agents", { headers: { Origin: "https://untrusted.example" } });
-
-  expect(crossOrigin.status()).toBe(HTTP_FORBIDDEN);
-
-  for (const method of ["POST", "PUT", "PATCH", "DELETE"]) {
-    const mutation = await request.fetch("/api/agents?agent=codex:native-codex", {
-      method,
-      data: { action: "resume" },
-    });
-
-    expect(mutation.status()).toBe(METHOD_NOT_ALLOWED);
-  }
-
-  const transcriptResponse = await request.get("/api/agents?agent=codex:native-codex");
-  const transcript = agentTranscriptSchema.parse(await transcriptResponse.json());
-
-  expect(JSON.stringify(transcript)).toContain("Earlier progress from the full transcript");
-  expect(JSON.stringify(transcript)).toContain("REPLAY_TOOL_OUTPUT");
-  expect(JSON.stringify(transcript)).not.toMatch(
-    /PRIVATE_SESSION_SECRET|PRIVATE_ENV|HIDDEN_CONFIG|sandbox|approval_policy|developerInstructions/
-  );
-  const image = transcript.state.turns.flatMap((turn) => turn.items).find((item) => item.type === "imageOutput");
-
-  if (!image) {
-    throw new Error("Expected replay image.");
-  }
-
-  const imageUrl = (image.images ?? [])[0].source;
-  const imageResponse = await request.get(imageUrl);
-
-  expect(imageResponse.headers()["content-type"]).toBe("image/webp");
-  const unrelatedImage = await request.get(imageUrl.replace("codex%3Anative-codex", "codex%3Aunrelated"));
-
-  expect(unrelatedImage.status()).toBe(HTTP_NOT_FOUND);
-  const markdownImage = await request.get(
-    "/api/agents?agent=codex:native-codex&item=markdown-image&source=child-image.png"
-  );
-
-  expect(markdownImage.headers()["content-type"]).toBe("image/webp");
-  const forgedImage = await request.get(
-    "/api/agents?agent=codex:native-codex&item=markdown-image&source=../../private.png"
-  );
-
-  expect(forgedImage.status()).toBe(HTTP_NOT_FOUND);
-  const claudeResponse = await request.get(`/api/agents?agent=pocket:${entries["Claude Side Pocket"]}`);
-  const claude = agentTranscriptSchema.parse(await claudeResponse.json());
-
-  expect(JSON.stringify(claude)).toContain("CLAUDE_REPLAY_TOOL_OUTPUT");
-  expect(claude.state.turns.flatMap((turn) => turn.items).filter((item) => item.type === "userMessage")).toHaveLength(
-    1
-  );
-  const rawLog = await readFile(`${directory}/rpc.jsonl`, "utf8");
-  const log = rawLog
-    .trim()
-    .split("\n")
-    .map((line) => replayLogSchema.parse(JSON.parse(line)));
-
-  expect(
-    log.filter(
-      (entry) =>
-        entry.threadId &&
-        entry.threadId !== "replay-parent" &&
-        !["thread/read", "thread/turns/list", "thread/items/list"].includes(entry.method)
-    )
-  ).toEqual([]);
-  expect(
-    log.filter((entry) => entry.method === "thread/resume").every((entry) => entry.threadId === "replay-parent")
-  ).toBeTruthy();
+  await checkAgentAccess(page, request);
 });
 
 test("offline replay: mobile/desktop read-only navigation, ellipsis, focus and preserved writable parent", async ({
@@ -191,20 +48,23 @@ test("offline replay: mobile/desktop read-only navigation, ellipsis, focus and p
   const actions: string[] = [];
   const viewport = page.locator('[data-slot="message-scroller-viewport"]').first();
   const dialog = page.getByRole("dialog", { name: "Agents", exact: true });
+  const row = dialog.getByRole("button", { name: new RegExp(longName.slice(0, LONG_NAME_PREFIX)) });
+  const scroll = await test.step("Capture positioned parent before opening child navigation", async () => {
+    page.on("request", (request) => {
+      if (request.method() === "POST" && !request.url().includes("/api/logs")) {
+        actions.push(request.url());
+      }
+    });
+    await page.goto("/");
+    await expect(page.getByRole("button", { name: "6 agents", exact: true })).toBeVisible();
+    await page.getByRole("textbox", { name: "Message Pocket" }).fill("Preserved parent draft");
 
-  page.on("request", (request) => {
-    if (request.method() === "POST" && !request.url().includes("/api/logs")) {
-      actions.push(request.url());
-    }
-  });
-  await page.goto("/");
-  await expect(page.getByRole("button", { name: "6 agents", exact: true })).toBeVisible();
-  await page.getByRole("textbox", { name: "Message Pocket" }).fill("Preserved parent draft");
+    await viewport.evaluate((element) => {
+      element.scrollTop = 240;
+    });
 
-  await viewport.evaluate((element) => {
-    element.scrollTop = 240;
+    return await viewport.evaluate((element) => element.scrollTop);
   });
-  const scroll = await viewport.evaluate((element) => element.scrollTop);
 
   await page.getByRole("button", { name: "6 agents", exact: true }).evaluate((button: HTMLButtonElement) => {
     button.click();
@@ -217,8 +77,6 @@ test("offline replay: mobile/desktop read-only navigation, ellipsis, focus and p
   await expect(dialog).toHaveCSS("transform", "matrix(1, 0, 0, 1, 0, 0)");
   await expect(dialog.getByRole("button", { name: /Finished research/ })).toBeVisible();
   expect(await dialog.evaluate((element) => element.scrollWidth <= element.clientWidth)).toBeTruthy();
-  const row = dialog.getByRole("button", { name: new RegExp(longName.slice(0, LONG_NAME_PREFIX)) });
-
   await expect(row.locator(".agent-preview")).toHaveCSS("white-space", "nowrap");
   await expect(row.locator(".agent-preview")).toHaveCSS("text-overflow", "ellipsis");
   await expect(row.locator(".agent-preview")).toHaveCSS("overflow", "hidden");
@@ -274,15 +132,18 @@ test("offline replay: live updates, retained terminal history, errors and zero a
   const parentViewport = page.locator('[data-slot="message-scroller-viewport"]').first();
   const dialog = page.getByRole("dialog", { name: "Agents", exact: true });
 
-  await page.goto("/");
+  const scroll = await test.step("Position the writable parent before observing child updates", async () => {
+    await page.goto("/");
 
-  await expect(trigger).toBeVisible();
+    await expect(trigger).toBeVisible();
 
-  await parentViewport.dispatchEvent("wheel", { deltaY: -180 });
-  await parentViewport.evaluate((element) => {
-    element.scrollTop = 180;
+    await parentViewport.dispatchEvent("wheel", { deltaY: -180 });
+    await parentViewport.evaluate((element) => {
+      element.scrollTop = 180;
+    });
+
+    return await parentViewport.evaluate((element) => element.scrollTop);
   });
-  const scroll = await parentViewport.evaluate((element) => element.scrollTop);
 
   await trigger.evaluate((button: HTMLButtonElement) => {
     button.click();
@@ -321,6 +182,7 @@ test("offline replay: denied access, network reconnect, native Claude chat and n
 }) => {
   const connection = { mode: "healthy" };
   const dialog = page.getByRole("dialog", { name: "Agents", exact: true });
+  const chat = dialog.locator(".agent-chat");
 
   await page.route("**/api/agents?agent=codex%3Anative-codex", async (route) => {
     if (connection.mode === "denied") {
@@ -341,8 +203,6 @@ test("offline replay: denied access, network reconnect, native Claude chat and n
   await expect(dialog.getByRole("button", { name: "Back to Pocket", exact: true })).toBeFocused();
   await page.screenshot({ animations: "disabled", path: ".local/agent-browser-screenshots/narrow-list.png" });
   await dialog.getByRole("button", { name: /Researching an exceptionally long/ }).click();
-  const chat = dialog.locator(".agent-chat");
-
   await expect(chat.getByText("Saved native-codex result", { exact: true })).toBeVisible();
   await expect(chat.locator("header").getByRole("button")).toHaveCount(1);
   await expect(chat.getByRole("button", { name: "Back to agents", exact: true })).toBeVisible();
