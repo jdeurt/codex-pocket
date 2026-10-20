@@ -4,9 +4,9 @@ import { ArrowLeftIcon, ChevronRightIcon } from "lucide-react";
 import { Button } from "./ui/button";
 import { Dialog } from "@base-ui/react/dialog";
 import { type RefObject } from "react";
+import { Skeleton } from "./ui/skeleton";
 
-const previewLabels: Record<NonNullable<AgentEntry["previewState"]>, string> = {
-  loading: "Loading preview…",
+const previewLabels: Record<Exclude<NonNullable<AgentEntry["previewState"]>, "loading">, string> = {
   unavailable: "Preview unavailable.",
   empty: "No visible messages saved yet.",
 };
@@ -19,6 +19,7 @@ Render scoped agent rows with retained focus handles and discovery warnings.
 export function AgentList({
   entries,
   hidden,
+  isLoading,
   error,
   warnings,
   rows,
@@ -26,6 +27,7 @@ export function AgentList({
 }: {
   entries: AgentEntry[];
   hidden: boolean;
+  isLoading: boolean;
   error?: string;
   warnings: string[];
   rows: RefObject<Map<string, HTMLButtonElement>>;
@@ -63,7 +65,7 @@ export function AgentList({
               select(agent);
             }}
           >
-            <span className="agent-row-content">
+            <div className="agent-row-content">
               <span className="agent-row-title">
                 <span className="agent-name" title={agent.name}>
                   {agent.name}
@@ -71,12 +73,27 @@ export function AgentList({
                 <span className="agent-status">{agentStatus(agent.status)}</span>
               </span>
               <span className="agent-source">{agentSource(agent)}</span>
-              <span className="agent-preview">{agent.preview || previewLabels[agent.previewState ?? "empty"]}</span>
-            </span>
+              {agent.previewState === "loading" && !agent.preview ? (
+                <div className="agent-preview" role="status" aria-label="Loading preview" aria-busy="true">
+                  <Skeleton className="h-3 w-3/4" />
+                </div>
+              ) : (
+                <span className="agent-preview">
+                  {agent.preview || previewLabels[agent.previewState === "unavailable" ? "unavailable" : "empty"]}
+                </span>
+              )}
+            </div>
             <ChevronRightIcon aria-hidden="true" />
           </button>
         ))}
-        {entries.length === 0 && <p className="agent-notice">No agents are available in this chat.</p>}
+        {isLoading && (
+          <div role="status" aria-label="Loading agents" className="flex flex-col gap-4 py-4">
+            <Skeleton className="h-20 w-full" />
+            <Skeleton className="h-20 w-full" />
+            <Skeleton className="h-20 w-full" />
+          </div>
+        )}
+        {!isLoading && entries.length === 0 && <p className="agent-notice">No agents are available in this chat.</p>}
       </div>
     </div>
   );

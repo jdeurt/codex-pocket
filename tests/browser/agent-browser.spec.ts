@@ -6,6 +6,7 @@ import { checkAgentAccess } from "./agent-api";
 import { checkAgentScroll } from "./agent-scroll";
 import { checkAgentTools } from "./agent-tools";
 import { checkAgentUploads } from "./agent-uploads";
+import { checkHeldTranscript } from "./agent-latency";
 import { longName } from "../fixtures/agent-browser-data";
 import { mkdir } from "node:fs/promises";
 
@@ -237,4 +238,8 @@ test("offline replay: denied access, network reconnect, native Claude chat and n
 
 test("offline replay: parent offsets survive incoming appends while navigating child chats", async ({ page }) => {
   await checkAgentScroll(page, control);
+});
+
+test("offline replay: saved Side Pocket opens while its native history refresh is held", async ({ page, request }) => {
+  await checkHeldTranscript(page, request);
 });

@@ -7,7 +7,7 @@ import sharp from "sharp";
 import { type spinnerClient } from "../fixtures/spinner-client";
 
 const BACKGROUND = 33;
-const BAND_SAMPLE_X = 10;
+const BAND_SAMPLE_X = 8;
 const BAND_WIDTH = 3.5;
 const CHANNEL_MAX = 255;
 const OPACITY = 0.7;

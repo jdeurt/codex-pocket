@@ -195,7 +195,12 @@ Tracks concurrent child-history reads and applies the fake native history latenc
 function deliverResult(id: string | number, method: string, params: Record<string, unknown>, result: unknown) {
   const isHistory = params.threadId !== replayParent && ["thread/turns/list", "thread/items/list"].includes(method);
 
-  if (method === "thread/list" && stage() === "discovery-held") {
+  if (
+    (method === "thread/list" && stage() === "discovery-held") ||
+    (params.threadId === "native-codex" &&
+      stage() === "history-held" &&
+      ["thread/read", "thread/turns/list", "thread/items/list"].includes(method))
+  ) {
     setTimeout(() => {
       deliverResult(id, method, params, result);
     }, HISTORY_DELAY_MS);

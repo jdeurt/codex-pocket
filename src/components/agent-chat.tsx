@@ -1,10 +1,36 @@
 "use client";
-import { type AgentEntry, agentTranscriptSchema } from "@/lib/agents";
+import { type AgentEntry, type AgentTranscript, agentTranscriptSchema } from "@/lib/agents";
 import { useEffect, useRef } from "react";
 import { ArrowLeftIcon } from "lucide-react";
 import { Button } from "./ui/button";
 import { Conversation } from "./conversation";
+import { initialSnapshot } from "@/lib/protocol";
 import { useAgentRead } from "@/hooks/use-agents";
+
+/**
+Use the shared conversation skeleton until history arrives, retaining explicit read failures.
+@param props - Last readable transcript and current transport error.
+@returns Saved conversation, loading skeleton or the existing error notice.
+*/
+function AgentHistory({ data, error }: { data?: AgentTranscript; error?: string }) {
+  if (!data && error) {
+    return (
+      <p className="agent-notice" role="status">
+        History has not loaded yet.
+      </p>
+    );
+  }
+
+  return (
+    <Conversation
+      state={data?.state ?? initialSnapshot}
+      readOnly
+      emptyMessage={
+        data?.history === "unavailable" ? "Saved history is unavailable." : "No visible messages saved yet."
+      }
+    />
+  );
+}
 
 /**
 Read a selected agent transcript without enabling mutation or model execution.
@@ -48,19 +74,7 @@ export function AgentChat({ id, agent, back }: { id: string; agent?: AgentEntry;
           {data && " Showing saved history; updates may be stale."}
         </p>
       )}
-      {data ? (
-        <Conversation
-          state={data.state}
-          readOnly
-          emptyMessage={
-            data.history === "unavailable" ? "Saved history is unavailable." : "No visible messages saved yet."
-          }
-        />
-      ) : (
-        <p className="agent-notice" role="status">
-          {error ? "History has not loaded yet." : "Loading conversation…"}
-        </p>
-      )}
+      <AgentHistory data={data} error={error} />
     </div>
   );
 }

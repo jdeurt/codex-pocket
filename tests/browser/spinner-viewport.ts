@@ -8,7 +8,8 @@ import sharp from "sharp";
 import { type spinnerClient } from "../fixtures/spinner-client";
 
 const SOURCE_GIF_WIDTH = 128;
-const SLOT_EDGE = 32;
+const SLOT_HEIGHT = 32;
+const DEFAULT_EDGE = 16;
 const IMAGE_EDGE = 28;
 const STATIC_CAPTURE_DELAY_MS = 150;
 const WIDE_IMAGE_WIDTH = 160;
@@ -16,6 +17,44 @@ const BACKGROUND_TOLERANCE = 3;
 const MIN_RENDERED_ROWS = 6;
 const MAX_RENDERED_ROWS = 8;
 const HTTP_NOT_FOUND = 404;
+const COMPOSER_GAP = 10;
+
+/**
+Keep the vertical status geometry while fitting the fallback to its own visible width.
+@param custom - Measured custom-image position.
+@returns Expected compact fallback geometry with the same icon-to-label gap.
+*/
+function defaultPosition(custom: Awaited<ReturnType<typeof alignment>>) {
+  return {
+    ...custom,
+    slot: { ...custom.slot, width: DEFAULT_EDGE },
+    label: { ...custom.label, x: custom.label.x - IMAGE_EDGE + DEFAULT_EDGE },
+  };
+}
+
+/**
+Dismiss the unrelated permission banner before measuring the spinner's stable position.
+@param page - Private full chat or standalone spinner fixture.
+*/
+async function dismissPrompt(page: Page) {
+  const prompt = page.getByRole("button", { name: "Dismiss notification prompt", exact: true });
+
+  if (!(await page.locator(".chat-shell").count())) {
+    return;
+  }
+
+  await prompt.click();
+  await expect(prompt).toHaveCount(0);
+  await expect
+    .poll(() =>
+      page.locator(".activity-row").evaluate((row) => {
+        const composer = document.querySelector(".composer");
+
+        return (composer?.getBoundingClientRect().top ?? 0) - row.getBoundingClientRect().bottom;
+      })
+    )
+    .toBe(COMPOSER_GAP);
+}
 
 /**
 Opens the isolated spinner app and waits for its actual activity slot.
@@ -25,6 +64,7 @@ Opens the isolated spinner app and waits for its actual activity slot.
 async function ready(page: Page) {
   await page.goto(SPINNER_ORIGIN, { waitUntil: "domcontentloaded" });
   await expect(page.locator("[data-activity-spinner]")).toBeVisible();
+  await dismissPrompt(page);
 }
 
 /**
@@ -66,17 +106,18 @@ export async function checkSpinnerViewport(
 
   const still =
     await test.step("Verify animation, reload and reduced-motion fallback before capturing a still frame", async () => {
-      expect(customPosition.slot.width).toBe(SLOT_EDGE);
-      expect(customPosition.slot.height).toBe(SLOT_EDGE);
+      expect(customPosition.slot.width).toBe(IMAGE_EDGE);
+      expect(customPosition.slot.height).toBe(SLOT_HEIGHT);
       expect(await slot.locator("img").boundingBox()).toEqual({
-        x: customPosition.slot.x + (SLOT_EDGE - IMAGE_EDGE) / 2,
-        y: customPosition.slot.y + (SLOT_EDGE - IMAGE_EDGE) / 2,
+        x: customPosition.slot.x,
+        y: customPosition.slot.y + (SLOT_HEIGHT - IMAGE_EDGE) / 2,
         width: IMAGE_EDGE,
         height: IMAGE_EDGE,
       });
       await animatedGrayscale(page);
       await page.screenshot({ path: `.local/spinner-${label}.png` });
       await page.reload();
+      await dismissPrompt(page);
       await expect(slot.locator("img")).toBeVisible();
       expect(await alignment(page)).toEqual(customPosition);
 
@@ -96,27 +137,28 @@ export async function checkSpinnerViewport(
       return await captureSlot(page);
     });
 
-  const spinnerLibrary7 = await test.step("Verify the still frame and reset without shifting the slot", async () => {
-    await new Promise((resolve) => setTimeout(resolve, STATIC_CAPTURE_DELAY_MS));
-    expect(await captureSlot(page)).toEqual(still);
-    expect(await alignment(page)).toEqual(customPosition);
-    await page.emulateMedia({ reducedMotion: "no-preference" });
-    await expect(slot.locator("img")).toBeVisible();
+  const spinnerLibrary7 =
+    await test.step("Verify the still frame and reset without moving the status row", async () => {
+      await new Promise((resolve) => setTimeout(resolve, STATIC_CAPTURE_DELAY_MS));
+      expect(await captureSlot(page)).toEqual(still);
+      expect(await alignment(page)).toEqual(defaultPosition(customPosition));
+      await page.emulateMedia({ reducedMotion: "no-preference" });
+      await expect(slot.locator("img")).toBeVisible();
 
-    await main.call("spinner_reset");
-    await expect(slot.locator("img")).toHaveCount(0);
-    await expect(slot.locator('svg[data-slot="spinner"]')).toBeVisible();
-    expect(await alignment(page)).toEqual(customPosition);
-    expect(
-      await page.evaluate(() => {
-        const svg = globalThis.document.querySelector("[data-activity-spinner] svg");
+      await main.call("spinner_reset");
+      await expect(slot.locator("img")).toHaveCount(0);
+      await expect(slot.locator('svg[data-slot="spinner"]')).toBeVisible();
+      expect(await alignment(page)).toEqual(defaultPosition(customPosition));
+      expect(
+        await page.evaluate(() => {
+          const svg = globalThis.document.querySelector("[data-activity-spinner] svg");
 
-        return svg ? globalThis.getComputedStyle(svg).transform : "missing";
-      })
-    ).toBe("none");
+          return svg ? globalThis.getComputedStyle(svg).transform : "missing";
+        })
+      ).toBe("none");
 
-    return await main.call("spinner_status");
-  });
+      return await main.call("spinner_status");
+    });
 
   const wide = await test.step("Require the saved GIF after reset and restore its native selection", async () => {
     expect(spinnerLibrary7.saved.some((asset) => asset.id === id)).toBe(true);
@@ -173,7 +215,7 @@ export async function checkSpinnerViewport(
 }
 
 /**
-Verify missing managed bytes fall back without shifting after the private server restarts.
+Verify missing managed bytes fall back without moving the status row after the private server restarts.
 @param page - Browser page closed by the outer replay.
 @param main - Native MCP client retaining the private database.
 @param id - Selected managed asset removed from private storage.
@@ -202,13 +244,14 @@ export async function checkMissingSpinner(
 
   await rm(path.join(path.dirname(uploaded), "spinner-assets", id));
   await page.reload({ waitUntil: "domcontentloaded" });
+  await dismissPrompt(page);
   await expect(slot.locator('svg[data-slot="spinner"]')).toBeVisible();
   await expect(slot.locator("img")).toHaveCount(0);
-  expect(await alignment(page)).toEqual(position);
+  expect(await alignment(page)).toEqual(defaultPosition(position));
   await main.call("spinner_delete", { id });
   await expect(slot.locator("img")).toHaveCount(0);
   await expect(slot.locator('svg[data-slot="spinner"]')).toBeVisible();
-  expect(await alignment(page)).toEqual(position);
+  expect(await alignment(page)).toEqual(defaultPosition(position));
   expect(await fetch(url, { headers: { "if-none-match": etag } })).toHaveProperty("status", HTTP_NOT_FOUND);
   expect(await readFile(uploaded)).toEqual(await readFile(path.resolve("tests/fixtures/spinners/kirbyjam.gif")));
 }

@@ -47,7 +47,7 @@ function ConversationEmpty({
   if (connection === "connecting" && empty) {
     return (
       <MessageScrollerItem messageId="loading">
-        <div aria-label="Loading conversation" className="flex flex-col gap-4 py-8">
+        <div role="status" aria-label="Loading conversation" className="flex flex-col gap-4 py-8">
           <Skeleton className="ml-auto h-12 w-2/3" />
           <Skeleton className="h-4 w-4/5" />
           <Skeleton className="h-4 w-1/2" />

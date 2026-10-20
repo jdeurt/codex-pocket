@@ -108,13 +108,13 @@ Refresh scoped discovery while preserving known saved history through source out
   }
 
   /**
-Refresh the scoped catalog before returning one owned agent record.
+Verify scoped discovery before reading one agent, without projecting every catalog preview.
 @param owner - Configured parent identity required by the endpoint.
 @param id - Catalog identity requested within that parent.
 @returns Owned normalized discovery record.
 */
   private async owned(owner: string, id: string) {
-    await this.catalog(owner);
+    await this.discovery(owner);
 
     return this.record(id);
   }

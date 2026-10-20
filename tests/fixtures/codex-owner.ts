@@ -18,9 +18,10 @@ import { validateMessage } from "../simulators/contract";
 /**
 Start one shared owner with independent client handshakes and real Unix WebSocket connections.
 @param t - Test context owning all resources.
+@param beforeRead - Optional gate for deterministic native history latency.
 @returns Native owner, shared simulator and isolated durable delegate storage.
 */
-export async function codexOwner(t: TestContext) {
+export async function codexOwner(t: TestContext, beforeRead?: () => Promise<void>) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "pocket-own-"));
   const socketPath = path.join(directory, "c.sock");
   const http = createServer();
@@ -56,8 +57,16 @@ export async function codexOwner(t: TestContext) {
     socket.on("message", (data) => {
       const message: unknown = JSON.parse(socketText(data));
 
+      const receive = async () => {
+        if (["thread/read", "thread/turns/list", "thread/items/list"].includes(string(object(message).method))) {
+          await beforeRead?.();
+        }
+
+        await simulator.receive(message);
+      };
+
       calls.push(object(message));
-      void simulator.receive(message);
+      void receive();
     });
   });
   t.after(async () => {
