@@ -9,6 +9,45 @@ const ACTIVITY_MESSAGES = 3;
 const MIN_READER_GAP = 90;
 const MISSING_GAP = -1;
 
+test("ordinary activity expansion retains CSS animation and bounded rows", async ({ page }) => {
+  const writes = await mount(page, {
+    ...initialSnapshot,
+    connection: "connected",
+    turns: [
+      {
+        id: "activity-smoke",
+        status: "completed",
+        items: [
+          { id: "question", type: "userMessage", content: [{ text: "Inspect activity" }] },
+          ...Array.from({ length: 1200 }, (_, index) => ({
+            id: `detail-${index}`,
+            type: "agentMessage",
+            phase: "commentary",
+            text: `Saved activity detail ${index}`,
+          })),
+          { id: "final", type: "agentMessage", phase: "final_answer", text: "Saved final answer" },
+        ],
+      },
+    ],
+  });
+  const composer = page.getByRole("textbox", { name: "Message Pocket" });
+  await composer.fill("Keep my activity draft");
+  await page.getByRole("button", { name: "Show activity", exact: true }).click();
+  const hide = page.getByRole("button", { name: "Hide activity", exact: true });
+  await expect(hide).toHaveAttribute("aria-expanded", "true");
+  await expect(page.locator('[data-slot="trace-collapsible-content"]')).toHaveCSS("transition-duration", "0.2s");
+  await expect(page.locator("[data-activity-virtualizer] [data-transcript-row]").first()).toBeVisible();
+  expect(await page.locator("[data-transcript-row]").count()).toBeLessThan(MAX_MOUNTED_ROWS);
+  await hide.click();
+  await expect(page.getByRole("button", { name: "Show activity", exact: true })).toHaveAttribute(
+    "aria-expanded",
+    "false"
+  );
+  await expect(page.getByText("Saved final answer", { exact: true })).toBeVisible();
+  await expect(composer).toHaveValue("Keep my activity draft");
+  expect(writes).toEqual([]);
+});
+
 test("activity disclosure keeps shared outer gaps and hit target through expansion and virtualization", async ({
   page,
 }) => {

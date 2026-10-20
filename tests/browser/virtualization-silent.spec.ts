@@ -60,7 +60,6 @@ test("repeated silent turns create no message containers or accumulated scroll e
   };
   const writes = await mount(page, state);
   const viewport = page.locator('[data-slot="message-scroller-viewport"]');
-  await expect(viewport).toHaveAttribute("data-scroll-motion", "idle");
   const baseline = await geometry(viewport);
   expect(baseline.rows).toEqual(["visible/prompt", "visible/answer"]);
   const measurements = [baseline];
@@ -79,7 +78,6 @@ test("repeated silent turns create no message containers or accumulated scroll e
   await publish(page, state);
   await expect(page.locator("[data-transcript-row]")).toHaveCount(0);
   await expect(page.getByText("What are we working on?", { exact: true })).toBeVisible();
-  await expect(viewport).toHaveAttribute("data-scroll-motion", "idle");
   const empty = await geometry(viewport);
   state.turns.push(...silentTurns(BATCHES * TURNS_PER_BATCH));
   state.model = "silent-fixture-1";

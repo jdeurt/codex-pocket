@@ -1,4 +1,4 @@
-// Shared by disclosure height/chevron transitions and independent bottom settling.
+// Shared by activity disclosure height and chevron CSS transitions.
 export const ACTIVITY_MOTION = {
   duration: 200,
   easing: "cubic-bezier(0.4, 0, 0.2, 1)",

@@ -1,43 +1,27 @@
 "use client";
 
 import { type ActivityMeasurements, VirtualizedActivity } from "./virtualized-activity";
-import { Children, type ReactNode, useCallback, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
+import { Children, type ReactNode, useCallback, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
+  END_THRESHOLD,
   ESTIMATED_MESSAGE_HEIGHT,
   FORWARD_MESSAGES,
   INITIAL_MESSAGE_WINDOW,
   type TranscriptRow as Row,
   type TranscriptTurn,
-  isAtTranscriptEnd,
-  measureTranscriptRow,
   messageRange,
   rowsForTurns,
 } from "@/lib/transcript-virtualization";
 import { MessageScroller, MessageScrollerProvider, MessageScrollerViewport } from "@/components/ui/message-scroller";
-import { type Range, useVirtualizer } from "@tanstack/react-virtual";
+import { type Range, elementScroll, useVirtualizer } from "@tanstack/react-virtual";
 import { ArrowDownIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ChatMessage } from "./chat-message";
-import { TranscriptScrollMotion } from "@/lib/transcript-scroll-motion";
-import { TranscriptSnapshot } from "./transcript-snapshot";
-import { TranscriptSuspension } from "@/lib/transcript-suspension";
-import { string } from "@/lib/protocol";
-import { useTranscriptMeasurements } from "@/hooks/use-transcript-measurements";
 
 const PADDING_START = 24;
 const PADDING_END = 32;
 const LAST_ITEM = -1;
 const ACTIVITY_LOOKAHEAD_VIEWPORTS = 3;
-
-function isActivityTrigger(target: EventTarget | null) {
-  return target instanceof Element && !!target.closest('[data-slot="trace-collapsible-trigger"]');
-}
-
-function interruptDrag(buttons: number, motion: TranscriptScrollMotion) {
-  if (buttons === 1) {
-    motion.interrupt();
-  }
-}
 
 function MeasuredTranscript({
   rows,
@@ -52,17 +36,11 @@ function MeasuredTranscript({
   toggle: (id: string) => void;
   suspended: boolean;
 }) {
-  // TanStack exposes a mutable controller that React Compiler must not memoize.
   "use no memo";
 
   const viewport = useRef<HTMLDivElement>(null);
-  const canvas = useRef<HTMLDivElement>(null);
-  const [motion] = useState(() => new TranscriptScrollMotion());
-  const pauseMotion = useCallback((value: boolean, offset?: number) => motion.suspend(value, offset), [motion]);
-  const [, redraw] = useReducer((value: number) => value + 1, 0);
-  const [suspension] = useState(() => new TranscriptSuspension(redraw));
-  const paused = suspended || suspension.blocked;
-  const cached = suspension.shouldCacheMeasurements(suspended);
+  const savedOffset = useRef<number | undefined>(undefined);
+  const [follow, setFollow] = useState(true);
   const [activityMeasurements] = useState<ActivityMeasurements>(() => new Map());
   const [atEnd, setAtEnd] = useState(true);
   const rangeExtractor = useCallback(
@@ -73,245 +51,169 @@ function MeasuredTranscript({
           (row) => row.entry.kind === "activity" && expanded.has(row.id) && row.entry.items.length > FORWARD_MESSAGES
         );
 
-      // A large visible panel supplies its own message buffer. Avoid counting
-      // both its inner history window and a full outer history window.
       return messageRange(range, nested ? FORWARD_MESSAGES : INITIAL_MESSAGE_WINDOW);
     },
     [rows, expanded]
   );
-  // Its virtual key identifies appended output; the footer DOM stays mounted
-  // independently so pending answer fields retain their local draft state.
+  // Keep the ordinary content row mounted so pending answer drafts survive recycling.
   const footerKey = `footer:${rows.at(LAST_ITEM)?.id ?? "empty"}`;
   const getItemKey = useCallback(
     (index: number) => (index === rows.length ? footerKey : rows[index].id),
     [rows, footerKey]
   );
-  // eslint-disable-next-line react-hooks/incompatible-library -- Mutable controller; this adapter opts out above.
   const virtualizer = useVirtualizer<HTMLDivElement, HTMLElement>({
     count: rows.length + 1,
     getScrollElement: () => viewport.current,
-    observeElementOffset: motion.offsets.observe,
     getItemKey,
     estimateSize: (index) => (index === rows.length ? 0 : ESTIMATED_MESSAGE_HEIGHT),
     initialOffset: () => rows.length * ESTIMATED_MESSAGE_HEIGHT,
-    anchorTo: paused ? "start" : "end",
-    // One follow owner: the motion adapter. Library anchoring remains enabled.
-    followOnAppend: false,
-    scrollEndThreshold: -1,
+    anchorTo: suspended || !follow ? "start" : "end",
+    followOnAppend: !suspended && follow,
+    scrollEndThreshold: END_THRESHOLD,
     paddingStart: PADDING_START,
     paddingEnd: PADDING_END,
     rangeExtractor,
-    // The custom range owns the DOM budget. Keep every mounted row eligible
-    // for core measurement while a smooth end command crosses older history.
     overscan: rows.length + 1,
-    measureElement: measureTranscriptRow,
-    useCachedMeasurements: cached,
-    scrollToFn: (offset, options, instance) =>
-      suspension.scrollTo(offset, options, instance, suspended, () => motion.scrollTo(offset, options, instance)),
-    onChange: (instance, sync) => {
-      const end = isAtTranscriptEnd(instance);
-      setAtEnd(end);
-      suspension.readPosition(instance, suspended);
-      motion.readPosition(instance, sync);
+    useCachedMeasurements: suspended,
+    scrollToFn: (offset, options, instance) => {
+      if (!suspended) {
+        elementScroll(offset, options, instance);
+      }
     },
+    onChange: (instance) => setAtEnd(instance.isAtEnd()),
   });
-  useTranscriptMeasurements(
-    virtualizer,
-    suspension,
-    canvas,
-    ':scope > div > ul > li, :scope > div > [data-slot="transcript-footer"]'
+  // Reattach the documented measurement ref when cached measurements resume.
+  const measure = useCallback(
+    (element: HTMLElement | null) => virtualizer.measureElement(element),
+    [virtualizer, suspended]
   );
   useLayoutEffect(() => {
-    // The library defers iOS corrections while a finger or momentum owns the
-    // scroller, then applies the measured delta after the gesture settles.
-    virtualizer.shouldAdjustScrollPositionOnItemSizeChange = (item, _delta, instance) =>
-      !suspension.blocked && item.end <= (instance.scrollOffset ?? 0);
-
-    if (canvas.current) {
-      motion.mount(virtualizer, canvas.current);
-    }
-
-    return () => {
-      motion.unmount();
-      suspension.unmount();
-    };
-  }, [virtualizer, motion, suspension]);
-
-  const last = rows.at(LAST_ITEM);
+    virtualizer.scrollToEnd();
+  }, [virtualizer]);
   useLayoutEffect(() => {
-    suspension.update(suspended, virtualizer, pauseMotion);
-
-    if (last?.entry.kind === "message" && last.entry.item.type === "agentMessage") {
-      motion.source(last.id, string(last.entry.item.text));
+    if (suspended) {
+      savedOffset.current = viewport.current?.scrollTop;
+      virtualizer.cancelScroll();
+      setFollow(false);
+    } else if (savedOffset.current !== undefined) {
+      virtualizer.scrollToOffset(savedOffset.current);
+      savedOffset.current = undefined;
     }
-
-    motion.layout();
-  });
+  }, [suspended, virtualizer]);
 
   const items = virtualizer.getVirtualItems();
   const messages = items.filter((item) => item.index < rows.length);
   const footerRow = items.at(LAST_ITEM);
   const blockStart = messages[0]?.start ?? footerRow?.start ?? 0;
   const includesTail = rows.length === 0 || messages.at(LAST_ITEM)?.index === rows.length - 1;
-  const pointerIntent = (event: { target: EventTarget | null }) => {
-    suspension.finish(pauseMotion);
-    const target = event.target;
-
-    if (isActivityTrigger(target)) {
-      return;
-    }
-
-    if (target instanceof Element && target.closest('button, a, input, textarea, [role="button"]')) {
-      motion.control();
-    } else {
-      motion.interrupt();
+  const resumeFollow = () => {
+    if (!suspended) {
+      setFollow(true);
     }
   };
 
   return (
-    <TranscriptSnapshot
-      suspended={suspended}
-      capture={() => suspension.capture(virtualizer)}
-      retain={(value) => suspension.retain(value)}
-    >
-      <MessageScrollerProvider autoScroll={false} defaultScrollPosition="start">
-        <div className="min-h-0 flex-1">
-          <MessageScroller>
-            <MessageScrollerViewport
-              ref={viewport}
-              data-scroll-suspended={paused || undefined}
-              preserveScrollOnPrepend={false}
-              style={suspension.viewportStyle(suspended)}
-              onWheel={() => {
-                suspension.finish(pauseMotion);
-                motion.interrupt();
-              }}
-              onTouchStart={pointerIntent}
-              onTouchMove={() => motion.interrupt()}
-              onPointerDown={pointerIntent}
-              onPointerMove={(event) => interruptDrag(event.buttons, motion)}
-              onKeyDown={(event) => {
-                suspension.finish(pauseMotion);
-
-                if (!((event.key === "Enter" || event.key === " ") && isActivityTrigger(event.target))) {
-                  motion.interrupt();
-                }
-              }}
-            >
-              <div className="transcript" style={{ paddingBlock: 0 }}>
+    <MessageScrollerProvider autoScroll={false} defaultScrollPosition="start">
+      <div className="min-h-0 flex-1">
+        <MessageScroller>
+          <MessageScrollerViewport
+            ref={viewport}
+            data-scroll-suspended={suspended || undefined}
+            preserveScrollOnPrepend={false}
+            style={{ overflowAnchor: "none", overflowY: suspended ? "hidden" : undefined }}
+            onWheel={resumeFollow}
+            onTouchStart={resumeFollow}
+            onPointerDown={resumeFollow}
+            onKeyDown={resumeFollow}
+          >
+            <div className="transcript" style={{ paddingBlock: 0 }}>
+              <div style={{ height: virtualizer.getTotalSize(), position: "relative" }}>
                 <div
-                  ref={canvas}
-                  style={{
-                    height: virtualizer.getTotalSize(),
-                    minHeight: Math.max(
-                      motion.size(virtualizer.getTotalSize()),
-                      suspension.size(
-                        virtualizer.getTotalSize(),
-                        suspended,
-                        virtualizer.scrollRect?.height ?? 0,
-                        virtualizer.scrollElement
-                      )
-                    ),
-                    position: "relative",
-                  }}
+                  className="absolute top-0 left-0 w-full min-w-0"
+                  style={{ transform: `translateY(${blockStart}px)` }}
                 >
-                  <div
-                    className="absolute top-0 left-0 w-full min-w-0"
-                    style={{ transform: `translateY(${blockStart}px)` }}
-                  >
-                    <ul aria-label="Conversation" className="w-full min-w-0">
-                      {messages.map((virtualRow) => {
-                        const row = rows[virtualRow.index];
-                        const next = rows[virtualRow.index + 1];
+                  <ul aria-label="Conversation" className="w-full min-w-0">
+                    {messages.map((virtualRow) => {
+                      const row = rows[virtualRow.index];
+                      const next = rows[virtualRow.index + 1];
 
-                        return (
-                          <li
-                            key={virtualRow.key}
-                            ref={virtualizer.measureElement}
-                            data-index={virtualRow.index}
-                            data-slot="message-scroller-item"
-                            data-transcript-row={row.id}
-                            data-activity-row={row.entry.kind === "activity" || undefined}
-                            aria-posinset={virtualRow.index + 1}
-                            aria-setsize={rows.length}
-                            className="message-flow min-w-0"
-                            style={{ paddingBottom: next ? "var(--message-block-gap)" : 0 }}
-                          >
-                            {row.entry.kind === "message" ? (
-                              <ChatMessage item={row.entry.item} />
-                            ) : (
-                              <VirtualizedActivity
-                                id={row.id}
-                                turnId={row.turnId}
-                                items={row.entry.items}
-                                open={expanded.has(row.id)}
-                                onOpenChange={() => {
-                                  motion.disclose(isAtTranscriptEnd(virtualizer));
-                                  toggle(row.id);
-                                }}
-                                onSettled={() => motion.disclosed()}
-                                viewport={viewport}
-                                origin={virtualRow.start}
-                                end={virtualRow.end}
-                                scrollOffset={virtualizer.scrollOffset ?? 0}
-                                nearby={
-                                  virtualRow.end >=
-                                    (virtualizer.scrollOffset ?? 0) - (virtualizer.scrollRect?.height ?? 0) * 2 &&
-                                  virtualRow.start <=
-                                    (virtualizer.scrollOffset ?? 0) +
-                                      (virtualizer.scrollRect?.height ?? 0) * ACTIVITY_LOOKAHEAD_VIEWPORTS
-                                }
-                                measurements={activityMeasurements}
-                                suspended={suspended}
-                                suspension={suspension}
-                                offsets={motion.offsets}
-                                cached={cached}
-                              />
-                            )}
-                          </li>
-                        );
-                      })}
-                    </ul>
-                    <div
-                      ref={(element) => virtualizer.measureElement(element)}
-                      data-index={rows.length}
-                      data-slot="transcript-footer"
-                      data-has-messages={rows.length > 0 || undefined}
-                      className="message-flow absolute top-0 left-0 w-full min-w-0 [&:not(:has(>:not(:empty)))]:gap-0! [&[data-has-messages]:has(>:not(:empty))]:pt-(--message-block-gap) [&>:empty]:hidden"
-                      style={{
-                        position: includesTail ? "static" : "absolute",
-                        transform: includesTail ? undefined : `translateY(${(footerRow?.start ?? 0) - blockStart}px)`,
-                      }}
-                    >
-                      {footer}
-                    </div>
+                      return (
+                        <li
+                          key={virtualRow.key}
+                          ref={measure}
+                          data-index={virtualRow.index}
+                          data-slot="message-scroller-item"
+                          data-transcript-row={row.id}
+                          data-activity-row={row.entry.kind === "activity" || undefined}
+                          aria-posinset={virtualRow.index + 1}
+                          aria-setsize={rows.length}
+                          className="message-flow min-w-0"
+                          style={{ paddingBottom: next ? "var(--message-block-gap)" : 0 }}
+                        >
+                          {row.entry.kind === "message" ? (
+                            <ChatMessage item={row.entry.item} />
+                          ) : (
+                            <VirtualizedActivity
+                              id={row.id}
+                              turnId={row.turnId}
+                              items={row.entry.items}
+                              open={expanded.has(row.id)}
+                              onOpenChange={() => toggle(row.id)}
+                              viewport={viewport}
+                              origin={virtualRow.start}
+                              end={virtualRow.end}
+                              scrollOffset={virtualizer.scrollOffset ?? 0}
+                              nearby={
+                                virtualRow.end >=
+                                  (virtualizer.scrollOffset ?? 0) - (virtualizer.scrollRect?.height ?? 0) * 2 &&
+                                virtualRow.start <=
+                                  (virtualizer.scrollOffset ?? 0) +
+                                    (virtualizer.scrollRect?.height ?? 0) * ACTIVITY_LOOKAHEAD_VIEWPORTS
+                              }
+                              measurements={activityMeasurements}
+                              suspended={suspended}
+                            />
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  <div
+                    ref={measure}
+                    data-index={rows.length}
+                    data-slot="transcript-footer"
+                    className={`message-flow w-full min-w-0 ${rows.length ? "[&:not(:empty)]:pt-(--message-block-gap)" : ""}`}
+                    style={{
+                      position: includesTail ? "static" : "absolute",
+                      transform: includesTail ? undefined : `translateY(${(footerRow?.start ?? 0) - blockStart}px)`,
+                    }}
+                  >
+                    {footer}
                   </div>
                 </div>
               </div>
-            </MessageScrollerViewport>
-            {!atEnd && (
-              <Button
-                variant="secondary"
-                size="icon-xl"
-                className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full border-border bg-background"
-                aria-label="Jump to latest message"
-                onClick={() => {
-                  suspension.finish(pauseMotion);
-                  motion.latest();
-                }}
-              >
-                <ArrowDownIcon />
-              </Button>
-            )}
-          </MessageScroller>
-        </div>
-      </MessageScrollerProvider>
-    </TranscriptSnapshot>
+            </div>
+          </MessageScrollerViewport>
+          {!atEnd && (
+            <Button
+              variant="secondary"
+              size="icon-xl"
+              className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full border-border bg-background"
+              aria-label="Jump to latest message"
+              onClick={() => {
+                setFollow(true);
+                virtualizer.scrollToEnd();
+              }}
+            >
+              <ArrowDownIcon />
+            </Button>
+          )}
+        </MessageScroller>
+      </div>
+    </MessageScrollerProvider>
   );
 }
 
-// Shared by parent and read-only conversations. Network and child lifecycle stay
-// with the caller; virtualization limits DOM work, not the transcript payload.
 export function VirtualizedTranscript({
   turns,
   children,
@@ -323,12 +225,11 @@ export function VirtualizedTranscript({
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
   const rows = useMemo(() => rowsForTurns(turns), [turns]);
-  const footer = Children.toArray(children);
 
   return (
     <MeasuredTranscript
       rows={rows}
-      footer={footer}
+      footer={Children.toArray(children)}
       expanded={expanded}
       suspended={suspended}
       toggle={(id) => {
