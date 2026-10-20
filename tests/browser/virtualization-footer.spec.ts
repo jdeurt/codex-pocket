@@ -42,9 +42,46 @@ test("a stable activity provider contributes no gap while its rendered footer is
 
       await expect(footer).toHaveCSS("row-gap", "16px");
       await expect(footer).toHaveCSS("padding-top", count ? "16px" : "0px");
+      // A structural shrink can clamp the offset and retire JumpLatest while
+      // native measurements finish. Establish idle, unchanged layout first.
+      await expect
+        .poll(() =>
+          viewport.evaluate(async (element) => {
+            const measure = () => {
+              const footer = element.querySelector('[data-slot="transcript-footer"]')?.getBoundingClientRect();
+
+              return JSON.stringify({
+                motion: element.dataset.scrollMotion,
+                offset: element.scrollTop,
+                extent: element.scrollHeight,
+                height: element.clientHeight,
+                footerTop: footer?.top,
+                footerHeight: footer?.height,
+              });
+            };
+            const before = measure();
+            await new Promise(globalThis.requestAnimationFrame);
+            await new Promise(globalThis.requestAnimationFrame);
+
+            return element.dataset.scrollMotion === "idle" && before === measure();
+          })
+        )
+        .toBe(true);
+      const activity = page.getByText("Parent working", { exact: true });
+      const needsLatest = await activity.evaluate((element) => {
+        const viewport = element.closest('[data-slot="message-scroller-viewport"]')?.getBoundingClientRect();
+        const block = element.getBoundingClientRect();
+
+        if (!viewport) {
+          throw new Error("Activity has no transcript viewport");
+        }
+
+        return block.top < viewport.top || block.bottom > viewport.bottom;
+      });
       const latest = page.getByRole("button", { name: "Jump to latest message", exact: true });
 
-      if (await latest.isVisible()) {
+      if (needsLatest) {
+        await expect(latest).toBeVisible();
         await latest.click();
       }
 
