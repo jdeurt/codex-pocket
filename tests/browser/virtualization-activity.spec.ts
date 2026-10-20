@@ -1,12 +1,12 @@
 import { type Item, type Snapshot, initialSnapshot } from "../../src/lib/protocol";
 import { type Page, expect, test } from "@playwright/test";
 import { mount, publish } from "./virtualization-fixture";
+import { expectAnchor } from "./virtualization-measure";
 import { writeFile } from "node:fs/promises";
 
 const ACTIVITY_VARIANTS = 6;
 const IMAGE_CADENCE = 83;
 const STABLE_FRAMES = 3;
-const OFFSET_TOLERANCE = 3;
 const SCROLL_STOPS = {
   nearStart: 0.02,
   middle: 0.5,
@@ -169,27 +169,12 @@ test("a thousand activity messages stay virtualized through scrolling, media gro
 
     return settled.anchor;
   });
-  const expectAnchor = async () => {
-    await expect
-      .poll(() =>
-        page.locator(viewport).evaluate((element, saved) => {
-          const item = [...element.querySelectorAll<HTMLElement>("[data-transcript-row]")].find(
-            (candidate) => candidate.dataset.transcriptRow === saved.id
-          );
-
-          return item
-            ? Math.abs(item.getBoundingClientRect().top - element.getBoundingClientRect().top - saved.top)
-            : Infinity;
-        }, anchor)
-      )
-      .toBeLessThan(OFFSET_TOLERANCE);
-  };
   const index = turn.items.findIndex((item) => anchor.id.endsWith(`/${item.id}`));
 
   turn.items[index - 2].images = [{ source: "/api/images?item=reader-growth", alt: "Image above activity reader" }];
   await publish(page, state);
   await expect(page.getByRole("img", { name: "Image above activity reader" })).toHaveJSProperty("complete", true);
-  await expectAnchor();
+  await expectAnchor(page, anchor);
   turn.items.splice(
     1,
     0,
@@ -201,7 +186,7 @@ test("a thousand activity messages stay virtualized through scrolling, media gro
     }))
   );
   await publish(page, state);
-  await expectAnchor();
+  await expectAnchor(page, anchor);
   await page.screenshot({ path: `.local/virtualization-${info.project.name}-activity.png` });
   await scroll(page, 0);
   await page.getByRole("button", { name: "Hide activity", exact: true }).click();

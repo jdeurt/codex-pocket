@@ -11,7 +11,6 @@ const HISTORY_LIMIT = 200;
 export const parentMessageInput = z.object({ message: z.string().trim().min(1).max(MAX_BODY_LENGTH) }).strict();
 export const delegationMessagePrefix = "pocket-delegate:";
 
-export type DelegationMail = z.infer<typeof delegationMailSchema>;
 export type DelegationRequest = z.infer<typeof delegationRequestSchema>;
 
 /**

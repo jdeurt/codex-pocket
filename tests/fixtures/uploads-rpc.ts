@@ -9,9 +9,9 @@ import {
   turnSchema,
 } from "../../src/lib/protocol";
 import { appendFile, readFile, writeFile } from "node:fs/promises";
-import { fixtureFileReferenceSchema, fixtureRequestSchema, fixtureUploadInputSchema } from "./replay-protocol";
+import { fixtureFileReferenceSchema, fixtureUploadInputSchema } from "./replay-protocol";
+import { readFixtureRequests, writeFixtureRecord } from "./sequential-rpc";
 import { setInterval, setTimeout } from "node:timers";
-import { createInterface } from "node:readline";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -69,20 +69,12 @@ const initialControl = await readControl();
 const controls = { last: initialControl.id };
 
 /**
-Writes one offline native JSON-RPC record to the real child stdio pipe.
-@param value - Response or notification produced by this replay.
-*/
-function send(value: unknown) {
-  process.stdout.write(JSON.stringify(value) + "\n");
-}
-
-/**
 Publishes a native notification scoped to this synthetic parent.
 @param method - Native event method.
 @param params - Already normalized event fields.
 */
 function event(method: string, params: Data) {
-  send({ method, params: { threadId: thread.id, ...params } });
+  writeFixtureRecord({ method, params: { threadId: thread.id, ...params } });
 }
 
 /**
@@ -298,36 +290,5 @@ async function execute(method: string | undefined, params: Data) {
   }
 }
 
-/**
-Validates one native request and serializes its result or error on stdio.
-@param line - One complete JSON-RPC line.
-@returns Completion of the response write.
-*/
-async function respond(line: string) {
-  const request = fixtureRequestSchema.parse(JSON.parse(line));
-
-  if (request.id === undefined) {
-    return;
-  }
-
-  try {
-    send({ id: request.id, result: await execute(request.method, request.params) });
-  } catch (error) {
-    send({ id: request.id, error: { code: -32_000, message: error instanceof Error ? error.message : String(error) } });
-  }
-}
-
-/**
-Pumps the real child stdin stream through the offline native request boundary.
-@returns Completion when the host closes stdin.
-*/
-async function readRequests() {
-  const lines = createInterface({ input: process.stdin });
-
-  for await (const line of lines) {
-    await respond(line);
-  }
-}
-
 setInterval(() => void applyControl(), CONTROL_POLL_MS);
-await readRequests();
+await readFixtureRequests(execute);

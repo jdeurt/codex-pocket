@@ -1,8 +1,7 @@
 // Isolated process fixture: implements the app-server flow without a model or live session.
 import { type Data, type Turn, dataSchema, turnSchema } from "../../src/lib/protocol";
 import { appendFile, readFile, writeFile } from "node:fs/promises";
-import { createInterface } from "node:readline";
-import { fixtureRequestSchema } from "./replay-protocol";
+import { readFixtureRequests, writeFixtureRecord } from "./sequential-rpc";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -20,20 +19,12 @@ const submissionSchema = z.object({
 type Submission = z.infer<typeof submissionSchema>;
 
 /**
-Writes one offline native protocol response or notification.
-@param message - Normalized synthetic native record.
-*/
-function send(message: unknown) {
-  process.stdout.write(JSON.stringify(message) + "\n");
-}
-
-/**
 Scopes a synthetic native notification to the fixture's explicit thread.
 @param method - Native notification method.
 @param params - Normalized notification fields.
 */
 function event(method: string, params: Data) {
-  send({ method, params: { threadId, ...params } });
+  writeFixtureRecord({ method, params: { threadId, ...params } });
 }
 
 /**
@@ -148,43 +139,12 @@ async function execute(method: string | undefined, params: Data) {
 }
 
 /**
-Validates one stdin request and writes either its result or native fixture error.
-@param line - Complete native JSON-RPC line.
-@returns Completion of synthetic request handling.
-*/
-async function respond(line: string) {
-  const request = fixtureRequestSchema.parse(JSON.parse(line));
-
-  if (request.id === undefined) {
-    return;
-  }
-
-  try {
-    send({ id: request.id, result: await execute(request.method, request.params) });
-  } catch (error) {
-    send({ id: request.id, error: { code: -32_000, message: error instanceof Error ? error.message : String(error) } });
-  }
-}
-
-/**
-Pumps complete native request lines in arrival order.
-@returns Completion of stdin consumption.
-*/
-async function readRequests() {
-  const lines = createInterface({ input: process.stdin });
-
-  for await (const line of lines) {
-    await respond(line);
-  }
-}
-
-/**
 Records this private native process before consuming its actual stdin stream.
 @returns Completion when the owning bridge closes stdin.
 */
 async function replay() {
   await appendFile(path.join(directory, "fake-processes.jsonl"), JSON.stringify({ pid: process.pid }) + "\n");
-  await readRequests();
+  await readFixtureRequests(execute);
 }
 
 await replay();
