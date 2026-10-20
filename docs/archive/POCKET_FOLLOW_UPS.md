@@ -1,6 +1,6 @@
 # Pocket follow-up tasks
 
-> Historical stopped-work record. Juan subsequently authorized completion and merging through a development branch. See [the completion record](POCKET_COMPLETION_2026-10-20.md) for current implementation and verification. The stopped-state statements below describe the original archive.
+> Historical record from October 20, 2026. Status, instructions, and verification below describe that point in time and may be superseded. Use the [current documentation](../README.md) for setup and supported behavior.
 
 All implementation, delegates, tests and deployments are stopped at Juan's request
 on October 20, 2026. Only snapshot commits, branch publication and the handoff were

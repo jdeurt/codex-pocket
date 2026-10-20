@@ -1,17 +1,19 @@
 # Native harness simulators
 
+The simulators let Pocket test its native integrations without installing or signing in to Codex or Claude Code. They reproduce protocol behavior with deterministic data; real-instance calibration checks selected behaviors against the installed tools.
+
 `npm test` runs every server/workflow test with an empty `PATH`, a disposable home, explicit nonexistent native executable settings, and no inherited credentials. Node and the TypeScript loader are addressed by absolute path. The simulator tests also exercise Pocket's production `CodexRpc` and the unmodified Claude Agent SDK.
 
 ```sh
-npm test                     # Complete offline server/workflow suite
-npm run test:simulators       # Simulator integration flows only
+npm test                      # Complete offline server/workflow suite
+npm run test:simulators        # Simulator integration flows only
 npm run test:simulators:native # Explicit authenticated native calibration
-npm run simulators:extract    # Refresh contracts from installed implementations
+npm run simulators:extract     # Refresh contracts from installed implementations
 ```
 
 The last two commands require installed native tooling; ordinary tests do not. Calibration creates an ephemeral Codex thread and a nonpersistent Claude session in a disposable working directory. It makes real inference calls. It writes only versions and passing behavior names to `.local/simulator-calibration.json`, then closes both processes. It does not select another main Pocket, restart production, or inspect an existing conversation.
 
-## Complete interface snapshots
+## Interface snapshots
 
 `tests/simulators/contracts/codex.json` contains the installed CLI's complete combined app-server schema, generated with `--experimental`. The snapshot includes 172 client methods, 11 server requests, one client notification, and 85 server notifications. All generated v2 response and value definitions are retained. Requests, responses, notifications, and host answers to server requests are validated against those definitions without coercion.
 
@@ -19,13 +21,13 @@ Parameterless and nullable requests have explicit response mappings. The install
 
 `tests/simulators/contracts/claude.json` preserves all seven installed declaration files, including referenced private declarations, package exports, declaration hashes, SDK tools, browser and bridge interfaces, and all 30 `Query` members. The package is pinned by Pocket's lockfile; referenced third-party types remain supplied by those dependencies. This is an interface snapshot, not a copied Claude runtime.
 
-The snapshots are tied to **Codex CLI 0.163.0-alpha.10.2** and **Claude Agent SDK 0.3.303**. Native Claude calibration used **Claude Code 2.1.292**, which differs from the SDK package's declared CLI version, 2.1.303. Do not infer that later SDK methods work on that older CLI. See `contracts/provenance.json` and `contracts/calibration.json`.
+The snapshots are tied to **Codex CLI 0.163.0-alpha.10.2** and **Claude Agent SDK 0.3.303**. Native Claude calibration used **Claude Code 2.1.292**, which differs from the SDK package's declared CLI version, 2.1.303. Do not infer that later SDK methods work on that older CLI. See [snapshot provenance](../tests/simulators/contracts/provenance.json) and [calibration evidence](../tests/simulators/contracts/calibration.json).
 
 Sources: [Codex app-server documentation](https://learn.chatgpt.com/docs/app-server), the installed CLI schema generator, and the installed `@anthropic-ai/claude-agent-sdk` declarations. Regeneration reads the installed versions; review version and declaration changes before replacing the snapshots.
 
 ## Behavior models and scenarios
 
-The complete interface is extracted. Semantic parity for every native operation is **not** claimed. The built-in state models cover the following behavior; other operations require explicit scenarios and otherwise fail with `SIMULATOR_UNIMPLEMENTED`.
+The snapshots cover the installed interfaces; built-in behavior is limited to the models below. Other operations need explicit scenarios and otherwise fail with `SIMULATOR_UNIMPLEMENTED`. Full semantic parity with native implementations is not claimed.
 
 | Backend               | Built-in behavior                                                                                                                                                                                                                                                                                       |
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -74,6 +76,6 @@ Set `POCKET_SIMULATOR_HARNESS=claude` for Claude's wire protocol. Otherwise the 
 
 The same conformance functions run against both simulators and the real instances. The committed October 20 calibration records cover native initialization, Codex ephemeral-history rejection, model/effort readback, idle steer/interrupt rejection, streamed completion, seven filesystem operations, and Claude initialization/model catalogs, idle interrupt receipt, empty MCP catalog, model/permission mutation and streamed completion.
 
-The complete offline suite passed 88 tests, including eight simulator flows, with the bundled native Claude executable temporarily absent from this worktree. Additional offline flows cover durable reconnects, independent forks, active steering/interruption, archive lifecycle, actual SDK permission callbacks, original parent-session settings/usage behavior, strict malformed-request rejection and duplicate server replies. These cases are offline evidence; their entire state space has not been compared with native implementations.
+Offline flows cover durable reconnects, independent forks, active steering/interruption, archive lifecycle, actual SDK permission callbacks, original parent-session settings/usage behavior, strict malformed-request rejection and duplicate server replies. These cases are offline evidence; their entire state space has not been compared with native implementations.
 
 When adding behavior, retain the full interface snapshots, add a whole-flow scenario, and run the relevant assertions against a disposable real session. Keep native calibration opt-in. Do not turn an unknown operation into an empty successful response to make a test pass.
