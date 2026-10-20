@@ -255,7 +255,12 @@ export function createConfig(options: { typed?: boolean; tsconfigRootDir?: strin
         "jdeurt/const-on-top": "error",
         "@stylistic/lines-between-class-members": [
           "error",
-          "always",
+          {
+            enforce: [
+              { blankLine: "always", prev: "method", next: "*" },
+              { blankLine: "always", prev: "*", next: "method" },
+            ],
+          },
           { exceptAfterSingleLine: false, exceptAfterOverload: true },
         ],
         "@stylistic/padding-line-between-statements": [
