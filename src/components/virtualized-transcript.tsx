@@ -277,9 +277,8 @@ function MeasuredTranscript({
                       data-index={rows.length}
                       data-slot="transcript-footer"
                       data-has-messages={rows.length > 0 || undefined}
-                      className="message-flow absolute top-0 left-0 w-full min-w-0 [&[data-has-messages]:has(>:not(:empty))]:pt-(--message-block-gap) [&>:empty]:hidden"
+                      className="message-flow absolute top-0 left-0 w-full min-w-0 [&:not(:has(>:not(:empty)))]:gap-0! [&[data-has-messages]:has(>:not(:empty))]:pt-(--message-block-gap) [&>:empty]:hidden"
                       style={{
-                        gap: footer.length === 0 ? 0 : undefined,
                         position: includesTail ? "static" : "absolute",
                         transform: includesTail ? undefined : `translateY(${(footerRow?.start ?? 0) - blockStart}px)`,
                       }}
