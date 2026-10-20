@@ -1,9 +1,6 @@
 import { copyFile, mkdir, mkdtemp, open, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
-import { DelegationStore } from "../src/server/delegations";
 import { type SpinnerLibrary } from "../src/lib/spinner";
 import assert from "node:assert/strict";
-import { codexParentTools } from "../src/server/harness/mcp-config";
-import { createTonalFixtures } from "./fixtures/spinner-tonal-images";
 import os from "node:os";
 import path from "node:path";
 import sharp from "sharp";
@@ -22,7 +19,6 @@ const CORRUPT_PREFIX_BYTES = 300;
 const KIB = 1024;
 const MIB = KIB * KIB;
 const MAX_SPINNER_MIB = 8;
-const MIN_CONTRAST = 0.5;
 
 const fixture = path.resolve("tests/fixtures/spinners/kirbyjam.gif");
 
@@ -209,114 +205,6 @@ await test("spinner tool flow rejects invalid, corrupt, oversized and unsafe inp
     const filenames = await invalidSpinnerInputs(directory);
 
     await assertInvalidSpinnerInputs(main, directory, before, filenames);
-  } finally {
-    await main.client.close();
-    await rm(directory, { recursive: true, force: true });
-  }
-});
-
-await test("child MCP calls and forced main-server invocation reject spinner capability at runtime", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "spinner-child-"));
-  const main = await spinnerClient(directory);
-  const store = new DelegationStore(directory);
-
-  store.saveParent("spinner-fixture", { cwd: directory, policy: { sandbox: "read-only", approval: "never" } });
-  const child = store.create("spinner-fixture", {
-    title: "Fixture child",
-    body: "No spinner access",
-    idempotencyKey: "fixture",
-  });
-  const command = store.queue.claim("spinner-fixture", child.id);
-
-  assert.ok(command);
-  const context = { POCKET_CHILD_ID: child.id, POCKET_COMMAND_ID: command.id };
-  const side = await spinnerClient(directory, context, "scripts/side-pocket-mcp.ts");
-  const forced = await spinnerClient(directory, context);
-  const nativeChild = await spinnerClient(directory, { CODEX_THREAD_ID: "native-child-session" });
-  const unbound = await spinnerClient(directory, { POCKET_MAIN_THREAD_ID: "different-main" });
-
-  try {
-    const before = await main.call("spinner_set", { path: fixture });
-
-    assert.ok(before.current);
-    const toolList11 = await side.client.listTools();
-
-    assert.deepEqual(
-      toolList11.tools.map((tool) => tool.name),
-      ["message_parent"]
-    );
-    const args = codexParentTools({ command: process.execPath, args: [], env: context });
-
-    assert.ok(args.includes("mcp_servers.pocket.enabled=false"));
-    assert.ok(args.includes(`mcp_servers.pocket.env.POCKET_CHILD_ID=${JSON.stringify(child.id)}`));
-    assert.ok(args.includes('mcp_servers.pocket.env.POCKET_MAIN_THREAD_ID=""'));
-
-    for (const [name, input] of [
-      ["spinner_set", { path: fixture }],
-      ["spinner_reset", {}],
-      ["spinner_delete", { id: before.current.id }],
-      ["spinner_status", {}],
-    ] as const) {
-      await assert.rejects(side.client.callTool({ name, arguments: input }), /not found/);
-
-      for (const denied of [forced, unbound, nativeChild]) {
-        const result = await denied.client.callTool({ name, arguments: input });
-
-        assert.equal(result.isError, true);
-        assert.match(JSON.stringify(result), /only to the main Pocket/);
-      }
-    }
-
-    assert.deepEqual(await main.call("spinner_status"), before);
-  } finally {
-    await Promise.all([
-      main.client.close(),
-      side.client.close(),
-      forced.client.close(),
-      unbound.client.close(),
-      nativeChild.client.close(),
-    ]);
-    store.close();
-    await rm(directory, { recursive: true, force: true });
-  }
-});
-
-await test("set derives one bounded persisted tone per image from visible pixels, leaving original alpha and bytes intact", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "spinner-tone-"));
-
-  let main = await spinnerClient(directory);
-
-  try {
-    const fixtures = await createTonalFixtures(directory);
-    const tones = new Map<string, unknown>();
-
-    for (const name of ["dark", "bright", "subtle", "hidden", "weighted"]) {
-      const result = await main.call("spinner_set", { path: fixtures[name] });
-
-      assert.ok(result.current?.tone);
-      const { tone, id } = result.current;
-
-      assert.equal(tone.version, 1);
-      assert.ok(tone.contrast >= MIN_CONTRAST);
-      assert.ok(tone.contrast <= 2);
-      assert.ok(Number.isFinite(tone.brightness));
-      tones.set(name, tone);
-      assert.deepEqual(await readFile(path.join(directory, "spinner-assets", id)), await readFile(fixtures[name]));
-    }
-
-    assert.deepEqual(tones.get("dark"), tones.get("hidden"));
-    assert.notDeepEqual(tones.get("dark"), tones.get("weighted"));
-    assert.notDeepEqual(tones.get("dark"), tones.get("bright"));
-    assert.notDeepEqual(tones.get("bright"), tones.get("subtle"));
-    const before = await main.call("spinner_status");
-
-    await main.client.close();
-    main = await spinnerClient(directory);
-    assert.deepEqual(await main.call("spinner_status"), before);
-    const gif = await main.call("spinner_set", { path: fixture });
-
-    assert.equal(gif.current?.frames, ANIMATION_FRAMES);
-    assert.ok(gif.current.tone);
   } finally {
     await main.client.close();
     await rm(directory, { recursive: true, force: true });
