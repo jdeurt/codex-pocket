@@ -13,7 +13,6 @@ import { AgentBrowser } from "./agent-browser";
 import { AgentNavigationContext } from "@/lib/agent-navigation-context";
 import { ComposerAttachments } from "./composer-attachments";
 import { Conversation } from "./conversation";
-import { ConversationActivity } from "./conversation-activity";
 import { type FileAttachment } from "@/lib/attachments";
 import { NotificationPrompt } from "./notification-prompt";
 import { PocketMenu } from "./pocket-menu";
@@ -152,7 +151,11 @@ export function Chat() {
     <AgentNavigationContext value={openAgent}>
       <main className="chat-shell">
         <PocketMenu model={modelDescription(state)} status={status} onOpenChange={setPocketsOpen} />
-        <Conversation state={state} suspended={agentsOpen || pocketsOpen || isViewingFile} showActivity={false} />
+        <Conversation
+          state={state}
+          suspended={agentsOpen || pocketsOpen || isViewingFile}
+          activityControl={agentControl}
+        />
         <footer className="composer-wrap">
           <NotificationPrompt />
           <ComposerError errors={[error, attachments.error, state.error]} />
@@ -165,7 +168,6 @@ export function Chat() {
             }}
             retry={attachments.retry}
           />
-          <ConversationActivity state={state} control={agentControl} />
           <form
             onSubmit={(event) => {
               event.preventDefault();

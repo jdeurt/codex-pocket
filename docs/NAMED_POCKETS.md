@@ -12,14 +12,14 @@ Names and native identities live in the private `pockets.sqlite` catalog. Creati
 
 For desktop answers in another main Pocket, set `POCKET_ID` to its URL identity before running `npm run desktop -- requests` or `respond`. Replies include the native parent identity so equal request IDs in different app-server processes cannot cross conversations.
 
-# Composer status area
+# Transcript status area
 
-The status row belongs to the composer, outside the transcript's scroll container. It always reserves 44px and has a 10px gap above the input. At the transcript end, the last visible component sits 16px above the status text's line box. Notifications, errors, and attachments appear above the status row when present. The indicator, one-line status text, and agents hint share a vertical center; the agents button has a 44px touch target without negative vertical margins. Empty, thinking-only, agents-only, and combined states use the same geometry.
+The status row is the final item inside the transcript's scroll container and scrolls away when reading earlier messages. It always reserves 44px. At the transcript end, the last visible component sits 24px above the status text's line box, and the reserved row ends 10px above the composer area. Short conversations align to the bottom to preserve these gaps. The scroll fade ends at the composer boundary and disappears at the transcript end. Notifications, errors, and attachments belong to the composer area below the status row. The indicator, one-line status text, and agents hint share a vertical center; the agents button has a 44px touch target without negative vertical margins. Empty, thinking-only, agents-only, and combined states use the same geometry.
 
 # Verification
 
 `tests/browser/pockets.spec.ts` drives the real app and production APIs through offline Codex simulator processes. It exercises independent tabs, names, previews, drafts, rename, deletion, idempotent creation, and invalid selections. Playwright measures narrow-menu overflow, header centering, and touch targets.
 
-`tests/browser/virtualization-tail.spec.ts` measures the fixed row, input gap, and text alignment across states and both spinner types. `virtualization-pocket-scroll.spec.ts` verifies native bookmark restoration. These run in Chromium and WebKit phone and desktop profiles.
+`tests/browser/virtualization-tail.spec.ts` measures the reserved row, composer gap, and text alignment across states and both spinner types. `virtualization-pocket-scroll.spec.ts` verifies native bookmark restoration. `virtualization-keyboard.spec.ts` checks bottom alignment after blur and staged keyboard-close viewport events without a scroll gesture. These run in Chromium and WebKit phone and desktop profiles.
 
 `tests/named-pockets-flow.test.ts` uses two fresh host processes against one private fixture directory. It proves separate histories, receipt namespaces, upload ownership, restart recovery without replay, and refusal to delete active or final Pockets. The simulator stores sessions independently in SQLite so concurrent app-server processes cannot overwrite each other's state.

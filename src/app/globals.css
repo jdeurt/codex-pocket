@@ -720,8 +720,11 @@
   }
 }
 
-.composer-wrap > .activity-item {
+/* A centered 20px label starts 12px inside its 44px hit area: 12 + 12 = 24px. */
+.transcript-status {
+  padding-top: 12px;
+}
+.transcript-status > .activity-item {
   width: 100%;
-  padding-inline: 8px;
-  margin-bottom: 10px;
+  padding-inline: 0;
 }

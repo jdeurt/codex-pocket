@@ -2,7 +2,7 @@
 import type { ReactNode } from "react";
 
 /**
-Reserve a stable composer status area independently of transcript content.
+Reserve a stable status area at the transcript tail, including when its controls are absent.
 @param props - Activity indicator and optional agent-browser control.
 @returns The existing activity row.
 */
