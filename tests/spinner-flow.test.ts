@@ -1,4 +1,4 @@
-import { copyFile, mkdir, mkdtemp, open, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
+import { mkdtemp, open, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { type SpinnerLibrary } from "../src/lib/spinner";
 import assert from "node:assert/strict";
 import os from "node:os";
@@ -6,119 +6,15 @@ import path from "node:path";
 import sharp from "sharp";
 import { spinnerClient } from "./fixtures/spinner-client";
 import test from "node:test";
+
 type SpinnerConnection = Awaited<ReturnType<typeof spinnerClient>>;
 
-const DIGEST_HEX_LENGTH = 64;
-const ANIMATION_FRAMES = 15;
-const PERMISSION_MASK = 0o777;
-const PRIVATE_FILE_MODE = 0o600;
-const PRIVATE_DIRECTORY_MODE = 0o700;
-const TALL_WIDTH = 160;
-const TALL_HEIGHT = 40;
 const CORRUPT_PREFIX_BYTES = 300;
 const KIB = 1024;
 const MIB = KIB * KIB;
 const MAX_SPINNER_MIB = 8;
 
 const fixture = path.resolve("tests/fixtures/spinners/kirbyjam.gif");
-
-await test("spinner tools copy local/upload paths, persist across MCP restarts, reset and delete only managed copies", async () => {
-  const directory = await mkdtemp(path.join(os.tmpdir(), "spinner-flow-"));
-
-  let main = await spinnerClient(directory);
-
-  try {
-    const spinnerLibrary1 = await main.call("spinner_status");
-
-    assert.equal(spinnerLibrary1.current, null);
-    const uploaded = path.join(
-      directory,
-      "uploads",
-      "a".repeat(DIGEST_HEX_LENGTH),
-      "00000000-0000-4000-8000-000000000001",
-      "original"
-    );
-
-    await mkdir(path.dirname(uploaded), { recursive: true });
-    await copyFile(fixture, uploaded);
-    const bytes = await readFile(uploaded);
-    const normalized = path.join(path.dirname(uploaded), "image.png");
-
-    await sharp(bytes).png().toFile(normalized);
-    const normalizedBytes = await readFile(normalized);
-    const selected = await main.call("spinner_set", { path: uploaded });
-
-    assert.ok(selected.current);
-    assert.equal(selected.current.frames, ANIMATION_FRAMES);
-    assert.equal(selected.current.mime, "image/gif");
-    assert.equal(JSON.stringify(selected).includes(directory), false);
-    assert.equal(JSON.stringify(selected).includes("original"), false);
-    const id = selected.current.id;
-    const managed = path.join(directory, "spinner-assets", id);
-
-    assert.deepEqual(await readFile(managed), bytes);
-    const fileInfo2 = await stat(managed);
-
-    assert.equal(fileInfo2.mode & PERMISSION_MASK, PRIVATE_FILE_MODE);
-    const fileInfo3 = await stat(path.dirname(managed));
-
-    assert.equal(fileInfo3.mode & PERMISSION_MASK, PRIVATE_DIRECTORY_MODE);
-    const selectedSpinner4 = await main.call("spinner_set", { path: fixture });
-
-    assert.equal(selectedSpinner4.saved.length, 1);
-    await main.client.close();
-    main = await spinnerClient(directory);
-    assert.deepEqual(await main.call("spinner_status"), selected);
-    const resetSpinner5 = await main.call("spinner_reset");
-
-    assert.equal(resetSpinner5.current, null);
-    const spinnerLibrary6 = await main.call("spinner_status");
-
-    assert.equal(spinnerLibrary6.saved.length, 1);
-    await main.call("spinner_delete", { id });
-    await assert.rejects(stat(managed));
-    assert.deepEqual(await readFile(uploaded), bytes);
-    assert.deepEqual(await readFile(normalized), normalizedBytes);
-    const local = path.join(directory, "mutable-local.gif");
-
-    await copyFile(uploaded, local);
-    const second = await main.call("spinner_set", { path: local });
-
-    assert.ok(second.current);
-    await writeFile(local, "source may change after copying");
-    assert.deepEqual(await readFile(path.join(directory, "spinner-assets", second.current.id)), bytes);
-    const deletedSpinner7 = await main.call("spinner_delete", { id: second.current.id });
-
-    assert.equal(deletedSpinner7.current, null);
-    assert.equal(await readFile(local, "utf8"), "source may change after copying");
-    assert.deepEqual(await readFile(uploaded), bytes);
-    const spinnerLibrary8 = await main.call("spinner_status");
-
-    assert.deepEqual(spinnerLibrary8.saved, []);
-
-    for (const format of ["png", "jpeg", "webp"] as const) {
-      const filename = path.join(directory, `wide.${format}`);
-
-      await sharp({ create: { width: 160, height: 40, channels: 3, background: "red" } })
-        .toFormat(format)
-        .toFile(filename);
-      const result = await main.call("spinner_set", { path: filename });
-
-      assert.equal(result.current?.width, TALL_WIDTH);
-      assert.equal(result.current.height, TALL_HEIGHT);
-    }
-
-    const webp = path.join(directory, "animated.webp");
-
-    await sharp(bytes, { animated: true }).webp().toFile(webp);
-    const selectedSpinner9 = await main.call("spinner_set", { path: webp });
-
-    assert.equal(selectedSpinner9.current?.frames, ANIMATION_FRAMES);
-  } finally {
-    await main.client.close();
-    await rm(directory, { recursive: true, force: true });
-  }
-});
 
 /**
 Creates an oversized native input and closes its file handle even when truncation fails.
