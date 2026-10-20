@@ -16,6 +16,8 @@ function silentTurns(start: number) {
       status: index % 2 === 0 ? "completed" : "inProgress",
       items: [
         { id: `${id}-assistant`, type: "agentMessage", text: " \n\n" },
+        { id: `${id}-definition`, type: "agentMessage", text: `[ref-${id}]: https://example.com` },
+        { id: `${id}-footnote`, type: "agentMessage", text: `[^${id}]: An unused footnote` },
         { id: `${id}-user`, type: "userMessage", content: [{ text: " \n" }] },
         { id: `${id}-image`, type: "imageOutput", images: [] },
       ],

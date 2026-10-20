@@ -2,13 +2,12 @@
 import { CodeBlock, CodeBlockContent } from "@/components/ui/code-block";
 import { type ComponentProps, memo } from "react";
 import ReactMarkdown, { type ExtraProps, defaultUrlTransform } from "react-markdown";
+import { hasMarkdownOutput, markdownPlugins } from "@/lib/markdown-content";
 import { AttachmentGroup } from "@/components/ui/attachment";
 import { ChatImage } from "./chat-image";
 import { CopyAction } from "./copy-action";
 import { Table } from "@/components/ui/table";
 import { imageUrl } from "@/lib/images";
-import { remarkCopyAction } from "@/lib/remark-copy-action";
-import remarkGfm from "remark-gfm";
 
 function MarkdownPre({ children }: ComponentProps<"pre">) {
   return <>{children}</>;
@@ -42,10 +41,14 @@ export const Markdown = memo(function MarkdownContent({
   allowCopyActions?: boolean;
   imageBase?: string;
 }) {
+  if (!hasMarkdownOutput(source, allowCopyActions)) {
+    return null;
+  }
+
   return (
     <div className="markdown">
       <ReactMarkdown
-        remarkPlugins={allowCopyActions ? [remarkGfm, remarkCopyAction] : [remarkGfm]}
+        remarkPlugins={markdownPlugins(allowCopyActions)}
         urlTransform={(url, key) =>
           key === "src"
             ? imageBase && imageUrl(url) && !url.startsWith("data:")

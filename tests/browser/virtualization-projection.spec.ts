@@ -51,8 +51,17 @@ test("shared projected history preserves one scroller, media, pending drafts and
             text: `History ${index}`,
           })),
           { id: "literal", type: "agentMessage", text: "<!-- literal HTML remains visible -->" },
-          { id: "media", type: "agentMessage", text: "", images: [{ source: "/icon-192.png", alt: "Kept image" }] },
+          {
+            id: "media",
+            type: "agentMessage",
+            text: "[ref]: https://example.com",
+            images: [{ source: "/icon-192.png", alt: "Kept image" }],
+          },
           { id: "action", type: "agentMessage", text: '```pocket-copy\n"Kept copy action"\n```' },
+          { id: "action-empty", type: "agentMessage", text: '```pocket-copy\n""\n```' },
+          { id: "partial", type: "agentMessage", text: "```pocket-" },
+          { id: "literal-user", type: "userMessage", content: [{ text: "[ref]: https://example.com" }] },
+          { id: "linked", type: "agentMessage", text: "[Kept link][ref]\n\n[ref]: https://example.com" },
           ...mediaTail,
         ],
       },
@@ -77,7 +86,17 @@ test("shared projected history preserves one scroller, media, pending drafts and
   await expect(page.locator('[data-message-id="literal"]')).toContainText("literal HTML remains visible");
   await expect(page.getByRole("img", { name: "Kept image", exact: true })).toHaveJSProperty("complete", true);
   await expect(page.locator('[data-transcript-row="visibility/media"]')).toBeAttached();
+  await expect(page.locator('[data-transcript-row="visibility/media"] .markdown')).toHaveCount(0);
   await expect(page.locator('[data-transcript-row="visibility/action"]')).toBeAttached();
+  await expect(
+    page.locator('[data-message-id="action-empty"]').getByRole("button", { name: "Copy text", exact: true })
+  ).toBeVisible();
+  await expect(page.locator('[data-message-id="partial"]')).toContainText("```pocket-");
+  await expect(page.locator('[data-message-id="literal-user"]')).toHaveText("[ref]: https://example.com");
+  await expect(page.getByRole("link", { name: "Kept link", exact: true })).toHaveAttribute(
+    "href",
+    "https://example.com"
+  );
   await expectSharedProjection(page);
   expect(await page.locator("[data-transcript-row]").count()).toBeLessThan(MAX_MOUNTED_ROWS);
   state.turns[0].items.push({ id: "streamed", type: "agentMessage", text: "First streaming token" });

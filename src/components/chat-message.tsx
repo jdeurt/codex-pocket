@@ -1,6 +1,7 @@
 import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { type Item, object, string } from "@/lib/protocol";
 import { Message, MessageContent } from "@/components/ui/message";
+import { hasMessageText, messageText } from "@/lib/turn-messages";
 import { AttachmentGroup } from "@/components/ui/attachment";
 import { ChatImage } from "./chat-image";
 import type { FileAttachment } from "@/lib/attachments";
@@ -8,7 +9,6 @@ import { FileAttachments } from "./file-attachments";
 import { Markdown } from "./markdown";
 import { SystemEvent } from "./system-event";
 import { ToolMessage } from "./tool-message";
-import { messageText } from "@/lib/turn-messages";
 
 function uploadedFiles(item: Item) {
   return Array.isArray(item.attachments) ? (item.attachments as FileAttachment[]) : [];
@@ -49,7 +49,7 @@ export function ChatMessage({ item }: { item: Item }) {
                 ))}
               </AttachmentGroup>
             )}
-            {text.trim().length > 0 &&
+            {hasMessageText(item) &&
               (item.type === "userMessage" ? (
                 <p className="whitespace-pre-wrap">{text}</p>
               ) : (

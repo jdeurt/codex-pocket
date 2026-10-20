@@ -279,7 +279,6 @@
 .transcript [data-slot="bubble-content"] > * {
   margin-block: 0;
 }
-.transcript .markdown:empty,
 .transcript .message-flow:empty,
 .transcript .chat-images:empty,
 .transcript [data-slot="bubble-content"] > p:empty {

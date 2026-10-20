@@ -1,4 +1,5 @@
 import { type Item, type Turn, object, string } from "./protocol";
+import { hasMarkdownOutput } from "./markdown-content";
 
 export type TurnEntry = { kind: "message"; item: Item } | { kind: "activity"; id: string; items: Item[] };
 
@@ -13,6 +14,12 @@ export function messageText(item: Item) {
       : "";
 }
 
+export function hasMessageText(item: Item) {
+  const text = messageText(item);
+
+  return item.type === "userMessage" ? !!text.trim() : hasMarkdownOutput(text, item.type === "agentMessage");
+}
+
 function messageEntries(turn: Turn, active: boolean): TurnEntry[] {
   const messages = turn.items.filter(
     (item) =>
@@ -20,7 +27,7 @@ function messageEntries(turn: Turn, active: boolean): TurnEntry[] {
       (["userMessage", "agentMessage", "imageOutput"].includes(item.type) &&
         ((Array.isArray(item.images) && item.images.length > 0) ||
           (Array.isArray(item.attachments) && item.attachments.length > 0) ||
-          !!messageText(item).trim()))
+          hasMessageText(item)))
   );
 
   if (active || turn.status === "interrupted") {
