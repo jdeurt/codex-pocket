@@ -53,10 +53,7 @@ async function setup() {
     const started = await rpc.request("thread/start", {
       cwd: config.cwd,
       ephemeral: false,
-      developerInstructions: pocketInstructions(
-        string(effective.developer_instructions),
-        effective.sandbox_mode === "danger-full-access"
-      ),
+      developerInstructions: pocketInstructions(string(effective.developer_instructions)),
     });
     const { thread } = started;
     const threadId = thread.id;

@@ -11,6 +11,7 @@ export const sessionResponseSchema = z.looseObject({
 });
 export const threadResponseSchema = z.looseObject({ thread: threadSchema });
 export const turnResponseSchema = z.looseObject({ turn: turnSchema });
+export const steerResponseSchema = z.looseObject({ turnId: z.string() });
 export const configResponseSchema = z.looseObject({ config: dataSchema });
 export const threadsPageSchema = z.looseObject({ data: z.array(threadSchema), nextCursor: z.string().nullable() });
 export const turnsPageSchema = z.looseObject({ data: z.array(turnSchema), nextCursor: z.string().nullable() });
@@ -25,6 +26,7 @@ export const rpcResponseSchemas = new Map<string, z.ZodType>([
   ["thread/resume", sessionResponseSchema],
   ["thread/read", threadResponseSchema],
   ["turn/start", turnResponseSchema],
+  ["turn/steer", steerResponseSchema],
   ["config/read", configResponseSchema],
   ["thread/list", threadsPageSchema],
   ["thread/turns/list", turnsPageSchema],

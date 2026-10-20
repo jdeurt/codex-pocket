@@ -3,7 +3,7 @@ import type { Receipt } from "./outbox";
 import { log } from "./logging";
 
 const RECOVERY_ID_PREFIX = "pocket-recovery:";
-export const RECOVERY_PROMPT = `Pocket has restarted this Codex process and resumed your existing conversation. Review the conversation and continue any unfinished or in-progress work, respecting the latest operator instructions. Inspect whether any subagents or delegated jobs that are expected to remain active are running as intended; reconnect, resume or report problems where appropriate. Do not blindly duplicate jobs or start new delegation merely because of this restart. If no work or expected jobs remain open, say so briefly. Respond normally; no special completion marker is needed.`;
+export const RECOVERY_PROMPT = `Pocket has restarted this Codex process and resumed your existing conversation. Review the conversation and continue any unfinished or in-progress work, respecting the latest operator instructions. Inspect whether any subagents or delegated jobs that are expected to remain active are running as intended; reconnect, resume or report problems where appropriate. Do not blindly duplicate jobs or start new delegation merely because of this restart. If no authorized work or expected jobs remain open and there is no meaningful issue to report, end silently. Respond normally; no special completion marker is needed.`;
 
 /**
 Recognize reserved restart-recovery identities without matching user text.

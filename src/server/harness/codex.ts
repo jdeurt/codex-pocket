@@ -1,4 +1,10 @@
-import { type AdapterOptions, type HarnessAdapter, type HarnessMessage, type HarnessResult } from "./types";
+import {
+  type AdapterOptions,
+  type HarnessAdapter,
+  type HarnessMessage,
+  type HarnessResult,
+  type SteeringResult,
+} from "./types";
 import { CodexRpc, RpcError } from "../rpc";
 import { type Item, type PendingRequest, type RpcEvent, string } from "../../lib/protocol";
 import { RpcDiagnosticEvent, RpcDisconnectEvent, RpcNotificationEvent } from "../rpc-events";
@@ -10,6 +16,7 @@ import { codexPermissions } from "./permissions";
 import { loadHistory } from "../history";
 import { log } from "../logging";
 import { sidePocketInstructions } from "./instructions";
+import { steerCodex } from "./codex-steering";
 import { validateAnswer } from "../answers";
 
 const INVALID_REQUEST_CODE = -32_600;
@@ -41,6 +48,10 @@ export class CodexAdapter implements HarnessAdapter {
   private sessionId?: string;
 
   private active?: string;
+
+  private started?: Promise<unknown>;
+
+  private completed = false;
 
   private pending?: { resolve: (result: HarnessResult) => void; reject: (error: Error) => void };
 
@@ -114,10 +125,11 @@ export class CodexAdapter implements HarnessAdapter {
       case "turn/completed": {
         const turn = event.params.turn;
 
-        if (!turn) {
+        if (!turn || turn.id !== this.active) {
           break;
         }
 
+        this.completed = true;
         this.active = undefined;
         this.pending?.resolve({
           status: turn.status === "completed" || turn.status === "interrupted" ? turn.status : "failed",
@@ -220,7 +232,10 @@ export class CodexAdapter implements HarnessAdapter {
     this.options.callbacks.metadata({ sessionStarted: true });
 
     try {
-      this.startTurn(id, input);
+      this.started = this.startTurn(id, input);
+      void this.started.catch((error: unknown) =>
+        this.pending?.reject(error instanceof Error ? error : new Error("Harness request failed.", { cause: error }))
+      );
 
       return await result;
     } finally {
@@ -233,18 +248,18 @@ export class CodexAdapter implements HarnessAdapter {
   @param id - Durable delegated command identity.
   @param input - Delegated user input.
   */
-  private startTurn(id: string, input: string) {
+  private async startTurn(id: string, input: string) {
     const { child } = this.options;
-    const start = this.rpc.request("turn/start", {
+    const { turn } = await this.rpc.request("turn/start", {
       threadId: this.sessionId,
       clientUserMessageId: id,
       input: [{ type: "text", text: input, text_elements: [] }],
       effort: child.effort ?? child.policy.effort,
     });
 
-    void start.catch((error: unknown) =>
-      this.pending?.reject(error instanceof Error ? error : new Error("Harness request failed.", { cause: error }))
-    );
+    if (!this.completed) {
+      this.active = turn.id;
+    }
   }
 
   /**
@@ -276,6 +291,7 @@ export class CodexAdapter implements HarnessAdapter {
   */
   async run(id: string, input: string) {
     this.outputs.clear();
+    this.completed = false;
 
     return this.runTurn(id, input);
   }
@@ -291,6 +307,18 @@ export class CodexAdapter implements HarnessAdapter {
     });
 
     return harnessMessages(await loadHistory(this.rpc, thread));
+  }
+
+  /**
+  Wait for the native turn identity before conditionally steering that exact turn.
+  @param id - Durable message identity reused for native correlation.
+  @param input - Current-task correction, without turn-level option overrides.
+  @returns Native acceptance or an explicit non-delivery or uncertain outcome.
+  */
+  async steer(id: string, input: string): Promise<SteeringResult> {
+    await this.started;
+
+    return steerCodex(this.rpc, this.sessionId, this.active, id, input);
   }
 
   /**

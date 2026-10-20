@@ -43,7 +43,7 @@ class InstructionCheck {
   ) {
     const existing = `The configured integration marker is ${MARKER}. When asked for the configured integration marker, reply exactly ${MARKER}.`;
 
-    this.instructions = pocketInstructions(existing, false);
+    this.instructions = pocketInstructions(existing);
     assert.ok(this.instructions.startsWith(existing + "\n\n"));
     this.config = configSchema.parse({
       threadId: "bootstrap",

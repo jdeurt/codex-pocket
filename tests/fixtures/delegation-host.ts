@@ -1,4 +1,6 @@
+import { type AdapterOptions, type Harness } from "../../src/server/harness/types";
 import { type HostPacket, hostRequestSchema } from "./delegation-protocol";
+import { CodexAdapter } from "../../src/server/harness/codex";
 import { DelegationStore } from "../../src/server/delegations";
 import { DelegationWorker } from "../../src/server/delegation-worker";
 import { SimulatedAdapter } from "./delegation-adapter";
@@ -34,35 +36,82 @@ function send(data: HostPacket) {
   }
 }
 
+/**
+Register the existing process simulator for native close and completion controls.
+@param harness - Simulated harness label.
+@param options - Real worker callbacks bound to this fake resource.
+@returns Registered simulator retaining its confirmed-exit gate.
+*/
+function simulatedAdapter(harness: Harness, options: AdapterOptions) {
+  const adapter = new SimulatedAdapter(options, harness, send);
+
+  adapters.set(options.child.id, adapter);
+
+  return adapter;
+}
+
+/**
+Use real native stdio in steering flows and retain the existing confirmed-exit simulator elsewhere.
+@param harness - Recorded child harness selected by the flow.
+@param options - Real worker callbacks and native child identity.
+@returns Owned native adapter with test-only observations of real output frames.
+*/
+function adapterForFlow(harness: Harness, options: AdapterOptions) {
+  if (process.env.DELEGATION_HOST_MODE === "native") {
+    return new CodexAdapter({
+      ...options,
+      callbacks: {
+        ...options.callbacks,
+        output(text) {
+          options.callbacks.output(text);
+          send({
+            event: "started",
+            id: options.parentTools?.env.POCKET_COMMAND_ID ?? "missing",
+            childId: options.child.id,
+            harness,
+            text,
+          });
+        },
+      },
+    });
+  }
+
+  return simulatedAdapter(harness, options);
+}
+
 const SIMULATOR_RECOVERY_MS = 60_000;
 const CRASH_EXIT_CODE = 77;
 const delivery: { status: string; gate?: ReturnType<typeof Promise.withResolvers<undefined>> } = { status: "sent" };
 
-const worker =
-  process.env.DELEGATION_HOST_MODE === "worker"
-    ? new DelegationWorker(
-        store,
-        {
-          send: async (id, text) => {
-            send({ event: "mail", id, text });
-            await delivery.gate?.promise;
+const worker = ["worker", "native"].includes(process.env.DELEGATION_HOST_MODE ?? "")
+  ? new DelegationWorker(
+      store,
+      {
+        send: async (id, text) => {
+          send({ event: "mail", id, text });
+          await delivery.gate?.promise;
 
-            return { status: delivery.status };
-          },
+          return { status: delivery.status };
         },
-        configSchema.parse({ threadId: owner, cwd: process.cwd() }),
-        {
-          createAdapter: (harness, options) => {
-            const adapter = new SimulatedAdapter(options, harness, send);
-
-            adapters.set(options.child.id, adapter);
-
-            return adapter;
-          },
-          recoveryIntervalMs: Number(process.env.DELEGATION_RECOVERY_MS ?? SIMULATOR_RECOVERY_MS),
-        }
-      )
-    : undefined;
+      },
+      configSchema.parse({
+        threadId: owner,
+        cwd: process.cwd(),
+        ...(process.env.DELEGATION_HOST_MODE === "native" && {
+          codexBinary: process.execPath,
+          serverArgs: [
+            "--import",
+            new URL("../../node_modules/tsx/dist/loader.mjs", import.meta.url).pathname,
+            new URL("delegation-codex.ts", import.meta.url).pathname,
+          ],
+        }),
+      }),
+      {
+        createAdapter: adapterForFlow,
+        recoveryIntervalMs: Number(process.env.DELEGATION_RECOVERY_MS ?? SIMULATOR_RECOVERY_MS),
+      }
+    )
+  : undefined;
 
 /**
 Normalizes the native IPC envelope once and retains unknown domain arguments for their real store schemas.

@@ -1,4 +1,10 @@
-import { type AdapterOptions, type HarnessAdapter, type HarnessMessage, type HarnessResult } from "./types";
+import {
+  type AdapterOptions,
+  type HarnessAdapter,
+  type HarnessMessage,
+  type HarnessResult,
+  type SteeringResult,
+} from "./types";
 import { type ChildProcess, spawn } from "node:child_process";
 import {
   type Query,
@@ -226,6 +232,18 @@ Read SDK saved messages and project canonical delegated history.
     const messages = await getSessionMessages(this.sessionId, { dir: this.options.child.cwd });
 
     return harnessMessages(claudeTranscript(messages));
+  }
+
+  /**
+Reject unsupported conditional steering without submitting a potentially queued SDK message.
+@returns Explicit unsupported outcome; no native message was sent.
+*/
+  steer(): Promise<SteeringResult> {
+    return Promise.resolve({
+      status: "unsupported",
+      detail:
+        "Claude streaming input can queue a later turn; no supported expected-turn steering contract is available. Nothing was sent.",
+    });
   }
 
   /**

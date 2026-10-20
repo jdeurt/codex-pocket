@@ -91,11 +91,13 @@ await test(
     await tool(client, "side_pocket_send", {
       id: first.childId,
       message: "followup-one",
+      mode: "queue",
       idempotencyKey: "followup-one",
     });
     await tool(client, "side_pocket_send", {
       id: first.childId,
       message: "followup-two",
+      mode: "queue",
       idempotencyKey: "followup-two",
     });
     await worker.call("complete", { childId: first.childId });

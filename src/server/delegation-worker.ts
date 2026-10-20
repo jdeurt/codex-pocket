@@ -136,6 +136,7 @@ export class DelegationWorker {
     const done = this.execute(child, run);
 
     this.active.set(child.id, { run, done });
+    void this.tick();
   }
 
   /**
@@ -189,6 +190,14 @@ export class DelegationWorker {
   Closes requested children and claims queued work only when process capacity is available.
   */
   private dispatch() {
+    for (const command of this.store.queue.steering.pending(this.config.threadId)) {
+      const running = this.active.get(command.childId);
+
+      if (running?.run.command.id === command.targetId && this.store.queue.steering.claim(command)) {
+        running.run.steer(command);
+      }
+    }
+
     for (const child of this.store.list(this.config.threadId)) {
       if (child.status !== "closing" || this.closing.has(child.id)) {
         continue;

@@ -14,6 +14,7 @@ Initialize the native private SQLite file only after its parent directory exists
 */
 function openDelegationDatabase(filename: string) {
   const db = new Database(filename, { timeout: BUSY_TIMEOUT_MS });
+  const columns = z.array(z.object({ name: z.string() }));
 
   chmodSync(filename, PRIVATE_FILE_MODE);
   db.pragma("journal_mode = WAL");
@@ -47,6 +48,16 @@ function openDelegationDatabase(filename: string) {
     CREATE INDEX IF NOT EXISTS delegation_request_status ON delegation_requests(childId,status);
   `);
 
+  // Existing assignments retain their explicit queue semantics across the schema upgrade.
+  db.transaction(() => {
+    if (columns.parse(db.pragma("table_info(delegation_commands)")).every((column) => column.name !== "mode")) {
+      db.exec(`ALTER TABLE delegation_commands ADD COLUMN mode TEXT NOT NULL DEFAULT 'queue';
+        ALTER TABLE delegation_commands ADD COLUMN targetId TEXT;
+        ALTER TABLE delegation_commands ADD COLUMN turnId TEXT;
+        ALTER TABLE delegation_commands ADD COLUMN supersedes TEXT NOT NULL DEFAULT '[]';`);
+    }
+  }).immediate();
+
   return db;
 }
 
@@ -75,7 +86,7 @@ export function lastCommandStatus(db: Database.Database, parentId: string, child
     .parse(
       db
         .prepare(
-          "SELECT status FROM delegation_commands WHERE parentId=? AND childId=? ORDER BY createdAt DESC,rowid DESC LIMIT 1"
+          "SELECT status FROM delegation_commands WHERE parentId=? AND childId=? AND targetId IS NULL ORDER BY createdAt DESC,rowid DESC LIMIT 1"
         )
         .get(parentId, childId)
     );

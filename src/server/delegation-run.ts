@@ -7,6 +7,12 @@ Owns one claimed command from native session opening through confirmed process c
 */
 export class DelegationRun {
   private isSending = false;
+
+  private ready = Promise.withResolvers<boolean>();
+
+  private settled = false;
+
+  private deliveries = new Map<string, Promise<void>>();
   exitStatus?: "confirmed" | "uncertain";
 
   /**
@@ -19,7 +25,7 @@ export class DelegationRun {
   constructor(
     private store: DelegationStore,
     private child: SidePocket,
-    private command: DelegationCommand,
+    readonly command: DelegationCommand,
     readonly adapter: HarnessAdapter
   ) {}
 
@@ -85,7 +91,27 @@ export class DelegationRun {
     }
 
     this.isSending = true;
-    this.complete(await adapter.run(command.id, command.body));
+    await this.runTurn();
+  }
+
+  /**
+  Publish readiness after the native assignment starts and fence completion against active deliveries.
+  */
+  private async runTurn() {
+    const result = this.adapter.run(this.command.id, this.command.body);
+
+    this.ready.resolve(true);
+
+    try {
+      const outcome = await result;
+
+      this.settled = true;
+      await Promise.all(this.deliveries.values());
+      this.complete(outcome);
+    } finally {
+      this.settled = true;
+      this.ready.resolve(false);
+    }
   }
 
   /**
@@ -104,6 +130,45 @@ export class DelegationRun {
   }
 
   /**
+  Deliver a correction only while this exact assignment still owns an active native turn.
+  @param command - Claimed correction with a stable native message identity.
+  */
+  private async deliverCurrent(command: DelegationCommand) {
+    const isReady = await this.ready.promise;
+    const result =
+      isReady && !this.settled
+        ? await this.adapter.steer(command.id, command.body)
+        : { status: "idle" as const, detail: "The owned assignment ended before native delivery. Nothing was sent." };
+
+    this.store.queue.steering.finish(command, result);
+  }
+
+  /**
+  Retain uncertain native attempts and release the completion fence after persistence.
+  @param command - Correction acquired by this run's worker.
+  */
+  private async deliver(command: DelegationCommand) {
+    try {
+      await this.deliverCurrent(command);
+    } catch (error) {
+      this.store.queue.steering.finish(command, {
+        status: "unknown",
+        detail: error instanceof Error ? error.message : String(error),
+      });
+    } finally {
+      this.deliveries.delete(command.id);
+    }
+  }
+
+  /**
+  Register correction delivery before native completion can release this assignment's process.
+  @param command - Correction already marked attempted in the durable ledger.
+  */
+  steer(command: DelegationCommand) {
+    this.deliveries.set(command.id, this.deliver(command));
+  }
+
+  /**
   Runs the command with durable failure recording and unconditional native cleanup.
   @returns Completion of execution and cleanup; persistence failures can reject.
   */
@@ -113,6 +178,9 @@ export class DelegationRun {
     } catch (error) {
       this.failed(error);
     } finally {
+      this.settled = true;
+      this.ready.resolve(false);
+      await Promise.all(this.deliveries.values());
       await this.close();
     }
   }
