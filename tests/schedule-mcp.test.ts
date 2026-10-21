@@ -9,7 +9,39 @@ import test from "node:test";
 import { toolJson } from "./fixtures/tool-json";
 
 const DAY_MS = 86_400_000;
-const TOOL_COUNT = 22;
+const MAIN_TOOL_NAMES = [
+  "schedule_create",
+  "schedule_list",
+  "schedule_get",
+  "schedule_update",
+  "schedule_delete",
+  "side_pocket_capabilities",
+  "side_pocket_create",
+  "side_pocket_list",
+  "side_pocket_get",
+  "side_pocket_send",
+  "side_pocket_cancel",
+  "side_pocket_answer",
+  "side_pocket_close",
+  "side_pocket_resume",
+  "side_pocket_sessions",
+  "side_pocket_adopt",
+  "spinner_set",
+  "spinner_status",
+  "spinner_reset",
+  "spinner_delete",
+  "pocket_realtime_inspect",
+  "pocket_realtime_voice",
+  "pocket_realtime_model",
+  "pocket_session_inspect",
+  "pocket_session_settings",
+];
+
+const REALTIME_TOOL_INPUTS = [
+  { name: "pocket_realtime_inspect", properties: [], required: [] },
+  { name: "pocket_realtime_voice", properties: ["voice"], required: ["voice"] },
+  { name: "pocket_realtime_model", properties: ["model"], required: ["model"] },
+];
 
 /**
 Requires a successful MCP envelope before decoding its JSON tool result.
@@ -45,7 +77,22 @@ Checks discovery before choosing a future native calendar instant and creating i
 async function createScheduledCheck(client: Client) {
   const { tools } = await client.listTools();
 
-  assert.equal(tools.length, TOOL_COUNT);
+  assert.equal(tools.length, 25);
+  assert.deepEqual(
+    tools.map((tool) => tool.name),
+    MAIN_TOOL_NAMES
+  );
+  for (const tool of tools) {
+    assert.equal(tool.inputSchema.type, "object", tool.name);
+    assert.equal(tool.inputSchema.additionalProperties, false, tool.name);
+  }
+  for (const expected of REALTIME_TOOL_INPUTS) {
+    const tool = tools.find((entry) => entry.name === expected.name);
+
+    assert.ok(tool, expected.name);
+    assert.deepEqual(Object.keys(tool.inputSchema.properties ?? {}), expected.properties);
+    assert.deepEqual(tool.inputSchema.required ?? [], expected.required);
+  }
 
   return scheduleSchema.parse(
     await call(client, "schedule_create", {
