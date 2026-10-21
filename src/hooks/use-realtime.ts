@@ -1,16 +1,20 @@
 "use client";
-/* eslint-disable jdeurt/const-on-top, @typescript-eslint/no-magic-numbers, jsdoc/require-returns, unicorn/try-complexity, complexity, @typescript-eslint/no-deprecated, unicorn/prefer-await -- Web Audio capture is a sequential resource lifecycle; ScriptProcessor supports the current browser fixture and PCM dimensions follow the native protocol. */
+/* eslint-disable jdeurt/const-on-top, @typescript-eslint/no-magic-numbers, jsdoc/require-returns, unicorn/try-complexity, complexity, @typescript-eslint/no-deprecated -- Web Audio capture is a sequential resource lifecycle; ScriptProcessor supports the current browser fixture and PCM dimensions follow the native protocol. */
 import {
   type VoiceResources,
   type VoiceSegment,
+  drainInput,
+  flushInput,
   listenRealtime,
+  queueInput,
   realtimeCommand,
   receiveRealtime,
 } from "@/lib/realtime-stream";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createVoiceResources } from "@/lib/realtime-capture";
 import { pcm16 } from "@/lib/realtime-audio";
 
-type VoiceState = "idle" | "starting" | "active";
+type VoiceState = "idle" | "starting" | "active" | "stopping";
 
 /**
 Own one browser microphone/playback pipeline and release it on every exit path.
@@ -25,10 +29,15 @@ export function useRealtime() {
   const captureCleanup = useRef<(() => void) | null>(null);
   const nextId = useRef(0);
   const stopping = useRef(false);
+  const stopTask = useRef<Promise<void> | null>(null);
   const generation = useRef(0);
   const starting = useRef(false);
 
-  const stop = useCallback(async () => {
+  const stop = useCallback(async (shouldDrain = true) => {
+    if (stopTask.current) {
+      return stopTask.current;
+    }
+
     generation.current++;
     starting.current = false;
     setSegments((entries) => entries.map((entry) => (entry.done ? entry : { ...entry, done: true })));
@@ -60,8 +69,28 @@ export function useRealtime() {
     }
 
     stopping.current = true;
+    setState("stopping");
     resources.current = null;
     current.active = false;
+    current.draining = shouldDrain;
+
+    if (current.inputTimer) {
+      clearTimeout(current.inputTimer);
+    }
+
+    if (current.outputTimer) {
+      clearTimeout(current.outputTimer);
+    }
+
+    if (shouldDrain && current.token) {
+      flushInput(current, () => {
+        // The stop task reports the captured input error after the queue settles.
+      });
+    } else {
+      current.inputParts = [];
+    }
+
+    current.outputParts = [];
     current.processor.onaudioprocess = null;
     current.processor.disconnect();
     current.source.disconnect();
@@ -79,24 +108,39 @@ export function useRealtime() {
       track.stop();
     }
 
-    current.abort.abort();
-    void current.context.close().catch(() => {
-      // Native stop is best effort after local microphone cleanup.
-    });
-    setState("idle");
-    const token = current.token;
-
-    stopping.current = false;
-
-    if (token) {
+    const task = (async () => {
       try {
-        await realtimeCommand({ action: "stop", token });
-      } catch {
-        /*
-        Local tracks are already stopped; server stream abort also stops native.
-        */
+        if (current.draining) {
+          try {
+            await drainInput(current);
+          } catch (error_) {
+            setError(error_ instanceof Error ? error_.message : "Audio delivery failed before stopping.");
+          }
+
+          current.draining = false;
+        }
+
+        const started = current.startingRequest ? await current.startingRequest : undefined;
+        const token = current.token ?? (typeof started?.token === "string" ? started.token : undefined);
+
+        if (token) {
+          await realtimeCommand({ action: "stop", token }, current.commandUrl);
+        }
+      } catch (error_) {
+        setError(error_ instanceof Error ? error_.message : "Realtime closure was not confirmed.");
+      } finally {
+        current.abort.abort();
+        void current.context.close().catch(() => {
+          // The context may already be closing.
+        });
+        stopping.current = false;
+        stopTask.current = null;
+        setState("idle");
       }
-    }
+    })();
+
+    stopTask.current = task;
+    await task;
   }, []);
 
   const receive = useCallback(
@@ -106,7 +150,7 @@ export function useRealtime() {
           setState("active");
         },
         error: setError,
-        stop: () => void stop(),
+        stop: () => void stop(false),
         transcript: (role, text, done, sessionId) => {
           setSegments((entries) => {
             const index = entries.findLastIndex(
@@ -177,7 +221,7 @@ export function useRealtime() {
         }
 
         setError("Microphone disconnected. Realtime stopped.");
-        void stop();
+        void stop(false);
       };
 
       for (const track of capture.getAudioTracks()) {
@@ -205,81 +249,35 @@ export function useRealtime() {
         return;
       }
 
-      const source = context.createMediaStreamSource(stream);
-      const inputAnalyser = context.createAnalyser();
-
-      inputAnalyser.fftSize = 2048;
-      inputAnalyser.smoothingTimeConstant = 0.72;
-      const outputAnalyser = context.createAnalyser();
-
-      outputAnalyser.fftSize = 2048;
-      outputAnalyser.smoothingTimeConstant = 0.72;
-      outputAnalyser.connect(context.destination);
-      const processor = context.createScriptProcessor(4096, 1, 1);
       const sampleRate = context.sampleRate;
-      const silent = context.createGain();
-
-      silent.gain.value = 0;
-      source.connect(inputAnalyser);
-      inputAnalyser.connect(processor);
-      processor.connect(silent);
-      silent.connect(context.destination);
-      const current: VoiceResources = {
-        context,
-        stream,
-        source,
-        processor,
-        inputAnalyser,
-        outputAnalyser,
-        outputTime: 0,
-        outputSources: new Set(),
-        abort: new AbortController(),
-        sending: Promise.resolve(),
-        queuedChunks: 0,
-        active: true,
-        ready: false,
-      };
+      const processor = context.createScriptProcessor(4096, 1, 1);
+      const current = createVoiceResources(context, stream, processor);
 
       resources.current = current;
       pendingStream.current = null;
       pendingContext.current = null;
-      processor.onaudioprocess = (event) => {
+      current.processor.onaudioprocess = (event) => {
         if (!current.active || !current.ready || !current.token || resources.current !== current) {
-          return;
-        }
-
-        if (++current.queuedChunks > 8) {
-          setError("Audio connection is too slow.");
-          void stop();
-
           return;
         }
 
         const audio = pcm16(event.inputBuffer.getChannelData(0), sampleRate);
 
-        current.sending = current.sending
-          .then(() => (current.active ? realtimeCommand({ action: "audio", token: current.token, audio }) : undefined))
-          .catch((error_: unknown) => {
-            if (!current.active) {
-              return;
-            }
+        queueInput(current, audio.data, audio.samplesPerChannel, (error_: unknown) => {
+          if (!current.active) {
+            return;
+          }
 
-            setError(error_ instanceof Error ? error_.message : "Audio connection failed.");
-            void stop();
-          })
-          .finally(() => {
-            current.queuedChunks--;
-          });
+          setError(error_ instanceof Error ? error_.message : "Audio connection failed.");
+          void stop(false);
+        });
       };
-      const result = await realtimeCommand({ action: "start" });
+      const request = realtimeCommand({ action: "start" }, current.commandUrl);
+
+      current.startingRequest = request;
+      const result = await request;
 
       if (!current.active || generation.current !== attempt) {
-        if (typeof result.token === "string") {
-          void realtimeCommand({ action: "stop", token: result.token }).catch(() => {
-            // The session was already stopped while start was pending.
-          });
-        }
-
         return;
       }
 
@@ -298,7 +296,7 @@ export function useRealtime() {
         }
 
         setError(error_ instanceof Error ? error_.message : "Realtime disconnected.");
-        void stop();
+        void stop(false);
       });
     } catch (error_) {
       starting.current = false;
@@ -308,7 +306,7 @@ export function useRealtime() {
       }
 
       if (resources.current) {
-        void stop();
+        void stop(false);
       } else {
         captureCleanup.current?.();
         captureCleanup.current = null;
@@ -332,7 +330,7 @@ export function useRealtime() {
 
   useEffect(
     () => () => {
-      void stop();
+      void stop(false);
     },
     [stop]
   );

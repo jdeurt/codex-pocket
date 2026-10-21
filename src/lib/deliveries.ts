@@ -1,4 +1,14 @@
-import { type QueuedMessage, type Snapshot, string } from "./protocol";
+import { type Item, type QueuedMessage, type Snapshot, string } from "./protocol";
+import { hasMessageText } from "./turn-messages";
+
+/**
+Keep a local delivery until its canonical user item can actually render.
+@param item - Candidate canonical native item.
+@returns Whether the user item has displayable text or attachments.
+*/
+function isVisibleUserItem(item: Item) {
+  return item.type === "userMessage" && (hasMessageText(item) || !!item.attachments?.length || !!item.images?.length);
+}
 
 /**
 Merge local deliveries with server state and remove messages confirmed in the transcript.
@@ -9,7 +19,7 @@ Merge local deliveries with server state and remove messages confirmed in the tr
 export function reconcileDeliveries(state: Snapshot, pending: QueuedMessage[]) {
   const confirmed = new Set(
     state.turns.flatMap((turn) =>
-      turn.items.filter((item) => item.type === "userMessage").map((item) => string(item.clientId))
+      turn.items.filter((item) => isVisibleUserItem(item)).map((item) => string(item.clientId))
     )
   );
   const remaining = pending.filter((message) => !confirmed.has(message.id));

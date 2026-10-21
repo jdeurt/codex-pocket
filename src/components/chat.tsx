@@ -120,7 +120,7 @@ export function Chat() {
 
   useEffect(() => {
     if (!isConnected && isVoiceActive) {
-      void stopVoice();
+      void stopVoice(false);
     }
   }, [isConnected, isVoiceActive, stopVoice]);
 
@@ -323,7 +323,10 @@ export function Chat() {
                       aria-label={
                         isVoiceActive ? "Stop realtime voice" : "Send message; hold and swipe up for realtime voice"
                       }
-                      disabled={!isVoiceActive && (sending || !isConnected || !attachments.ready)}
+                      disabled={
+                        voice.state === "stopping" ||
+                        (!isVoiceActive && (sending || !isConnected || !attachments.ready))
+                      }
                       onPointerDown={voiceGesture.onPointerDown}
                       onPointerMove={voiceGesture.onPointerMove}
                       onPointerUp={voiceGesture.onPointerUp}

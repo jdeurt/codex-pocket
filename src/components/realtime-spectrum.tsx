@@ -147,10 +147,18 @@ export function RealtimeSpectrum({
     };
   }, [input, output]);
 
+  let label = "Listening";
+
+  if (status === "starting") {
+    label = "Connecting voice…";
+  } else if (status === "stopping") {
+    label = "Stopping voice…";
+  }
+
   return (
     <div className="realtime-spectrum" role="status" aria-label={`Realtime voice ${status}`}>
       <canvas ref={canvas} aria-hidden="true" />
-      <span className="realtime-spectrum-label">{status === "starting" ? "Connecting voice…" : "Listening"}</span>
+      <span className="realtime-spectrum-label">{label}</span>
     </div>
   );
 }

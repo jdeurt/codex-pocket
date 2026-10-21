@@ -208,14 +208,17 @@ test("event stream failure stops the microphone and allows a fresh realtime sess
   await page.evaluate(() => {
     const original = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
 
-    navigator.mediaDevices.getUserMedia = async (constraints) => {
-      const stream = await original(constraints);
+    Object.defineProperty(navigator.mediaDevices, "getUserMedia", {
+      configurable: true,
+      value: async (constraints: MediaStreamConstraints) => {
+        const stream = await original(constraints);
 
-      (globalThis as typeof globalThis & { voiceFixtureTrack?: MediaStreamTrack }).voiceFixtureTrack =
-        stream.getAudioTracks()[0];
+        (globalThis as typeof globalThis & { voiceFixtureTrack?: MediaStreamTrack }).voiceFixtureTrack =
+          stream.getAudioTracks()[0];
 
-      return stream;
-    };
+        return stream;
+      },
+    });
   });
   const beforeStop = await countNativeStops();
 

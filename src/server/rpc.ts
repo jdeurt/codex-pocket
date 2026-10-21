@@ -1,4 +1,4 @@
-import { type Data, object, rpcEventSchema, string } from "../lib/protocol";
+import { type Data, object, realtimeItemAddedSchema, rpcEventSchema, string } from "../lib/protocol";
 import { type PendingResponse, abandonPendingRealtime } from "./rpc-pending";
 import { RpcDiagnosticEvent, RpcDisconnectEvent, RpcNotificationEvent } from "./rpc-events";
 import {
@@ -81,7 +81,9 @@ export class CodexRpc extends EventTarget {
   @param message - Decoded object containing a protocol method.
   */
   private notification(message: Data) {
-    const event = rpcEventSchema.safeParse(message);
+    const event = (message.method === "thread/realtime/itemAdded" ? realtimeItemAddedSchema : rpcEventSchema).safeParse(
+      message
+    );
 
     if (!event.success) {
       log().warn({ error: event.error }, "codex.rpc.invalid_event");
