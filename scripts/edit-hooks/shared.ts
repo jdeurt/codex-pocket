@@ -238,11 +238,12 @@ async function hasClearedStaleLock(lock: string): Promise<boolean> {
 
 /** Claim the per-worktree runner lock.
 @param directory - Private worktree Git state directory.
+@param name - Lock directory basename.
 @param attempts - Maximum attempts before returning informational failure.
 @returns Lock directory to remove on completion.
 */
-export async function acquireLock(directory: string, attempts = LOCK_ATTEMPTS): Promise<string> {
-  const lock = path.join(directory, "runner.lock");
+export async function acquireLock(directory: string, name = "runner.lock", attempts = LOCK_ATTEMPTS): Promise<string> {
+  const lock = path.join(directory, name);
 
   for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {

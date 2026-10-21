@@ -155,7 +155,7 @@ export function assertIdle(root: string): void {
   const directory = path.join(gitDirectory, "pocket-edit-hooks");
 
   assert.deepEqual(
-    readdirSync(directory).filter((name) => name.endsWith(".json") || name === "runner.lock"),
+    readdirSync(directory).filter((name) => name.endsWith(".json") || name.endsWith(".lock")),
     []
   );
 }

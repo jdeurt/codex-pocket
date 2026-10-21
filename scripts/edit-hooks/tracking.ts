@@ -179,7 +179,7 @@ export async function before(event: ToolEvent): Promise<void> {
   const directory = await stateDirectory();
   const targets = targetsFor(event);
   const baseline = await snapshot(targets);
-  const lock = await acquireLock(directory);
+  const lock = await acquireLock(directory, "state.lock");
 
   try {
     await saveIfActive(directory, event, baseline, targets);
@@ -237,7 +237,7 @@ async function removeInterruptedStates(directory: string, sessionId: string, tur
 async function markAndLockInterruption(directory: string, sessionId: string, turnId: string): Promise<string> {
   await writeFile(path.join(directory, interruptedName(sessionId, turnId)), "", { mode: 0o600 });
 
-  return acquireLock(directory, INTERRUPT_LOCK_ATTEMPTS);
+  return acquireLock(directory, "state.lock", INTERRUPT_LOCK_ATTEMPTS);
 }
 
 /** Clear snapshots for a main-thread turn after native interruption.
@@ -260,7 +260,7 @@ export async function clearInterruptedTurn(sessionId: string, turnId: string): P
 @param event - Completed native tool event.
 @returns Its baseline and exact targets, or null on overlap.
 */
-export async function claim(directory: string, event: ToolEvent): Promise<ToolState | null> {
+async function claimState(directory: string, event: ToolEvent): Promise<ToolState | null> {
   const ownName = stateName(event);
   const ownPath = path.join(directory, ownName);
   const [own, entries] = await Promise.all([readState(ownPath), readdir(directory)]);
@@ -292,4 +292,33 @@ export async function claim(directory: string, event: ToolEvent): Promise<ToolSt
   }
 
   return isConflicted ? null : own;
+}
+
+/** Claim one completed tool while metadata updates are serialized.
+@param directory - Worktree state directory.
+@param event - Completed native tool event.
+@returns Its baseline and targets, or null on overlap.
+*/
+export async function claim(directory: string, event: ToolEvent): Promise<ToolState | null> {
+  const lock = await acquireLock(directory, "state.lock");
+
+  try {
+    return await claimState(directory, event);
+  } finally {
+    await rm(lock, { recursive: true, force: true });
+  }
+}
+
+/** Remove a completed tool's claim under the metadata lock.
+@param directory - Worktree state directory.
+@param source - Private state path.
+*/
+export async function removeClaim(directory: string, source: string): Promise<void> {
+  const lock = await acquireLock(directory, "state.lock");
+
+  try {
+    await rm(source, { force: true });
+  } finally {
+    await rm(lock, { recursive: true, force: true });
+  }
 }

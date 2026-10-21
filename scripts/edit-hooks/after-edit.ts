@@ -1,6 +1,6 @@
 import { HookFailure, type ToolEvent, acquireLock, stateDirectory, stateName } from "./shared";
+import { claim, removeClaim } from "./tracking";
 import { checkChanged } from "./format";
-import { claim } from "./tracking";
 import { nativeEvent } from "./events";
 import path from "node:path";
 import { rm } from "node:fs/promises";
@@ -19,12 +19,13 @@ async function checkClaim(directory: string, event: ToolEvent): Promise<string |
 }
 
 /** Release a tool claim and runner lock even if state removal fails.
+@param directory - Worktree state directory.
 @param source - Tool state file.
 @param lock - Runner lock directory.
 */
-async function releaseClaim(source: string, lock: string): Promise<void> {
+async function releaseClaim(directory: string, source: string, lock: string): Promise<void> {
   try {
-    await rm(source, { force: true });
+    await removeClaim(directory, source);
   } finally {
     await rm(lock, { recursive: true, force: true });
   }
@@ -39,7 +40,7 @@ async function lockForTool(directory: string, source: string): Promise<string> {
   try {
     return await acquireLock(directory);
   } catch (error) {
-    await rm(source, { force: true });
+    await removeClaim(directory, source);
     throw error;
   }
 }
@@ -65,7 +66,7 @@ async function afterEvent(event: ToolEvent): Promise<string | null> {
   try {
     return await checkClaim(directory, event);
   } finally {
-    await releaseClaim(source, lock);
+    await releaseClaim(directory, source, lock);
   }
 }
 

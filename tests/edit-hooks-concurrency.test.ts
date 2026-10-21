@@ -191,10 +191,58 @@ void test("a live runner lock times out without rewriting the tool edit or leavi
   }
 });
 
-/** Hold the runner lock while both native bookkeeping events start.
+void test("a disjoint before-edit snapshot survives a busy formatter lock", async () => {
+  const root = fixture();
+  const directory = path.join(run("git", ["rev-parse", "--absolute-git-dir"], root).trim(), "pocket-edit-hooks");
+  const lock = path.join(directory, "runner.lock");
+  const first = {
+    session_id: "busy-runner-a",
+    tool_use_id: "first",
+    cwd: root,
+    tool_name: "apply_patch",
+    tool_input: { command: "*** Begin Patch\n*** Update File: src/edited.js\n*** End Patch" },
+  };
+  const second = {
+    ...first,
+    session_id: "busy-runner-b",
+    tool_use_id: "second",
+    tool_input: { command: "*** Begin Patch\n*** Add File: src/second.js\n*** End Patch" },
+  };
+
+  try {
+    await hookAsync(root, "before", first);
+    writeFileSync(path.join(root, "src/edited.js"), "var first= 1\n");
+    mkdirSync(lock);
+    writeFileSync(path.join(lock, "owner"), String(process.pid));
+    assert.equal(await hookAsync(root, "before", second), "");
+    assert.equal(readdirSync(directory).filter((name) => name.endsWith(".json")).length, 2);
+    rmSync(lock, { recursive: true, force: true });
+    writeFileSync(path.join(root, "src/second.js"), "var second= 2\n");
+
+    {
+      const [firstOutput, secondOutput] = await Promise.all([
+        hookAsync(root, "after", first),
+        hookAsync(root, "after", second),
+      ]);
+
+      assert.match(informationalMessage(firstOutput), /first.*\(no-unused-vars\)/);
+      assert.doesNotMatch(firstOutput, /second/);
+      assert.match(informationalMessage(secondOutput), /second.*\(no-unused-vars\)/);
+      assert.doesNotMatch(secondOutput, /first/);
+    }
+    assert.equal(readFileSync(path.join(root, "src/edited.js"), "utf8"), "const first = 1;\n");
+    assert.equal(readFileSync(path.join(root, "src/second.js"), "utf8"), "const second = 2;\n");
+    assertIdle(root);
+  } finally {
+    rmSync(lock, { recursive: true, force: true });
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+/** Hold the metadata lock while both native bookkeeping events start.
 @param root - Disposable worktree.
 @param directory - Private Git state directory.
-@param lock - Runner lock path.
+@param lock - Metadata lock path.
 @param event - Pending tool call.
 @returns Concurrent hook process results.
 */
@@ -218,7 +266,7 @@ function startInterleaving(
   return [hookAsync(root, "before", event), hookAsync(root, "before", interruption)];
 }
 
-/** Wait until interruption is recorded before releasing the runner lock.
+/** Wait until interruption is recorded before releasing the metadata lock.
 @param directory - Private Git state directory.
 */
 async function waitForInterruption(directory: string): Promise<void> {
@@ -236,7 +284,7 @@ async function waitForInterruption(directory: string): Promise<void> {
 /** Exercise an interrupted before-tool snapshot and a later real edit.
 @param root - Disposable worktree.
 @param directory - Private Git state directory.
-@param lock - Runner lock path.
+@param lock - Metadata lock path.
 */
 async function runInterruptedInterleaving(root: string, directory: string, lock: string): Promise<void> {
   const event: HookEvent = {
@@ -265,7 +313,7 @@ async function runInterruptedInterleaving(root: string, directory: string, lock:
 void test("interruption before a pending snapshot commit cannot leave an orphaned claim", async () => {
   const root = fixture();
   const directory = path.join(run("git", ["rev-parse", "--absolute-git-dir"], root).trim(), "pocket-edit-hooks");
-  const lock = path.join(directory, "runner.lock");
+  const lock = path.join(directory, "state.lock");
 
   try {
     await runInterruptedInterleaving(root, directory, lock);
