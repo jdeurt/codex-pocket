@@ -54,7 +54,7 @@ export function RealtimeSpectrum({
       context.clearRect(0, 0, bounds.width, bounds.height);
       input.getByteFrequencyData(inputBytes);
       output.getByteFrequencyData(outputBytes);
-      const gap = 2.5;
+      const gap = 4;
       const barWidth = Math.max(2, (bounds.width - gap * (BAR_COUNT - 1)) / BAR_COUNT);
       const mid = bounds.height / 2;
 

@@ -113,8 +113,11 @@ test("unexpected microphone track end stops capture and the native session", asy
 test("bursty native audio stops with a visible overrun and releases capture", async ({ page }) => {
   await control({ burstChunks: 100 });
   await open(page);
-  await start(page);
   const before = await count("thread/realtime/stop");
+  const button = page.getByRole("button", { name: "Start realtime voice" });
+
+  await button.focus();
+  await page.keyboard.press("Enter");
 
   await expect(page.getByText("Audio playback fell behind. Realtime stopped; start again to continue.")).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Message Pocket" })).toBeVisible();

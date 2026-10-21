@@ -361,6 +361,8 @@
 }
 .composer {
   --composer-control-size: 44px;
+  height: auto;
+  min-height: calc(var(--composer-control-size) + 14px);
   background: var(--secondary);
   border-color: transparent;
   border-radius: 30px;
@@ -377,33 +379,38 @@
   margin: 0;
 }
 .composer [data-slot="input-group-addon"] {
+  position: relative;
   padding: 0;
   margin: 0;
   height: var(--composer-control-size);
   align-self: flex-end;
 }
 .send-button {
+  position: relative;
+  z-index: 1;
+  transition-property: background-color, border-color, color, box-shadow, opacity;
   border-radius: 50%;
   width: var(--composer-control-size);
   height: var(--composer-control-size);
   touch-action: none;
 }
-.voice-gesture-hint {
+.voice-pill-track {
   position: absolute;
-  right: 6px;
-  bottom: 61px;
-  padding: 7px 12px;
-  border-radius: 16px;
-  background: var(--accent);
-  border: 1px solid var(--border);
-  color: var(--foreground);
-  font-size: 12px;
+  right: 0;
+  bottom: 0;
+  width: var(--composer-control-size);
+  height: calc(var(--composer-control-size) + 68px);
+  border-radius: calc(var(--composer-control-size) / 2);
+  background: color-mix(in srgb, var(--primary) 88%, var(--secondary));
   box-shadow: 0 5px 18px #0005;
   pointer-events: none;
 }
-.voice-gesture-hint-armed {
-  background: var(--foreground);
-  color: var(--background);
+.send-button-holding {
+  transition: none;
+  will-change: transform;
+}
+.send-button.send-button-holding:active {
+  translate: 0 0;
 }
 .voice-keyboard-control {
   position: absolute;

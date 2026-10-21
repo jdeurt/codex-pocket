@@ -4,7 +4,7 @@ import { type PointerEvent, useRef, useState } from "react";
 
 const HOLD_MS = 350;
 const CANCEL_DISTANCE = 14;
-const SWIPE_DISTANCE = 32;
+const SWIPE_DISTANCE = 68;
 const SWIPE_WIDTH = 64;
 
 interface Gesture {
@@ -20,7 +20,7 @@ interface Gesture {
 /**
 Keep send taps separate from held swipe activation and cancelled pointer gestures.
 @param options - Current button state and tap, start, and stop actions.
-@returns Pointer and click handlers plus the transient voice hint state.
+@returns Pointer and click handlers plus the pill position and armed state.
 */
 export function useVoiceGesture(options: {
   active: boolean;
@@ -29,8 +29,9 @@ export function useVoiceGesture(options: {
   onStart: () => void;
   onStop: () => void;
 }) {
-  const [hint, setHint] = useState(false);
+  const [holding, setHolding] = useState(false);
   const [armed, setArmed] = useState(false);
+  const [progress, setProgress] = useState(0);
   const suppressClick = useRef(false);
   const gesture = useRef<Gesture | null>(null);
 
@@ -40,8 +41,9 @@ export function useVoiceGesture(options: {
     }
 
     gesture.current = null;
-    setHint(false);
+    setHolding(false);
     setArmed(false);
+    setProgress(0);
   }
 
   function onPointerDown(event: PointerEvent<HTMLButtonElement>) {
@@ -65,7 +67,7 @@ export function useVoiceGesture(options: {
         }
 
         gesture.current.holding = true;
-        setHint(true);
+        setHolding(true);
       }, HOLD_MS),
     };
     event.currentTarget.setPointerCapture(pointerId);
@@ -90,7 +92,10 @@ export function useVoiceGesture(options: {
       return;
     }
 
-    current.armed = dy < -SWIPE_DISTANCE && Math.abs(dx) < SWIPE_WIDTH;
+    const nextProgress = Math.abs(dx) < SWIPE_WIDTH ? Math.min(1, Math.max(0, -dy / SWIPE_DISTANCE)) : 0;
+
+    current.armed = nextProgress === 1;
+    setProgress(nextProgress);
     setArmed(current.armed);
   }
 
@@ -113,6 +118,10 @@ export function useVoiceGesture(options: {
   }
 
   function onPointerCancel() {
+    if (!gesture.current) {
+      return;
+    }
+
     suppressClick.current = true;
     release();
   }
@@ -128,13 +137,14 @@ export function useVoiceGesture(options: {
   }
 
   return {
-    hint,
+    holding,
     armed,
+    offset: progress * SWIPE_DISTANCE,
     onPointerDown,
     onPointerMove,
     onPointerUp,
     onPointerCancel,
-    onLostPointerCapture: onPointerUp,
+    onLostPointerCapture: onPointerCancel,
     onClick,
   };
 }

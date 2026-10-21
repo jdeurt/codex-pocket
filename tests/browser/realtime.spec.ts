@@ -128,6 +128,8 @@ test("permission rejection and cancelled hold restore composer without sending o
     return route.abort();
   });
   const button = page.getByRole("button", { name: /Send message; hold and swipe up/ });
+
+  await expect(button).toBeEnabled();
   const box = await button.boundingBox();
 
   if (!box) {
@@ -137,7 +139,8 @@ test("permission rejection and cancelled hold restore composer without sending o
   await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
   await page.mouse.down();
   await page.waitForTimeout(400);
-  await expect(page.getByText("↑ Voice")).toBeVisible();
+  await expect(page.locator(".voice-pill-track")).toBeVisible();
+  await expect(button.locator(".lucide-arrow-up")).toBeVisible();
   await page.mouse.up();
   expect(sends).toBe(0);
   await expect(page.getByRole("textbox", { name: "Message Pocket" })).toHaveValue("keep me");
@@ -186,11 +189,12 @@ test("ordinary tap sends while hold, swipe and cancelled drag have distinct outc
   await page.mouse.move(x, y);
   await page.mouse.down();
   await page.waitForTimeout(400);
-  await expect(page.getByText("↑ Voice")).toBeVisible();
-  await page.mouse.move(x, y - 52);
-  await expect(page.locator(".voice-gesture-hint-armed")).toBeVisible();
+  await expect(page.locator(".voice-pill-track")).toBeVisible();
+  await page.mouse.move(x, y - 72);
+  await expect(button.locator(".lucide-mic")).toBeVisible();
   await page.mouse.up();
   await expect(page.getByRole("button", { name: "Stop realtime voice" })).toBeVisible();
+  await expect(page.getByRole("status", { name: "Realtime voice active" })).toBeVisible();
   expect(sends).toBe(1);
   const beforeStop = await countNativeStops();
 

@@ -1,7 +1,7 @@
 "use client";
 import "./focused-composer.css";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { ArrowUpIcon, PaperclipIcon, XIcon } from "lucide-react";
+import { ArrowUpIcon, MicIcon, PaperclipIcon, XIcon } from "lucide-react";
 import { type DraftAttachment, useAttachments } from "@/hooks/use-attachments";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } from "@/components/ui/input-group";
@@ -49,6 +49,19 @@ function ComposerError({ errors }: { errors: (string | undefined)[] }) {
       <AlertDescription>{error}</AlertDescription>
     </Alert>
   ) : null;
+}
+
+/**
+Show the send arrow, armed microphone, or realtime stop icon in one button.
+@param props - Whether realtime is active or the upward gesture is armed.
+@returns The current icon for the send button.
+*/
+function SendControlIcon({ active, armed }: { active: boolean; armed: boolean }) {
+  if (active) {
+    return <XIcon aria-hidden="true" />;
+  }
+
+  return armed ? <MicIcon aria-hidden="true" /> : <ArrowUpIcon aria-hidden="true" />;
 }
 
 /**
@@ -301,7 +314,12 @@ export function Chat() {
                       type="button"
                       variant="default"
                       size="icon-sm"
-                      className="send-button"
+                      className={`send-button ${voiceGesture.holding ? "send-button-holding" : ""}`}
+                      style={
+                        voiceGesture.holding
+                          ? { transform: `translateY(-${String(voiceGesture.offset)}px)` }
+                          : undefined
+                      }
                       aria-label={
                         isVoiceActive ? "Stop realtime voice" : "Send message; hold and swipe up for realtime voice"
                       }
@@ -313,18 +331,11 @@ export function Chat() {
                       onPointerCancel={voiceGesture.onPointerCancel}
                       onClick={voiceGesture.onClick}
                     >
-                      {isVoiceActive ? <XIcon aria-hidden="true" /> : <ArrowUpIcon aria-hidden="true" />}
+                      <SendControlIcon active={isVoiceActive} armed={voiceGesture.armed} />
                     </InputGroupButton>
+                    {voiceGesture.holding && <span className="voice-pill-track" aria-hidden="true" />}
                   </InputGroupAddon>
                 </InputGroup>
-                {voiceGesture.hint && (
-                  <div
-                    className={`voice-gesture-hint ${voiceGesture.armed ? "voice-gesture-hint-armed" : ""}`}
-                    aria-hidden="true"
-                  >
-                    ↑ Voice
-                  </div>
-                )}
               </Field>
             </FieldGroup>
           </form>
