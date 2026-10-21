@@ -39,8 +39,9 @@ pocket --help  # Show available commands
 ```
 
 For a menu bar icon that opens and closes Pocket in a small window, run `pocket menubar setup`.
-This builds the macOS companion, starts it, and enables launch at login. It requires Apple's Command Line Tools
-(`xcode-select --install`). Run `pocket menubar remove` to remove the companion and its login startup.
+This builds the macOS companion, starts it, and enables launch at login. It requires macOS 13 or later
+and Apple's Command Line Tools (`xcode-select --install`). Run `pocket menubar remove` to remove the companion
+and its login startup.
 
 If `pocket` is not found, run `export PATH="$HOME/.pocket/bin:$PATH"`. The installer adds this directory to zsh or bash startup settings; other shells need it added manually.
 

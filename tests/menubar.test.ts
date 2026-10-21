@@ -71,6 +71,22 @@ await test(
 
         assert.equal(result.status, 0, result.stderr);
         assert.equal(spawnSync("/usr/bin/codesign", ["--verify", "--deep", application]).status, 0);
+        assert.match(
+          spawnSync("/usr/bin/otool", ["-l", path.join(application, "Contents/MacOS/PocketMenuBar")], {
+            encoding: "utf8",
+          }).stdout,
+          /minos\s+13\.0/
+        );
+        assert.equal(
+          spawnSync(
+            "/usr/bin/plutil",
+            ["-extract", "PocketURL", "raw", path.join(application, "Contents/Info.plist")],
+            {
+              encoding: "utf8",
+            }
+          ).stdout.trim(),
+          "http://127.0.0.1:43877"
+        );
         assert.deepEqual(definition, {
           Label: "dev.pocket.menubar",
           ProgramArguments: [path.join(application, "Contents/MacOS/PocketMenuBar")],

@@ -15,7 +15,6 @@ const domain = `gui/${String(process.getuid?.())}`;
 const target = `${domain}/${LABEL}`;
 
 /** Stop the menu bar companion if its login job is registered.
-@returns {void} Completion of the native stop, or an error for an unsuccessful stop.
 */
 function stop() {
   if (spawnSync("/bin/launchctl", ["print", target], { stdio: "ignore" }).status === 0) {
@@ -53,12 +52,15 @@ async function setup() {
   const contents = path.join(bundle, "Contents");
   const executable = path.join(contents, "MacOS/PocketMenuBar");
   const logs = path.join(home, "logs");
+  const compilationTarget = `${process.arch === "arm64" ? "arm64" : "x86_64"}-apple-macos13.0`;
 
   try {
     await mkdir(path.dirname(executable), { recursive: true });
     run("/usr/bin/xcrun", [
       "swiftc",
       "-parse-as-library",
+      "-target",
+      compilationTarget,
       "-O",
       path.join(root, "scripts/menubar.swift"),
       "-o",
@@ -73,6 +75,7 @@ async function setup() {
         CFBundlePackageType: "APPL",
         CFBundleVersion: "1",
         LSUIElement: true,
+        LSMinimumSystemVersion: "13.0",
         PocketURL: url,
         NSAppTransportSecurity: { NSAllowsLocalNetworking: true },
         NSMicrophoneUsageDescription: "Pocket uses the microphone when you start a voice conversation.",
