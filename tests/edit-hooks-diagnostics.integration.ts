@@ -1,4 +1,4 @@
-import { assertIdle, fixture, hook, hookMessage } from "./edit-hooks-fixture";
+import { GUIDANCE, HEADER, assertIdle, fixture, hook, hookMessage } from "./edit-hooks-fixture";
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import assert from "node:assert/strict";
 import path from "node:path";
@@ -12,6 +12,22 @@ const MAX_FEEDBACK_DIAGNOSTICS = 20;
 function assertTruncatedFeedback(message: string): void {
   assert.match(message, /\(eqeqeq\)/);
   assert.equal(message.split("\n").filter((line) => line.includes("(eqeqeq)")).length, MAX_FEEDBACK_DIAGNOSTICS);
+}
+
+/** Check normal diagnostic context and the separate persistence warning.
+@param root - Disposable checkout.
+@param event - Completed native tool event.
+*/
+function assertCounterFailureFeedback(
+  root: string,
+  event: { session_id: string; tool_use_id: string; cwd: string; tool_name: string }
+): void {
+  const message = hookMessage(root, event);
+
+  assert.ok(message.startsWith(HEADER), message);
+  assert.match(message, /\(eqeqeq\)/);
+  assert.ok(message.includes(GUIDANCE), message);
+  assert.match(message, /Counter recording failed:/);
 }
 
 /**
@@ -83,21 +99,40 @@ void test("disabled recording leaves the tracked file byte-for-byte unchanged", 
 });
 
 /**
-Exercise malformed input preservation through a real hook cycle.
+Preserve lint feedback and existing bytes when the counter cannot be updated.
 */
-void test("malformed tracked JSON produces informational failure and remains untouched", () => {
+void test("invalid or full counters keep normal lint feedback and remain untouched", () => {
+  for (const original of ["{bad\n", '{"eqeqeq":-1}\n', '{"eqeqeq":9007199254740991}\n']) {
+    const root = fixture();
+    const counter = path.join(root, "scripts/edit-hooks/diagnostics.json");
+    const event = { session_id: "counter-error", tool_use_id: "first", cwd: root, tool_name: "Bash" };
+
+    try {
+      writeFileSync(counter, original);
+      assert.equal(hook(root, "before", event), "");
+      writeFileSync(path.join(root, "src/edited.js"), '1== "1"\n');
+      assertCounterFailureFeedback(root, event);
+      assert.equal(readFileSync(counter, "utf8"), original);
+      assertIdle(root);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  }
+});
+
+/**
+Keep arbitrary rule IDs separate from inherited object property names.
+*/
+void test("constructor rule ID accumulates as its own key", () => {
   const root = fixture();
   const counter = path.join(root, "scripts/edit-hooks/diagnostics.json");
-  const event = { session_id: "malformed", tool_use_id: "first", cwd: root, tool_name: "Bash" };
+  const event = { session_id: "special-rule", tool_use_id: "first", cwd: root, tool_name: "Bash" };
 
   try {
-    const original = "{bad\n";
-
-    writeFileSync(counter, original);
     assert.equal(hook(root, "before", event), "");
-    writeFileSync(path.join(root, "src/edited.js"), '1 == "1";\n');
-    assert.match(hookMessage(root, event), /diagnostics counter could not be read; existing counts were preserved/);
-    assert.equal(readFileSync(counter, "utf8"), original);
+    writeFileSync(path.join(root, "src/edited.js"), '/* eslint constructor: "error" */\n1 == "1";\n');
+    assert.match(hookMessage(root, event), /\(constructor\)/);
+    assert.equal(readFileSync(counter, "utf8"), '{\n  "constructor": 1,\n  "eqeqeq": 1\n}\n');
     assertIdle(root);
   } finally {
     rmSync(root, { recursive: true, force: true });

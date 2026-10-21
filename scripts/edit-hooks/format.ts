@@ -195,14 +195,21 @@ function renderFeedback(results: ESLintType.LintResult[], isRewritten: boolean):
 async function reportFinal(eligible: string[], isRewritten: boolean): Promise<string | null> {
   const { ESLint } = await import("eslint");
   const finalResults = await new ESLint({ cwd: ROOT, fix: false }).lintFiles(eligible);
+  const feedback = renderFeedback(finalResults, isRewritten);
 
   // The exported constant is an operator switch; its checked-in default is intentionally true.
   // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
   if (shouldRecordEditHookDiagnostics) {
-    await recordDiagnostics(finalResults);
+    try {
+      await recordDiagnostics(finalResults);
+    } catch (error) {
+      const reason = error instanceof HookFailure ? error.message : "diagnostics counter could not be updated";
+
+      return [feedback, `Counter recording failed: ${reason}.`].filter((line) => line !== null).join("\n");
+    }
   }
 
-  return renderFeedback(finalResults, isRewritten);
+  return feedback;
 }
 
 /** Run ESLint fixes, verify files, then report final-file diagnostics.

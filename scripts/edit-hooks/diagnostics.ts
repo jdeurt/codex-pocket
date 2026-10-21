@@ -10,20 +10,20 @@ const COUNTER_PATH = path.join(ROOT, "scripts/edit-hooks/diagnostics.json");
 @param value - Parsed JSON counter.
 @returns Rule counts with safe nonnegative integer values.
 */
-function parseCounter(value: unknown): Record<string, number> {
+function parseCounter(value: unknown): Map<string, number> {
   const entries = typeof value === "object" && value !== null && !Array.isArray(value) ? Object.entries(value) : null;
 
   if (!entries || entries.some(([, count]) => typeof count !== "number" || !Number.isSafeInteger(count) || count < 0)) {
     throw new HookFailure("diagnostics counter is invalid; existing counts were preserved");
   }
 
-  return Object.fromEntries(entries);
+  return new Map<string, number>(entries);
 }
 
 /** Read the tracked counter without replacing malformed or unavailable data.
 @returns Existing counts.
 */
-async function readCounter(): Promise<Record<string, number>> {
+async function readCounter(): Promise<Map<string, number>> {
   try {
     return parseCounter(JSON.parse(await readFile(COUNTER_PATH, "utf8")) as unknown);
   } catch (error) {
@@ -38,16 +38,13 @@ async function readCounter(): Promise<Record<string, number>> {
 /** Replace the tracked counter atomically while the after-edit runner lock is held.
 @param counts - Complete validated rule counts.
 */
-async function writeCounter(counts: Record<string, number>): Promise<void> {
+async function writeCounter(counts: Map<string, number>): Promise<void> {
   const temporary = `${COUNTER_PATH}.${randomUUID()}.tmp`;
-  const sorted = Object.fromEntries(
-    Object.keys(counts)
-      .toSorted((left, right) => left.localeCompare(right, "en"))
-      .map((rule) => [rule, counts[rule]])
-  );
+  const sorted = [...counts].toSorted(([left], [right]) => left.localeCompare(right, "en"));
+  const content = `{\n${sorted.map(([rule, count]) => `  ${JSON.stringify(rule)}: ${String(count)}`).join(",\n")}\n}\n`;
 
   try {
-    await writeFile(temporary, `${JSON.stringify(sorted, null, 2)}\n`);
+    await writeFile(temporary, content);
     await rename(temporary, COUNTER_PATH);
   } finally {
     await rm(temporary, { force: true });
@@ -85,13 +82,13 @@ export async function recordDiagnostics(results: ESLint.LintResult[]): Promise<v
   }
 
   for (const [rule, amount] of increments) {
-    const total = (counts[rule] ?? 0) + amount;
+    const total = (counts.get(rule) ?? 0) + amount;
 
     if (!Number.isSafeInteger(total)) {
       throw new HookFailure("diagnostics counter is full; existing counts were preserved");
     }
 
-    counts[rule] = total;
+    counts.set(rule, total);
   }
 
   try {
