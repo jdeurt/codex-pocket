@@ -1,5 +1,14 @@
-import { HookFailure, ROOT, type ToolEvent, acquireLock, snapshot, stateDirectory, stateName } from "./shared";
-import { readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import {
+  HookFailure,
+  ROOT,
+  type ToolEvent,
+  acquireLock,
+  interruptedName,
+  snapshot,
+  stateDirectory,
+  stateName,
+} from "./shared";
+import { access, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 
@@ -122,20 +131,61 @@ async function writeState(destination: string, state: ToolState): Promise<void> 
   }
 }
 
+/** Check for an interruption recorded before this snapshot was committed.
+@param directory - Worktree state directory.
+@param sessionId - Native session id.
+@param turnId - Native turn id.
+@returns Whether the turn was interrupted.
+*/
+async function isInterrupted(directory: string, sessionId: string, turnId: string): Promise<boolean> {
+  try {
+    await access(path.join(directory, interruptedName(sessionId, turnId)));
+
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Commit a snapshot only while its native turn remains active.
+@param directory - Worktree state directory.
+@param event - Native tool event.
+@param baseline - Before-tool digests.
+@param targets - Declared edit targets.
+*/
+async function saveIfActive(
+  directory: string,
+  event: ToolEvent,
+  baseline: Record<string, string>,
+  targets: string[] | null
+): Promise<void> {
+  if (event.turn_id && (await isInterrupted(directory, event.session_id, event.turn_id))) {
+    return;
+  }
+
+  await writeState(path.join(directory, stateName(event)), {
+    session_id: event.session_id,
+    ...(event.turn_id && { turn_id: event.turn_id }),
+    baseline,
+    targets,
+    conflicted: false,
+  });
+}
+
 /** Save the tool's baseline without changing the native tool decision.
 @param event - Native tool event.
 */
 export async function before(event: ToolEvent): Promise<void> {
   const directory = await stateDirectory();
   const targets = targetsFor(event);
+  const baseline = await snapshot(targets);
+  const lock = await acquireLock(directory);
 
-  await writeState(path.join(directory, stateName(event)), {
-    session_id: event.session_id,
-    ...(event.turn_id && { turn_id: event.turn_id }),
-    baseline: await snapshot(targets),
-    targets,
-    conflicted: false,
-  });
+  try {
+    await saveIfActive(directory, event, baseline, targets);
+  } finally {
+    await rm(lock, { recursive: true, force: true });
+  }
 }
 
 /** Read a candidate state without allowing an invalid neighbor to halt cleanup.
@@ -178,13 +228,25 @@ async function removeInterruptedStates(directory: string, sessionId: string, tur
   }
 }
 
+/** Record interruption before waiting for a competing runner.
+@param directory - Worktree state directory.
+@param sessionId - Interrupted session.
+@param turnId - Interrupted turn.
+@returns Runner lock for cleanup.
+*/
+async function markAndLockInterruption(directory: string, sessionId: string, turnId: string): Promise<string> {
+  await writeFile(path.join(directory, interruptedName(sessionId, turnId)), "", { mode: 0o600 });
+
+  return acquireLock(directory, INTERRUPT_LOCK_ATTEMPTS);
+}
+
 /** Clear snapshots for a main-thread turn after native interruption.
 @param sessionId - Interrupted session.
 @param turnId - Interrupted turn.
 */
 export async function clearInterruptedTurn(sessionId: string, turnId: string): Promise<void> {
   const directory = await stateDirectory();
-  const lock = await acquireLock(directory, INTERRUPT_LOCK_ATTEMPTS);
+  const lock = await markAndLockInterruption(directory, sessionId, turnId);
 
   try {
     await removeInterruptedStates(directory, sessionId, turnId);

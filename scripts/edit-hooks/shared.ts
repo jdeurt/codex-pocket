@@ -160,6 +160,15 @@ export function stateName(event: ToolEvent): string {
   return `${hash(`${event.session_id}:${event.tool_use_id}`)}.json`;
 }
 
+/** Name an interruption marker without exposing native identifiers.
+@param sessionId - Native session id.
+@param turnId - Interrupted turn id.
+@returns Private marker basename.
+*/
+export function interruptedName(sessionId: string, turnId: string): string {
+  return `${hash(`interrupt:${sessionId}:${turnId}`)}.interrupted`;
+}
+
 /** Create a lock and clean up if its owner marker cannot be written.
 @param lock - Worktree runner lock directory.
 */

@@ -1,8 +1,21 @@
-import { HEADER, SOURCE, assertIdle, fixture, hookAsync, informationalMessage, run } from "./edit-hooks-fixture";
+import {
+  HEADER,
+  type HookEvent,
+  SOURCE,
+  assertIdle,
+  fixture,
+  hookAsync,
+  informationalMessage,
+  run,
+} from "./edit-hooks-fixture";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import assert from "node:assert/strict";
+import { setTimeout as delay } from "node:timers/promises";
 import path from "node:path";
 import test from "node:test";
+
+const MARKER_POLL_MS = 20;
+const MARKER_POLL_ATTEMPTS = 100;
 
 void test("parallel disjoint edits retain per-tool feedback and leave unrelated dirt untouched", async () => {
   const root = fixture();
@@ -174,6 +187,90 @@ void test("a live runner lock times out without rewriting the tool edit or leavi
     rmSync(lock, { recursive: true, force: true });
     assertIdle(root);
   } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+/** Hold the runner lock while both native bookkeeping events start.
+@param root - Disposable worktree.
+@param directory - Private Git state directory.
+@param lock - Runner lock path.
+@param event - Pending tool call.
+@returns Concurrent hook process results.
+*/
+function startInterleaving(
+  root: string,
+  directory: string,
+  lock: string,
+  event: HookEvent
+): [Promise<string>, Promise<string>] {
+  const interruption: HookEvent = {
+    session_id: event.session_id,
+    turn_id: event.turn_id,
+    cwd: root,
+    hook_event_name: "Interrupt",
+  };
+
+  mkdirSync(directory, { recursive: true });
+  mkdirSync(lock);
+  writeFileSync(path.join(lock, "owner"), String(process.pid));
+
+  return [hookAsync(root, "before", event), hookAsync(root, "before", interruption)];
+}
+
+/** Wait until interruption is recorded before releasing the runner lock.
+@param directory - Private Git state directory.
+*/
+async function waitForInterruption(directory: string): Promise<void> {
+  for (let attempt = 0; attempt < MARKER_POLL_ATTEMPTS; attempt += 1) {
+    if (readdirSync(directory).some((name) => name.endsWith(".interrupted"))) {
+      return;
+    }
+
+    await delay(MARKER_POLL_MS);
+  }
+
+  assert.fail("native interruption marker was not written");
+}
+
+/** Exercise an interrupted before-tool snapshot and a later real edit.
+@param root - Disposable worktree.
+@param directory - Private Git state directory.
+@param lock - Runner lock path.
+*/
+async function runInterruptedInterleaving(root: string, directory: string, lock: string): Promise<void> {
+  const event: HookEvent = {
+    session_id: "interleaved-session",
+    turn_id: "interleaved-turn",
+    tool_use_id: "pending",
+    cwd: root,
+    tool_name: "apply_patch",
+    tool_input: { command: "*** Begin Patch\n*** Update File: src/edited.js\n*** End Patch" },
+  };
+  const resumed: HookEvent = { ...event, turn_id: "resumed-turn", tool_use_id: "resumed" };
+  const [before, interrupted] = startInterleaving(root, directory, lock, event);
+
+  await waitForInterruption(directory);
+  rmSync(lock, { recursive: true, force: true });
+  assert.deepEqual(await Promise.all([before, interrupted]), ["", ""]);
+  assertIdle(root);
+
+  await hookAsync(root, "before", resumed);
+  writeFileSync(path.join(root, "src/edited.js"), "var resumed= 1\n");
+  assert.match(informationalMessage(await hookAsync(root, "after", resumed)), /resumed.*\(no-unused-vars\)/);
+  assert.equal(readFileSync(path.join(root, "src/edited.js"), "utf8"), "const resumed = 1;\n");
+  assertIdle(root);
+}
+
+void test("interruption before a pending snapshot commit cannot leave an orphaned claim", async () => {
+  const root = fixture();
+  const directory = path.join(run("git", ["rev-parse", "--absolute-git-dir"], root).trim(), "pocket-edit-hooks");
+  const lock = path.join(directory, "runner.lock");
+
+  try {
+    await runInterruptedInterleaving(root, directory, lock);
+  } finally {
+    rmSync(lock, { recursive: true, force: true });
     rmSync(root, { recursive: true, force: true });
   }
 });
