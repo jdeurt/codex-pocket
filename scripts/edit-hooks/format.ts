@@ -218,41 +218,47 @@ async function lintAndReport(
   return renderFeedback(await new ESLint({ cwd: ROOT, fix: false }).lintFiles(eligible), isRewritten);
 }
 
-/** Apply repository ESLint only after all Prettier writes finish.
-@param formattedPaths - Prettier-eligible files.
-@param expected - Digests after formatting.
-@param isFormatted - Whether Prettier rewrote a file.
-@returns Final informational feedback, or null.
+/** Filter JavaScript ignored by the repository ESLint policy.
+@param eslint - Repository ESLint instance.
+@param changed - Tool-touched Git paths.
+@returns Paths eligible for Prettier and ESLint.
 */
-async function checkWithEslint(
-  formattedPaths: string[],
-  expected: Snapshot,
-  isFormatted: boolean
-): Promise<string | null> {
-  const { ESLint } = await import("eslint");
-  const eslint = new ESLint({ cwd: ROOT, fix: true });
-  const eligible: string[] = [];
+async function withoutEslintIgnores(eslint: ESLintType, changed: string[]): Promise<string[]> {
+  const checked = await Promise.all(
+    changed.map(async (relative) =>
+      ESLINT_EXTENSIONS.has(path.extname(relative).toLowerCase()) &&
+      (await eslint.isPathIgnored(path.join(ROOT, relative)))
+        ? null
+        : relative
+    )
+  );
 
-  for (const absolute of formattedPaths) {
-    if (!(await eslint.isPathIgnored(absolute))) {
-      eligible.push(absolute);
-    }
-  }
-
-  return eligible.length === 0 ? null : lintAndReport(eslint, eligible, expected, isFormatted);
+  return checked.filter((relative): relative is string => relative !== null);
 }
 
-/** Own the ordered Prettier and ESLint work for changed files.
+/** Run the ordered Prettier and ESLint passes after checking ignores.
+@param changed - Tool-touched Git paths.
+@param current - Post-tool content digest map.
+@returns Feedback or null.
+*/
+async function checkFilesUnchecked(changed: string[], current: Snapshot): Promise<string | null> {
+  const expected = Object.fromEntries(changed.map((relative) => [relative, current[relative]]));
+  const { ESLint } = await import("eslint");
+  const eslint = new ESLint({ cwd: ROOT, fix: true });
+  const eligible = await withoutEslintIgnores(eslint, changed);
+  const [formattedPaths, formatted] = await formatFiles(eligible, expected);
+
+  return formattedPaths.length === 0 ? null : await lintAndReport(eslint, formattedPaths, expected, formatted);
+}
+
+/** Map runtime failures to concise informational feedback.
 @param changed - Tool-touched Git paths.
 @param current - Post-tool content digest map.
 @returns Feedback or null.
 */
 async function checkFiles(changed: string[], current: Snapshot): Promise<string | null> {
-  const expected = Object.fromEntries(changed.map((relative) => [relative, current[relative]]));
-  const [formattedPaths, formatted] = await formatFiles(changed, expected);
-
   try {
-    return await checkWithEslint(formattedPaths, expected, formatted);
+    return await checkFilesUnchecked(changed, current);
   } catch (error) {
     if (error instanceof HookFailure) {
       throw error;

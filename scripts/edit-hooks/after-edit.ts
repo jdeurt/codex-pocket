@@ -1,6 +1,7 @@
-import { HookFailure, type ToolEvent, acquireLock, nativeEvent, stateDirectory, stateName } from "./shared";
+import { HookFailure, type ToolEvent, acquireLock, stateDirectory, stateName } from "./shared";
 import { checkChanged } from "./format";
 import { claim } from "./tracking";
+import { nativeEvent } from "./events";
 import path from "node:path";
 import { rm } from "node:fs/promises";
 

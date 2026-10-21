@@ -8,9 +8,11 @@ import { z } from "zod";
 
 export interface HookEvent {
   session_id: string;
-  tool_use_id: string;
+  turn_id?: string;
+  tool_use_id?: string;
   cwd: string;
-  tool_name: string;
+  hook_event_name?: "Interrupt";
+  tool_name?: string;
   tool_input?: Record<string, string>;
 }
 
@@ -100,7 +102,7 @@ export function fixture(): string {
   mkdirSync(scripts, { recursive: true });
   mkdirSync(src);
 
-  for (const name of ["before-edit.ts", "after-edit.ts", "shared.ts", "tracking.ts", "format.ts"]) {
+  for (const name of ["before-edit.ts", "after-edit.ts", "shared.ts", "tracking.ts", "format.ts", "events.ts"]) {
     copyFileSync(path.join(SOURCE, "scripts/edit-hooks", name), path.join(scripts, name));
   }
 
@@ -111,7 +113,7 @@ export function fixture(): string {
   writeFileSync(path.join(root, "prettier.config.mjs"), "export default { semi: true };\n");
   writeFileSync(
     path.join(root, "eslint.config.mjs"),
-    'export default [{ files: ["**/*.js"], rules: { "no-unused-vars": "warn", "no-var": "error", "prefer-const": "error", "eqeqeq": "error" } }];\n'
+    'export default [{ ignores: ["dist/**"] }, { files: ["**/*.js"], rules: { "no-unused-vars": "warn", "no-var": "error", "prefer-const": "error", "eqeqeq": "error" } }];\n'
   );
   writeFileSync(path.join(src, "edited.js"), "console.log(1);\n");
   writeFileSync(path.join(src, "dirty.js"), "console.log(2);\n");

@@ -13,6 +13,17 @@
         ]
       }
     ],
+    "Interrupt": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(git rev-parse --show-toplevel)/node_modules/.bin/tsx\" \"$(git rev-parse --show-toplevel)/scripts/edit-hooks/before-edit.ts\"",
+            "timeout": 3
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "^(Bash|apply_patch|mcp__.*(?:write|edit|patch|create|save|append|replace|move|rename|copy|upload|put).*)$",

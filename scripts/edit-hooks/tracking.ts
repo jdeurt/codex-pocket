@@ -1,15 +1,18 @@
-import { HookFailure, ROOT, type ToolEvent, snapshot, stateDirectory, stateName } from "./shared";
+import { HookFailure, ROOT, type ToolEvent, acquireLock, snapshot, stateDirectory, stateName } from "./shared";
 import { readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 
 const stateSchema = z.object({
+  session_id: z.string(),
+  turn_id: z.string().optional(),
   baseline: z.record(z.string(), z.string()),
   targets: z.array(z.string()).nullable(),
   conflicted: z.boolean(),
 });
 
 type ToolState = z.infer<typeof stateSchema>;
+const INTERRUPT_LOCK_ATTEMPTS = 10;
 
 /** Normalize a declared tool path to this checkout.
 @param value - Path in native tool input.
@@ -127,10 +130,67 @@ export async function before(event: ToolEvent): Promise<void> {
   const targets = targetsFor(event);
 
   await writeState(path.join(directory, stateName(event)), {
+    session_id: event.session_id,
+    ...(event.turn_id && { turn_id: event.turn_id }),
     baseline: await snapshot(targets),
     targets,
     conflicted: false,
   });
+}
+
+/** Read a candidate state without allowing an invalid neighbor to halt cleanup.
+@param source - Private state path.
+@returns Valid state or null.
+*/
+async function stateOrNull(source: string): Promise<ToolState | null> {
+  try {
+    return await readState(source);
+  } catch {
+    return null;
+  }
+}
+
+/** Remove one state only if it belongs to the interrupted turn.
+@param source - Private state path.
+@param sessionId - Interrupted session.
+@param turnId - Interrupted turn.
+*/
+async function removeInterruptedState(source: string, sessionId: string, turnId: string): Promise<void> {
+  const state = await stateOrNull(source);
+
+  if (state?.session_id === sessionId && state.turn_id === turnId) {
+    await rm(source, { force: true });
+  }
+}
+
+/** Scan private state while holding the runner lock.
+@param directory - Worktree state directory.
+@param sessionId - Interrupted session.
+@param turnId - Interrupted turn.
+*/
+async function removeInterruptedStates(directory: string, sessionId: string, turnId: string): Promise<void> {
+  const names = await readdir(directory);
+
+  for (const name of names) {
+    if (name.endsWith(".json")) {
+      await removeInterruptedState(path.join(directory, name), sessionId, turnId);
+    }
+  }
+}
+
+/** Clear snapshots for a main-thread turn after native interruption.
+@param sessionId - Interrupted session.
+@param turnId - Interrupted turn.
+*/
+export async function clearInterruptedTurn(sessionId: string, turnId: string): Promise<void> {
+  const directory = await stateDirectory();
+  const lock = await acquireLock(directory, INTERRUPT_LOCK_ATTEMPTS);
+
+  try {
+    await removeInterruptedStates(directory, sessionId, turnId);
+  } finally {
+    await rm(lock, { recursive: true, force: true });
+  }
 }
 
 /** Mark overlapping live operations so neither claims the other's edits.

@@ -1,6 +1,7 @@
 import { GUIDANCE, HEADER, assertIdle, fixture, hook, hookMessage, run } from "./edit-hooks-fixture";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import assert from "node:assert/strict";
+import os from "node:os";
 import path from "node:path";
 import test from "node:test";
 
@@ -115,7 +116,7 @@ function staleLockRecovery(root: string): void {
   assertIdle(root);
 }
 
-/** Report an ESLint config failure after formatting while preserving the edit.
+/** Report an ESLint config failure while preserving the edit.
 @param root - Fixture checkout.
 */
 function configFailure(root: string): void {
@@ -133,7 +134,7 @@ function configFailure(root: string): void {
   writeFileSync(edited, "var preserved= 1\n");
   writeFileSync(config, "export default [invalid syntax\n");
   assert.match(hookMessage(root, event), /repository-local ESLint could not check edited files/);
-  assert.equal(readFileSync(edited, "utf8"), "var preserved = 1;\n");
+  assert.equal(readFileSync(edited, "utf8"), "var preserved= 1\n");
   assert.equal(readFileSync(config, "utf8"), "export default [invalid syntax\n");
   assertIdle(root);
 }
@@ -147,6 +148,81 @@ void test("informational native edit hooks format only tool-touched files and pr
     finalEdits(root);
     staleLockRecovery(root);
     configFailure(root);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+void test("ignored JavaScript and hardlinks outside the checkout are never rewritten", () => {
+  const root = fixture();
+  const external = mkdtempSync(path.join(os.tmpdir(), "pocket-edit-hooks-external-"));
+
+  try {
+    const event = { session_id: "scope", tool_use_id: "one", cwd: root, tool_name: "Bash" };
+    const ignored = path.join(root, "dist/ignored.js");
+    const linked = path.join(root, "src/linked.js");
+    const outside = path.join(external, "outside.js");
+
+    mkdirSync(path.dirname(ignored));
+    writeFileSync(outside, "var outside= 1\n");
+    assert.equal(hook(root, "before", event), "");
+    writeFileSync(ignored, "var ignored= 2\n");
+    linkSync(outside, linked);
+    assert.equal(hook(root, "after", event), "");
+    assert.equal(readFileSync(ignored, "utf8"), "var ignored= 2\n");
+    assert.equal(readFileSync(linked, "utf8"), "var outside= 1\n");
+    assert.equal(readFileSync(outside, "utf8"), "var outside= 1\n");
+    assertIdle(root);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+    rmSync(external, { recursive: true, force: true });
+  }
+});
+
+void test("native interruption clears only that turn's bookkeeping before another edit", () => {
+  const root = fixture();
+
+  try {
+    const interrupted = {
+      session_id: "interrupted-session",
+      turn_id: "interrupted-turn",
+      tool_use_id: "first",
+      cwd: root,
+      tool_name: "apply_patch",
+      tool_input: { command: "*** Begin Patch\n*** Update File: src/edited.js\n*** End Patch" },
+    };
+    const other = {
+      ...interrupted,
+      session_id: "other-session",
+      turn_id: "other-turn",
+      tool_use_id: "second",
+      tool_input: { command: "*** Begin Patch\n*** Update File: src/dirty.js\n*** End Patch" },
+    };
+    const directory = path.join(run("git", ["rev-parse", "--absolute-git-dir"], root).trim(), "pocket-edit-hooks");
+
+    assert.equal(hook(root, "before", interrupted), "");
+    assert.equal(hook(root, "before", other), "");
+    assert.equal(
+      hook(root, "before", {
+        session_id: interrupted.session_id,
+        turn_id: interrupted.turn_id,
+        cwd: root,
+        hook_event_name: "Interrupt",
+      }),
+      ""
+    );
+    assert.equal(readdirSync(directory).filter((name) => name.endsWith(".json")).length, 1);
+    assert.equal(hook(root, "after", other), "");
+
+    {
+      const resumed = { ...interrupted, turn_id: "next-turn", tool_use_id: "resumed" };
+
+      assert.equal(hook(root, "before", resumed), "");
+      writeFileSync(path.join(root, "src/edited.js"), "var resumed= 1\n");
+      assert.match(hookMessage(root, resumed), /resumed.*\(no-unused-vars\)/);
+    }
+    assert.equal(readFileSync(path.join(root, "src/edited.js"), "utf8"), "const resumed = 1;\n");
+    assertIdle(root);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

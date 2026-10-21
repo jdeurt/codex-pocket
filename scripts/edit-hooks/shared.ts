@@ -7,6 +7,7 @@ import { setTimeout } from "node:timers/promises";
 
 export interface ToolEvent {
   session_id: string;
+  turn_id?: string;
   tool_use_id: string;
   cwd?: string;
   tool_name: string;
@@ -109,7 +110,7 @@ async function safeFile(relative: string): Promise<string | null> {
   const absolute = path.resolve(ROOT, relative);
   const info = await fileInfo(absolute);
 
-  if (!absolute.startsWith(`${ROOT}${path.sep}`) || !info?.isFile() || info.isSymbolicLink()) {
+  if (!absolute.startsWith(`${ROOT}${path.sep}`) || !info?.isFile() || info.isSymbolicLink() || info.nlink !== 1) {
     return null;
   }
 
@@ -228,12 +229,13 @@ async function hasClearedStaleLock(lock: string): Promise<boolean> {
 
 /** Claim the per-worktree runner lock.
 @param directory - Private worktree Git state directory.
+@param attempts - Maximum attempts before returning informational failure.
 @returns Lock directory to remove on completion.
 */
-export async function acquireLock(directory: string): Promise<string> {
+export async function acquireLock(directory: string, attempts = LOCK_ATTEMPTS): Promise<string> {
   const lock = path.join(directory, "runner.lock");
 
-  for (let attempt = 0; attempt < LOCK_ATTEMPTS; attempt += 1) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
     try {
       await createLock(lock);
 
@@ -294,57 +296,4 @@ export async function writeIfUnchanged(
   }
 
   return writeKnownFile(absolute, expected, content);
-}
-
-/** Check native fields without trusting arbitrary tool arguments.
-@param value - Parsed event object.
-@returns Scoped event or null.
-*/
-async function validateEvent(value: object): Promise<ToolEvent | null> {
-  const session_id: unknown = Reflect.get(value, "session_id");
-  const tool_use_id: unknown = Reflect.get(value, "tool_use_id");
-  const cwd: unknown = Reflect.get(value, "cwd");
-  const tool_name: unknown = Reflect.get(value, "tool_name");
-  const tool_input: unknown = Reflect.get(value, "tool_input");
-  const directory = typeof cwd === "string" ? await realpath(cwd) : ROOT;
-
-  if (
-    typeof session_id !== "string" ||
-    typeof tool_use_id !== "string" ||
-    typeof tool_name !== "string" ||
-    (cwd && typeof cwd !== "string")
-  ) {
-    throw new Error("native hook identifiers are unavailable");
-  }
-
-  return directory === ROOT || directory.startsWith(`${ROOT}${path.sep}`)
-    ? { session_id, tool_use_id, tool_name, tool_input, ...(typeof cwd === "string" && { cwd: directory }) }
-    : null;
-}
-
-/** Validate the native identifiers and session path.
-@param input - Event JSON.
-@returns Scoped event or null.
-*/
-async function parseEvent(input: string): Promise<ToolEvent | null> {
-  const value: unknown = JSON.parse(input);
-
-  if (typeof value !== "object" || value === null) {
-    throw new Error("native hook input is invalid");
-  }
-
-  return validateEvent(value);
-}
-
-/** Read and validate the native event for either hook phase.
-@returns Tool identifiers, or null when a tool runs outside this checkout.
-*/
-export async function nativeEvent(): Promise<ToolEvent | null> {
-  let input = "";
-
-  for await (const chunk of process.stdin) {
-    input += String(chunk);
-  }
-
-  return parseEvent(input);
 }

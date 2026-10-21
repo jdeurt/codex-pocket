@@ -1,14 +1,18 @@
-import { before } from "./tracking";
-import { nativeEvent } from "./shared";
+import { before, clearInterruptedTurn } from "./tracking";
+import { bookkeepingEvent, nativeInput } from "./events";
 
 /**
 Record the before-tool snapshot without controlling the tool.
 */
 async function prepare(): Promise<void> {
-  const event = await nativeEvent();
+  const event = await bookkeepingEvent(await nativeInput());
 
   if (event) {
-    await before(event);
+    if ("hook_event_name" in event) {
+      await clearInterruptedTurn(event.session_id, event.turn_id);
+    } else {
+      await before(event);
+    }
   }
 }
 
