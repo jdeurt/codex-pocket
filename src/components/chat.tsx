@@ -1,7 +1,7 @@
 "use client";
 import "./focused-composer.css";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { ArrowUpIcon, PaperclipIcon } from "lucide-react";
+import { ArrowUpIcon, MicIcon, PaperclipIcon, XIcon } from "lucide-react";
 import { type DraftAttachment, useAttachments } from "@/hooks/use-attachments";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } from "@/components/ui/input-group";
@@ -16,12 +16,15 @@ import { Conversation } from "./conversation";
 import { type FileAttachment } from "@/lib/attachments";
 import { NotificationPrompt } from "./notification-prompt";
 import { PocketMenu } from "./pocket-menu";
+import { RealtimeSpectrum } from "./realtime-spectrum";
 import { connectionStatus } from "@/lib/connection-status";
 import { modelDescription } from "@/lib/model-description";
 import { post } from "@/lib/client-api";
 import { useAppUpdate } from "@/hooks/use-app-update";
 import { useComposerViewport } from "@/hooks/use-composer-viewport";
 import { usePathname } from "next/navigation";
+import { useRealtime } from "@/hooks/use-realtime";
+import { useVoiceGesture } from "@/hooks/use-voice-gesture";
 
 /**
 Require visible text or files and wait until every selected upload has a receipt.
@@ -49,15 +52,32 @@ function ComposerError({ errors }: { errors: (string | undefined)[] }) {
 }
 
 /**
+Show the send arrow, armed microphone, or realtime stop icon in one button.
+@param props - Whether realtime is active or the upward gesture is armed.
+@returns The current icon for the send button.
+*/
+function SendControlIcon({ active, armed }: { active: boolean; armed: boolean }) {
+  if (active) {
+    return <XIcon aria-hidden="true" />;
+  }
+
+  return armed ? <MicIcon aria-hidden="true" /> : <ArrowUpIcon aria-hidden="true" />;
+}
+
+/**
 Compose the active parent conversation, durable draft, uploads and message delivery controls.
 @returns The parent chat and its existing navigation, notices and composer.
 */
+// eslint-disable-next-line complexity, react-doctor/no-high-complexity-react-function -- Existing chat owns composer, uploads, navigation, and the new voice control.
 export function Chat() {
   const { state, connected: streamConnected } = useThread();
   const [draft, setDraft] = useDraft();
   const isViewingFile = usePathname() === "/files";
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
+  const voice = useRealtime();
+  const { stop: stopVoice } = voice;
+  const isVoiceActive = voice.state !== "idle";
   const [agentsOpen, setAgentsOpen] = useState(false);
   const [pocketsOpen, setPocketsOpen] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
@@ -88,6 +108,7 @@ export function Chat() {
   useAppUpdate(
     () =>
       !sending &&
+      !isVoiceActive &&
       !pocketsOpen &&
       state.queue.every((message) => !(message.status === "unknown" || message.status === "sending")) &&
       isDraftSaved(draft) &&
@@ -96,6 +117,12 @@ export function Chat() {
   useComposerViewport(textarea);
 
   useRecoveredDraft(attachments.pending, draft, sending, setDraft);
+
+  useEffect(() => {
+    if (!isConnected && isVoiceActive) {
+      void stopVoice();
+    }
+  }, [isConnected, isVoiceActive, stopVoice]);
 
   useEffect(() => {
     if ("serviceWorker" in navigator && process.env.NODE_ENV === "production") {
@@ -149,12 +176,27 @@ export function Chat() {
   async function send() {
     const text = draft.trim();
 
-    if (sending || !isConnected || !attachments.ready || !hasMessage(text, attachments.files)) {
+    if (isVoiceActive || sending || !isConnected || !attachments.ready || !hasMessage(text, attachments.files)) {
       return;
     }
 
     await deliverDraft(text);
   }
+
+  // eslint-disable-next-line jdeurt/const-on-top -- Gesture actions use the send handler defined above.
+  const voiceGesture = useVoiceGesture({
+    active: isVoiceActive,
+    enabled: isConnected,
+    onTap: () => {
+      void send();
+    },
+    onStart: () => {
+      void voice.start();
+    },
+    onStop: () => {
+      void voice.stop();
+    },
+  });
 
   return (
     <AgentNavigationContext value={openAgent}>
@@ -162,27 +204,43 @@ export function Chat() {
         <PocketMenu model={modelDescription(state)} status={status} onOpenChange={setPocketsOpen} />
         <Conversation
           state={state}
+          realtimeSegments={voice.segments}
           suspended={agentsOpen || pocketsOpen || isViewingFile}
           activityControl={agentControl}
         />
         <footer className="composer-wrap">
           <NotificationPrompt />
-          <ComposerError errors={[error, attachments.error, state.error]} />
-          <ComposerAttachments
-            files={attachments.files}
-            disabled={sending}
-            remove={async (id) => {
-              messageId.current = null;
-              await attachments.remove(id);
-            }}
-            retry={attachments.retry}
-          />
+          <ComposerError errors={[voice.error, error, attachments.error, state.error]} />
+          {!isVoiceActive && (
+            <ComposerAttachments
+              files={attachments.files}
+              disabled={sending}
+              remove={async (id) => {
+                messageId.current = null;
+                await attachments.remove(id);
+              }}
+              retry={attachments.retry}
+            />
+          )}
           <form
             onSubmit={(event) => {
               event.preventDefault();
-              void send();
+
+              if (!isVoiceActive) {
+                void send();
+              }
             }}
           >
+            {!isVoiceActive && (
+              <button
+                type="button"
+                className="voice-keyboard-control"
+                onClick={() => void voice.start()}
+                disabled={!isConnected}
+              >
+                Start realtime voice
+              </button>
+            )}
             <FieldGroup>
               <Field>
                 <input
@@ -191,7 +249,7 @@ export function Chat() {
                   multiple
                   hidden
                   aria-label="Choose attachments"
-                  disabled={sending || !attachments.ready || state.connection === "unconfigured"}
+                  disabled={isVoiceActive || sending || !attachments.ready || state.connection === "unconfigured"}
                   onChange={(event) => {
                     const files = [...(event.target.files ?? [])];
 
@@ -204,54 +262,78 @@ export function Chat() {
                   Message Pocket
                 </FieldLabel>
                 <InputGroup className="composer">
-                  <InputGroupTextarea
-                    ref={textarea}
-                    id="message"
-                    placeholder="Message Pocket…"
-                    value={draft}
-                    rows={1}
-                    maxLength={32_000}
-                    disabled={state.connection === "unconfigured" || sending}
-                    onChange={(event) => {
-                      setDraft(event.target.value);
-                      messageId.current = null;
-                    }}
-                    onKeyDown={(event) => {
-                      if (!(
-                        event.key === "Enter" &&
-                        !event.shiftKey &&
-                        !event.nativeEvent.isComposing &&
-                        globalThis.matchMedia("(pointer: fine)").matches
-                      )) {
-                        return;
-                      }
+                  {isVoiceActive ? (
+                    <RealtimeSpectrum input={voice.inputAnalyser} output={voice.outputAnalyser} status={voice.state} />
+                  ) : (
+                    <>
+                      <InputGroupTextarea
+                        ref={textarea}
+                        id="message"
+                        placeholder="Message Pocket…"
+                        value={draft}
+                        rows={1}
+                        maxLength={32_000}
+                        disabled={state.connection === "unconfigured" || sending}
+                        onChange={(event) => {
+                          setDraft(event.target.value);
+                          messageId.current = null;
+                        }}
+                        onKeyDown={(event) => {
+                          if (!(
+                            event.key === "Enter" &&
+                            !event.shiftKey &&
+                            !event.nativeEvent.isComposing &&
+                            globalThis.matchMedia("(pointer: fine)").matches
+                          )) {
+                            return;
+                          }
 
-                      event.preventDefault();
-                      void send();
-                    }}
-                  />
+                          event.preventDefault();
+                          void send();
+                        }}
+                      />
+                    </>
+                  )}
                   <InputGroupAddon align="inline-end">
+                    {!isVoiceActive && (
+                      <>
+                        <InputGroupButton
+                          type="button"
+                          size="icon-sm"
+                          className="min-h-11 min-w-11"
+                          aria-label="Attach images or files"
+                          title="Attach images or files"
+                          disabled={sending || !attachments.ready || state.connection === "unconfigured"}
+                          onClick={() => filePicker.current?.click()}
+                        >
+                          <PaperclipIcon aria-hidden="true" />
+                        </InputGroupButton>
+                      </>
+                    )}
                     <InputGroupButton
                       type="button"
-                      size="icon-sm"
-                      className="min-h-11 min-w-11"
-                      aria-label="Attach images or files"
-                      title="Attach images or files"
-                      disabled={sending || !attachments.ready || state.connection === "unconfigured"}
-                      onClick={() => filePicker.current?.click()}
-                    >
-                      <PaperclipIcon aria-hidden="true" />
-                    </InputGroupButton>
-                    <InputGroupButton
-                      type="submit"
                       variant="default"
                       size="icon-sm"
-                      className="send-button"
-                      aria-label="Send message"
-                      disabled={!hasMessage(draft, attachments.files) || sending || !isConnected || !attachments.ready}
+                      className={`send-button ${voiceGesture.holding ? "send-button-holding" : ""}`}
+                      style={
+                        voiceGesture.holding
+                          ? { transform: `translateY(-${String(voiceGesture.offset)}px)` }
+                          : undefined
+                      }
+                      aria-label={
+                        isVoiceActive ? "Stop realtime voice" : "Send message; hold and swipe up for realtime voice"
+                      }
+                      disabled={!isVoiceActive && (sending || !isConnected || !attachments.ready)}
+                      onPointerDown={voiceGesture.onPointerDown}
+                      onPointerMove={voiceGesture.onPointerMove}
+                      onPointerUp={voiceGesture.onPointerUp}
+                      onLostPointerCapture={voiceGesture.onLostPointerCapture}
+                      onPointerCancel={voiceGesture.onPointerCancel}
+                      onClick={voiceGesture.onClick}
                     >
-                      <ArrowUpIcon />
+                      <SendControlIcon active={isVoiceActive} armed={voiceGesture.armed} />
                     </InputGroupButton>
+                    {voiceGesture.holding && <span className="voice-pill-track" aria-hidden="true" />}
                   </InputGroupAddon>
                 </InputGroup>
               </Field>

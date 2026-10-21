@@ -47,3 +47,17 @@ export async function readFixtureRequests(execute: FixtureExecutor) {
     await respond(line, execute);
   }
 }
+
+/**
+Allow a realtime stop to be read while an earlier synthetic audio acknowledgment is withheld.
+@param execute - The isolated realtime fixture executor.
+*/
+export async function readPipelinedFixtureRequests(execute: FixtureExecutor) {
+  const lines = createInterface({ input: process.stdin });
+
+  for await (const line of lines) {
+    void respond(line, execute).catch((error: unknown) => {
+      process.stderr.write(error instanceof Error ? error.message : "Invalid fixture request.");
+    });
+  }
+}
