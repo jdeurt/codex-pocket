@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import assert from "node:assert/strict";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { setTimeout } from "node:timers/promises";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
@@ -9,6 +10,85 @@ import { tmpdir } from "node:os";
 const target = `gui/${String(process.getuid?.())}/dev.pocket.menubar`;
 const STARTUP_PROBES = 20;
 const PROBE_MS = 250;
+const WINDOW_FLOW_TIMEOUT_MS = 20_000;
+
+/** Build a disposable app around the real menu bar delegate and its native window flow.
+@param home - Temporary directory containing the test app bundle.
+@returns The compiled native flow executable.
+*/
+async function compileWindowFlow(home: string) {
+  const contents = path.join(home, "Window Flow.app/Contents");
+  const executable = path.join(contents, "MacOS/PocketMenuBar");
+  const compilationTarget = `${process.arch === "arm64" ? "arm64" : "x86_64"}-apple-macos13.0`;
+  const definition = {
+    CFBundleIdentifier: `dev.pocket.menubar.window-flow.${randomUUID()}`,
+    CFBundleName: "Pocket Window Flow",
+    CFBundleExecutable: "PocketMenuBar",
+    CFBundlePackageType: "APPL",
+    LSUIElement: true,
+    LSMinimumSystemVersion: "13.0",
+    PocketURL: "http://127.0.0.1:1",
+  };
+
+  await mkdir(path.dirname(executable), { recursive: true });
+  assert.equal(
+    spawnSync("/usr/bin/plutil", ["-convert", "xml1", "-o", path.join(contents, "Info.plist"), "-"], {
+      input: JSON.stringify(definition),
+    }).status,
+    0
+  );
+  assert.equal(
+    spawnSync(
+      "/usr/bin/xcrun",
+      [
+        "swiftc",
+        "-parse-as-library",
+        "-target",
+        compilationTarget,
+        "-warnings-as-errors",
+        "-D",
+        "MENUBAR_WINDOW_TEST",
+        "scripts/menubar.swift",
+        "tests/fixtures/menubar-window.swift",
+        "-o",
+        executable,
+      ],
+      { stdio: "inherit" }
+    ).status,
+    0
+  );
+  assert.equal(spawnSync("/usr/bin/codesign", ["--force", "--sign", "-", path.dirname(contents)]).status, 0);
+
+  return executable;
+}
+
+/** Exercise native focus, editor feedback, resizing, saved size and retained drafts through the app boundary.
+@param home - Disposable app directory, independent of the installed companion.
+@returns Completion after the native window flow passes.
+*/
+async function checkWindowFlow(home: string) {
+  const executable = await compileWindowFlow(home);
+  const result = spawnSync(executable, [], { encoding: "utf8", timeout: WINDOW_FLOW_TIMEOUT_MS });
+
+  assert.equal(result.status, 0, result.stderr || result.error?.message);
+  assert.match(result.stdout, /Native editor focus, focus ring, caret selection, resize, saved size/);
+}
+
+await test(
+  "native window receives editor focus, resizes, retains its draft and hides notification banners",
+  {
+    skip: process.platform !== "darwin",
+  },
+  async () => {
+    const home = await mkdtemp(path.join(tmpdir(), "pocket-menubar-window-"));
+
+    try {
+      await checkWindowFlow(home);
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  }
+);
 
 /** Wait for launchd to report a running native app after the public setup command.
 @returns Completion after a running process is observed, or an assertion failure.
