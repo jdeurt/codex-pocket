@@ -72,7 +72,7 @@ export function RealtimeSpectrum({
 
         const capsule = distance >= radius ? 1 : Math.sqrt(1 - (1 - Math.max(0, distance) / radius) ** 2);
 
-        return capsule ** 2.1;
+        return capsule ** 2.45;
       };
 
       for (let i = 0; i < BAR_COUNT; i++) {

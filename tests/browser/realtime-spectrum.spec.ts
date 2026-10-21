@@ -117,14 +117,14 @@ test("full frequency input follows the inset composer capsule at both waveform e
       const bar = shape.bars[index];
       const distance = Math.min(shape.leftInset + bar.left, shape.leftInset + shape.spectrumWidth - bar.right);
       const capsule = distance >= shape.radius ? 1 : Math.sqrt(1 - (1 - distance / shape.radius) ** 2);
-      const factor = capsule ** 2.1;
+      const factor = capsule ** 2.45;
 
       expect(Math.abs(bar.halfHeight - middle * factor)).toBeLessThanOrEqual(0.75);
       expect(Math.abs(bar.halfHeight - shape.bars[shape.bars.length - 1 - index].halfHeight)).toBeLessThanOrEqual(0.5);
     }
 
-    expect(shape.bars[0].halfHeight / middle).toBeLessThan(0.84);
-    expect(shape.bars[0].halfHeight / middle).toBeGreaterThan(0.79);
+    expect(shape.bars[0].halfHeight / middle).toBeLessThan(0.82);
+    expect(shape.bars[0].halfHeight / middle).toBeGreaterThan(0.76);
     await page.getByRole("button", { name: "Stop realtime voice" }).click();
     await expect(page.getByRole("textbox", { name: "Message Pocket" })).toBeVisible();
     await expect
