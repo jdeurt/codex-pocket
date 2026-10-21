@@ -15,7 +15,7 @@ const domain = `gui/${String(process.getuid?.())}`;
 const target = `${domain}/${LABEL}`;
 
 /** Stop the menu bar companion if its login job is registered.
-*/
+ */
 function stop() {
   if (spawnSync("/bin/launchctl", ["print", target], { stdio: "ignore" }).status === 0) {
     run("/bin/launchctl", ["bootout", target]);
