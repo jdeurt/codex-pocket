@@ -73,6 +73,7 @@ async function setup() {
         CFBundlePackageType: "APPL",
         CFBundleVersion: "1",
         LSUIElement: true,
+        PocketURL: url,
         NSAppTransportSecurity: { NSAllowsLocalNetworking: true },
         NSMicrophoneUsageDescription: "Pocket uses the microphone when you start a voice conversation.",
       })
@@ -87,7 +88,7 @@ async function setup() {
       plist,
       propertyList({
         Label: LABEL,
-        ProgramArguments: [path.join(application, "Contents/MacOS/PocketMenuBar"), url],
+        ProgramArguments: [path.join(application, "Contents/MacOS/PocketMenuBar")],
         RunAtLoad: true,
         KeepAlive: { SuccessfulExit: false },
         ProcessType: "Interactive",

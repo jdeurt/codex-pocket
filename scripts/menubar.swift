@@ -9,6 +9,7 @@ final class PocketMenuBar: NSObject, NSApplicationDelegate {
   private let popover = NSPopover()
   private let webView = WKWebView()
   private var escapeMonitor: Any?
+  private var pocketURL: URL?
 
   /// Start the accessory app and retain its delegate for the complete native event loop.
   static func main() {
@@ -25,8 +26,8 @@ final class PocketMenuBar: NSObject, NSApplicationDelegate {
   /// Configure the icon, popover, and standard text editing commands after the application starts.
   /// - Parameter notification: The application launch notification.
   func applicationDidFinishLaunching(_ notification: Notification) {
-    guard CommandLine.arguments.count == 2,
-      let url = URL(string: CommandLine.arguments[1]),
+    guard let address = Bundle.main.object(forInfoDictionaryKey: "PocketURL") as? String,
+      let url = URL(string: address),
       url.scheme == "http",
       url.host == "127.0.0.1"
     else {
@@ -38,6 +39,7 @@ final class PocketMenuBar: NSObject, NSApplicationDelegate {
     let controller = NSViewController()
 
     controller.view = webView
+    pocketURL = url
     popover.contentViewController = controller
     popover.contentSize = NSSize(width: 420, height: 640)
     popover.behavior = .transient
@@ -90,7 +92,7 @@ final class PocketMenuBar: NSObject, NSApplicationDelegate {
       popover.performClose(nil)
     } else {
       // Loading waits for the first click so login startup does not depend on server readiness.
-      if webView.url == nil, let url = URL(string: CommandLine.arguments[1]) {
+      if webView.url == nil, let url = pocketURL {
         webView.load(URLRequest(url: url))
       }
 

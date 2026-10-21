@@ -73,7 +73,7 @@ await test(
         assert.equal(spawnSync("/usr/bin/codesign", ["--verify", "--deep", application]).status, 0);
         assert.deepEqual(definition, {
           Label: "dev.pocket.menubar",
-          ProgramArguments: [path.join(application, "Contents/MacOS/PocketMenuBar"), "http://127.0.0.1:43877"],
+          ProgramArguments: [path.join(application, "Contents/MacOS/PocketMenuBar")],
           RunAtLoad: true,
           KeepAlive: { SuccessfulExit: false },
           ProcessType: "Interactive",
