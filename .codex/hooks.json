@@ -1,0 +1,30 @@
+{
+  "description": "Informational formatting and lint feedback for files edited by Codex tools.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "^(Bash|apply_patch|mcp__.*(?:write|edit|patch|create|save|append|replace|move|rename|copy|upload|put).*)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(git rev-parse --show-toplevel)/node_modules/.bin/tsx\" \"$(git rev-parse --show-toplevel)/scripts/edit-hooks/before-edit.ts\"",
+            "timeout": 30
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "^(Bash|apply_patch|mcp__.*(?:write|edit|patch|create|save|append|replace|move|rename|copy|upload|put).*)$",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"$(git rev-parse --show-toplevel)/node_modules/.bin/tsx\" \"$(git rev-parse --show-toplevel)/scripts/edit-hooks/after-edit.ts\"",
+            "timeout": 60,
+            "additionalContextLimit": 1200
+          }
+        ]
+      }
+    ]
+  }
+}
