@@ -15,13 +15,19 @@ await test("a send stays visible before acknowledgment and merges with the serve
   assert.deepEqual(reconcileDeliveries(queued, acknowledged).state.queue, acknowledged);
 });
 
-await test("Codex confirmation removes only the matching optimistic message even when text is identical", () => {
+await test("rendered Codex confirmation removes only the matching optimistic message even when text is identical", () => {
   const first: QueuedMessage = { id: "first", text: "Hello", status: "sending" };
   const second: QueuedMessage = { ...first, id: "second" };
   const state: Snapshot = {
     ...initialSnapshot,
     queue: [first, second],
-    turns: [{ id: "turn", status: "inProgress", items: [{ id: "item", type: "userMessage", clientId: "first" }] }],
+    turns: [
+      {
+        id: "turn",
+        status: "inProgress",
+        items: [{ id: "item", type: "userMessage", clientId: "first", content: [{ type: "text", text: "Hello" }] }],
+      },
+    ],
   };
   const result = reconcileDeliveries(state, [first, second]);
 
