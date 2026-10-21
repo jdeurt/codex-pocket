@@ -140,6 +140,14 @@ export const rpcEventSchema = z.object({
   params: z.looseObject({ turn: turnSchema.optional(), item: itemSchema.optional() }).default({}),
   id: z.union([z.string(), z.number()]).optional(),
 }) satisfies z.ZodType<RpcEvent>;
+// Native realtime itemAdded carries a raw backend item, not a canonical transcript Item.
+// Pocket has no consumer for that raw payload; retain its method and thread correlation.
+export const realtimeItemAddedSchema = z
+  .object({
+    method: z.literal("thread/realtime/itemAdded"),
+    params: z.object({ threadId: z.string(), item: z.unknown() }),
+  })
+  .transform(({ method, params }): RpcEvent => ({ method, params: { threadId: params.threadId } }));
 export const queuedMessageSchema = z.object({
   id: z.string(),
   text: z.string(),

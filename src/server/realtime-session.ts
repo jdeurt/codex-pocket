@@ -1,16 +1,13 @@
 /* eslint-disable jdeurt/const-on-top, jsdoc/require-jsdoc, jsdoc/require-param, jsdoc/require-returns, unicorn/try-complexity, complexity -- Native session mutations are sequential and native notifications share one session handler. */
-import {
-  type RealtimeMessage,
-  audioSchema,
-  parseOutputAudio,
-  settingsSchema,
-  voiceListSchema,
-} from "./realtime-schema";
-import { type RpcEvent, object, string } from "../lib/protocol";
-import { drainRealtimeStop, waitForRealtimeClosed } from "./realtime-lifecycle";
+import { type RealtimeMessage, parseOutputAudio, settingsSchema, voiceListSchema } from "./realtime-schema";
+import { type RpcEvent, string } from "../lib/protocol";
 import { readLocal, writeLocal } from "./local-state";
+import { requestRealtimeStop, waitForRealtimeClosed } from "./realtime-lifecycle";
 import { type Bridge } from "./bridge-session";
+import { type CodexRpc } from "./rpc";
+import { RealtimeMediaLane } from "./realtime-media-lane";
 import { createHash } from "node:crypto";
+import { realtimeInfo } from "./realtime-settings-info";
 import type { z } from "zod";
 
 /**
@@ -24,9 +21,17 @@ export class RealtimeSession extends EventTarget {
   private closure?: { resolve: () => void };
   private settings?: z.infer<typeof settingsSchema>;
   private lastError?: string;
+  private media: RealtimeMediaLane;
+  private stoppingToken?: string;
+  private stopTask?: Promise<void>;
 
   constructor(private owner: Bridge) {
     super();
+    this.media = new RealtimeMediaLane(owner, () => ({
+      token: this.token,
+      nativeSessionId: this.nativeSessionId,
+      phase: this.phase,
+    }));
   }
 
   private threadId() {
@@ -53,31 +58,58 @@ export class RealtimeSession extends EventTarget {
     this.dispatchEvent(new CustomEvent("message", { detail: message }));
   }
 
+  private async finishStop() {
+    this.token = undefined;
+    this.phase = "stopping";
+    this.stoppingThreadId = this.owner.snapshot.threadId;
+    this.publish({ type: "closed" });
+    const threadId = this.stoppingThreadId;
+    const rpc: CodexRpc | undefined =
+      this.owner.snapshot.connection === "connected" ? this.owner.agentReader() : undefined;
+    const closed = new Promise<void>((resolve) => {
+      this.closure = { resolve };
+    });
+    const deadline = waitForRealtimeClosed(closed);
+
+    // The audio result is now unknown, but its 90s wait must not hold the serialized stop behind it.
+    rpc?.abandonRealtime("thread/realtime/appendAudio");
+    requestRealtimeStop(
+      rpc,
+      threadId,
+      () => this.phase === "stopping" || this.phase === "uncertain",
+      (error) => {
+        if (this.status().type === "stopping") {
+          this.lastError = error instanceof Error ? error.message : "Native realtime stop failed.";
+        }
+      }
+    );
+
+    try {
+      await deadline;
+    } catch (error) {
+      if (this.status().type === "stopping") {
+        this.phase = "uncertain";
+        this.lastError = error instanceof Error ? error.message : "Native realtime closure was not confirmed.";
+      }
+
+      throw error;
+    } finally {
+      this.closure = undefined;
+      rpc?.abandonRealtime("thread/realtime/stop");
+      this.stoppingToken = undefined;
+      this.stopTask = undefined;
+    }
+  }
+
   /**
   Read actual v2 voices and the effective configured model without making a static catalog.
   */
   async info() {
     await this.owner.ensureConnected();
     const id = this.threadId();
-    const rpc = this.owner.agentReader();
-    const [listed, config] = await Promise.all([
-      rpc.request("thread/realtime/listVoices", {}),
-      rpc.request("config/read", { includeLayers: false }),
-    ]);
-    const voices = voiceListSchema.parse(listed).voices;
-    const effective = object(object(config).config);
     const saved = await this.saved(id);
 
-    return {
-      voice: saved.voice ?? voices.defaultV2,
-      voices: voices.v2,
-      model: saved.model ?? (string(effective.experimental_realtime_ws_model) || null),
-      configuredModel: string(effective.experimental_realtime_ws_model) || null,
-      phase: this.phase,
-      effectiveFor: "next realtime session; an active session keeps its voice and model",
-      modelCatalog:
-        "The runtime does not expose a realtime model catalog. An explicit model is verified when the next session starts.",
-    };
+    return realtimeInfo(this.owner, saved, this.phase);
   }
 
   /**
@@ -170,72 +202,27 @@ export class RealtimeSession extends EventTarget {
   Require the exact current token before touching native audio.
   */
   append(token: string, input: unknown) {
-    return this.owner.exclusive(async () => {
-      if (!this.token || token !== this.token || this.phase !== "active") {
-        throw new Error("Realtime has stopped.");
-      }
-
-      const audio = audioSchema.parse(input);
-
-      if (Buffer.from(audio.data, "base64").byteLength !== audio.samplesPerChannel * 2) {
-        throw new Error("Invalid PCM16 audio length.");
-      }
-
-      await this.owner.agentReader().request("thread/realtime/appendAudio", { threadId: this.threadId(), audio });
-    });
+    return this.media.append(token, input);
   }
 
   /**
   Release the browser token immediately and bound native shutdown from this invocation.
   */
-  async stop(token: string) {
+  stop(token: string) {
+    if (token === this.stoppingToken && this.stopTask) {
+      return this.stopTask;
+    }
+
     if (!this.token || token !== this.token) {
-      return;
+      return Promise.resolve();
     }
 
-    this.token = undefined;
-    this.phase = "stopping";
-    this.stoppingThreadId = this.owner.snapshot.threadId;
-    this.publish({ type: "closed" });
-    const threadId = this.stoppingThreadId;
-    const rpc = this.owner.snapshot.connection === "connected" ? this.owner.agentReader() : undefined;
-    const closed = new Promise<void>((resolve) => {
-      this.closure = { resolve };
-    });
-    const deadline = waitForRealtimeClosed(closed);
+    this.stoppingToken = token;
+    const task = this.finishStop();
 
-    let hasDeadlineSettled = false;
+    this.stopTask = task;
 
-    // The audio result is now unknown, but its 90s wait must not hold the serialized stop behind it.
-    rpc?.abandonRealtime("thread/realtime/appendAudio");
-    drainRealtimeStop(
-      this.owner,
-      rpc,
-      threadId,
-      deadline,
-      () => this.phase === "stopping" || this.phase === "uncertain",
-      () => hasDeadlineSettled,
-      (error) => {
-        if (this.status().type === "stopping") {
-          this.lastError = error instanceof Error ? error.message : "Native realtime stop failed.";
-        }
-      }
-    );
-
-    try {
-      await deadline;
-    } catch (error) {
-      if (this.status().type === "stopping") {
-        this.phase = "uncertain";
-        this.lastError = error instanceof Error ? error.message : "Native realtime closure was not confirmed.";
-      }
-
-      throw error;
-    } finally {
-      hasDeadlineSettled = true;
-      this.closure = undefined;
-      rpc?.abandonRealtime("thread/realtime/stop");
-    }
+    return task;
   }
 
   // Validate the stream owner on every subscription.
@@ -346,5 +333,7 @@ export class RealtimeSession extends EventTarget {
     this.publish({ type: "error", error: message });
     this.closure?.resolve();
     this.closure = undefined;
+    this.stoppingToken = undefined;
+    this.stopTask = undefined;
   }
 }

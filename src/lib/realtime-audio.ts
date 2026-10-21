@@ -36,7 +36,7 @@ export function schedulePcm16(
   const at = Math.max(context.currentTime + 0.025, outputTime);
 
   // Refuse an overrun instead of dropping speech or letting queued audio diverge from the transcript.
-  if (at + samples.length / TARGET_RATE - context.currentTime > 8 || sources.size >= 96) {
+  if (at + samples.length / TARGET_RATE - context.currentTime > 8) {
     throw new Error("Audio playback fell behind. Realtime stopped; start again to continue.");
   }
 

@@ -6,18 +6,28 @@ import { readPipelinedFixtureRequests, writeFixtureRecord } from "./sequential-r
 import path from "node:path";
 import { z } from "zod";
 
-const threadId = "realtime-fixture-parent";
+const mainThreadId = "realtime-fixture-parent";
+const namedThreadId = "realtime-fixture-named";
+const backendTurnId = "voice-backend-turn";
 const logFile = path.resolve(".local/realtime-fixture/native.jsonl");
 const controlFile = path.resolve(".local/realtime-fixture/control.json");
 
 let isActive = false;
 let isReplied = false;
+let isBackendToolActive = false;
+let activeSessionId: unknown;
+let activeThreadId = mainThreadId;
+let textTurnSequence = 0;
 
 const controlSchema = z.object({
   closeDelayMs: z.number().optional(),
   missingClosed: z.boolean().optional(),
   lateErrorMs: z.number().optional(),
   burstChunks: z.number().optional(),
+  burstSamples: z.number().int().positive().max(12_000).optional(),
+  settingsDelayMs: z.number().int().nonnegative().optional(),
+  textItemDelayMs: z.number().int().nonnegative().optional(),
+  backendToolUntilSteer: z.boolean().optional(),
   disconnectOnAudio: z.boolean().optional(),
   disconnectOnStop: z.boolean().optional(),
   audioAckDelayMs: z.number().optional(),
@@ -34,11 +44,10 @@ function control(): z.infer<typeof controlSchema> {
 }
 
 function event(method: string, params: Data) {
-  writeFixtureRecord({ method, params: { threadId, ...params } });
+  writeFixtureRecord({ method, params: { threadId: activeThreadId, ...params } });
 }
 
-function audio() {
-  const samples = 2400;
+function audio(samples = 2400) {
   const data = Buffer.alloc(samples * 2);
 
   for (let i = 0; i < samples; i++) {
@@ -48,18 +57,7 @@ function audio() {
   return { data: data.toString("base64"), sampleRate: 24_000, numChannels: 1, samplesPerChannel: samples };
 }
 
-async function execute(method: string | undefined, params: Data) {
-  appendFileSync(
-    logFile,
-    JSON.stringify({
-      method,
-      token: undefined,
-      sampleRate: object(params.audio).sampleRate,
-      voice: params.voice,
-      model: params.model,
-    }) + "\n"
-  );
-
+async function ordinary(method: string | undefined, params: Data): Promise<Data | undefined> {
   switch (method) {
     case "initialize": {
       return {};
@@ -78,7 +76,9 @@ async function execute(method: string | undefined, params: Data) {
     }
 
     case "thread/resume": {
-      return { thread: { id: threadId, turns: [] }, model: "fixture-model", reasoningEffort: "high" };
+      activeThreadId = typeof params.threadId === "string" ? params.threadId : mainThreadId;
+
+      return { thread: { id: activeThreadId, turns: [] }, model: "fixture-model", reasoningEffort: "high" };
     }
 
     case "thread/turns/list": {
@@ -89,6 +89,118 @@ async function execute(method: string | undefined, params: Data) {
       return { voices: { v1: ["cove"], v2: ["marin", "cove"], v3: ["marin"], defaultV1: "cove", defaultV2: "marin" } };
     }
 
+    case "thread/settings/update": {
+      await new Promise((resolve) => setTimeout(resolve, control().settingsDelayMs ?? 0));
+
+      return {};
+    }
+
+    case "thread/read": {
+      return { thread: { id: activeThreadId, model: "fixture-model", reasoningEffort: "high", turns: [] } };
+    }
+
+    case "turn/start": {
+      const delay = control().textItemDelayMs ?? 0;
+      const clientId =
+        typeof params.clientUserMessageId === "string" ? params.clientUserMessageId : "missing-client-id";
+      const input = Array.isArray(params.input) ? params.input : [];
+      const text = input.map((entry) => object(entry).text).find((entry) => typeof entry === "string") ?? "";
+      const turn = { id: `text-turn-${String(++textTurnSequence)}`, status: "inProgress", items: [] };
+      const item = { id: `user-${clientId}`, type: "userMessage", clientId };
+
+      setTimeout(() => {
+        event("turn/started", { turn });
+        event("item/started", { turnId: turn.id, item });
+        setTimeout(() => {
+          event("item/completed", { turnId: turn.id, item: { ...item, content: [{ type: "text", text }] } });
+          event("item/completed", {
+            turnId: turn.id,
+            item: {
+              id: `${turn.id}-answer`,
+              type: "agentMessage",
+              text: "Fixture text answer",
+              phase: "final_answer",
+            },
+          });
+          event("turn/completed", { turn: { ...turn, status: "completed" } });
+        }, delay);
+      }, 20);
+
+      return { turn };
+    }
+
+    case "turn/steer": {
+      if (isBackendToolActive) {
+        const clientId =
+          typeof params.clientUserMessageId === "string" ? params.clientUserMessageId : "missing-client-id";
+        const input = Array.isArray(params.input) ? params.input : [];
+        const text = input.map((entry) => object(entry).text).find((entry) => typeof entry === "string") ?? "";
+        const item = { id: `user-${clientId}`, type: "userMessage", clientId };
+
+        setTimeout(() => {
+          event("item/started", { turnId: backendTurnId, item });
+          setTimeout(() => {
+            event("item/completed", { turnId: backendTurnId, item: { ...item, content: [{ type: "text", text }] } });
+            event("item/completed", {
+              turnId: backendTurnId,
+              item: {
+                id: "voice-backend-tool",
+                type: "commandExecution",
+                command: "fixture backend work",
+                status: "completed",
+                exitCode: 0,
+              },
+            });
+            event("item/completed", {
+              turnId: backendTurnId,
+              item: {
+                id: "voice-backend-answer",
+                type: "agentMessage",
+                text: "Fixture backend answer",
+                phase: "final_answer",
+              },
+            });
+            event("turn/completed", { turn: { id: backendTurnId, status: "completed", items: [] } });
+            isBackendToolActive = false;
+          }, control().textItemDelayMs ?? 0);
+        }, 20);
+      }
+
+      return { turnId: typeof params.expectedTurnId === "string" ? params.expectedTurnId : backendTurnId };
+    }
+
+    default: {
+      return;
+    }
+  }
+}
+
+async function execute(method: string | undefined, params: Data) {
+  appendFileSync(
+    logFile,
+    JSON.stringify({
+      method,
+      threadId: activeThreadId,
+      token: undefined,
+      sampleRate: object(params.audio).sampleRate,
+      voice: params.voice,
+      model: params.model,
+      nativeSessionId: method === "thread/realtime/appendAudio" ? activeSessionId : undefined,
+      samples: object(params.audio).samplesPerChannel,
+    }) + "\n"
+  );
+
+  const response = await ordinary(method, params);
+
+  if (response !== undefined) {
+    return response;
+  }
+
+  switch (method) {
+    case "thread/start": {
+      return { thread: { id: namedThreadId, turns: [] }, model: "fixture-model", reasoningEffort: "high" };
+    }
+
     case "thread/realtime/start": {
       if (isActive) {
         throw new Error("Already active");
@@ -96,7 +208,10 @@ async function execute(method: string | undefined, params: Data) {
 
       isActive = true;
       isReplied = false;
+      isBackendToolActive = false;
       const sessionId = params.realtimeSessionId;
+
+      activeSessionId = sessionId;
 
       setTimeout(() => {
         event("thread/realtime/started", { version: "v2", realtimeSessionId: sessionId });
@@ -117,12 +232,26 @@ async function execute(method: string | undefined, params: Data) {
         isReplied = true;
 
         setTimeout(() => {
+          if (options.backendToolUntilSteer) {
+            isBackendToolActive = true;
+            event("turn/started", { turn: { id: backendTurnId, status: "inProgress", items: [] } });
+            event("item/started", {
+              turnId: backendTurnId,
+              item: {
+                id: "voice-backend-tool",
+                type: "commandExecution",
+                command: "fixture backend work",
+                status: "inProgress",
+              },
+            });
+          }
+
           event("thread/realtime/transcript/delta", { role: "user", delta: "Test voice" });
           event("thread/realtime/transcript/done", { role: "user", text: "Test voice" });
           event("thread/realtime/transcript/delta", { role: "assistant", delta: "Hello" });
 
           for (let i = 0; i < (options.burstChunks ?? 1); i++) {
-            event("thread/realtime/outputAudio/delta", { audio: audio() });
+            event("thread/realtime/outputAudio/delta", { audio: audio(options.burstSamples) });
           }
 
           event("thread/realtime/transcript/done", { role: "assistant", text: "Hello" });
@@ -143,6 +272,7 @@ async function execute(method: string | undefined, params: Data) {
 
     case "thread/realtime/stop": {
       isActive = false;
+      activeSessionId = undefined;
       const options = control();
 
       if (options.disconnectOnStop) {

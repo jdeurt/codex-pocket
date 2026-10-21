@@ -1,8 +1,10 @@
 /* eslint-disable jdeurt/const-on-top, jsdoc/require-jsdoc, @typescript-eslint/no-magic-numbers, unicorn/isolated-functions, unicorn/consistent-function-scoping, unicorn/prefer-number-coercion -- Browser checks follow one complete gesture and conversation flow; computed CSS lengths include units. */
 import { type Page, expect, test } from "@playwright/test";
 import { readFile, writeFile } from "node:fs/promises";
+import { dataSchema } from "../../src/lib/protocol";
 import path from "node:path";
 
+const origin = "http://127.0.0.1:3119";
 const controlFile = path.resolve(".local/realtime-fixture/control.json");
 const nativeLog = path.resolve(".local/realtime-fixture/native.jsonl");
 
@@ -29,6 +31,12 @@ async function countStops() {
   const log = await readFile(nativeLog, "utf8");
 
   return log.split("\n").filter((line) => line.includes('"method":"thread/realtime/stop"')).length;
+}
+
+async function countAudio() {
+  const log = await readFile(nativeLog, "utf8");
+
+  return log.split('"method":"thread/realtime/appendAudio"').length;
 }
 
 async function cancelWithoutClick(page: Page) {
@@ -153,6 +161,9 @@ test("held send grows into an anchored pill and only an armed release starts voi
   const track = page.locator(".voice-pill-track");
 
   await expect(track).toBeVisible();
+  await track.evaluate(async (element) => {
+    await Promise.all(element.getAnimations().map(async (animation) => animation.finished));
+  });
   await expect(button.locator(".lucide-arrow-up")).toBeVisible();
   await expect(button.locator(".lucide-mic")).toHaveCount(0);
   const trackBox = await track.boundingBox();
@@ -226,6 +237,63 @@ test("held send grows into an anchored pill and only an armed release starts voi
   await page.getByRole("button", { name: "Stop realtime voice" }).click();
   await expect(page.getByRole("textbox", { name: "Message Pocket" })).toHaveValue("unsent gesture draft");
   await waitForIdle(page);
+});
+
+test("switching Pockets stops the old microphone owner and keeps each draft and audio route scoped", async ({
+  page,
+}) => {
+  const namedId = crypto.randomUUID();
+  const created = await page.request.post("/api/pockets", {
+    headers: { Origin: origin },
+    data: { action: "create", id: namedId, name: "Voice other" },
+  });
+
+  expect(created.ok()).toBe(true);
+  await openChat(page);
+  await page.getByRole("textbox", { name: "Message Pocket" }).fill("unsent main draft");
+  await page.getByRole("button", { name: "Start realtime voice" }).focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("status", { name: "Realtime voice active" })).toBeVisible();
+  await expect(page.getByText("Test voice").first()).toBeVisible();
+  const beforeStop = await countStops();
+
+  await page.getByRole("button", { name: "Open Pockets" }).click();
+  await page
+    .getByRole("link")
+    .filter({ has: page.getByText("Voice other", { exact: true }) })
+    .click();
+  await expect(page).toHaveURL(new RegExp(`pocket=${namedId}`));
+  await expect(page.getByRole("textbox", { name: "Message Pocket" })).toBeVisible();
+  await expect(page.getByText("Test voice")).toHaveCount(0);
+  await expect.poll(countStops).toBeGreaterThan(beforeStop);
+  const beforeNamedAudio = await countAudio();
+
+  await expect(page.getByRole("button", { name: "Start realtime voice" })).toBeEnabled();
+  await page.getByRole("button", { name: "Start realtime voice" }).focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("status", { name: "Realtime voice active" })).toBeVisible();
+  await expect.poll(countAudio).toBeGreaterThan(beforeNamedAudio);
+  const log = await readFile(nativeLog, "utf8");
+  const audioOwners = log
+    .trim()
+    .split("\n")
+    .map((line) => dataSchema.parse(JSON.parse(line)))
+    .filter((entry) => entry.method === "thread/realtime/appendAudio")
+    .map((entry) => entry.threadId);
+
+  expect(audioOwners).toContain("realtime-fixture-parent");
+  expect(audioOwners.at(-1)).toBe("realtime-fixture-named");
+  await page.getByRole("button", { name: "Stop realtime voice" }).click();
+  await page.getByRole("button", { name: "Open Pockets" }).click();
+  await page.locator('a.pocket-link[href="/"]').click();
+  await expect(page.getByRole("textbox", { name: "Message Pocket" })).toHaveValue("unsent main draft");
+  await expect(page.getByRole("status", { name: "Realtime voice active" })).toHaveCount(0);
+  const deleted = await page.request.post("/api/pockets", {
+    headers: { Origin: origin },
+    data: { action: "delete", id: namedId },
+  });
+
+  expect(deleted.ok()).toBe(true);
 });
 
 test("a cancelled pointer gesture does not swallow later keyboard send or stop", async ({ page }) => {
