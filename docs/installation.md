@@ -45,13 +45,22 @@ export PATH="$HOME/.pocket/bin:$PATH"
 
 For another shell, add `~/.pocket/bin` to its executable search path.
 
-| Command          | Effect                                                                |
-| ---------------- | --------------------------------------------------------------------- |
-| `pocket update`  | Fetch latest `main`, build and validate a candidate, then activate it |
-| `pocket start`   | Start the saved login service; do nothing if it is already running    |
-| `pocket stop`    | Stop the service while keeping configuration and data                 |
-| `pocket restart` | Restart the saved release, or start it if stopped                     |
-| `pocket --help`  | Show command help                                                     |
+| Command                 | Effect                                                                |
+| ----------------------- | --------------------------------------------------------------------- |
+| `pocket update`         | Fetch latest `main`, build and validate a candidate, then activate it |
+| `pocket start`          | Start the saved login service; do nothing if it is already running    |
+| `pocket stop`           | Stop the service while keeping configuration and data                 |
+| `pocket restart`        | Restart the saved release, or start it if stopped                     |
+| `pocket --help`         | Show command help                                                     |
+| `pocket menubar setup`  | Build and start the menu bar companion, and enable launch at login    |
+| `pocket menubar remove` | Remove the menu bar companion and its login startup                   |
+
+Menu bar setup requires macOS 13 or later and Apple's Command Line Tools (`xcode-select --install`).
+Click the icon to show or hide the existing Pocket interface. Clicking outside or pressing Escape also hides it.
+The page stays loaded while hidden.
+The companion uses Pocket's saved local port. Run setup again after changing the port or updating the companion.
+Its app lives at `~/.pocket/menubar/Pocket.app`, with login startup in
+`~/Library/LaunchAgents/dev.pocket.menubar.plist`. Setup and removal do not restart the web service or change Pocket data.
 
 Wait for active agent work before an update or restart unless interruption is intended. After editing runtime settings in `~/.pocket/.env.local`, run `pocket restart`. Port and state/log-directory changes need `pocket update` to regenerate the login service.
 

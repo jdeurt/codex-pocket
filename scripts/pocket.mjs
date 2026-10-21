@@ -1,6 +1,9 @@
+import { fileURLToPath } from "node:url";
 import { homedir } from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+
+const USAGE = "Usage: pocket <update|start|stop|restart> | pocket menubar <setup|remove>";
 
 /** Apply a validated service operation without restarting an already started service.
 @param {string} command - Start, stop or restart operation.
@@ -45,13 +48,17 @@ export function pocketCommand(args, run, home, userId) {
   const [command, ...extra] = args;
 
   if (!command || command === "--help" || command === "help") {
-    console.info("Usage: pocket <update|start|stop|restart>");
+    console.info(USAGE);
 
     return 0;
   }
 
+  if (command === "menubar" && extra.length === 1 && ["setup", "remove"].includes(extra[0])) {
+    return run(process.execPath, [fileURLToPath(new URL("menubar.mjs", import.meta.url)), extra[0]]).status ?? 1;
+  }
+
   if (extra.length > 0 || !["update", "start", "stop", "restart"].includes(command)) {
-    console.error("Usage: pocket <update|start|stop|restart>");
+    console.error(USAGE);
 
     return 1;
   }

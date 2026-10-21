@@ -38,6 +38,11 @@ pocket restart # Restart the installed release
 pocket --help  # Show available commands
 ```
 
+For a menu bar icon that opens and closes Pocket in a small window, run `pocket menubar setup`.
+This builds the macOS companion, starts it, and enables launch at login. It requires macOS 13 or later
+and Apple's Command Line Tools (`xcode-select --install`). Run `pocket menubar remove` to remove the companion
+and its login startup.
+
 If `pocket` is not found, run `export PATH="$HOME/.pocket/bin:$PATH"`. The installer adds this directory to zsh or bash startup settings; other shells need it added manually.
 
 Updates build before stopping the running service. A failed build leaves it running; a failed launch triggers rollback to the previous release. Wait for active work to finish before updating or restarting unless you intend to interrupt it. Open phone clients detect new builds and refresh when their drafts and pending sends are safe.

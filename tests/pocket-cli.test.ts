@@ -117,7 +117,7 @@ await test(
           env: { ...process.env, HOME: userHome },
           encoding: "utf8",
         }).stdout.trim(),
-        "Usage: pocket <update|start|stop|restart>"
+        "Usage: pocket <update|start|stop|restart> | pocket menubar <setup|remove>"
       );
       assert.equal(
         spawnSync(path.join(home, "bin/pocket"), ["update"], {
