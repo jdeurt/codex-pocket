@@ -15,7 +15,6 @@ final class PocketMenuBar: NSObject, NSApplicationDelegate, NSWindowDelegate {
     defer: false)
   private let webView = WKWebView()
   private var escapeMonitor: Any?
-  private var outsideMonitor: Any?
   private var pocketURL: URL?
 
   /// Start the accessory app and retain its delegate for the complete native event loop.
@@ -59,6 +58,7 @@ final class PocketMenuBar: NSObject, NSApplicationDelegate, NSWindowDelegate {
     window.title = "Pocket"
     window.contentView = webView
     window.delegate = self
+    window.level = .floating
     window.minSize = NSSize(width: 320, height: 360)
     window.isReleasedWhenClosed = false
     window.setFrameUsingName("PocketMenuBar")
@@ -76,10 +76,6 @@ final class PocketMenuBar: NSObject, NSApplicationDelegate, NSWindowDelegate {
       }
 
       return event
-    }
-    outsideMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown])
-    { [weak self] _ in
-      self?.hide()
     }
   }
 
@@ -170,12 +166,6 @@ final class PocketMenuBar: NSObject, NSApplicationDelegate, NSWindowDelegate {
     }
 
     return false
-  }
-
-  /// Hide the retained window when the user switches to another application.
-  /// - Parameter notification: The native application deactivation event.
-  func applicationDidResignActive(_ notification: Notification) {
-    hide()
   }
 
   /// Retain the editor and its draft when the native close button is clicked.
