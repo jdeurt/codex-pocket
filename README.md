@@ -43,6 +43,7 @@ This builds the macOS companion, starts it, and enables launch at login. It requ
 and Apple's Command Line Tools (`xcode-select --install`). Run `pocket menubar remove` to remove the companion
 and its login startup.
 Drag an edge or corner of the menu bar window to resize it. Pocket remembers the size.
+The window stays above other windows when you use another app. Hide it with the icon, Escape, or its close button.
 
 If `pocket` is not found, run `export PATH="$HOME/.pocket/bin:$PATH"`. The installer adds this directory to zsh or bash startup settings; other shells need it added manually.
 

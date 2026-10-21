@@ -62,7 +62,7 @@ async function compileWindowFlow(home: string) {
   return executable;
 }
 
-/** Exercise native focus, editor feedback, resizing, saved size and retained drafts through the app boundary.
+/** Exercise native focus, resizing, floating while inactive and retained drafts through the app boundary.
 @param home - Disposable app directory, independent of the installed companion.
 @returns Completion after the native window flow passes.
 */
@@ -75,7 +75,7 @@ async function checkWindowFlow(home: string) {
 }
 
 await test(
-  "native window receives editor focus, resizes, retains its draft and hides notification banners",
+  "native window receives editor focus, resizes, stays on top while inactive, retains its draft and hides banners",
   {
     skip: process.platform !== "darwin",
   },
