@@ -92,9 +92,10 @@ export async function hookAsync(root: string, phase: "before" | "after", event: 
 }
 
 /** Create a repository with its own config, source files, and local dependencies.
+@param isRecordingEnabled - Whether the fixture records final diagnostics.
 @returns Disposable checkout path.
 */
-export function fixture(): string {
+export function fixture(isRecordingEnabled = true): string {
   const root = mkdtempSync(path.join(os.tmpdir(), "pocket-edit-hooks-flow-"));
   const scripts = path.join(root, "scripts/edit-hooks");
   const src = path.join(root, "src");
@@ -102,8 +103,22 @@ export function fixture(): string {
   mkdirSync(scripts, { recursive: true });
   mkdirSync(src);
 
-  for (const name of ["before-edit.ts", "after-edit.ts", "shared.ts", "tracking.ts", "format.ts", "events.ts"]) {
+  for (const name of [
+    "before-edit.ts",
+    "after-edit.ts",
+    "shared.ts",
+    "tracking.ts",
+    "format.ts",
+    "events.ts",
+    "config.ts",
+    "diagnostics.ts",
+    "diagnostics.json",
+  ]) {
     copyFileSync(path.join(SOURCE, "scripts/edit-hooks", name), path.join(scripts, name));
+  }
+
+  if (!isRecordingEnabled) {
+    writeFileSync(path.join(scripts, "config.ts"), "export const shouldRecordEditHookDiagnostics: boolean = false;\n");
   }
 
   symlinkSync(path.join(SOURCE, "node_modules"), path.join(root, "node_modules"), "dir");

@@ -17,6 +17,15 @@ import test from "node:test";
 const MARKER_POLL_MS = 20;
 const MARKER_POLL_ATTEMPTS = 100;
 
+/** Confirm that simultaneous after-edit hooks accumulated both final violations.
+@param root - Disposable checkout.
+*/
+function assertParallelCounts(root: string): void {
+  const counterContent = readFileSync(path.join(root, "scripts/edit-hooks/diagnostics.json"), "utf8");
+
+  assert.deepEqual(JSON.parse(counterContent), { "no-unused-vars": 2 });
+}
+
 void test("parallel disjoint edits retain per-tool feedback and leave unrelated dirt untouched", async () => {
   const root = fixture();
 
@@ -73,6 +82,7 @@ void test("parallel disjoint edits retain per-tool feedback and leave unrelated 
     }
     assert.equal(readFileSync(path.join(root, "src/parallel-a.js"), "utf8"), "const alpha = 1;\n");
     assert.equal(readFileSync(path.join(root, "src/parallel-b.js"), "utf8"), "const beta = 2;\n");
+    assertParallelCounts(root);
     assert.equal(readFileSync(path.join(root, "src/dirty.js"), "utf8"), "const untouched= 3\n");
     assertIdle(root);
   } finally {

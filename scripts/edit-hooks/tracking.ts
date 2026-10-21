@@ -1,4 +1,5 @@
 import {
+  DIAGNOSTICS_PATH,
   HookFailure,
   ROOT,
   type ToolEvent,
@@ -49,7 +50,9 @@ function patchTargets(command: string, event: ToolEvent): string[] | null {
   ].map((match) => targetPath(match[1], event));
 
   return names.length > 0 && names.every((name) => name !== null)
-    ? [...new Set(names)].toSorted((left, right) => left.localeCompare(right))
+    ? [...new Set(names.filter((name) => name !== DIAGNOSTICS_PATH))].toSorted((left, right) =>
+        left.localeCompare(right)
+      )
     : null;
 }
 
@@ -79,7 +82,9 @@ function targetsFor(event: ToolEvent): string[] | null {
       .map((value) => targetPath(value, event));
 
     return names.length > 0 && names.every((name) => name !== null)
-      ? [...new Set(names)].toSorted((left, right) => left.localeCompare(right))
+      ? [...new Set(names.filter((name) => name !== DIAGNOSTICS_PATH))].toSorted((left, right) =>
+          left.localeCompare(right)
+        )
       : null;
   }
 

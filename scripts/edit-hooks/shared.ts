@@ -40,6 +40,7 @@ const LOCK_ATTEMPTS = 40;
 const LOCK_WAIT_MS = 100;
 const LOCK_START_GRACE_MS = 1000;
 const STATUS_PATH_OFFSET = 3;
+export const DIAGNOSTICS_PATH = "scripts/edit-hooks/diagnostics.json";
 
 /**
 Safe, concise text for a known hook failure.
@@ -82,7 +83,7 @@ function statusPaths(): string[] {
       index += 1;
     }
 
-    if (EXTENSIONS.has(path.extname(relative).toLowerCase())) {
+    if (relative !== DIAGNOSTICS_PATH && EXTENSIONS.has(path.extname(relative).toLowerCase())) {
       candidates.add(relative);
     }
   }

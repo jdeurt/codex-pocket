@@ -3,6 +3,8 @@ import { HookFailure, ROOT, type Snapshot, fileHash, snapshot, writeIfUnchanged 
 import type { ESLint as ESLintType } from "eslint";
 import path from "node:path";
 import { readFile } from "node:fs/promises";
+import { recordDiagnostics } from "./diagnostics";
+import { shouldRecordEditHookDiagnostics } from "./config";
 
 const HEADER = "Your edited files were automatically formatted and lint-fixed. The following issues remain:";
 const GUIDANCE = "Fix these issues before continuing. Apply these rules to future edits.";
@@ -185,6 +187,24 @@ function renderFeedback(results: ESLintType.LintResult[], isRewritten: boolean):
   return lines.length > 0 ? [...(isRewritten ? [HEADER] : []), ...lines, GUIDANCE].join("\n") : null;
 }
 
+/** Record and render only the final post-auto-fix ESLint results.
+@param eligible - Paths checked in this edit cycle.
+@param isRewritten - Whether fixes rewrote any file.
+@returns Informational feedback or null.
+*/
+async function reportFinal(eligible: string[], isRewritten: boolean): Promise<string | null> {
+  const { ESLint } = await import("eslint");
+  const finalResults = await new ESLint({ cwd: ROOT, fix: false }).lintFiles(eligible);
+
+  // The exported constant is an operator switch; its checked-in default is intentionally true.
+  // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+  if (shouldRecordEditHookDiagnostics) {
+    await recordDiagnostics(finalResults);
+  }
+
+  return renderFeedback(finalResults, isRewritten);
+}
+
 /** Run ESLint fixes, verify files, then report final-file diagnostics.
 @param eslint - Repository ESLint instance.
 @param eligible - Only files edited by this tool and supported by ESLint.
@@ -198,7 +218,6 @@ async function lintAndReport(
   expected: Snapshot,
   isFormatted: boolean
 ): Promise<string | null> {
-  const { ESLint } = await import("eslint");
   const fixed = await eslint.lintFiles(eligible);
 
   let isRewritten = isFormatted;
@@ -215,7 +234,7 @@ async function lintAndReport(
     }
   }
 
-  return renderFeedback(await new ESLint({ cwd: ROOT, fix: false }).lintFiles(eligible), isRewritten);
+  return reportFinal(eligible, isRewritten);
 }
 
 /** Filter JavaScript ignored by the repository ESLint policy.
