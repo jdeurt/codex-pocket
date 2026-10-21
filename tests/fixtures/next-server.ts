@@ -9,7 +9,7 @@ Create private Next build and type paths for one fixture server.
 @returns Environment settings for the generated build directory and TypeScript config.
 */
 export async function fixtureBuild(
-  name: "browser" | "agents" | "uploads" | "pockets" | "spinner" | "update-a" | "update-b"
+  name: "browser" | "agents" | "uploads" | "pockets" | "spinner" | "update-a" | "update-b" | "realtime"
 ) {
   const directory = path.resolve(".next/test-configs");
   const tsconfig = path.join(directory, `${name}.json`);
@@ -59,7 +59,7 @@ Run the real app with a fixture-owned build cache and forward its shutdown signa
 @param environment - Fake protocol and private state settings for this server.
 */
 export async function runNextFixture(
-  name: "browser" | "agents" | "uploads" | "pockets",
+  name: "browser" | "agents" | "uploads" | "pockets" | "realtime",
   origin: string,
   environment: Record<string, string>
 ): Promise<void> {

@@ -75,7 +75,11 @@ export class CodexRpc extends EventTarget {
   @param message - Protocol request, response or notification.
   */
   private write(message: unknown) {
-    log().debug({ message }, "codex.rpc.out");
+    // Realtime frames contain microphone audio and private speech. Never log their payloads.
+    if (!string(object(message).method).startsWith("thread/realtime/")) {
+      log().debug({ message }, "codex.rpc.out");
+    }
+
     this.transport.write(message);
   }
 
@@ -157,7 +161,9 @@ export class CodexRpc extends EventTarget {
       return;
     }
 
-    log().debug({ message }, "codex.rpc.in");
+    if (!string(message.method).startsWith("thread/realtime/")) {
+      log().debug({ message }, "codex.rpc.in");
+    }
 
     if ("method" in message) {
       this.notification(message);

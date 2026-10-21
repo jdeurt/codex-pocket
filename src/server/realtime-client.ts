@@ -1,0 +1,36 @@
+/* eslint-disable jdeurt/const-on-top, jsdoc/require-param, jsdoc/require-returns -- Main-only agent control validates environment before network access. */
+import { dataSchema } from "../lib/protocol";
+
+const CONTROL_TIMEOUT_MS = 15_000;
+
+/**
+Call this main Pocket's control endpoint without opening another native client.
+*/
+export async function callRealtime(change?: { voice?: string; model?: string | null }) {
+  const origin = process.env.POCKET_SERVER_ORIGIN;
+
+  if (
+    !origin ||
+    !process.env.POCKET_MAIN_THREAD_ID ||
+    process.env.POCKET_THREAD_ID !== process.env.POCKET_MAIN_THREAD_ID
+  ) {
+    throw new Error("Realtime controls are available only to the owning main Pocket.");
+  }
+
+  const response = await fetch(
+    new URL(`/api/realtime?pocket=${encodeURIComponent(process.env.POCKET_ID ?? "main")}`, origin),
+    {
+      method: change ? "POST" : "GET",
+      headers: { Origin: origin, "Content-Type": "application/json" },
+      body: change ? JSON.stringify({ action: "settings", ...change }) : undefined,
+      signal: AbortSignal.timeout(CONTROL_TIMEOUT_MS),
+    }
+  );
+  const result = dataSchema.parse(await response.json());
+
+  if (!response.ok) {
+    throw new Error(typeof result.error === "string" ? result.error : "Realtime control failed.");
+  }
+
+  return result;
+}

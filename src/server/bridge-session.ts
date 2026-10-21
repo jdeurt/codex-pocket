@@ -5,6 +5,7 @@ import { applyBridgeEvent, refreshSnapshotSchedules } from "./bridge-events";
 import { BridgeOutbox } from "./bridge-outbox";
 import { BridgeSnapshots } from "./bridge-snapshots";
 import { CodexRpc } from "./rpc";
+import { RealtimeSession } from "./realtime-session";
 import { SessionControls } from "./session-controls";
 import { loadHistory } from "./history";
 import { log } from "./logging";
@@ -30,6 +31,7 @@ export class Bridge {
   private hydration?: RpcEvent[];
   private disposed = false;
   readonly snapshots = new BridgeSnapshots();
+  readonly realtime = new RealtimeSession(this);
   readonly session = new SessionControls(
     this,
     (operation) => this.exclusive(operation),
@@ -56,6 +58,7 @@ export class Bridge {
       this.hydration = undefined;
       this.rpc?.close();
       this.snapshot.connection = "disconnected";
+      this.realtime.fail("Pocket disconnected. Realtime stopped.");
       this.snapshots.fail(error, this.messages.entries);
       throw error;
     }
@@ -167,7 +170,6 @@ export class Bridge {
     }
 
     this.snapshot.restartEvents = await recordRestart(this.snapshot);
-
     await this.messages.recover(config.threadId);
 
     this.snapshot.connection = "connected";
@@ -198,6 +200,8 @@ export class Bridge {
     if (event.params.threadId && event.params.threadId !== this.config?.threadId) {
       return;
     }
+
+    this.realtime.event(event);
 
     applyBridgeEvent(this.snapshot, this.config, event);
 
@@ -300,6 +304,10 @@ export class Bridge {
         throw new Error("Configure a thread on your computer first.");
       }
 
+      if (this.realtime.status().type !== "idle") {
+        throw new Error("Stop realtime before sending a typed message.");
+      }
+
       return this.messages.send(this.config, this.rpc, id, text, attachmentIds);
     });
   }
@@ -330,6 +338,7 @@ export class Bridge {
   */
   close() {
     this.disposed = true;
+    this.realtime.fail("Pocket stopped. Realtime stopped.");
 
     if (this.timer) {
       clearInterval(this.timer);

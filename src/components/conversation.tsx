@@ -93,6 +93,7 @@ export function Conversation({
   activityControl,
   showActivity = true,
   suspended = false,
+  realtimeSegments = [],
 }: {
   state: Snapshot;
   readOnly?: boolean;
@@ -100,6 +101,7 @@ export function Conversation({
   activityControl?: ReactNode;
   showActivity?: boolean;
   suspended?: boolean;
+  realtimeSegments?: { id: number; role: "user" | "assistant"; text: string; done: boolean }[];
 }) {
   const messages = state.turns.flatMap((turn) => {
     const entries = turnMessages(
@@ -121,7 +123,7 @@ export function Conversation({
       >
         <ConversationEmpty
           connection={state.connection}
-          empty={messages.length === 0}
+          empty={messages.length === 0 && state.queue.length === 0 && realtimeSegments.length === 0}
           readOnly={readOnly}
           emptyMessage={emptyMessage}
         />
@@ -140,6 +142,24 @@ export function Conversation({
             </Message>
           </MessageScrollerItem>
         ))}
+        {realtimeSegments
+          .filter((segment) => segment.text.trim())
+          .map((segment) => (
+            <MessageScrollerItem messageId={`voice-${String(segment.id)}`} key={`voice-${String(segment.id)}`}>
+              <Message align={segment.role === "user" ? "end" : "start"}>
+                <MessageContent>
+                  <Bubble
+                    variant={segment.role === "user" ? "secondary" : "default"}
+                    align={segment.role === "user" ? "end" : "start"}
+                  >
+                    <BubbleContent>
+                      <p className="whitespace-pre-wrap">{segment.text}</p>
+                    </BubbleContent>
+                  </Bubble>
+                </MessageContent>
+              </Message>
+            </MessageScrollerItem>
+          ))}
         {state.requests.map((request) => (
           <MessageScrollerItem messageId={`request-${String(request.id)}`} key={request.id}>
             <Prompt

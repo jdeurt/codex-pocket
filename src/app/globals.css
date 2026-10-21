@@ -386,6 +386,44 @@
   border-radius: 50%;
   width: var(--composer-control-size);
   height: var(--composer-control-size);
+  touch-action: none;
+}
+.voice-gesture-hint {
+  position: absolute;
+  right: 6px;
+  bottom: 61px;
+  padding: 7px 12px;
+  border-radius: 16px;
+  background: var(--accent);
+  border: 1px solid var(--border);
+  color: var(--foreground);
+  font-size: 12px;
+  box-shadow: 0 5px 18px #0005;
+  pointer-events: none;
+}
+.voice-gesture-hint-armed {
+  background: var(--foreground);
+  color: var(--background);
+}
+.voice-keyboard-control {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.voice-keyboard-control:focus-visible {
+  z-index: 2;
+  width: auto;
+  height: auto;
+  clip-path: none;
+  bottom: 64px;
+  right: 16px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--accent);
 }
 .prompt {
   background: var(--card);
