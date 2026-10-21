@@ -147,7 +147,7 @@ export function informationalMessage(output: string): string {
   return hookResponse.parse(parsed).hookSpecificOutput.additionalContext;
 }
 
-/** Ensure a completed tool claim released private state and runner lock.
+/** Ensure a completed tool claim released private state and locks.
 @param root - Fixture checkout.
 */
 export function assertIdle(root: string): void {

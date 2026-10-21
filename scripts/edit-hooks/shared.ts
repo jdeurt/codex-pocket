@@ -170,7 +170,7 @@ export function interruptedName(sessionId: string, turnId: string): string {
 }
 
 /** Create a lock and clean up if its owner marker cannot be written.
-@param lock - Worktree runner lock directory.
+@param lock - Worktree lock directory.
 */
 async function createLock(lock: string): Promise<void> {
   await mkdir(lock);
@@ -184,7 +184,7 @@ async function createLock(lock: string): Promise<void> {
 }
 
 /** Read the lock owner without treating an unfinished marker as stale.
-@param lock - Worktree runner lock directory.
+@param lock - Worktree lock directory.
 @returns Owner PID or null.
 */
 async function lockOwner(lock: string): Promise<number | null> {
@@ -210,7 +210,7 @@ function isRunning(owner: number): boolean {
 }
 
 /** Recover an abandoned lock only when its owner is gone or marker aged out.
-@param lock - Worktree runner lock directory.
+@param lock - Worktree lock directory.
 @returns Whether a stale lock was removed.
 */
 async function hasClearedStaleLock(lock: string): Promise<boolean> {
@@ -236,7 +236,7 @@ async function hasClearedStaleLock(lock: string): Promise<boolean> {
   return isStale;
 }
 
-/** Claim the per-worktree runner lock.
+/** Claim a worktree-owned lock.
 @param directory - Private worktree Git state directory.
 @param name - Lock directory basename.
 @param attempts - Maximum attempts before returning informational failure.
@@ -263,7 +263,9 @@ export async function acquireLock(directory: string, name = "runner.lock", attem
     }
   }
 
-  throw new HookFailure("another after-edit check is still running");
+  throw new HookFailure(
+    name === "runner.lock" ? "another after-edit check is still running" : "edit-hook bookkeeping is busy"
+  );
 }
 
 /** Write a previously checked regular file.

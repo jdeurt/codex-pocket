@@ -213,7 +213,7 @@ async function removeInterruptedState(source: string, sessionId: string, turnId:
   }
 }
 
-/** Scan private state while holding the runner lock.
+/** Scan private state while holding the metadata lock.
 @param directory - Worktree state directory.
 @param sessionId - Interrupted session.
 @param turnId - Interrupted turn.
@@ -232,7 +232,7 @@ async function removeInterruptedStates(directory: string, sessionId: string, tur
 @param directory - Worktree state directory.
 @param sessionId - Interrupted session.
 @param turnId - Interrupted turn.
-@returns Runner lock for cleanup.
+@returns Metadata lock for cleanup.
 */
 async function markAndLockInterruption(directory: string, sessionId: string, turnId: string): Promise<string> {
   await writeFile(path.join(directory, interruptedName(sessionId, turnId)), "", { mode: 0o600 });
