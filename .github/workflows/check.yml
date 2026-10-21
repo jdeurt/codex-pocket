@@ -1,0 +1,26 @@
+name: Check
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+      - run: npm ci --include=dev
+      - run: npx next typegen
+      - run: npm run check
+      - run: npm test
+      - run: node --import tsx --test tests/edit-hooks-flow.integration.ts tests/edit-hooks-concurrency.integration.ts
+      - run: npx playwright install --with-deps chromium webkit
+      - run: npm run test:e2e
