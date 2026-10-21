@@ -58,6 +58,8 @@ For another shell, add `~/.pocket/bin` to its executable search path.
 Menu bar setup requires macOS 13 or later and Apple's Command Line Tools (`xcode-select --install`).
 Click the icon to show or hide the existing Pocket interface. Clicking outside or pressing Escape also hides it.
 The page stays loaded while hidden.
+Drag a window edge or corner to resize it. The chosen size is saved for the next launch.
+The native window supports normal keyboard focus and text editing and does not show notification banners.
 The companion uses Pocket's saved local port. Run setup again after changing the port or updating the companion.
 Its app lives at `~/.pocket/menubar/Pocket.app`, with login startup in
 `~/Library/LaunchAgents/dev.pocket.menubar.plist`. Setup and removal do not restart the web service or change Pocket data.
