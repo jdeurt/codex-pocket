@@ -44,6 +44,14 @@ const REALTIME_TOOL_INPUTS = [
 ];
 
 /**
+Compares discovered and expected tool names without relying on registration order.
+@param left - First tool name.
+@param right - Second tool name.
+@returns Name ordering for exact catalog comparison.
+*/
+const compareNames = (left: string, right: string) => left.localeCompare(right);
+
+/**
 Requires a successful MCP envelope before decoding its JSON tool result.
 @param client - Connected real stdio MCP client.
 @param name - Bundled schedule tool selected by this workflow.
@@ -77,15 +85,14 @@ Checks discovery before choosing a future native calendar instant and creating i
 async function createScheduledCheck(client: Client) {
   const { tools } = await client.listTools();
 
-  assert.equal(tools.length, 25);
-  assert.deepEqual(
-    tools.map((tool) => tool.name),
-    MAIN_TOOL_NAMES
-  );
+  assert.equal(tools.length, MAIN_TOOL_NAMES.length);
+  assert.deepEqual(tools.map((tool) => tool.name).toSorted(compareNames), MAIN_TOOL_NAMES.toSorted(compareNames));
+
   for (const tool of tools) {
     assert.equal(tool.inputSchema.type, "object", tool.name);
     assert.equal(tool.inputSchema.additionalProperties, false, tool.name);
   }
+
   for (const expected of REALTIME_TOOL_INPUTS) {
     const tool = tools.find((entry) => entry.name === expected.name);
 
