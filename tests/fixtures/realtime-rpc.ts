@@ -1,8 +1,8 @@
-/* eslint-disable jdeurt/const-on-top, jsdoc/require-jsdoc, @typescript-eslint/no-magic-numbers, unicorn/no-top-level-assignment-in-function, @typescript-eslint/require-await -- Native fixture is a stateful transport simulator with observed audio dimensions. */
+/* eslint-disable jdeurt/const-on-top, jsdoc/require-jsdoc, @typescript-eslint/no-magic-numbers, unicorn/no-top-level-assignment-in-function -- Native fixture is a stateful transport simulator with observed audio dimensions. */
 // Isolated native protocol fixture for complete Pocket voice sessions. No model or live thread is used.
 import { type Data, object } from "../../src/lib/protocol";
 import { appendFileSync, readFileSync } from "node:fs";
-import { readFixtureRequests, writeFixtureRecord } from "./sequential-rpc";
+import { readPipelinedFixtureRequests, writeFixtureRecord } from "./sequential-rpc";
 import path from "node:path";
 import { z } from "zod";
 
@@ -20,6 +20,7 @@ const controlSchema = z.object({
   burstChunks: z.number().optional(),
   disconnectOnAudio: z.boolean().optional(),
   disconnectOnStop: z.boolean().optional(),
+  audioAckDelayMs: z.number().optional(),
 });
 
 function control(): z.infer<typeof controlSchema> {
@@ -109,9 +110,11 @@ async function execute(method: string | undefined, params: Data) {
         throw new Error("Not active");
       }
 
+      const options = control();
+      const audioAckDelayMs = isReplied ? undefined : options.audioAckDelayMs;
+
       if (!isReplied) {
         isReplied = true;
-        const options = control();
 
         setTimeout(() => {
           event("thread/realtime/transcript/delta", { role: "user", delta: "Test voice" });
@@ -128,6 +131,11 @@ async function execute(method: string | undefined, params: Data) {
         if (options.disconnectOnAudio) {
           setTimeout(() => process.kill(process.pid, "SIGTERM"), 90);
         }
+      }
+
+      if (audioAckDelayMs) {
+        await new Promise((resolve) => setTimeout(resolve, audioAckDelayMs));
+        appendFileSync(logFile, JSON.stringify({ method: "fixture/realtime/audioAckReleased" }) + "\n");
       }
 
       return {};
@@ -162,4 +170,4 @@ async function execute(method: string | undefined, params: Data) {
   }
 }
 
-await readFixtureRequests(execute);
+await readPipelinedFixtureRequests(execute);

@@ -404,6 +404,20 @@
   background: color-mix(in srgb, var(--primary) 88%, var(--secondary));
   box-shadow: 0 5px 18px #0005;
   pointer-events: none;
+  animation: voice-pill-grow 240ms cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+@keyframes voice-pill-grow {
+  from {
+    height: var(--composer-control-size);
+  }
+  to {
+    height: calc(var(--composer-control-size) + 68px);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .voice-pill-track {
+    animation: none;
+  }
 }
 .send-button-holding {
   transition: none;

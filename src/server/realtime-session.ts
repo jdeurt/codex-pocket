@@ -1,20 +1,17 @@
 /* eslint-disable jdeurt/const-on-top, jsdoc/require-jsdoc, jsdoc/require-param, jsdoc/require-returns, unicorn/try-complexity, complexity -- Native session mutations are sequential and native notifications share one session handler. */
+import {
+  type RealtimeMessage,
+  audioSchema,
+  parseOutputAudio,
+  settingsSchema,
+  voiceListSchema,
+} from "./realtime-schema";
 import { type RpcEvent, object, string } from "../lib/protocol";
-import { audioSchema, parseOutputAudio, settingsSchema, voiceListSchema } from "./realtime-schema";
+import { drainRealtimeStop, waitForRealtimeClosed } from "./realtime-lifecycle";
 import { readLocal, writeLocal } from "./local-state";
 import { type Bridge } from "./bridge-session";
 import { createHash } from "node:crypto";
-import { waitForRealtimeClosed } from "./realtime-lifecycle";
 import type { z } from "zod";
-
-type Settings = z.infer<typeof settingsSchema>;
-export interface RealtimeMessage {
-  type: string;
-  role?: string;
-  text?: string;
-  audio?: z.infer<typeof audioSchema>;
-  error?: string;
-}
 
 /**
 Own one realtime session on the existing parent native connection.
@@ -25,7 +22,7 @@ export class RealtimeSession extends EventTarget {
   private nativeSessionId?: string;
   private stoppingThreadId?: string;
   private closure?: { resolve: () => void };
-  private settings?: Settings;
+  private settings?: z.infer<typeof settingsSchema>;
   private lastError?: string;
 
   constructor(private owner: Bridge) {
@@ -189,54 +186,59 @@ export class RealtimeSession extends EventTarget {
   }
 
   /**
-  Release the browser token immediately, then stop native audio on the serialized bridge.
+  Release the browser token immediately and bound native shutdown from this invocation.
   */
-  stop(token: string) {
+  async stop(token: string) {
     if (!this.token || token !== this.token) {
-      return Promise.resolve();
+      return;
     }
 
     this.token = undefined;
     this.phase = "stopping";
     this.stoppingThreadId = this.owner.snapshot.threadId;
     this.publish({ type: "closed" });
-
-    return this.owner.exclusive(async () => {
-      if (this.phase !== "stopping" || this.owner.snapshot.connection !== "connected") {
-        return;
-      }
-
-      const threadId = this.threadId();
-      const closed = new Promise<void>((resolve) => {
-        this.closure = { resolve };
-      });
-
-      // Stop acknowledgment only confirms receipt. The native closed notification is the lifecycle barrier.
-      void this.owner
-        .agentReader()
-        .request("thread/realtime/stop", { threadId })
-        .catch((error: unknown) => {
-          this.lastError = error instanceof Error ? error.message : "Native realtime stop failed.";
-        });
-
-      try {
-        await waitForRealtimeClosed(closed);
-      } catch (error) {
-        if (this.status().type === "stopping") {
-          this.phase = "uncertain";
-          this.lastError = error instanceof Error ? error.message : "Native realtime closure was not confirmed.";
-        }
-
-        throw error;
-      } finally {
-        this.closure = undefined;
-      }
+    const threadId = this.stoppingThreadId;
+    const rpc = this.owner.snapshot.connection === "connected" ? this.owner.agentReader() : undefined;
+    const closed = new Promise<void>((resolve) => {
+      this.closure = { resolve };
     });
+    const deadline = waitForRealtimeClosed(closed);
+
+    let hasDeadlineSettled = false;
+
+    // The audio result is now unknown, but its 90s wait must not hold the serialized stop behind it.
+    rpc?.abandonRealtime("thread/realtime/appendAudio");
+    drainRealtimeStop(
+      this.owner,
+      rpc,
+      threadId,
+      deadline,
+      () => this.phase === "stopping" || this.phase === "uncertain",
+      () => hasDeadlineSettled,
+      (error) => {
+        if (this.status().type === "stopping") {
+          this.lastError = error instanceof Error ? error.message : "Native realtime stop failed.";
+        }
+      }
+    );
+
+    try {
+      await deadline;
+    } catch (error) {
+      if (this.status().type === "stopping") {
+        this.phase = "uncertain";
+        this.lastError = error instanceof Error ? error.message : "Native realtime closure was not confirmed.";
+      }
+
+      throw error;
+    } finally {
+      hasDeadlineSettled = true;
+      this.closure = undefined;
+      rpc?.abandonRealtime("thread/realtime/stop");
+    }
   }
 
-  /**
-  Validate the stream owner on every subscription.
-  */
+  // Validate the stream owner on every subscription.
   owns(token: string) {
     return !!this.token && token === this.token;
   }
@@ -334,9 +336,7 @@ export class RealtimeSession extends EventTarget {
     }
   }
 
-  /**
-  Clear a failed session after native or network loss.
-  */
+  // Clear a failed session after native or network loss.
   disconnect(message: string) {
     this.token = undefined;
     this.nativeSessionId = undefined;

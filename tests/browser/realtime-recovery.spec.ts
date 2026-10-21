@@ -124,6 +124,39 @@ test("bursty native audio stops with a visible overrun and releases capture", as
   await expect.poll(() => count("thread/realtime/stop")).toBeGreaterThan(before);
 });
 
+test("X drains a withheld audio acknowledgement within the stop deadline without restarting native RPC", async ({
+  page,
+}) => {
+  await control({ audioAckDelayMs: 7000, closeDelayMs: 7000 });
+  await open(page);
+  const beforeAudio = await count("thread/realtime/appendAudio");
+  const beforeRelease = await count("fixture/realtime/audioAckReleased");
+
+  await start(page);
+  await expect.poll(() => count("thread/realtime/appendAudio")).toBeGreaterThan(beforeAudio);
+  const beforeStop = await count("thread/realtime/stop");
+  const beforeStart = await count("thread/realtime/start");
+  const stoppedAt = Date.now();
+
+  await page.getByRole("button", { name: "Stop realtime voice" }).click();
+  await expect.poll(() => count("thread/realtime/stop"), { timeout: 2000 }).toBeGreaterThan(beforeStop);
+  expect(Date.now() - stoppedAt).toBeLessThan(2500);
+  const button = page.getByRole("button", { name: "Start realtime voice" });
+
+  await button.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByText(/Native realtime closure was not confirmed/)).toBeVisible();
+  await expect.poll(() => phase(page)).toBe("uncertain");
+  expect(await count("thread/realtime/start")).toBe(beforeStart);
+  await expect.poll(() => count("fixture/realtime/audioAckReleased")).toBe(beforeRelease + 1);
+  await expect.poll(() => phase(page)).toBe("idle");
+  await control({});
+  await start(page);
+  await expect.poll(() => count("thread/realtime/start")).toBe(beforeStart + 1);
+  await expect(page.getByText("Connected", { exact: true })).toBeVisible();
+  await page.getByRole("button", { name: "Stop realtime voice" }).click();
+});
+
 test("native RPC disconnect clears the server token and permits a new native connection", async ({ page }) => {
   await control({ disconnectOnAudio: true });
   await open(page);

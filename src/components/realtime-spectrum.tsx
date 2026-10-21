@@ -57,6 +57,23 @@ export function RealtimeSpectrum({
       const gap = 4;
       const barWidth = Math.max(2, (bounds.width - gap * (BAR_COUNT - 1)) / BAR_COUNT);
       const mid = bounds.height / 2;
+      const composer = element.closest<HTMLElement>(".composer");
+      const composerBounds = composer?.getBoundingClientRect();
+      const inset = composerBounds ? bounds.left - composerBounds.left : 0;
+      const radius =
+        composer && composerBounds
+          ? Math.min(
+              composerBounds.height / 2,
+              Number(getComputedStyle(composer).borderTopLeftRadius.replace("px", ""))
+            )
+          : bounds.height / 2;
+      const envelope = (localX: number) => {
+        const distance = Math.min(inset + localX, inset + bounds.width - localX - barWidth);
+
+        const capsule = distance >= radius ? 1 : Math.sqrt(1 - (1 - Math.max(0, distance) / radius) ** 2);
+
+        return capsule ** 1.75;
+      };
 
       for (let i = 0; i < BAR_COUNT; i++) {
         const low = 80 * 100 ** (i / BAR_COUNT);
@@ -95,8 +112,8 @@ export function RealtimeSpectrum({
         const x = i * (barWidth + gap);
         const agentX = (BAR_COUNT - 1 - i) * (barWidth + gap);
         const maxHalf = bounds.height * 0.42;
-        const userHalf = 1.5 + level.input * maxHalf;
-        const agentHalf = 1.5 + level.output * maxHalf;
+        const userHalf = (1.5 + level.input * maxHalf) * envelope(x);
+        const agentHalf = (1.5 + level.output * maxHalf) * envelope(agentX);
 
         context.fillStyle = "rgba(183, 218, 214, .78)";
         context.beginPath();

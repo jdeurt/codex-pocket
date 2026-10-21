@@ -1,6 +1,6 @@
 "use client";
 /* eslint-disable jdeurt/const-on-top -- Pointer transitions depend on prior gesture state. */
-import { type PointerEvent, useRef, useState } from "react";
+import { type MouseEvent, type PointerEvent, useRef, useState } from "react";
 
 const HOLD_MS = 350;
 const CANCEL_DISTANCE = 14;
@@ -126,10 +126,16 @@ export function useVoiceGesture(options: {
     release();
   }
 
-  function onClick() {
-    if (suppressClick.current) {
-      suppressClick.current = false;
-    } else if (options.active) {
+  function onClick(event: MouseEvent<HTMLButtonElement>) {
+    const shouldSuppressPointerClick = suppressClick.current && event.detail > 0;
+
+    suppressClick.current = false;
+
+    if (shouldSuppressPointerClick) {
+      return;
+    }
+
+    if (options.active) {
       options.onStop();
     } else {
       options.onTap();

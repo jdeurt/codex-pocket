@@ -25,6 +25,33 @@ async function countStarts() {
   return log.split("\n").filter((line) => line.includes('"method":"thread/realtime/start"')).length;
 }
 
+async function countStops() {
+  const log = await readFile(nativeLog, "utf8");
+
+  return log.split("\n").filter((line) => line.includes('"method":"thread/realtime/stop"')).length;
+}
+
+async function cancelWithoutClick(page: Page) {
+  const button = page.getByRole("button", { name: /Send message; hold and swipe up/ });
+  const box = await button.boundingBox();
+
+  if (!box) {
+    throw new Error("Send button is missing.");
+  }
+
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.waitForTimeout(400);
+  await expect(page.locator(".voice-pill-track")).toBeVisible();
+  await button.evaluate((element) => {
+    element.dispatchEvent(new PointerEvent("pointercancel", { bubbles: true, pointerId: 1 }));
+    element.releasePointerCapture(1);
+  });
+  await page.mouse.move(0, 0);
+  await page.mouse.up();
+  await expect(page.locator(".voice-pill-track")).toHaveCount(0);
+}
+
 async function waitForIdle(page: Page) {
   await expect
     .poll(async () => {
@@ -198,5 +225,40 @@ test("held send grows into an anchored pill and only an armed release starts voi
   expect(sends).toBe(0);
   await page.getByRole("button", { name: "Stop realtime voice" }).click();
   await expect(page.getByRole("textbox", { name: "Message Pocket" })).toHaveValue("unsent gesture draft");
+  await waitForIdle(page);
+});
+
+test("a cancelled pointer gesture does not swallow later keyboard send or stop", async ({ page }) => {
+  await openChat(page);
+  await page.getByRole("textbox", { name: "Message Pocket" }).fill("keyboard draft");
+  let sends = 0;
+
+  await page.route("**/api/messages", (route) => {
+    sends++;
+
+    return route.abort();
+  });
+  await cancelWithoutClick(page);
+  const send = page.getByRole("button", { name: /Send message; hold and swipe up/ });
+
+  await send.focus();
+  await page.keyboard.press("Enter");
+  await expect.poll(() => sends).toBe(1);
+  await page.reload();
+  await expect(send).toBeEnabled();
+  await page.getByRole("textbox", { name: "Message Pocket" }).fill("voice draft");
+  await cancelWithoutClick(page);
+  const start = page.getByRole("button", { name: "Start realtime voice" });
+
+  await start.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("status", { name: "Realtime voice active" })).toBeVisible();
+  const beforeStop = await countStops();
+  const stop = page.getByRole("button", { name: "Stop realtime voice" });
+
+  await stop.focus();
+  await page.keyboard.press("Enter");
+  await expect(page.getByRole("textbox", { name: "Message Pocket" })).toHaveValue("voice draft");
+  await expect.poll(countStops).toBeGreaterThan(beforeStop);
   await waitForIdle(page);
 });

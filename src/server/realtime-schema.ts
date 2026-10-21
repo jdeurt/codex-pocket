@@ -2,6 +2,14 @@
 import { object } from "../lib/protocol";
 import { z } from "zod";
 
+export interface RealtimeMessage {
+  type: string;
+  role?: string;
+  text?: string;
+  audio?: z.infer<typeof audioSchema>;
+  error?: string;
+}
+
 export const audioSchema = z
   .object({
     data: z
