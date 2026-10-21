@@ -1,11 +1,14 @@
 /* eslint-disable jdeurt/const-on-top, jsdoc/require-jsdoc, @typescript-eslint/no-magic-numbers, unicorn/isolated-functions, unicorn/no-global-object-property-assignment -- Browser integration steps follow actual user action order and fixture timing. */
 import { type Page, expect, test } from "@playwright/test";
+import { readFile, writeFile } from "node:fs/promises";
 import { dataSchema } from "../../src/lib/protocol";
 import path from "node:path";
-import { readFile } from "node:fs/promises";
 
 const nativeLog = path.resolve(".local/realtime-fixture/native.jsonl");
+const controlFile = path.resolve(".local/realtime-fixture/control.json");
 const origin = "http://127.0.0.1:3119";
+
+test.beforeEach(async () => writeFile(controlFile, "{}"));
 
 async function countNativeStops() {
   const log = await readFile(nativeLog, "utf8");
@@ -87,6 +90,8 @@ test("realtime voice keeps draft and attachment, exchanges audio, applies next-s
     )
   ).toBe("ended");
   await activateByKeyboard(page);
+  await expect(page.getByText("Test voice")).toHaveCount(2);
+  await expect(page.getByText("Hello", { exact: true })).toHaveCount(2);
   const beforeSecondStop = await countNativeStops();
 
   await page.getByRole("button", { name: "Stop realtime voice" }).click();

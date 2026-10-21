@@ -2,7 +2,8 @@
 import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Message, MessageContent } from "@/components/ui/message";
-import { type QueuedMessage, type Snapshot } from "@/lib/protocol";
+import { type QueuedMessage, type Snapshot, string } from "@/lib/protocol";
+import { messageText, turnMessages } from "@/lib/turn-messages";
 import { ConversationActivity } from "./conversation-activity";
 import { FileAttachments } from "./file-attachments";
 import { MessageScrollerItem } from "@/components/ui/message-scroller";
@@ -11,7 +12,6 @@ import { type ReactNode } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { VirtualizedTranscript } from "./virtualized-transcript";
 import { post } from "@/lib/client-api";
-import { turnMessages } from "@/lib/turn-messages";
 
 /**
 Select setup, loading or empty-state content for a conversation.
@@ -101,8 +101,31 @@ export function Conversation({
   activityControl?: ReactNode;
   showActivity?: boolean;
   suspended?: boolean;
-  realtimeSegments?: { id: number; role: "user" | "assistant"; text: string; done: boolean }[];
+  realtimeSegments?: {
+    id: number;
+    role: "user" | "assistant";
+    text: string;
+    done: boolean;
+    nativeSessionId?: string;
+  }[];
 }) {
+  const projectedVoice = new Set(
+    state.turns.flatMap((turn) =>
+      turn.items.flatMap((item) => {
+        const sessionId = string(item.realtimeSessionId);
+
+        let role = "";
+
+        if (item.type === "userMessage") {
+          role = "user";
+        } else if (item.type === "agentMessage") {
+          role = "assistant";
+        }
+
+        return sessionId && role ? `${sessionId}\0${role}\0${messageText(item) || string(item.text)}` : [];
+      })
+    )
+  );
   const messages = state.turns.flatMap((turn) => {
     const entries = turnMessages(
       readOnly ? { ...turn, items: turn.items.filter((item) => item.type !== "pocketRestart") } : turn,
@@ -143,7 +166,12 @@ export function Conversation({
           </MessageScrollerItem>
         ))}
         {realtimeSegments
-          .filter((segment) => segment.text.trim())
+          .filter(
+            (segment) =>
+              segment.text.trim() &&
+              (!segment.nativeSessionId ||
+                !projectedVoice.has(`${segment.nativeSessionId}\0${segment.role}\0${segment.text}`))
+          )
           .map((segment) => (
             <MessageScrollerItem messageId={`voice-${String(segment.id)}`} key={`voice-${String(segment.id)}`}>
               <Message align={segment.role === "user" ? "end" : "start"}>

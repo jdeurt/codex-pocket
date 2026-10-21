@@ -1,15 +1,36 @@
-/* eslint-disable jsdoc/require-jsdoc, @typescript-eslint/no-magic-numbers, unicorn/no-top-level-assignment-in-function, @typescript-eslint/require-await -- Native fixture is a stateful transport simulator with observed audio dimensions. */
+/* eslint-disable jdeurt/const-on-top, jsdoc/require-jsdoc, @typescript-eslint/no-magic-numbers, unicorn/no-top-level-assignment-in-function, @typescript-eslint/require-await -- Native fixture is a stateful transport simulator with observed audio dimensions. */
 // Isolated native protocol fixture for complete Pocket voice sessions. No model or live thread is used.
 import { type Data, object } from "../../src/lib/protocol";
+import { appendFileSync, readFileSync } from "node:fs";
 import { readFixtureRequests, writeFixtureRecord } from "./sequential-rpc";
-import { appendFileSync } from "node:fs";
 import path from "node:path";
+import { z } from "zod";
 
 const threadId = "realtime-fixture-parent";
 const logFile = path.resolve(".local/realtime-fixture/native.jsonl");
+const controlFile = path.resolve(".local/realtime-fixture/control.json");
 
 let isActive = false;
 let isReplied = false;
+
+const controlSchema = z.object({
+  closeDelayMs: z.number().optional(),
+  missingClosed: z.boolean().optional(),
+  lateErrorMs: z.number().optional(),
+  burstChunks: z.number().optional(),
+  disconnectOnAudio: z.boolean().optional(),
+  disconnectOnStop: z.boolean().optional(),
+});
+
+function control(): z.infer<typeof controlSchema> {
+  try {
+    const raw: unknown = JSON.parse(readFileSync(controlFile, "utf8"));
+
+    return controlSchema.parse(raw);
+  } catch {
+    return {};
+  }
+}
 
 function event(method: string, params: Data) {
   writeFixtureRecord({ method, params: { threadId, ...params } });
@@ -74,8 +95,10 @@ async function execute(method: string | undefined, params: Data) {
 
       isActive = true;
       isReplied = false;
+      const sessionId = params.realtimeSessionId;
+
       setTimeout(() => {
-        event("thread/realtime/started", { version: "v2", realtimeSessionId: "fixture-session" });
+        event("thread/realtime/started", { version: "v2", realtimeSessionId: sessionId });
       }, 50);
 
       return {};
@@ -88,13 +111,23 @@ async function execute(method: string | undefined, params: Data) {
 
       if (!isReplied) {
         isReplied = true;
+        const options = control();
+
         setTimeout(() => {
           event("thread/realtime/transcript/delta", { role: "user", delta: "Test voice" });
           event("thread/realtime/transcript/done", { role: "user", text: "Test voice" });
           event("thread/realtime/transcript/delta", { role: "assistant", delta: "Hello" });
-          event("thread/realtime/outputAudio/delta", { audio: audio() });
+
+          for (let i = 0; i < (options.burstChunks ?? 1); i++) {
+            event("thread/realtime/outputAudio/delta", { audio: audio() });
+          }
+
           event("thread/realtime/transcript/done", { role: "assistant", text: "Hello" });
         }, 20);
+
+        if (options.disconnectOnAudio) {
+          setTimeout(() => process.kill(process.pid, "SIGTERM"), 90);
+        }
       }
 
       return {};
@@ -102,9 +135,23 @@ async function execute(method: string | undefined, params: Data) {
 
     case "thread/realtime/stop": {
       isActive = false;
-      setTimeout(() => {
-        event("thread/realtime/closed", {});
-      }, 0);
+      const options = control();
+
+      if (options.disconnectOnStop) {
+        setTimeout(() => process.kill(process.pid, "SIGTERM"), 80);
+      }
+
+      if (options.lateErrorMs !== undefined) {
+        setTimeout(() => {
+          event("thread/realtime/error", { message: "Stopped session error" });
+        }, options.lateErrorMs);
+      }
+
+      if (!options.missingClosed) {
+        setTimeout(() => {
+          event("thread/realtime/closed", {});
+        }, options.closeDelayMs ?? 0);
+      }
 
       return {};
     }

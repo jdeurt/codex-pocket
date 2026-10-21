@@ -61,7 +61,9 @@ export async function GET(request: Request) {
 
           if (controller.desiredSize !== null && controller.desiredSize < -MAX_PENDING_EVENTS) {
             close();
-            void bridge.realtime.stop(token);
+            void bridge.realtime.stop(token).catch(() => {
+              // A missing native close remains explicit in realtime status; this stream is already closed.
+            });
 
             return;
           }
@@ -70,7 +72,9 @@ export async function GET(request: Request) {
         };
         onAbort = () => {
           close();
-          void bridge.realtime.stop(token);
+          void bridge.realtime.stop(token).catch(() => {
+            // A missing native close remains explicit in realtime status; this stream is already closed.
+          });
         };
         bridge.realtime.addEventListener("message", onMessage);
         request.signal.addEventListener("abort", onAbort, { once: true });

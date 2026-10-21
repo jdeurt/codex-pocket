@@ -58,7 +58,7 @@ export class Bridge {
       this.hydration = undefined;
       this.rpc?.close();
       this.snapshot.connection = "disconnected";
-      this.realtime.fail("Pocket disconnected. Realtime stopped.");
+      this.realtime.disconnect("Pocket disconnected. Realtime stopped.");
       this.snapshots.fail(error, this.messages.entries);
       throw error;
     }
@@ -119,6 +119,7 @@ export class Bridge {
       }
 
       this.snapshot.connection = "disconnected";
+      this.realtime.disconnect("Pocket disconnected. Realtime stopped.");
       this.snapshot.error = event.error.message;
       this.snapshot.activeTurnId = undefined;
       this.snapshot.requests = [];
@@ -202,7 +203,6 @@ export class Bridge {
     }
 
     this.realtime.event(event);
-
     applyBridgeEvent(this.snapshot, this.config, event);
 
     if (event.id === undefined && event.method === "turn/completed") {
@@ -338,7 +338,7 @@ export class Bridge {
   */
   close() {
     this.disposed = true;
-    this.realtime.fail("Pocket stopped. Realtime stopped.");
+    this.realtime.disconnect("Pocket stopped. Realtime stopped.");
 
     if (this.timer) {
       clearInterval(this.timer);

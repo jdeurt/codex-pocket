@@ -1,94 +1,16 @@
 "use client";
-/* eslint-disable jdeurt/const-on-top, @typescript-eslint/no-magic-numbers, jsdoc/require-jsdoc, jsdoc/require-param, jsdoc/require-returns, unicorn/try-complexity, max-lines, complexity, @typescript-eslint/no-deprecated, unicorn/prefer-await -- Web Audio capture is a sequential resource lifecycle; ScriptProcessor supports the current browser fixture and PCM dimensions follow the native protocol. */
+/* eslint-disable jdeurt/const-on-top, @typescript-eslint/no-magic-numbers, jsdoc/require-returns, unicorn/try-complexity, complexity, @typescript-eslint/no-deprecated, unicorn/prefer-await -- Web Audio capture is a sequential resource lifecycle; ScriptProcessor supports the current browser fixture and PCM dimensions follow the native protocol. */
+import {
+  type VoiceResources,
+  type VoiceSegment,
+  listenRealtime,
+  realtimeCommand,
+  receiveRealtime,
+} from "@/lib/realtime-stream";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { dataSchema } from "@/lib/protocol";
-import { pocketUrl } from "@/lib/pockets";
-import { z } from "zod";
+import { pcm16 } from "@/lib/realtime-audio";
 
-interface Segment {
-  id: number;
-  role: "user" | "assistant";
-  text: string;
-  done: boolean;
-}
 type VoiceState = "idle" | "starting" | "active";
-const TARGET_RATE = 24_000;
-const outputAudioSchema = z.object({ data: z.string(), sampleRate: z.number(), numChannels: z.number() });
-
-/**
-Encode browser float samples as the native v2 mono 24 kHz PCM16 stream.
-*/
-function pcm16(source: Float32Array, sourceRate: number) {
-  const count = Math.max(1, Math.floor((source.length * TARGET_RATE) / sourceRate));
-  const bytes = new Uint8Array(count * 2);
-  const view = new DataView(bytes.buffer);
-
-  for (let i = 0; i < count; i++) {
-    const position = (i * sourceRate) / TARGET_RATE;
-    const left = Math.min(source.length - 1, Math.floor(position));
-    const right = Math.min(source.length - 1, left + 1);
-    const sample = Math.max(-1, Math.min(1, source[left] + (source[right] - source[left]) * (position - left)));
-
-    view.setInt16(i * 2, Math.round(sample * (sample < 0 ? 32_768 : 32_767)), true);
-  }
-
-  let binary = "";
-
-  for (const byte of bytes) {
-    binary += String.fromCodePoint(byte);
-  }
-
-  return { data: btoa(binary), sampleRate: TARGET_RATE, numChannels: 1, samplesPerChannel: count };
-}
-
-/**
-Decode the observed native PCM16 output without leaking audio to logging.
-*/
-function decodePcm16(data: string) {
-  const binary = atob(data);
-  const samples = new Float32Array(binary.length / 2);
-
-  for (let i = 0; i < samples.length; i++) {
-    const word = (binary.codePointAt(i * 2) ?? 0) | ((binary.codePointAt(i * 2 + 1) ?? 0) << 8);
-
-    samples[i] = (word & 0x80_00 ? word - 65_536 : word) / 32_768;
-  }
-
-  return samples;
-}
-
-async function command(body: unknown) {
-  const response = await fetch(pocketUrl("/api/realtime"), {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(body),
-    keepalive: typeof body === "object" && body !== null && "action" in body && body.action === "stop",
-    signal: AbortSignal.timeout(20_000),
-  });
-  const data = dataSchema.parse(await response.json());
-
-  if (!response.ok) {
-    throw new Error(typeof data.error === "string" ? data.error : "Realtime connection failed.");
-  }
-
-  return data;
-}
-
-interface Resources {
-  token?: string;
-  context: AudioContext;
-  stream: MediaStream;
-  processor: ScriptProcessorNode;
-  source: MediaStreamAudioSourceNode;
-  inputAnalyser: AnalyserNode;
-  outputAnalyser: AnalyserNode;
-  outputTime: number;
-  abort: AbortController;
-  sending: Promise<unknown>;
-  queuedChunks: number;
-  active: boolean;
-  ready: boolean;
-}
 
 /**
 Own one browser microphone/playback pipeline and release it on every exit path.
@@ -96,10 +18,11 @@ Own one browser microphone/playback pipeline and release it on every exit path.
 export function useRealtime() {
   const [state, setState] = useState<VoiceState>("idle");
   const [error, setError] = useState("");
-  const [segments, setSegments] = useState<Segment[]>([]);
-  const resources = useRef<Resources | null>(null);
+  const [segments, setSegments] = useState<VoiceSegment[]>([]);
+  const resources = useRef<VoiceResources | null>(null);
   const pendingStream = useRef<MediaStream | null>(null);
   const pendingContext = useRef<AudioContext | null>(null);
+  const captureCleanup = useRef<(() => void) | null>(null);
   const nextId = useRef(0);
   const stopping = useRef(false);
   const generation = useRef(0);
@@ -108,12 +31,15 @@ export function useRealtime() {
   const stop = useCallback(async () => {
     generation.current++;
     starting.current = false;
+    setSegments((entries) => entries.map((entry) => (entry.done ? entry : { ...entry, done: true })));
     const current = resources.current;
     const waitingStream = pendingStream.current;
     const waitingContext = pendingContext.current;
 
     pendingStream.current = null;
     pendingContext.current = null;
+    captureCleanup.current?.();
+    captureCleanup.current = null;
 
     if (waitingStream) {
       for (const track of waitingStream.getTracks()) {
@@ -142,6 +68,13 @@ export function useRealtime() {
     current.inputAnalyser.disconnect();
     current.outputAnalyser.disconnect();
 
+    for (const source of current.outputSources) {
+      source.stop();
+      source.disconnect();
+    }
+
+    current.outputSources.clear();
+
     for (const track of current.stream.getTracks()) {
       track.stop();
     }
@@ -157,7 +90,7 @@ export function useRealtime() {
 
     if (token) {
       try {
-        await command({ action: "stop", token });
+        await realtimeCommand({ action: "stop", token });
       } catch {
         /*
         Local tracks are already stopped; server stream abort also stops native.
@@ -167,137 +100,29 @@ export function useRealtime() {
   }, []);
 
   const receive = useCallback(
-    (current: Resources, message: Record<string, unknown>) => {
-      if (!current.active) {
-        return;
-      }
+    (current: VoiceResources, message: Record<string, unknown>) => {
+      receiveRealtime(current, message, {
+        active: () => {
+          setState("active");
+        },
+        error: setError,
+        stop: () => void stop(),
+        transcript: (role, text, done, sessionId) => {
+          setSegments((entries) => {
+            const index = entries.findLastIndex(
+              (entry) => entry.role === role && !entry.done && entry.nativeSessionId === sessionId
+            );
 
-      const type = message.type;
-
-      if (type === "active" || type === "started") {
-        current.ready = true;
-        setState("active");
-
-        return;
-      }
-
-      if (type === "error" || type === "closed") {
-        if (type === "error") {
-          setError(typeof message.error === "string" ? message.error : "Realtime connection failed.");
-        }
-
-        void stop();
-
-        return;
-      }
-
-      if (type === "audio") {
-        const audio = outputAudioSchema.safeParse(message.audio);
-
-        if (!audio.success || audio.data.sampleRate !== TARGET_RATE || audio.data.numChannels !== 1) {
-          return;
-        }
-
-        const samples = decodePcm16(audio.data.data);
-        const buffer = current.context.createBuffer(1, samples.length, TARGET_RATE);
-
-        buffer.copyToChannel(samples, 0);
-        const source = current.context.createBufferSource();
-
-        source.buffer = buffer;
-        source.connect(current.outputAnalyser);
-        const at = Math.max(current.context.currentTime + 0.025, current.outputTime);
-
-        source.start(at);
-        current.outputTime = at + buffer.duration;
-        source.addEventListener("ended", () => {
-          source.disconnect();
-        });
-
-        return;
-      }
-
-      if (type !== "transcriptDelta" && type !== "transcriptDone") {
-        return;
-      }
-
-      const role = message.role === "assistant" || message.role === "user" ? message.role : null;
-
-      const text = message.text;
-
-      if (!role || typeof text !== "string") {
-        return;
-      }
-
-      setSegments((entries) => {
-        const index = entries.findLastIndex((entry) => entry.role === role && !entry.done);
-
-        if (index !== -1) {
-          return entries.map((entry, at) =>
-            at === index
-              ? {
-                  ...entry,
-                  text: type === "transcriptDone" ? text : entry.text + text,
-                  done: type === "transcriptDone",
-                }
-              : entry
-          );
-        }
-
-        return [...entries, { id: ++nextId.current, role, text, done: type === "transcriptDone" }];
+            return index === -1
+              ? [...entries, { id: ++nextId.current, role, text, done, nativeSessionId: sessionId }]
+              : entries.map((entry, at) =>
+                  at === index ? { ...entry, text: done ? text : entry.text + text, done } : entry
+                );
+          });
+        },
       });
     },
     [stop]
-  );
-
-  const listen = useCallback(
-    async (current: Resources, token: string) => {
-      let response: Response;
-
-      try {
-        response = await fetch(pocketUrl("/api/realtime/events"), {
-          headers: { "X-Pocket-Realtime-Token": token },
-          signal: current.abort.signal,
-        });
-      } catch {
-        throw new Error("Realtime event stream failed.");
-      }
-
-      if (!response.ok || !response.body) {
-        throw new Error("Realtime event stream failed.");
-      }
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-
-      let pending = "";
-
-      while (current.active) {
-        const { value, done } = await reader.read();
-
-        if (done) {
-          break;
-        }
-
-        pending += decoder.decode(value, { stream: true });
-        let index: number;
-
-        while ((index = pending.indexOf("\n")) !== -1) {
-          const line = pending.slice(0, index);
-
-          pending = pending.slice(index + 1);
-
-          if (line) {
-            receive(current, dataSchema.parse(JSON.parse(line)));
-          }
-        }
-      }
-
-      if (current.active) {
-        throw new Error("Realtime disconnected.");
-      }
-    },
-    [receive]
   );
 
   const start = useCallback(async () => {
@@ -310,7 +135,6 @@ export function useRealtime() {
 
     setError("");
     setState("starting");
-    setSegments([]);
     let stream: MediaStream | undefined;
     let context: AudioContext | undefined;
 
@@ -322,6 +146,13 @@ export function useRealtime() {
       ) {
         throw new Error("Realtime audio is unavailable in this browser.");
       }
+
+      // Start playback while the gesture still owns browser user activation (notably Safari).
+      context = new AudioContext();
+      pendingContext.current = context;
+      void context.resume().catch(() => {
+        // A second resume after microphone permission reports the actual playback result.
+      });
 
       stream = await navigator.mediaDevices.getUserMedia({
         audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
@@ -336,8 +167,32 @@ export function useRealtime() {
         return;
       }
 
-      context = new AudioContext();
-      pendingContext.current = context;
+      const capture = stream;
+      const lostCapture = () => {
+        if (
+          generation.current !== attempt ||
+          (pendingStream.current !== capture && resources.current?.stream !== capture)
+        ) {
+          return;
+        }
+
+        setError("Microphone disconnected. Realtime stopped.");
+        void stop();
+      };
+
+      for (const track of capture.getAudioTracks()) {
+        track.addEventListener("ended", lostCapture);
+      }
+
+      capture.addEventListener("inactive", lostCapture);
+      captureCleanup.current = () => {
+        for (const track of capture.getAudioTracks()) {
+          track.removeEventListener("ended", lostCapture);
+        }
+
+        capture.removeEventListener("inactive", lostCapture);
+      };
+
       await context.resume();
 
       if (generation.current !== attempt) {
@@ -369,7 +224,7 @@ export function useRealtime() {
       inputAnalyser.connect(processor);
       processor.connect(silent);
       silent.connect(context.destination);
-      const current: Resources = {
+      const current: VoiceResources = {
         context,
         stream,
         source,
@@ -377,6 +232,7 @@ export function useRealtime() {
         inputAnalyser,
         outputAnalyser,
         outputTime: 0,
+        outputSources: new Set(),
         abort: new AbortController(),
         sending: Promise.resolve(),
         queuedChunks: 0,
@@ -402,7 +258,7 @@ export function useRealtime() {
         const audio = pcm16(event.inputBuffer.getChannelData(0), sampleRate);
 
         current.sending = current.sending
-          .then(() => (current.active ? command({ action: "audio", token: current.token, audio }) : undefined))
+          .then(() => (current.active ? realtimeCommand({ action: "audio", token: current.token, audio }) : undefined))
           .catch((error_: unknown) => {
             if (!current.active) {
               return;
@@ -415,11 +271,11 @@ export function useRealtime() {
             current.queuedChunks--;
           });
       };
-      const result = await command({ action: "start" });
+      const result = await realtimeCommand({ action: "start" });
 
       if (!current.active || generation.current !== attempt) {
         if (typeof result.token === "string") {
-          void command({ action: "stop", token: result.token }).catch(() => {
+          void realtimeCommand({ action: "stop", token: result.token }).catch(() => {
             // The session was already stopped while start was pending.
           });
         }
@@ -432,8 +288,11 @@ export function useRealtime() {
       }
 
       current.token = result.token;
+      current.nativeSessionId = typeof result.nativeSessionId === "string" ? result.nativeSessionId : undefined;
       starting.current = false;
-      void listen(current, result.token).catch((error_: unknown) => {
+      void listenRealtime(current, result.token, (message) => {
+        receive(current, message);
+      }).catch((error_: unknown) => {
         if (!current.active) {
           return;
         }
@@ -451,6 +310,9 @@ export function useRealtime() {
       if (resources.current) {
         void stop();
       } else {
+        captureCleanup.current?.();
+        captureCleanup.current = null;
+
         if (stream) {
           for (const track of stream.getTracks()) {
             track.stop();
@@ -466,7 +328,7 @@ export function useRealtime() {
 
       setError(error_ instanceof Error ? error_.message : "Realtime could not start.");
     }
-  }, [listen, state, stop]);
+  }, [receive, state, stop]);
 
   useEffect(
     () => () => {

@@ -108,7 +108,7 @@ export function useVoiceGesture(options: {
     release();
 
     if (isActivate) {
-      globalThis.setTimeout(options.onStart, 0);
+      options.onStart();
     }
   }
 
@@ -118,11 +118,10 @@ export function useVoiceGesture(options: {
   }
 
   function onClick() {
-    if (options.active) {
+    if (suppressClick.current) {
       suppressClick.current = false;
+    } else if (options.active) {
       options.onStop();
-    } else if (suppressClick.current) {
-      suppressClick.current = false;
     } else {
       options.onTap();
     }

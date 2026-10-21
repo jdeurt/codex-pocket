@@ -1,27 +1,11 @@
-/* eslint-disable jdeurt/const-on-top, @typescript-eslint/no-magic-numbers, jsdoc/require-jsdoc, jsdoc/require-param, jsdoc/require-returns, unicorn/try-complexity -- Native session mutations are sequential; audio bounds match the observed protocol. */
+/* eslint-disable jdeurt/const-on-top, jsdoc/require-jsdoc, jsdoc/require-param, jsdoc/require-returns, unicorn/try-complexity, complexity -- Native session mutations are sequential and native notifications share one session handler. */
 import { type RpcEvent, object, string } from "../lib/protocol";
+import { audioSchema, parseOutputAudio, settingsSchema, voiceListSchema } from "./realtime-schema";
 import { readLocal, writeLocal } from "./local-state";
 import { type Bridge } from "./bridge-session";
 import { createHash } from "node:crypto";
-import { z } from "zod";
-
-const audioSchema = z
-  .object({
-    data: z
-      .string()
-      .min(1)
-      .max(48_000)
-      .regex(/^[A-Za-z0-9+/]+={0,2}$/),
-    sampleRate: z.literal(24_000),
-    numChannels: z.literal(1),
-    samplesPerChannel: z.number().int().positive().max(12_000),
-  })
-  .strict();
-const settingsSchema = z
-  .object({ voice: z.string().min(1).optional(), model: z.string().trim().min(1).max(120).nullable().optional() })
-  .strict();
-const voicesSchema = z.object({ v2: z.array(z.string()), defaultV2: z.string() }).loose();
-const voiceListSchema = z.object({ voices: voicesSchema });
+import { waitForRealtimeClosed } from "./realtime-lifecycle";
+import type { z } from "zod";
 
 type Settings = z.infer<typeof settingsSchema>;
 export interface RealtimeMessage {
@@ -37,7 +21,10 @@ Own one realtime session on the existing parent native connection.
 */
 export class RealtimeSession extends EventTarget {
   private token?: string;
-  private phase: "idle" | "connecting" | "active" = "idle";
+  private phase: "idle" | "connecting" | "active" | "stopping" | "uncertain" = "idle";
+  private nativeSessionId?: string;
+  private stoppingThreadId?: string;
+  private closure?: { resolve: () => void };
   private settings?: Settings;
   private lastError?: string;
 
@@ -137,8 +124,12 @@ export class RealtimeSession extends EventTarget {
     return this.owner.exclusive(async () => {
       await this.owner.ensureConnected();
 
-      if (this.token) {
-        throw new Error("Realtime is already active for this Pocket.");
+      if (this.phase !== "idle") {
+        throw new Error(
+          this.phase === "uncertain"
+            ? "Native realtime closure was not confirmed. Reconnect Pocket before starting again."
+            : "Realtime is already active or stopping for this Pocket."
+        );
       }
 
       if (this.owner.snapshot.activeTurnId || this.owner.snapshot.queue.length > 0) {
@@ -148,8 +139,10 @@ export class RealtimeSession extends EventTarget {
       const id = this.threadId();
       const saved = await this.saved(id);
       const token = crypto.randomUUID();
+      const nativeSessionId = crypto.randomUUID();
 
       this.token = token;
+      this.nativeSessionId = nativeSessionId;
       this.phase = "connecting";
       this.lastError = undefined;
 
@@ -159,15 +152,20 @@ export class RealtimeSession extends EventTarget {
           outputModality: "audio",
           transport: { type: "websocket" },
           version: "v2",
+          realtimeSessionId: nativeSessionId,
           ...(saved.voice && { voice: saved.voice }),
           ...(saved.model && { model: saved.model }),
         });
       } catch (error) {
-        this.fail(error instanceof Error ? error.message : "Realtime could not start.");
+        this.token = undefined;
+        this.nativeSessionId = undefined;
+        this.phase = "idle";
+        this.lastError = error instanceof Error ? error.message : "Realtime could not start.";
+        this.publish({ type: "error", error: this.lastError });
         throw error;
       }
 
-      return { token, phase: this.phase };
+      return { token, nativeSessionId, phase: this.phase };
     });
   }
 
@@ -199,12 +197,39 @@ export class RealtimeSession extends EventTarget {
     }
 
     this.token = undefined;
-    this.phase = "idle";
+    this.phase = "stopping";
+    this.stoppingThreadId = this.owner.snapshot.threadId;
     this.publish({ type: "closed" });
 
     return this.owner.exclusive(async () => {
-      if (this.owner.snapshot.connection === "connected") {
-        await this.owner.agentReader().request("thread/realtime/stop", { threadId: this.threadId() });
+      if (this.phase !== "stopping" || this.owner.snapshot.connection !== "connected") {
+        return;
+      }
+
+      const threadId = this.threadId();
+      const closed = new Promise<void>((resolve) => {
+        this.closure = { resolve };
+      });
+
+      // Stop acknowledgment only confirms receipt. The native closed notification is the lifecycle barrier.
+      void this.owner
+        .agentReader()
+        .request("thread/realtime/stop", { threadId })
+        .catch((error: unknown) => {
+          this.lastError = error instanceof Error ? error.message : "Native realtime stop failed.";
+        });
+
+      try {
+        await waitForRealtimeClosed(closed);
+      } catch (error) {
+        if (this.status().type === "stopping") {
+          this.phase = "uncertain";
+          this.lastError = error instanceof Error ? error.message : "Native realtime closure was not confirmed.";
+        }
+
+        throw error;
+      } finally {
+        this.closure = undefined;
       }
     });
   }
@@ -226,16 +251,28 @@ export class RealtimeSession extends EventTarget {
   event(event: RpcEvent) {
     if (
       !event.method.startsWith("thread/realtime/") ||
-      !this.token ||
-      event.params.threadId !== this.owner.snapshot.threadId
+      this.phase === "idle" ||
+      (event.method !== "thread/realtime/closed" && this.phase === "uncertain") ||
+      event.params.threadId !==
+        (this.phase === "stopping" || this.phase === "uncertain" ? this.stoppingThreadId : this.owner.snapshot.threadId)
     ) {
       return;
     }
 
     const suffix = event.method.slice("thread/realtime/".length);
 
+    if (suffix !== "closed" && suffix !== "error" && this.phase === "stopping") {
+      return;
+    }
+
     switch (suffix) {
       case "started": {
+        const id = string(event.params.realtimeSessionId);
+
+        if (this.phase !== "connecting" || (id && id !== this.nativeSessionId)) {
+          break;
+        }
+
         this.phase = "active";
         this.publish({ type: "started" });
 
@@ -243,19 +280,10 @@ export class RealtimeSession extends EventTarget {
       }
 
       case "outputAudio/delta": {
-        const audio = object(event.params.audio);
+        const audio = parseOutputAudio(event.params.audio);
 
-        if (audio.sampleRate === 24_000 && audio.numChannels === 1 && typeof audio.data === "string") {
-          const validated = audioSchema.safeParse({
-            data: audio.data,
-            sampleRate: 24_000,
-            numChannels: 1,
-            samplesPerChannel: Buffer.from(audio.data, "base64").byteLength / 2,
-          });
-
-          if (validated.success) {
-            this.publish({ type: "audio", audio: validated.data });
-          }
+        if (audio) {
+          this.publish({ type: "audio", audio });
         }
 
         break;
@@ -273,15 +301,32 @@ export class RealtimeSession extends EventTarget {
       }
 
       case "error": {
-        this.fail(string(event.params.message) || "Realtime connection failed.");
+        const message = string(event.params.message) || "Realtime connection failed.";
+
+        if (this.phase === "stopping") {
+          this.lastError = message;
+          break;
+        }
+
+        this.lastError = message;
+        this.publish({ type: "error", error: message });
+
+        if (this.token) {
+          void this.stop(this.token).catch(() => {
+            // The bounded stop leaves an explicit uncertain state if native closure never arrives.
+          });
+        }
 
         break;
       }
 
       case "closed": {
         this.token = undefined;
+        this.nativeSessionId = undefined;
+        this.stoppingThreadId = undefined;
         this.phase = "idle";
         this.publish({ type: "closed" });
+        this.closure?.resolve();
 
         break;
       }
@@ -292,21 +337,14 @@ export class RealtimeSession extends EventTarget {
   /**
   Clear a failed session after native or network loss.
   */
-  fail(message: string) {
-    const shouldStop = this.phase === "active" && this.owner.snapshot.connection === "connected";
-    const id = this.owner.snapshot.threadId;
-
+  disconnect(message: string) {
     this.token = undefined;
+    this.nativeSessionId = undefined;
+    this.stoppingThreadId = undefined;
     this.phase = "idle";
     this.lastError = message;
     this.publish({ type: "error", error: message });
-
-    if (shouldStop && id) {
-      void this.owner
-        .exclusive(() => this.owner.agentReader().request("thread/realtime/stop", { threadId: id }))
-        .catch(() => {
-          // Native failure may already have closed the session.
-        });
-    }
+    this.closure?.resolve();
+    this.closure = undefined;
   }
 }
