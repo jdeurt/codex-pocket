@@ -122,9 +122,10 @@ test("composer keeps text geometry through realtime at narrow and wide viewports
       contentType: "application/json",
     });
     closeTo(voice.composer.x, normal.composer.x);
-    expect(Math.abs(voice.composer.y - normal.composer.y), JSON.stringify({ width, normal, voice })).toBeLessThanOrEqual(
-      0.75
-    );
+    expect(
+      Math.abs(voice.composer.y - normal.composer.y),
+      JSON.stringify({ width, normal, voice })
+    ).toBeLessThanOrEqual(0.75);
     closeTo(voice.composer.width, normal.composer.width);
     closeTo(voice.composer.height, normal.composer.height);
     closeTo(voice.composerHeight, normal.composerHeight);
