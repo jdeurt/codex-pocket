@@ -2,7 +2,6 @@ import { installRelease, withInstallLock } from "../scripts/install-release.mjs"
 import { mkdir, mkdtemp, readFile, readdir, realpath, rm, writeFile } from "node:fs/promises";
 import assert from "node:assert/strict";
 import path from "node:path";
-import { serviceDefinition } from "../scripts/install-launchd.mjs";
 import test from "node:test";
 import { tmpdir } from "node:os";
 
@@ -56,7 +55,7 @@ function forbidden() {
   assert.fail("A failed build must never touch the service");
 }
 
-for (const failure of ["dependencies", "setup", "check", "build", "missing-output"]) {
+for (const failure of ["build", "missing-output"]) {
   await test(`failed ${failure} keeps the old service running and discards the candidate`, async () => {
     const root = await fixture();
 
@@ -208,19 +207,6 @@ await test("installation lock rejects overlap and releases after build failure",
   } finally {
     await rm(root, { recursive: true, force: true });
   }
-});
-
-await test("release service pins executable and paths without relocating durable stores", () => {
-  const port = 3000;
-  const definition = serviceDefinition("/checkout", "/checkout/.local/releases/release-new", port, {
-    CODEX_POCKET_STATE_DIR: "private-state",
-    CODEX_POCKET_LOG_DIR: "private-logs",
-  });
-
-  assert.equal(definition.WorkingDirectory, "/checkout/.local/releases/release-new");
-  assert.equal(definition.ProgramArguments[1], "/checkout/.local/releases/release-new/node_modules/next/dist/bin/next");
-  assert.equal(definition.EnvironmentVariables.CODEX_POCKET_STATE_DIR, "/checkout/private-state");
-  assert.equal(definition.StandardOutPath, "/checkout/private-logs/pocket.log");
 });
 
 await test("failed first launch removes new settings and leaves no accepted release", async () => {

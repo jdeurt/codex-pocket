@@ -2,43 +2,14 @@ import { type Page, expect, test } from "@playwright/test";
 import { mount, publish } from "./virtualization-fixture";
 import { type AgentCatalog } from "../../src/lib/agents";
 import { type Snapshot } from "../../src/lib/protocol";
-import { type SpinnerPreference } from "../../src/lib/spinner";
 import { history } from "../fixtures/virtualized-history";
-import { readFile } from "node:fs/promises";
-import sharp from "sharp";
 import { viewport } from "./virtualization-measure";
 
-const LONG_STATUS_REPETITIONS = 4;
 const HIT_TARGET = 44;
 const COMPOSER_GAP = 10;
 const ALIGNMENT_TOLERANCE = 0.5;
 const ACTIVITY_COUNT = 120;
 const READER_DISTANCE = 200;
-
-/**
-Serves the original Kirby GIF through the real spinner preference and asset endpoints.
-@param page - Offline browser whose activity component will poll these routes.
-@returns Completion of the fixture routes without changing a saved spinner library.
-*/
-async function installSpinner(page: Page) {
-  const image = await readFile("tests/fixtures/spinners/kirbyjam.gif");
-  const metadata = await sharp(image, { animated: true }).metadata();
-  const preference: SpinnerPreference = {
-    current: {
-      id: "tail-kirby",
-      mime: "image/gif",
-      width: metadata.width,
-      height: metadata.pageHeight ?? metadata.height,
-      frames: metadata.pages ?? 1,
-      bytes: image.length,
-      createdAt: Date.now(),
-      tone: null,
-    },
-  };
-
-  await page.route("**/api/spinner", (route) => route.fulfill({ json: preference }));
-  await page.route("**/api/spinner/tail-kirby", (route) => route.fulfill({ contentType: "image/gif", body: image }));
-}
 
 /**
 Returns a scoped running agent or an empty catalog for the real overview subscription.
@@ -83,53 +54,6 @@ function tailGeometry(page: Page) {
       composerTop: composer?.getBoundingClientRect().top,
       viewportBottom: scroller?.getBoundingClientRect().bottom,
     };
-  });
-}
-
-for (const isCustom of [false, true]) {
-  test(`status text changes retain layout with the ${isCustom ? "Kirby" : "default"} spinner`, async ({
-    page,
-  }, info) => {
-    const state: Snapshot = {
-      ...history(),
-      activeTurnId: "live",
-      activity: "Inspecting the current work and preserving the conversation layout. ".repeat(LONG_STATUS_REPETITIONS),
-    };
-    const writes = await mount(page, state);
-    const original =
-      await test.step("Position the real spinner and long status text at the transcript end", async () => {
-        if (isCustom) {
-          await installSpinner(page);
-        }
-
-        await page.reload();
-        await page.getByRole("button", { name: "Dismiss notification prompt" }).click();
-
-        if (isCustom) {
-          await expect(page.locator(".custom-activity-spinner-image")).toHaveJSProperty("complete", true);
-        }
-
-        await expect
-          .poll(() =>
-            page
-              .locator(viewport)
-              .evaluate((element) => element.scrollHeight - element.scrollTop - element.clientHeight)
-          )
-          .toBeLessThan(1);
-
-        return await tailGeometry(page);
-      });
-
-    await publish(page, { ...state, activity: "" });
-    await expect(page.getByRole("status", { name: "Pocket activity" })).toHaveText("");
-    await expect.poll(() => tailGeometry(page)).toEqual(original);
-    await publish(page, { ...state, activity: "Checking" });
-    await expect(page.getByRole("status", { name: "Pocket activity" })).toHaveText("Checking");
-    await expect.poll(() => tailGeometry(page)).toEqual(original);
-    await publish(page, state);
-    await expect.poll(() => tailGeometry(page)).toEqual(original);
-    await page.screenshot({ path: `.local/status-${isCustom ? "kirby" : "default"}-${info.project.name}.png` });
-    expect(writes).toEqual([]);
   });
 }
 

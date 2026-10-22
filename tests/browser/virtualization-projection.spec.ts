@@ -2,6 +2,7 @@ import { type Item, type Snapshot, initialSnapshot } from "../../src/lib/protoco
 import { type Page, expect, test } from "@playwright/test";
 import { mount, publish } from "./virtualization-fixture";
 
+const HISTORY_SIZE = 320;
 const MAX_MOUNTED_ROWS = 250;
 const mediaTail: Item[] = [
   { id: "empty-assistant", type: "agentMessage", text: " \n" },
@@ -60,7 +61,7 @@ test("shared projected history preserves one scroller, media, pending drafts and
         id: "visibility",
         status: "inProgress",
         items: [
-          ...Array.from({ length: 1200 }, (_, index) => ({
+          ...Array.from({ length: HISTORY_SIZE }, (_, index) => ({
             id: `visible-${String(index)}`,
             type: "agentMessage",
             text: `History ${String(index)}`,

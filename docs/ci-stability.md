@@ -18,7 +18,7 @@ The recurring failures include deterministic regressions as well as intermittent
 
 Realtime support changed the accessible label to `Send message; hold and swipe up for realtime voice`. Exact matches for `Send message` timed out in agent navigation, named Pockets, uploads, and attachment layout. The standalone layout test also queried the obsolete exact attribute before measuring geometry.
 
-Send-action locators now match `^Send message(?:;|$)`, which accepts the action with optional instructions and excludes the realtime stop control. The standalone measurement uses the existing `.send-button` class. The same stale selectors in shared helpers, live tests, and update tests receive the same correction.
+Send-action locators now match `^Send message(?:;|$)`, which accepts the action with optional instructions and excludes the realtime stop control. The same stale selectors in shared helpers, live tests, and update tests receive the same correction.
 
 ## Native clipboard platform
 
@@ -52,6 +52,12 @@ The geometry diagnostics in [run 39852479513](https://github.com/jdeurt/codex-po
 
 Both gesture and keyboard activation now capture the composer's actual height before replacing the textarea and preserve it for the voice session. The geometry regression explicitly uses a multiline draft and requires a multiline textarea before comparing the same rectangles and tolerances. Stopping voice restores automatic text sizing.
 
+## Image-bearing bookmark restoration
+
+The subsequent cleanup reduced ordinary history fixtures to 320 rows and exposed a 192-pixel restoration drift. The saved reader anchor itself contained an image. During reopen, that row temporarily shrank while the image decoded, putting its end above the saved offset. The native size-change heuristic then treated growth in that same row as preceding the reader and applied an unwanted correction.
+
+Cached restoration now finds the saved anchor in the original measurements and compensates only rows before it. Explicit adjustment policies, including nested activity, keep precedence, and normal user scrolling retains its existing policy. The bookmark flow keeps its images and three-pixel tolerance, waits for media before capturing its initial position, and passed three focused repetitions after the correction.
+
 ## Reproduction and validation
 
 Select exact cases rather than a feature collection:
@@ -67,3 +73,5 @@ The development VM uses its installed `/usr/bin/chromium` through temporary, ign
 Realtime CI retains failure traces, and both browser jobs upload failure results for seven days. The realtime composer geometry test records its before/after rectangles and includes them in position failures. These diagnostics preserve the original assertions and help distinguish layout failures from lifecycle timing.
 
 Repeated successful CI runs on the final revision are required to establish stability. Local repetitions alone do not meet that criterion.
+
+The DX fixes passed the complete [Check run 39853635789](https://github.com/jdeurt/codex-pocket/actions/runs/39853635789) at commit `749f18c`, before the later authorized test cleanup. That run included all 196 default browser cases and all 75 realtime cases. The [suite audit](test-suite.md) records subsequent removals and simplifications; the cleanup revision requires its own CI validation.

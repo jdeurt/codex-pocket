@@ -1,67 +1,12 @@
 import { type GET, type POST } from "../src/app/api/notifications/presence/route";
-import { NotificationPresence, notificationDeviceId, notificationPresence } from "../src/server/notification-presence";
-import test, { type TestContext } from "node:test";
+import { notificationDeviceId, notificationPresence } from "../src/server/notification-presence";
+import test from "node:test";
 import assert from "node:assert/strict";
 import { z } from "zod";
 
 const PHONE = "https://push.example/phone";
-const TABLET = "https://push.example/tablet";
-const PROBE_EXPIRY_MS = 1501;
 const HTTP_OK = 200;
 const HTTP_FORBIDDEN = 403;
-
-/**
-Check device-specific acknowledgements after the disconnected baseline.
-@param presence - Isolated native probe coordinator.
-@param phoneId - Identity of the receiving fixture device.
-@returns Completion of acknowledgement and disconnect assertions.
-*/
-async function assertConnected(presence: NotificationPresence, phoneId: string) {
-  const disconnect = presence.connect(phoneId, (challengeId) => {
-    assert.equal(presence.acknowledge(notificationDeviceId(TABLET), challengeId), false);
-    assert.equal(presence.acknowledge(phoneId, challengeId), true);
-    assert.equal(presence.acknowledge(phoneId, challengeId), false);
-  });
-
-  assert.equal(await presence.isForeground(PHONE), true);
-  assert.equal(await presence.isForeground(TABLET), false);
-  disconnect();
-  assert.equal(await presence.isForeground(PHONE), false);
-}
-
-/**
-Restore acknowledgements after a suspended connection has expired and disconnected.
-@param presence - Probe coordinator retaining no active connection.
-@param phoneId - Identity of the receiving fixture device.
-@returns Completion of the restored suppression assertion.
-*/
-async function assertReconnected(presence: NotificationPresence, phoneId: string) {
-  const restored = presence.connect(phoneId, (challengeId) => {
-    presence.acknowledge(phoneId, challengeId);
-  });
-
-  assert.equal(await presence.isForeground(PHONE), true);
-  restored();
-}
-
-/**
-Enable the native test clock before opening a suspended connection.
-@param context - Native test context controlling probe expiry.
-@param presence - Isolated native coordinator.
-@param phoneId - Identity of the fixture device.
-@param receive - Suspended page callback retaining its unanswered challenge.
-@returns Disconnect operation for this connection.
-*/
-function connectSuspended(
-  context: TestContext,
-  presence: NotificationPresence,
-  phoneId: string,
-  receive: (challengeId: string) => void
-) {
-  context.mock.timers.enable({ apis: ["setTimeout"] });
-
-  return presence.connect(phoneId, receive);
-}
 
 /**
 Validate the SSE response and consume its initial frame before issuing a probe.
@@ -150,45 +95,6 @@ async function replayPresenceRoute(get: typeof GET, post: typeof POST, deviceId:
   await reader.cancel();
   await assertForeignOriginRejected(post, deviceId, challengeId);
 }
-
-await test("only a fresh acknowledgement from the receiving device suppresses delivery", async () => {
-  const presence = new NotificationPresence();
-  const phoneId = notificationDeviceId(PHONE);
-
-  assert.equal(await presence.isForeground(PHONE), false);
-  await assertConnected(presence, phoneId);
-});
-
-await test("suspended connections and late acknowledgements fail open, and reconnects restore suppression", async (t) => {
-  let pendingChallenge = "";
-
-  const presence = new NotificationPresence();
-  const phoneId = notificationDeviceId(PHONE);
-
-  const disconnect = connectSuspended(t, presence, phoneId, (challengeId) => {
-    pendingChallenge = challengeId;
-  });
-  const pending = presence.isForeground(PHONE);
-
-  t.mock.timers.tick(PROBE_EXPIRY_MS);
-  assert.equal(await pending, false);
-  assert.equal(presence.acknowledge(phoneId, pendingChallenge), false);
-  disconnect();
-  await assertReconnected(presence, phoneId);
-});
-
-await test("disconnect resolves an in-flight probe without muting the device", async () => {
-  const presence = new NotificationPresence();
-  const disconnect = presence.connect(notificationDeviceId(PHONE), () => {
-    /*
-    Simulate a suspended page that cannot acknowledge.
-    */
-  });
-  const pending = presence.isForeground(PHONE);
-
-  disconnect();
-  assert.equal(await pending, false);
-});
 
 await test("the live presence route carries probes, accepts same-origin acknowledgements and releases aborted streams", async () => {
   const { GET, POST } = await import("../src/app/api/notifications/presence/route");

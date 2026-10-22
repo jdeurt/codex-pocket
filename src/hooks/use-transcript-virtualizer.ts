@@ -156,7 +156,18 @@ export function useTranscriptVirtualizer(
             nextOptions.onChange?.(instance, sync);
           },
         });
-        virtualizer.shouldAdjustScrollPositionOnItemSizeChange = nextAdjust;
+        const initialOffset =
+          typeof nextOptions.initialOffset === "function"
+            ? nextOptions.initialOffset()
+            : (nextOptions.initialOffset ?? 0);
+        const restoredAnchor = nextOptions.initialMeasurementsCache?.find((item) => item.end > initialOffset);
+        const isRestoring =
+          restoredAnchor !== undefined && nextOptions.anchorTo === "start" && !nextOptions.useCachedMeasurements;
+
+        // Keep the saved row's top stable even if its own image temporarily
+        // shrinks the row above the fold while the bookmark is being restored.
+        virtualizer.shouldAdjustScrollPositionOnItemSizeChange =
+          nextAdjust ?? (isRestoring ? (item) => item.index < restoredAnchor.index : undefined);
         cacheLayout(virtualizer);
 
         return virtualizer;

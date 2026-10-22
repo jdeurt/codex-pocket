@@ -1,12 +1,5 @@
 import { type Turn, object } from "../src/lib/protocol";
-import {
-  completionNotification,
-  completionPayload,
-  notifyTurnComplete,
-  pushPublicKey,
-  saveSubscription,
-  subscriptionSchema,
-} from "../src/server/push";
+import { notifyTurnComplete, pushPublicKey, saveSubscription } from "../src/server/push";
 import { createECDH, randomBytes } from "node:crypto";
 import { mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { notificationDeviceId, notificationPresence } from "../src/server/notification-presence";
@@ -158,31 +151,6 @@ async function replayDelivery(context: TestContext, sent: { endpoint: string; bo
   }
 }
 
-/**
-Require a visible completion before preparing its encrypted delivery payload.
-@param turn - Completed native fixture turn.
-@returns Serialized notification payload.
-*/
-function visiblePayload(turn: Turn) {
-  const notification = completionNotification("thread", turn);
-
-  assert.ok(notification);
-
-  return completionPayload(notification);
-}
-
-/**
-Encrypt the actual completion payload and require the browser delivery byte limit.
-@param device - Native subscription with valid ephemeral encryption keys.
-@param payload - Encoded completion notification.
-@param limit - Maximum encrypted byte count accepted by the delivery service.
-*/
-function assertEncryptedLimit(device: webpush.PushSubscription, payload: string, limit: number) {
-  const encrypted = webpush.generateRequestDetails(device, payload).body;
-
-  assert.ok(Buffer.byteLength(encrypted) <= limit);
-}
-
 await test("push keys stay stable and concurrent subscription saves preserve both devices with private storage", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "pocket-push-"));
   const previous = process.env.CODEX_POCKET_STATE_DIR;
@@ -199,69 +167,6 @@ await test("push keys stay stable and concurrent subscription saves preserve bot
     }
 
     await rm(directory, { recursive: true, force: true });
-  }
-});
-
-await test("subscriptions require HTTPS and browser encryption keys", () => {
-  const valid = subscription("https://push.example/device");
-
-  assert.deepEqual(subscriptionSchema.parse(valid), valid);
-  assert.throws(() => subscriptionSchema.parse({ ...valid, endpoint: "http://push.example/device" }));
-  assert.throws(() => subscriptionSchema.parse({ ...valid, keys: { auth: "bad", p256dh: "bad" } }));
-});
-
-await test("completion notifications contain the final reply, keep tap routing and suppress turns without final output", () => {
-  const turn: Turn = {
-    id: "turn",
-    status: "completed",
-    items: [
-      { id: "progress", type: "agentMessage", phase: "commentary", text: "Still working" },
-      { id: "reply", type: "agentMessage", phase: "final_answer", text: "A full response 👋" },
-    ],
-  };
-  const notification = completionNotification("thread", turn);
-
-  assert.ok(notification);
-  assert.equal(notification.title, "Pocket");
-  assert.equal(notification.body, "A full response 👋");
-  assert.equal(notification.url, "/");
-  assert.equal(notification.tag, "thread:turn");
-  assert.notEqual(completionNotification("thread", { ...turn, id: "next" })?.tag, notification.tag);
-  assert.equal(completionNotification("thread", { ...turn, items: [turn.items[0]] }), undefined);
-  assert.equal(completionNotification("thread", { ...turn, status: "failed", items: [] }), undefined);
-  assert.equal(
-    completionNotification("thread", {
-      ...turn,
-      items: [{ id: "legacy", type: "agentMessage", text: "Older Codex reply" }],
-    })?.body,
-    "Older Codex reply"
-  );
-});
-
-await test("payloads retain full replies that fit and limit actual encrypted bytes without splitting Unicode", () => {
-  const device = subscription("https://push.example/size-check");
-  const MAX_ENCRYPTED_BYTES = 4096;
-  const LONG_REPETITIONS = 5000;
-  const SHORT_REPETITIONS = 20;
-  const texts = ["All of this reply is included. ".repeat(SHORT_REPETITIONS), '👩🏽‍💻漢字\n\t"\\'.repeat(LONG_REPETITIONS)];
-
-  for (const text of texts) {
-    const turn: Turn = { id: "turn", status: "completed", items: [{ id: "reply", type: "agentMessage", text }] };
-    const payload = visiblePayload(turn);
-    const body = object(JSON.parse(payload)).body;
-
-    assert.ok(typeof body === "string");
-    assert.ok(text.startsWith(body));
-    assert.ok(!body.endsWith("…"));
-    assert.ok(!body.includes("�"));
-
-    assertEncryptedLimit(device, payload, MAX_ENCRYPTED_BYTES);
-
-    if (text === texts[0]) {
-      assert.equal(body, text.trim());
-    } else {
-      assert.ok(body.length < text.length);
-    }
   }
 });
 

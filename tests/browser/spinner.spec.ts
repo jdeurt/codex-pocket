@@ -104,7 +104,7 @@ test.afterAll(async () => {
   }
 });
 
-test("tool-managed GIF animates in grayscale across desktop/mobile, persists through restart, and resets without moving the status row", async ({
+test("selected GIF renders, persists through restart, and recovers when its managed asset is missing", async ({
   browser,
   browserName,
 }) => {
@@ -121,22 +121,20 @@ test("tool-managed GIF animates in grayscale across desktop/mobile, persists thr
 
   // Restart the real Next process, retaining only this test's private state and fake harness.
   const spinnerLibrary8 =
-    await test.step("Verify desktop and phone rendering, then restart only the private fake server", async () => {
-      for (const isMobile of [false, true]) {
-        const context = await browser.newContext({
-          viewport: isMobile ? { width: 390, height: 844 } : { width: 1100, height: 800 },
-          isMobile: isMobile,
-          hasTouch: isMobile,
-          reducedMotion: "no-preference",
-        });
+    await test.step("Render the selected GIF, then restart only the private fake server", async () => {
+      const isMobile = browserName === "webkit";
+      const context = await browser.newContext({
+        viewport: isMobile ? { width: 390, height: 844 } : { width: 1100, height: 800 },
+        isMobile,
+        hasTouch: isMobile,
+        reducedMotion: "no-preference",
+      });
+      const label = `${browserName}-${isMobile ? "phone" : "desktop"}`;
 
-        const label = `${browserName}-${isMobile ? "phone" : "desktop"}`;
-
-        try {
-          await checkSpinnerViewport(context, main, uploaded, id, label);
-        } finally {
-          await context.close();
-        }
+      try {
+        await checkSpinnerViewport(context, main, uploaded, id, label);
+      } finally {
+        await context.close();
       }
 
       await stopSpinnerServer(server);

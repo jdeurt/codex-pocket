@@ -200,24 +200,6 @@ await test("adoption retries retain one child and reject ownership conflicts and
   assert.equal(fixture.store.queue.list("parent", child.id).length, 1);
 });
 
-await test("wrong or unavailable owners never resume a saved copy or start a local process", async (t) => {
-  const fixture = await codexOwner(t);
-  const { thread } = await ownedTurn(fixture);
-  const input = { threadId: thread.id, title: "Existing", idempotencyKey: "owner", socketPath: fixture.socketPath };
-
-  fixture.native.loaded.delete(thread.id);
-  await assert.rejects(inspectAdoption(fixture.config, input), /does not own/u);
-  await assert.rejects(
-    inspectAdoption(fixture.config, { ...input, socketPath: fixture.directory + "/absent.sock" }),
-    /ENOENT/u
-  );
-  assert.equal(
-    fixture.calls.some((call) => call.method === "thread/resume"),
-    false
-  );
-  assert.deepEqual(fixture.store.list("parent"), []);
-});
-
 await test("queued watch owns corrections before the worker starts", async (t) => {
   const fixture = await codexOwner(t);
   const { thread } = await ownedTurn(fixture);

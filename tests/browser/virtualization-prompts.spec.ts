@@ -2,7 +2,7 @@ import { type Snapshot, initialSnapshot } from "../../src/lib/protocol";
 import { expect, test } from "@playwright/test";
 import { mount, publish } from "./virtualization-fixture";
 
-const HISTORY_SIZE = 1000;
+const HISTORY_SIZE = 320;
 
 test("pending answer drafts survive new output and prepended history without submitting", async ({ page }) => {
   const state: Snapshot = {

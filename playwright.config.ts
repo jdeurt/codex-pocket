@@ -27,7 +27,7 @@ const COPY = "**/browser/copy-action.spec.ts";
 const FOCUSED = "**/browser/focused-scroll.spec.ts";
 const VIRTUALIZATION = "**/browser/virtualization*.spec.ts";
 const RESTART = "**/browser/restart-notice.spec.ts";
-const UPLOADS = ["**/uploads/uploads.spec.ts", "**/uploads/api.spec.ts", "**/uploads/gif.spec.ts"];
+const UPLOADS = ["**/uploads/uploads.spec.ts", "**/uploads/gif.spec.ts"];
 const ATTACHMENTS = "**/uploads/attachment-layout.spec.ts";
 const SPINNER = "**/browser/spinner.spec.ts";
 const copyOptions = { testMatch: COPY, timeout: INTERACTION_TIMEOUT };
@@ -133,6 +133,12 @@ const config: PlaywrightTestConfig = {
         },
         { name: "restart-phone", testMatch: RESTART, use: { ...devices["iPhone 13"], browserName: "chromium" } },
         { name: "restart-desktop", testMatch: RESTART, use: { ...DESKTOP, browserName: "chromium" } },
+        {
+          name: "uploads-api",
+          ...uploadOptions,
+          testMatch: "**/uploads/api.spec.ts",
+          use: { baseURL: UPLOAD_ORIGIN },
+        },
         {
           name: "uploads-chromium-phone",
           ...uploadOptions,

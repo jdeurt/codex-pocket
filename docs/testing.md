@@ -38,13 +38,15 @@ The offline test suites below do not need this chat setup or native sign-in.
 
 Agents must follow [the development-check policy](../AGENTS.md): run only extremely focused tests and leave the full suite to CI. Lint edited files after each small batch and apply encountered lint rules to later edits.
 
+Keep integration and end-to-end business flows. Do not add isolated unit tests, absence-only probes, or browser tests that only compare component pixels. Use small fixtures unless scale is the behavior under test. See the [suite audit](test-suite.md) for the retained boundaries and cleanup decisions.
+
 ```sh
 npx eslint path/to/changed.ts --max-warnings=0
 npx prettier --check path/to/changed.ts
-node --import tsx --test --test-name-pattern='specific case name' tests/relevant.test.ts
+node --import tsx scripts/test-flows.ts tests/schedules.test.ts --test-name-pattern='schedule CRUD retains revisions'
 ```
 
-CI runs `npm run check` (Prettier, zero-warning ESLint, and strict TypeScript checks), `npm test`, and the complete offline browser collections. The server/workflow suite runs with an empty PATH, disposable home, disabled native executable paths, and no inherited credentials. It uses production adapters with deterministic protocol simulators. See [simulator coverage and limits](simulators.md).
+CI runs `npm run check` (Prettier, zero-warning ESLint, and strict TypeScript checks), `npm test`, and the complete offline browser collections. The integration runner uses an empty PATH, disposable home, disabled native executable paths, and no inherited credentials. It accepts exact test-file paths plus Node test-name filters. It uses production adapters with deterministic protocol simulators. See [simulator coverage and limits](simulators.md).
 
 ```sh
 npm run review:duplicates

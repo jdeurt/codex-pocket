@@ -1,4 +1,4 @@
-import { type Snapshot, initialSnapshot, snapshotSchema } from "../../src/lib/protocol";
+import { type Snapshot, snapshotSchema } from "../../src/lib/protocol";
 import { expect, test } from "@playwright/test";
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -171,29 +171,6 @@ for (const length of ["short", "long"]) {
     expect(connections).toBeGreaterThan(1);
   });
 }
-
-test("historical recovery instructions do not create a display event", async ({ page }) => {
-  await page.route("**/api/events", (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: "text/event-stream",
-      body: `data: ${JSON.stringify({
-        ...initialSnapshot,
-        connection: "connected",
-        turns: [
-          {
-            id: "legacy",
-            status: "completed",
-            items: [{ id: "old-reply", type: "agentMessage", text: "Previous work" }],
-          },
-        ],
-      })}\n\n`,
-    })
-  );
-  await page.goto("/");
-  await expect(page.getByText("Previous work")).toBeVisible();
-  await expect(page.getByRole("note")).toHaveCount(0);
-});
 
 test("read-only agent viewer excludes a parent restart event and retains ordinary messages", async ({ page }) => {
   const saved =

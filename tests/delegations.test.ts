@@ -1,12 +1,10 @@
 import { type DelegationCommand, type SidePocket } from "../src/server/delegation-data";
-import { type Snapshot, initialSnapshot } from "../src/lib/protocol";
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import test, { type TestContext } from "node:test";
 import { DelegationStore } from "../src/server/delegations";
 import assert from "node:assert/strict";
 import os from "node:os";
 import path from "node:path";
-import { visibleSnapshot } from "../src/server/visible-snapshot";
 
 const PRIVATE_FILE_MODE = 0o600;
 const PERMISSION_MASK = 0o777;
@@ -239,30 +237,4 @@ await test("harness answers are validated before persistence and remain parent s
   assert.throws(() => store.mail.answer("other", child.id, id, {}), /no longer waiting/);
   store.mail.answer(owner, child.id, id, { answers: { color: { answers: ["Blue"] } } });
   assert.equal(store.mail.requests(owner, child.id)[0].status, "answered");
-});
-
-await test("delegate reports stay internal while ordinary chat and parent replies remain visible", () => {
-  const reportId = "pocket-delegate:report-id";
-  const snapshot: Snapshot = {
-    ...structuredClone(initialSnapshot),
-    queue: [{ id: reportId, text: "Internal child report", status: "queued" }],
-    turns: [
-      {
-        id: "turn",
-        status: "completed",
-        items: [
-          { id: "report", type: "userMessage", clientId: reportId, content: [{ type: "text", text: "Child report" }] },
-          { id: "human", type: "userMessage", content: [{ type: "text", text: "Human message" }] },
-          { id: "reply", type: "agentMessage", text: "Parent summary" },
-        ],
-      },
-    ],
-  };
-  const visible = visibleSnapshot(snapshot);
-
-  assert.equal(visible.queue.length, 0);
-  assert.deepEqual(
-    visible.turns[0].items.map((item) => item.id),
-    ["human", "reply"]
-  );
 });
