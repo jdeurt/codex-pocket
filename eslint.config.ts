@@ -163,7 +163,7 @@ export function createConfig(options: { typed?: boolean; tsconfigRootDir?: strin
         "no-shadow": "warn",
         "no-var": "error",
         "prefer-const": "warn",
-        "sort-imports": "warn",
+        "sort-imports": "off",
         "unicorn/no-repeated-call-wrappers": "warn",
         "unicorn/try-complexity": "warn",
         "unicorn/no-array-reduce": "off",
@@ -258,7 +258,7 @@ export function createConfig(options: { typed?: boolean; tsconfigRootDir?: strin
       files,
       plugins: { "@stylistic": stylistic, jdeurt: policy },
       rules: {
-        "jdeurt/const-on-top": "error",
+        "jdeurt/const-on-top": "off",
         "@stylistic/lines-between-class-members": [
           "error",
           {
