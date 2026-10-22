@@ -1,4 +1,4 @@
-/* eslint-disable jdeurt/const-on-top, jsdoc/require-param, jsdoc/require-returns -- Main-only agent control validates environment before network access. */
+/* eslint-disable jsdoc/require-param, jsdoc/require-returns -- Main-only agent control validates environment before network access. */
 import { dataSchema } from "../lib/protocol";
 
 const CONTROL_TIMEOUT_MS = 15_000;

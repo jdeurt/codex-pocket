@@ -183,7 +183,6 @@ export function Chat() {
     await deliverDraft(text);
   }
 
-  // eslint-disable-next-line jdeurt/const-on-top -- Gesture actions use the send handler defined above.
   const voiceGesture = useVoiceGesture({
     active: isVoiceActive,
     enabled: isConnected,
