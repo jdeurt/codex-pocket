@@ -1,4 +1,4 @@
-/* eslint-disable jdeurt/const-on-top, jsdoc/require-jsdoc, @typescript-eslint/no-magic-numbers, unicorn/no-top-level-assignment-in-function -- Native fixture is a stateful transport simulator with observed audio dimensions. */
+/* eslint-disable jsdoc/require-jsdoc, @typescript-eslint/no-magic-numbers, unicorn/no-top-level-assignment-in-function -- Native fixture is a stateful transport simulator with observed audio dimensions. */
 // Isolated native protocol fixture for complete Pocket voice sessions. No model or live thread is used.
 import { type Data, object } from "../../src/lib/protocol";
 import { appendFileSync, readFileSync } from "node:fs";

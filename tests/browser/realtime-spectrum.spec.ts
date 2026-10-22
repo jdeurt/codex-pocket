@@ -1,4 +1,4 @@
-/* eslint-disable jdeurt/const-on-top, jsdoc/require-jsdoc, @typescript-eslint/no-magic-numbers, unicorn/isolated-functions -- Browser integration samples actual canvas pixels against rendered composer geometry. */
+/* eslint-disable jsdoc/require-jsdoc, @typescript-eslint/no-magic-numbers, unicorn/isolated-functions -- Browser integration samples actual canvas pixels against rendered composer geometry. */
 import { type Page, expect, test } from "@playwright/test";
 import path from "node:path";
 import { writeFile } from "node:fs/promises";

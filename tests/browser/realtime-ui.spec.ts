@@ -1,4 +1,4 @@
-/* eslint-disable jdeurt/const-on-top, jsdoc/require-jsdoc, @typescript-eslint/no-magic-numbers, unicorn/isolated-functions, unicorn/consistent-function-scoping, unicorn/prefer-number-coercion -- Browser checks follow one complete gesture and conversation flow; computed CSS lengths include units. */
+/* eslint-disable jsdoc/require-jsdoc, @typescript-eslint/no-magic-numbers, unicorn/isolated-functions, unicorn/consistent-function-scoping, unicorn/prefer-number-coercion -- Browser checks follow one complete gesture and conversation flow; computed CSS lengths include units. */
 import { type Page, expect, test } from "@playwright/test";
 import { readFile, writeFile } from "node:fs/promises";
 import { dataSchema } from "../../src/lib/protocol";
