@@ -34,6 +34,12 @@ jobs:
       - run: npm test
       - run: npx playwright install --with-deps chromium webkit
       - run: npm run test:e2e
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: browser-failures
+          path: test-results/
+          retention-days: 7
 
   realtime:
     runs-on: ubuntu-latest
@@ -46,3 +52,9 @@ jobs:
       - run: npm ci --include=dev
       - run: npx playwright install --with-deps chromium webkit
       - run: npx playwright test --config=playwright.realtime.config.ts
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: realtime-failures
+          path: test-results/
+          retention-days: 7

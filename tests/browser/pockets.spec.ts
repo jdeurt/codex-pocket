@@ -64,7 +64,7 @@ test("named Pockets preserve separate conversations and drafts across switching,
   await page.goto("/");
   await create(page, first);
   await composer.fill("Only the research Pocket should receive this message.");
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await page.getByRole("button", { name: /^Send message(?:;|$)/ }).click();
   await expect(page.getByText("Only the research Pocket should receive this message.", { exact: true })).toBeVisible();
   await expect(page.getByRole("status", { name: "Pocket activity" })).toHaveCount(0);
   await composer.fill("Research draft stays here");
@@ -78,7 +78,7 @@ test("named Pockets preserve separate conversations and drafts across switching,
   await expect(page.getByText("Only the research Pocket should receive this message.", { exact: true })).toHaveCount(0);
   await composer.fill("Writing draft stays here");
   await other.getByRole("textbox", { name: "Message Pocket", exact: true }).fill("Second research message");
-  await other.getByRole("button", { name: "Send message", exact: true }).click();
+  await other.getByRole("button", { name: /^Send message(?:;|$)/ }).click();
   await expect(other.getByText("Second research message", { exact: true })).toHaveCount(1);
   await expect(
     other.getByRole("list", { name: "Conversation", exact: true }).getByText("Second research message", { exact: true })

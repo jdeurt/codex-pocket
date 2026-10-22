@@ -117,8 +117,14 @@ test("composer keeps text geometry through realtime at narrow and wide viewports
     const voice = await geometry(page);
     const textInset = normal.input.x + normal.textPaddingLeft - normal.composer.x;
 
+    await test.info().attach(`composer-geometry-${String(width)}`, {
+      body: JSON.stringify({ normal, voice }),
+      contentType: "application/json",
+    });
     closeTo(voice.composer.x, normal.composer.x);
-    closeTo(voice.composer.y, normal.composer.y);
+    expect(Math.abs(voice.composer.y - normal.composer.y), JSON.stringify({ width, normal, voice })).toBeLessThanOrEqual(
+      0.75
+    );
     closeTo(voice.composer.width, normal.composer.width);
     closeTo(voice.composer.height, normal.composer.height);
     closeTo(voice.composerHeight, normal.composerHeight);

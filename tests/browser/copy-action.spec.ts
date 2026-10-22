@@ -228,7 +228,7 @@ test("native browser clipboard receives the decoded text", async ({ page, contex
     const composer = page.getByRole("textbox", { name: "Message Pocket" });
 
     await composer.fill("");
-    await composer.press("Meta+V");
+    await composer.press("ControlOrMeta+V");
     await expect(composer).toHaveValue(text);
   }
 

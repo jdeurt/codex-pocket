@@ -32,7 +32,7 @@ async function layout(page: Page) {
     const footer = shell.querySelector(".composer-wrap");
     const viewport = shell.querySelector('[data-slot="message-scroller-viewport"]')?.getBoundingClientRect();
     const box = footer?.getBoundingClientRect();
-    const send = shell.querySelector('[aria-label="Send message"]')?.getBoundingClientRect();
+    const send = shell.querySelector(".send-button")?.getBoundingClientRect();
     const composer = shell.querySelector(".composer")?.getBoundingClientRect();
     const activity = shell.querySelector(".activity-row")?.getBoundingClientRect();
 
@@ -193,5 +193,5 @@ test("standalone iOS padding expands the transcript and keeps keyboard controls 
       return measured.footerBottom;
     })
     .toBeLessThanOrEqual(KEYBOARD_HEIGHT + TOLERANCE);
-  await expect(page.getByRole("button", { name: "Send message" })).toBeInViewport();
+  await expect(page.getByRole("button", { name: /^Send message(?:;|$)/ })).toBeInViewport();
 });

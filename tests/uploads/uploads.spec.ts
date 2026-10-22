@@ -12,7 +12,7 @@ const MIXED_FILE_COUNT = 3;
 test("pick, retry, remove, file-only send, reload, queued recovery and real stored bytes", async ({ page }, info) => {
   const attach = page.getByRole("button", { name: "Attach images or files", exact: true });
   const picker = page.locator('input[type="file"]');
-  const send = page.getByRole("button", { name: "Send message", exact: true });
+  const send = page.getByRole("button", { name: /^Send message(?:;|$)/ });
   const selected = page.getByRole("list", { name: "Selected attachments" });
   const png = await test.step("Connect the offline upload session", async () => {
     await page.goto("/");
@@ -195,7 +195,7 @@ test("pick, retry, remove, file-only send, reload, queued recovery and real stor
 test("keyboard picker, upload progress, parent draft and IME sending", async ({ page, isMobile }, info) => {
   const attach = page.getByRole("button", { name: "Attach images or files", exact: true });
   const textarea = page.getByRole("textbox", { name: "Message Pocket" });
-  const send = page.getByRole("button", { name: "Send message", exact: true });
+  const send = page.getByRole("button", { name: /^Send message(?:;|$)/ });
   const selected = page.getByRole("list", { name: "Selected attachments" });
   const draft = await test.step("Connect the parent draft session", async () => {
     await page.goto("/");

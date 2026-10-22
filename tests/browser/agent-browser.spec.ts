@@ -128,7 +128,7 @@ test("offline replay: mobile/desktop read-only navigation, ellipsis, focus and p
   expect(actions).toEqual([]);
   await page.getByRole("button", { name: "Approve once", exact: true }).click();
   await expect(page.getByRole("button", { name: "Approve once", exact: true })).toHaveCount(0);
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await page.getByRole("button", { name: /^Send message(?:;|$)/ }).click();
   await expect.poll(() => actions.length).toBe(2);
 });
 

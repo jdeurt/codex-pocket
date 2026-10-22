@@ -208,7 +208,7 @@ if (process.env.CODEX_TEST_ACTIVITY === "1") {
           exact: true,
         })
       ).toBeVisible();
-      await page.getByRole("button", { name: "Send message", exact: true }).click();
+      await page.getByRole("button", { name: /^Send message(?:;|$)/ }).click();
       await expect(page.getByText("RETRY_OK", { exact: true })).toBeVisible();
       await expect(page.getByText(retryText, { exact: true })).toHaveCount(1);
       await expect(page.getByText("Connected", { exact: true })).toBeVisible();

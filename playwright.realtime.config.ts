@@ -7,7 +7,7 @@ const config: PlaywrightTestConfig = {
   workers: 1,
   timeout: 60_000,
   expect: { timeout: 15_000 },
-  use: { baseURL: origin, serviceWorkers: "block" },
+  use: { baseURL: origin, serviceWorkers: "block", trace: "retain-on-failure" },
   projects: [
     {
       name: "realtime-chromium-phone",
