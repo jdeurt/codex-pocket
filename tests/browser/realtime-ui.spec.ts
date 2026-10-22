@@ -107,10 +107,11 @@ test("composer keeps text geometry through realtime at narrow and wide viewports
 
   for (const width of widths) {
     await page.setViewportSize({ width, height: 844 });
-    await page.getByRole("textbox", { name: "Message Pocket" }).fill("unsent geometry draft");
+    await page.getByRole("textbox", { name: "Message Pocket" }).fill("unsent geometry draft\nsecond line");
     const normal = await geometry(page);
     const control = page.getByRole("button", { name: "Start realtime voice" });
 
+    expect(normal.input.height).toBeGreaterThan(44);
     await control.focus();
     await page.keyboard.press("Enter");
     await expect(page.getByRole("button", { name: "Stop realtime voice" })).toBeVisible();
@@ -136,7 +137,9 @@ test("composer keeps text geometry through realtime at narrow and wide viewports
     closeTo(voice.button.width, normal.button.width);
     closeTo(voice.button.height, normal.button.height);
     await page.getByRole("button", { name: "Stop realtime voice" }).click();
-    await expect(page.getByRole("textbox", { name: "Message Pocket" })).toHaveValue("unsent geometry draft");
+    await expect(page.getByRole("textbox", { name: "Message Pocket" })).toHaveValue(
+      "unsent geometry draft\nsecond line"
+    );
     await waitForIdle(page);
   }
 });

@@ -46,6 +46,12 @@ The combined send/voice button also remained enabled for uploading or invalid at
 
 The intermittent WebKit spinner failure in run 39666274801 measured a 28-pixel image slot where the 16-pixel fallback was expected. The missing-asset test could accept the initial hydration fallback before the preference fetch mounted the image. It now waits for the selected asset's actual 404 response, then for fallback geometry to settle. The expected geometry and missing-file assertions remain unchanged.
 
+## Realtime composer height
+
+The geometry diagnostics in [run 39852479513](https://github.com/jdeurt/codex-pocket/actions/runs/39852479513) isolated the recurring WebKit failure. At a 320-pixel viewport, `unsent geometry draft` wraps in WebKit's font metrics: the textarea measures 68 pixels and its composer measures 82 pixels. Voice mode replaced that textarea with a fixed 44-pixel spectrum, shrinking the composer to 58 pixels and moving its top by 24 pixels. The Chromium single-line draft did not expose this case.
+
+Both gesture and keyboard activation now capture the composer's actual height before replacing the textarea and preserve it for the voice session. The geometry regression explicitly uses a multiline draft and requires a multiline textarea before comparing the same rectangles and tolerances. Stopping voice restores automatic text sizing.
+
 ## Reproduction and validation
 
 Select exact cases rather than a feature collection:
