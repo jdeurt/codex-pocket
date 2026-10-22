@@ -243,15 +243,21 @@ export async function checkMissingSpinner(
   });
 
   await rm(path.join(path.dirname(uploaded), "spinner-assets", id));
+  const missingAsset = page.waitForResponse(
+    (response) => response.url() === url && response.status() === HTTP_NOT_FOUND
+  );
+
   await page.reload({ waitUntil: "domcontentloaded" });
   await dismissPrompt(page);
+  // The initial hydration fallback also has no image; wait for the actual asset failure.
+  await missingAsset;
   await expect(slot.locator('svg[data-slot="spinner"]')).toBeVisible();
   await expect(slot.locator("img")).toHaveCount(0);
-  expect(await alignment(page)).toEqual(defaultPosition(position));
+  await expect.poll(() => alignment(page)).toEqual(defaultPosition(position));
   await main.call("spinner_delete", { id });
   await expect(slot.locator("img")).toHaveCount(0);
   await expect(slot.locator('svg[data-slot="spinner"]')).toBeVisible();
-  expect(await alignment(page)).toEqual(defaultPosition(position));
+  await expect.poll(() => alignment(page)).toEqual(defaultPosition(position));
   expect(await fetch(url, { headers: { "if-none-match": etag } })).toHaveProperty("status", HTTP_NOT_FOUND);
   expect(await readFile(uploaded)).toEqual(await readFile(path.resolve("tests/fixtures/spinners/kirbyjam.gif")));
 }

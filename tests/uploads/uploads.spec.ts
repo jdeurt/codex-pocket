@@ -127,14 +127,15 @@ test("pick, retry, remove, file-only send, reload, queued recovery and real stor
   });
 
   await test.step("Reconnect and deliver the persisted submission exactly once", async () => {
-    // Kill only the fake harness; reconnect hydrates the persisted outbox and history.
+    // Hold the fake harness offline until the browser observes the outage.
     await control("disconnect");
     await expect(
       page
         .getByRole("status")
-        .filter({ hasText: /Reconnecting|Disconnected/ })
+        .filter({ hasText: /Connecting|Reconnecting|Disconnected/ })
         .first()
     ).toBeVisible();
+    await control("reconnect");
     await page.reload();
     await expect(attach).toBeEnabled();
     await expect(page.locator("header [role=status]")).toHaveText("Working");

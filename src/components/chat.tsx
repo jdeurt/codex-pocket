@@ -92,6 +92,7 @@ export function Chat() {
 
   const filePicker = useRef<HTMLInputElement>(null);
   const attachments = useAttachments(state.threadId);
+  const canSendAttachments = attachments.ready && attachments.files.every((file) => !!file.uploaded);
   const isConnected = streamConnected && state.connection === "connected";
   const status = connectionStatus(state, streamConnected);
 
@@ -324,7 +325,7 @@ export function Chat() {
                       }
                       disabled={
                         voice.state === "stopping" ||
-                        (!isVoiceActive && (sending || !isConnected || !attachments.ready))
+                        (!isVoiceActive && (sending || !isConnected || !canSendAttachments))
                       }
                       onPointerDown={voiceGesture.onPointerDown}
                       onPointerMove={voiceGesture.onPointerMove}

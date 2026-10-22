@@ -36,13 +36,15 @@ The offline test suites below do not need this chat setup or native sign-in.
 
 ## Local checks
 
+Agents must follow [the development-check policy](../AGENTS.md): run only extremely focused tests and leave the full suite to CI. Lint edited files after each small batch and apply encountered lint rules to later edits.
+
 ```sh
-npm run check
-npm test
-npm run build
+npx eslint path/to/changed.ts --max-warnings=0
+npx prettier --check path/to/changed.ts
+node --import tsx --test --test-name-pattern='specific case name' tests/relevant.test.ts
 ```
 
-`check` runs Prettier, zero-warning ESLint, and strict TypeScript checks. `npm test` runs the server/workflow suite with an empty PATH, disposable home, disabled native executable paths, and no inherited credentials. It uses the production adapters with deterministic protocol simulators. See [simulator coverage and limits](simulators.md).
+CI runs `npm run check` (Prettier, zero-warning ESLint, and strict TypeScript checks), `npm test`, and the complete offline browser collections. The server/workflow suite runs with an empty PATH, disposable home, disabled native executable paths, and no inherited credentials. It uses production adapters with deterministic protocol simulators. See [simulator coverage and limits](simulators.md).
 
 ```sh
 npm run review:duplicates
@@ -53,11 +55,11 @@ The committed `.jscpd.json` sets similarity to `0.7`, normalizes identifiers/lit
 
 ## Offline browser tests
 
-Install the browser engines once, then run Playwright:
+Install the browser engines once, then select one relevant project, file, and case:
 
 ```sh
 npx playwright install chromium webkit
-CODEX_THREAD_ID= npm run test:e2e
+CODEX_THREAD_ID= npm run test:e2e -- tests/browser/copy-action.spec.ts --project=copy-chromium-phone --grep 'native browser clipboard receives the decoded text'
 ```
 
 The root `playwright.config.ts` selects offline fixture projects by default. List them without starting servers:
@@ -66,7 +68,7 @@ The root `playwright.config.ts` selects offline fixture projects by default. Lis
 CODEX_THREAD_ID= npm run test:e2e -- --list
 ```
 
-Choose a focused suite with these npm scripts; add Playwright filters after `--`:
+These npm scripts select feature collections. During agent development, also supply the exact file, project, and test-name filters after `--`:
 
 | Script                    | Coverage                                                    |
 | ------------------------- | ----------------------------------------------------------- |

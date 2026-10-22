@@ -12,6 +12,7 @@ import { appendFile, readFile, writeFile } from "node:fs/promises";
 import { fixtureFileReferenceSchema, fixtureUploadInputSchema } from "./replay-protocol";
 import { readFixtureRequests, writeFixtureRecord } from "./sequential-rpc";
 import { setInterval, setTimeout } from "node:timers";
+import { setTimeout as delay } from "node:timers/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -64,8 +65,15 @@ async function readControl() {
   }
 }
 
+let initialControl = await readControl();
+
+// Keep a simulated outage open until the browser test explicitly permits recovery.
+while (initialControl.action === "disconnect") {
+  await delay(CONTROL_POLL_MS);
+  initialControl = await readControl();
+}
+
 const thread = await readHistory(historyFile);
-const initialControl = await readControl();
 const controls = { last: initialControl.id };
 
 /**
