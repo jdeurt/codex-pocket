@@ -11,6 +11,7 @@ interface AgentReadResult<T> {
   url: string;
   data?: T;
   error?: string;
+  isLoading: boolean;
 }
 
 /**
@@ -65,7 +66,7 @@ function subscribeAgentRead<T>(url: string, schema: ZodType<T>, receive: Dispatc
     const data = await readAgentResponse(url, schema, active.signal);
 
     if (!isStopped && controller === active) {
-      receive({ url, data });
+      receive({ url, data, isLoading: false });
     }
   }
 
@@ -76,6 +77,7 @@ function subscribeAgentRead<T>(url: string, schema: ZodType<T>, receive: Dispatc
     }, REQUEST_TIMEOUT_MS);
 
     controller = active;
+    receive((previous) => ({ url, data: previous.url === url ? previous.data : undefined, isLoading: true }));
 
     try {
       await readAndPublish(active);
@@ -85,6 +87,7 @@ function subscribeAgentRead<T>(url: string, schema: ZodType<T>, receive: Dispatc
           url,
           data: previous.url === url ? previous.data : undefined,
           error: agentReadError(error),
+          isLoading: false,
         }));
       }
     } finally {
@@ -124,10 +127,10 @@ Poll a read-only agent endpoint while retaining the last good result for the sam
 @param url - Scoped catalog or transcript GET endpoint.
 @param schema - Shared Zod parser that validates each response once.
 @param [isEnabled] - Whether this mounted view currently needs polling.
-@returns The latest normalized data or recoverable read error for this URL.
+@returns The latest normalized data, request loading state and recoverable read error for this URL.
 */
 export function useAgentRead<T>(url: string, schema: ZodType<T>, isEnabled = true) {
-  const [result, setResult] = useState<AgentReadResult<T>>({ url });
+  const [result, setResult] = useState<AgentReadResult<T>>({ url, isLoading: isEnabled });
 
   useEffect(() => {
     if (!isEnabled) {
@@ -137,5 +140,5 @@ export function useAgentRead<T>(url: string, schema: ZodType<T>, isEnabled = tru
     return subscribeAgentRead(url, schema, setResult);
   }, [url, schema, isEnabled]);
 
-  return result.url === url ? result : { url };
+  return result.url === url ? result : { url, isLoading: isEnabled };
 }

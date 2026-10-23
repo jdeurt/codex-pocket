@@ -174,7 +174,10 @@ Project native revisions and optionally warm previews without dispatching harnes
 */
   async catalog(owner: string, isPreviews = false) {
     const discovery = await this.discovery(owner);
-    const records = discovery.records.values().toArray();
+    const records = discovery.records
+      .values()
+      .toArray()
+      .toSorted((a, b) => Number(isActiveAgent(b.agent)) - Number(isActiveAgent(a.agent)));
 
     await Promise.all(records.map((record) => this.reads.project(record)));
 
@@ -196,9 +199,9 @@ Hydrate an owned agent and expose the shared normalized read-only display contra
   async transcript(owner: string, id: string): Promise<AgentTranscript> {
     const record = await this.owned(owner, id);
 
-    await this.reads.full(record);
+    const isHistoryLoading = await this.reads.full(record);
 
-    return projectAgentTranscript(record, id);
+    return { ...projectAgentTranscript(record, id), isHistoryLoading };
   }
 
   /**
