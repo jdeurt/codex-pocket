@@ -110,7 +110,7 @@ test("offline replay: mobile/desktop read-only navigation, ellipsis, focus and p
   await page.keyboard.press("Escape");
   await dialog.getByRole("button", { name: /Claude Side Pocket/ }).click();
   await expect(dialog.getByText("Claude saved transcript claude-main", { exact: true })).toBeVisible();
-  await dialog.getByRole("button", { name: /Read Completed/ }).click();
+  await dialog.getByRole("button", { name: "Read", exact: true }).click();
   await expect(dialog.getByText("CLAUDE_REPLAY_TOOL_OUTPUT", { exact: true })).toBeVisible();
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.screenshot({ animations: "disabled", path: ".local/agent-browser-screenshots/desktop-chat.png" });

@@ -17,7 +17,7 @@ At the transcript end:
 
 Short conversations align to the bottom. The scroll fade ends at the composer boundary and disappears at the transcript end. Notifications, errors, and attachments belong to the composer area below the status row. Empty, thinking-only, agents-only, and combined states keep the same vertical geometry.
 
-The transcript has a centered 960px maximum width; the composer has a centered 736px maximum width. Phone layouts retain their existing gutters. The virtual footer keeps one stable identity as messages arrive so its measured status height survives appends. Overlays suspend following while covered and retain the prior following preference when closed.
+The transcript has a centered 960px maximum width; the composer has a centered 736px maximum width. Phone layouts retain their existing gutters. Classic desktop scrollbars reserve symmetric gutters so the transcript and composer stay centered together. The virtual footer keeps one stable identity as messages arrive so its measured status height survives appends. Overlays suspend following while covered and retain the prior following preference when closed.
 
 ## Reports, attachments, and navigation
 
