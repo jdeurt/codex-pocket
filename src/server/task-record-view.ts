@@ -95,10 +95,18 @@ function canonicalToolParts(message: Record<string, unknown>): RecordPart[] {
     parts.push({ label: "Arguments", text: readableText(JSON.stringify(message.arguments)) });
   }
 
-  const content = message.type === "mcpToolCall" ? object(message.result).content : message.contentItems;
+  let content = message.contentItems;
+
+  if (message.type === "mcpToolCall") {
+    content = object(message.result).content;
+  } else if (message.type === "functionCallOutput") {
+    content = message.output;
+  }
 
   if (Array.isArray(content)) {
     parts.push(...content.map((part) => contentPart(part)));
+  } else if (typeof content === "string") {
+    parts.push({ label: "Tool output", text: readableText(content) });
   }
 
   const error = string(object(message.error).message);
@@ -126,11 +134,15 @@ function toolParts(message: Record<string, unknown>, role: string, id: string): 
       result: true,
       text: message.isError ? "Error" : "",
     });
-  } else if (["toolTrace", "commandExecution", "mcpToolCall", "dynamicToolCall"].includes(string(message.type))) {
+  } else if (
+    ["toolTrace", "commandExecution", "mcpToolCall", "dynamicToolCall", "functionCallOutput"].includes(
+      string(message.type)
+    )
+  ) {
     parts.unshift({
-      label: `Tool: ${string(message.tool) || string(message.command) || string(message.type)}`,
-      callId: string(message.nativeId) || id,
-      text: readableText(string(message.aggregatedOutput) || string(message.output)),
+      label: `Tool: ${string(message.tool) || string(message.command) || string(message.name) || string(message.type)}`,
+      callId: string(message.nativeId) || (message.type === "functionCallOutput" ? undefined : id),
+      text: readableText(string(message.aggregatedOutput)),
     });
     parts.push(...canonicalToolParts(message));
   }

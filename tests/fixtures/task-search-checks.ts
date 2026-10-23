@@ -23,7 +23,19 @@ async function checkLegacyTools(owner: string) {
       {
         id: "legacy-turn",
         status: "completed",
-        items: replayToolOutputs("legacy", "data:image/png;base64,aW1hZ2U="),
+        items: [
+          ...replayToolOutputs("legacy", "data:image/png;base64,aW1hZ2U="),
+          {
+            type: "functionCallOutput",
+            id: "legacy-function",
+            name: "lookup",
+            output: [
+              { type: "input_text", text: "REPLAY_FUNCTION_TEXT" },
+              { type: "input_image", image_url: "data:image/png;base64,aW1hZ2U=" },
+            ],
+          },
+          { type: "functionCallOutput", id: "legacy-string", name: "lookup", output: "REPLAY_FUNCTION_STRING" },
+        ],
       },
     ],
   });
@@ -34,6 +46,8 @@ async function checkLegacyTools(owner: string) {
 
   assert.match(markdown, /REPLAY_MCP_TEXT/);
   assert.match(markdown, /REPLAY_DYNAMIC_TEXT/);
+  assert.match(markdown, /REPLAY_FUNCTION_TEXT/);
+  assert.equal(markdown.split("REPLAY_FUNCTION_STRING").length, 2);
   assert.doesNotMatch(markdown, /aW1hZ2U=|PRIVATE_TOOL_META/);
   const page = await searchTaskArchivePage(owner, "REPLAY_MCP_RESOURCE");
   const hit = page.results.at(0);
@@ -42,6 +56,9 @@ async function checkLegacyTools(owner: string) {
   assert.equal(hit.source.id, "legacy-mcp-text");
   assert.match(hit.excerpt, /REPLAY_MCP_RESOURCE/);
   assert.equal(await readFile(hit.source.file, "utf8"), original);
+  const functionPage = await searchTaskArchivePage(owner, "REPLAY_FUNCTION_TEXT");
+
+  assert.equal(functionPage.results.at(0)?.source.id, "legacy-function");
 }
 
 /** Keep keyword retrieval usable while a separate worker owns optional local inference.
