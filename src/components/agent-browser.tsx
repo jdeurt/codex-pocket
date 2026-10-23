@@ -1,6 +1,6 @@
 "use client";
 import { type AgentCatalog, type AgentEntry, agentCatalogSchema, isActiveAgent } from "@/lib/agents";
-import { type RefObject, useContext, useEffect, useRef, useState } from "react";
+import { type RefObject, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { ActivityIndicatorContext } from "@/lib/activity-indicator-context";
 import { ActivityRow } from "./activity-row";
 import { AgentChat } from "./agent-chat";
@@ -16,6 +16,23 @@ function agentTriggerFocus() {
   return (
     document.querySelector<HTMLElement>(".agents-trigger") ?? document.querySelector<HTMLTextAreaElement>("#message")
   );
+}
+
+/** Keep keyboard focus in the parent when the last active agent removes its focused trigger.
+@returns Stable ref callback that transfers focus only when the removed trigger owns it.
+*/
+function useAgentTriggerFocus() {
+  const current = useRef<HTMLButtonElement | null>(null);
+
+  return useCallback((trigger: HTMLButtonElement | null) => {
+    const previous = current.current;
+
+    current.current = trigger;
+
+    if (!trigger && previous && previous === document.activeElement) {
+      document.querySelector<HTMLTextAreaElement>("#message")?.focus({ preventScroll: true });
+    }
+  }, []);
 }
 
 /**
@@ -56,6 +73,7 @@ export function AgentBrowser({
 }) {
   const indicator = useContext(ActivityIndicatorContext);
   const { data, error, count } = useAgentCatalog(open);
+  const triggerFocus = useAgentTriggerFocus();
   const rows = useRef(new Map<string, HTMLButtonElement>());
   const [visit, setVisit] = useState<{ data?: AgentCatalog; entries: Map<string, AgentEntry> }>({ entries: new Map() });
   const lastSelected = useRef<string | null>(null);
@@ -120,7 +138,7 @@ export function AgentBrowser({
       <ActivityRow>
         {indicator}
         {count > 0 && (
-          <Dialog.Trigger className="agents-trigger">
+          <Dialog.Trigger className="agents-trigger" ref={triggerFocus}>
             <span className="agents-label">
               {count} {count === 1 ? "agent" : "agents"}
             </span>
