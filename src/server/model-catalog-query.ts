@@ -180,9 +180,10 @@ export function queryModelCatalog(
   providers: readonly CatalogProvider[],
   query: ModelCatalogQuery
 ) {
+  const identities = providers.map(({ id, name }) => ({ id, name }));
   const matches = query.provider
-    ? providerMatches(providers, query.provider)
-    : [...providers].toSorted((a, b) => compare(a.id, b.id));
+    ? providerMatches(identities, query.provider)
+    : identities.toSorted((a, b) => compare(a.id, b.id));
 
   if (query.view === "providers" || (query.provider && matches.length !== 1)) {
     const { values, ...pagination } = page(matches, query);

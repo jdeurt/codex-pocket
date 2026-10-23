@@ -16,7 +16,7 @@ const ALPHA = "catalog-alpha";
 const ALPINE = "catalog-alpine";
 const EXACT_MODEL = "exact-model";
 const SHARED_NAME = "Shared display name";
-const providerSchema = z.array(z.object({ id: z.string(), name: z.string() }));
+const providerSchema = z.array(z.object({ id: z.string(), name: z.string() }).strict());
 const legacySchema = z.array(
   z.object({ id: z.string(), name: z.string(), reasoning: z.boolean(), contextWindow: z.number() })
 );
@@ -91,6 +91,7 @@ async function checkProviders(client: Client) {
   const names = await query(client, { provider: ALPHA, limit: 2 });
   const nextNames = await query(client, { provider: ALPHA, limit: 2, offset: 2 });
 
+  assert.deepEqual(names.provider, { id: ALPHA, name: "Example Computing" });
   assert.deepEqual(names.models, [SHARED_NAME, EXACT_MODEL]);
   assert.equal(names.total, ALPHA_MODEL_COUNT);
   assert.equal(names.nextOffset, 2);
