@@ -224,7 +224,7 @@ function MeasuredTranscript({
             onPointerDown={resumeFollow}
             onKeyDown={resumeFollow}
             onScroll={({ currentTarget: target }) => {
-              initialEnd.current = target.scrollTop + target.clientHeight >= target.scrollHeight - END_THRESHOLD;
+              initialEnd.current &&= target.scrollTop + target.clientHeight >= target.scrollHeight - END_THRESHOLD;
             }}
           >
             <div className="transcript" style={{ paddingBlock: 0, minHeight: "100%", justifyContent: "flex-end" }}>
