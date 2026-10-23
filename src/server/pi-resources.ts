@@ -31,6 +31,8 @@ export async function piResources(config: Config, agentDir: string, instructions
               CODEX_POCKET_STATE_DIR: localDirectory(),
               POCKET_THREAD_ID: config.threadId,
               POCKET_MAIN_THREAD_ID: config.threadId,
+              POCKET_QMD_EMBED_MODEL: process.env.POCKET_QMD_EMBED_MODEL ?? "",
+              POCKET_QMD_RERANK_MODEL: process.env.POCKET_QMD_RERANK_MODEL ?? "",
               POCKET_CODEX_BINARY: config.codexBinary,
               POCKET_CODEX_SERVER_ARGS: JSON.stringify(config.serverArgs),
               POCKET_ID: config.pocketId ?? "main",

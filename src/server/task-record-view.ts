@@ -45,8 +45,15 @@ function contentPart(value: unknown): RecordPart {
   const part = object(value);
   const type = string(part.type);
 
-  if (["text", "input_text", "output_text"].includes(type)) {
+  if (["text", "inputText", "input_text", "output_text"].includes(type)) {
     return { label: "Text", text: readableText(string(part.text)) };
+  }
+
+  if (type === "resource" && typeof object(part.resource).text === "string") {
+    return {
+      label: `Resource text: ${string(object(part.resource).uri)}`,
+      text: readableText(string(object(part.resource).text)),
+    };
   }
 
   if (type === "thinking") {
@@ -72,9 +79,35 @@ function contentPart(value: unknown): RecordPart {
 
   return {
     label: type || "Non-text content",
-    text: `Content omitted from preview (${String(JSON.stringify(value).length)} serialized characters); see full source.`,
+    text: `Content omitted from preview (${String(JSON.stringify(value).length)} serialized UTF-16 code units); see full source.`,
     omitted: true,
   };
+}
+
+/** Preserve native Codex tool arguments and its distinct MCP/dynamic output envelopes.
+@param message - Saved native tool item.
+@returns Ordered readable argument/output parts with binary blocks explicitly omitted.
+*/
+function canonicalToolParts(message: Record<string, unknown>): RecordPart[] {
+  const parts: RecordPart[] = [];
+
+  if (message.arguments !== undefined) {
+    parts.push({ label: "Arguments", text: readableText(JSON.stringify(message.arguments)) });
+  }
+
+  const content = message.type === "mcpToolCall" ? object(message.result).content : message.contentItems;
+
+  if (Array.isArray(content)) {
+    parts.push(...content.map((part) => contentPart(part)));
+  }
+
+  const error = string(object(message.error).message);
+
+  if (error) {
+    parts.push({ label: "Tool error", text: readableText(error) });
+  }
+
+  return parts;
 }
 
 /** Describe tool ownership independently of message text.
@@ -99,6 +132,7 @@ function toolParts(message: Record<string, unknown>, role: string, id: string): 
       callId: string(message.nativeId) || id,
       text: readableText(string(message.aggregatedOutput) || string(message.output)),
     });
+    parts.push(...canonicalToolParts(message));
   }
 
   if (["function_call", "function_call_output"].includes(string(message.type))) {

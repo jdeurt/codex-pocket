@@ -1,4 +1,4 @@
-import { extractSnippet, type QMDStore } from "@tobilu/qmd";
+import { extractSnippet, type HybridQueryResult, type QMDStore } from "@tobilu/qmd";
 import path from "node:path";
 import { readFile } from "node:fs/promises";
 import { type TaskIndexDocument, isParentTaskFile, optionalTaskFile, taskViewHash } from "./task-index-views";
@@ -23,6 +23,25 @@ interface RankedDocument {
   explain?: unknown;
 }
 
+/** Report the backends present in QMD's returned score traces.
+@param results - Explained fused results.
+@param retrieval - Mode to update when QMD produced no vector contribution.
+*/
+function reportRetrievalEvidence(results: HybridQueryResult[], retrieval: RetrievalMode) {
+  if (!(
+    retrieval.mode === "hybrid" &&
+    results.length > 0 &&
+    results.every((hit) => !hit.explain?.vectorScores.length)
+  )) {
+    return;
+  }
+
+  retrieval.mode = "keyword";
+  retrieval.reasons.push(
+    "QMD returned keyword contributions only for this query; no vector contribution was available."
+  );
+}
+
 /** Use QMD's actual BM25 or fused lex/vector retrieval, without implicit query expansion/model downloads.
 @param store - Private parent store with local-only model configuration.
 @param query - User's literal query.
@@ -44,6 +63,8 @@ async function retrieve(store: QMDStore, query: string, retrieval: RetrievalMode
         candidateLimit: CANDIDATE_LIMIT,
         minScore: 0,
       });
+
+      reportRetrievalEvidence(result, retrieval);
 
       return result.map((hit) => ({
         file: hit.file,
@@ -144,6 +165,13 @@ export async function searchTaskIndex(
   retrieval: RetrievalMode
 ) {
   const ranked = /[\p{L}\p{N}]/u.test(query) ? await retrieve(store, query, retrieval) : [];
+
+  retrieval.reranked &&= ranked.length > 0;
+
+  if (!/[\p{L}\p{N}]/u.test(query)) {
+    retrieval.reasons.push("Empty or punctuation-only query; no retrieval was run.");
+  }
+
   const candidates = [];
 
   for (const hit of ranked) {

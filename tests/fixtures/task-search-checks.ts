@@ -1,7 +1,10 @@
 import { checkTaskMcp } from "./task-mcp-checks";
 import { checkQmdHybrid } from "./task-qmd-checks";
+import { replayToolOutputs } from "./agent-tool-output";
+import { writeLegacyTask } from "../../src/server/task-legacy";
+import { lock } from "proper-lockfile";
 import assert from "node:assert/strict";
-import { readFile, rm, symlink, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { contextEntrySchema, taskDirectory, writeTaskFile } from "../../src/server/task-archive";
 import { searchTaskArchivePage, settleTaskIndex } from "../../src/server/task-search";
@@ -9,6 +12,68 @@ import { readTaskArchive } from "../../src/server/task-archive-read";
 import { type TaskIndexDocument, reconcileTaskViews } from "../../src/server/task-index-views";
 import { searchTaskIndex } from "../../src/server/task-index-search";
 import { createStore } from "@tobilu/qmd";
+
+/** Import native Codex tool records through the real migration writer and retrieve their readable output.
+@param owner - Parent with an existing Pi archive.
+*/
+async function checkLegacyTools(owner: string) {
+  const original = JSON.stringify({
+    source: "codex",
+    turns: [
+      {
+        id: "legacy-turn",
+        status: "completed",
+        items: replayToolOutputs("legacy", "data:image/png;base64,aW1hZ2U="),
+      },
+    ],
+  });
+
+  await writeLegacyTask(owner, original);
+  await settleTaskIndex(owner);
+  const markdown = await readFile(path.join(taskDirectory(owner), "legacy-codex.md"), "utf8");
+
+  assert.match(markdown, /REPLAY_MCP_TEXT/);
+  assert.match(markdown, /REPLAY_DYNAMIC_TEXT/);
+  assert.doesNotMatch(markdown, /aW1hZ2U=|PRIVATE_TOOL_META/);
+  const page = await searchTaskArchivePage(owner, "REPLAY_MCP_RESOURCE");
+  const hit = page.results.at(0);
+
+  assert.ok(hit);
+  assert.equal(hit.source.id, "legacy-mcp-text");
+  assert.match(hit.excerpt, /REPLAY_MCP_RESOURCE/);
+  assert.equal(await readFile(hit.source.file, "utf8"), original);
+}
+
+/** Keep keyword retrieval usable while a separate worker owns optional local inference.
+@param owner - Parent with an existing readable index.
+*/
+async function checkBusyModel(owner: string) {
+  const model = path.join(taskDirectory(owner), "qmd", "busy-model.gguf");
+  const previous = process.env.POCKET_QMD_EMBED_MODEL;
+
+  await writeFile(model, "GGUF offline placeholder; the held lock must prevent model loading");
+  const release = await lock(path.join(taskDirectory(owner), "qmd", "inference"), { realpath: false });
+
+  process.env.POCKET_QMD_EMBED_MODEL = model;
+
+  try {
+    const page = await searchTaskArchivePage(owner, "late-calendar-needle");
+
+    assert.ok(page.results.length > 0);
+    assert.equal(page.retrieval.mode, "keyword");
+    assert.equal(page.retrieval.reranked, false);
+    assert.match(page.retrieval.reasons.join(" "), /inference busy/);
+  } finally {
+    await release();
+    await rm(model);
+
+    if (previous === undefined) {
+      delete process.env.POCKET_QMD_EMBED_MODEL;
+    } else {
+      process.env.POCKET_QMD_EMBED_MODEL = previous;
+    }
+  }
+}
 
 /** Run production retrieval against an actual local QMD index with a known capability mode.
 @param store - Existing SDK store.
@@ -82,6 +147,11 @@ async function checkReconciliation(owner: string, taskName: string) {
 
   assert.deepEqual(foreignResults.results, []);
   await rm(path.join(directory, "foreign.md"));
+  const redirected = taskDirectory("redirected-parent");
+
+  await mkdir(redirected, { recursive: true });
+  await symlink(path.join(directory, "qmd"), path.join(redirected, "qmd"));
+  await assert.rejects(searchTaskArchivePage("redirected-parent", "late-calendar-needle"), /redirects outside/);
   await checkStaleCandidate(owner);
 }
 
@@ -130,5 +200,7 @@ export async function checkTaskSearch(owner: string, taskName: string, longOutpu
 
   assert.deepEqual(isolated.results, []);
   await checkTaskMcp(owner);
+  await checkBusyModel(owner);
+  await checkLegacyTools(owner);
   await checkReconciliation(owner, taskName);
 }

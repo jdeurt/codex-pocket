@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, readdir, realpath, rm, stat } from "node:fs/promises";
+import { lstat, mkdir, readFile, readdir, realpath, rm, stat } from "node:fs/promises";
 import path from "node:path";
+import { localDirectory } from "./local-state";
 import { readTaskArchive } from "./task-archive-read";
 import { recordView, sourceLink } from "./task-record-view";
 import { contextEntrySchema, type ContextEntry, taskDirectory, writeTaskFile } from "./task-archive";
@@ -53,10 +54,49 @@ export async function isParentTaskFile(owner: string, file: string) {
     return false;
   }
 
+  const stateRoot = await optionalTaskFile(() => realpath(localDirectory()));
+  const expected = stateRoot ? path.join(stateRoot, path.relative(localDirectory(), file)) : null;
   const resolved = await optionalTaskFile(() => realpath(file));
   const info = await optionalTaskFile(() => stat(file));
 
-  return resolved === file && info?.isFile() === true;
+  return resolved === expected && info?.isFile() === true;
+}
+
+/** Create index directories only inside the canonical parent namespace, rejecting redirected index files.
+@param owner - Authorized parent identity.
+@returns Verified private index directory.
+*/
+export async function taskIndexDirectory(owner: string) {
+  const root = taskDirectory(owner);
+
+  await mkdir(localDirectory(), { recursive: true, mode: 0o700 });
+  const stateRoot = await realpath(localDirectory());
+  const directories = [
+    path.join(localDirectory(), "tasks"),
+    root,
+    path.join(root, "qmd"),
+    path.join(root, "qmd", "views"),
+  ];
+
+  for (const directory of directories) {
+    await mkdir(directory, { recursive: true, mode: 0o700 });
+
+    if ((await realpath(directory)) !== path.join(stateRoot, path.relative(localDirectory(), directory))) {
+      throw new Error("Task index directory redirects outside its parent namespace.");
+    }
+  }
+
+  const index = path.join(root, "qmd");
+
+  for (const name of ["index.sqlite", "index.sqlite-wal", "index.sqlite-shm"]) {
+    const info = await optionalTaskFile(() => lstat(path.join(index, name)));
+
+    if (info?.isSymbolicLink()) {
+      throw new Error("Task index database redirects outside its parent namespace.");
+    }
+  }
+
+  return index;
 }
 
 /** Persist a readable detail page only when its contents changed, retaining QMD's incremental update signal.
@@ -66,6 +106,13 @@ export async function isParentTaskFile(owner: string, file: string) {
 */
 async function writeChanged(directory: string, name: string, body: string) {
   const file = path.join(directory, name);
+  const info = await optionalTaskFile(() => lstat(file));
+
+  if (info?.isSymbolicLink()) {
+    await writeTaskFile(directory, name, body);
+
+    return;
+  }
 
   let previous: string | undefined;
 
@@ -184,9 +231,8 @@ async function taskDocuments(owner: string, taskFile: string, directory: string)
 */
 export async function reconcileTaskViews(owner: string) {
   const root = taskDirectory(owner);
-  const directory = path.join(root, "qmd", "views");
-
-  await mkdir(directory, { recursive: true, mode: 0o700 });
+  const index = await taskIndexDirectory(owner);
+  const directory = path.join(index, "views");
   const files = await readdir(root);
   const names = files.filter((name) => name.endsWith(".md")).toSorted((a, b) => a.localeCompare(b));
   const documents: TaskIndexDocument[] = [];

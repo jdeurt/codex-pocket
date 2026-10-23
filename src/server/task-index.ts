@@ -1,9 +1,9 @@
 import { createStore } from "@tobilu/qmd";
-import { mkdir, stat } from "node:fs/promises";
+import { stat } from "node:fs/promises";
 import { lock } from "proper-lockfile";
 import path from "node:path";
 import { taskDirectory } from "./task-archive";
-import { optionalTaskFile, reconcileTaskViews } from "./task-index-views";
+import { optionalTaskFile, reconcileTaskViews, taskIndexDirectory } from "./task-index-views";
 import { type RetrievalMode, searchTaskIndex } from "./task-index-search";
 
 const LOCK_RETRIES = 120;
@@ -211,9 +211,7 @@ async function updateAndSearch(
 @returns Search page with actual capability information, or update status.
 */
 export async function runTaskIndex(owner: string, query?: string, offset = 0, isKeywordOnly = false) {
-  const directory = path.join(taskDirectory(owner), "qmd");
-
-  await mkdir(directory, { recursive: true, mode: 0o700 });
+  const directory = await taskIndexDirectory(owner);
   const unlock = await lock(directory, {
     retries: { retries: LOCK_RETRIES, factor: 1, minTimeout: LOCK_RETRY_MS, maxTimeout: LOCK_RETRY_MS },
   });
