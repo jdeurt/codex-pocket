@@ -136,3 +136,98 @@ test("text after voice steers the existing main tool turn without replaying the 
   await expect(page.getByText(draft, { exact: true })).toHaveCount(1);
   expect(await nativeStarts()).toBe(starts);
 });
+
+test("failed voice handoff retains speech and orders a typed follow-up and response through reload", async ({
+  page,
+}) => {
+  const speech = `Please inspect my voice issue ${test.info().project.name}`;
+  const followUp = `Follow up on that saved speech ${test.info().project.name}`;
+
+  await writeFile(path.join(directory, "control.json"), JSON.stringify({ transcript: speech, invalidHandoff: true }));
+  await open(page);
+  await start(page);
+  await expect(page.getByText(/Voice handoff contained unexpected instructions/)).toBeVisible();
+  await page.getByRole("button", { name: "Dismiss voice error" }).click();
+  await expect(page.getByText(/Voice handoff contained unexpected instructions/)).toHaveCount(0);
+  await expect(page.getByText(speech, { exact: true })).toHaveCount(1);
+  await expect(page.getByRole("textbox", { name: "Message Pocket" })).toBeVisible();
+  const before = await nativeStarts();
+
+  await page.getByRole("textbox", { name: "Message Pocket" }).fill(followUp);
+  await page.getByRole("button", { name: /Send message; hold and swipe up/ }).click();
+  await expect(page.getByText(followUp, { exact: true })).toHaveCount(1);
+  await expect.poll(nativeStarts).toBe(before + 1);
+  await expect(page.getByText("Fixture text answer", { exact: true }).last()).toBeVisible();
+
+  for (const shouldReload of [false, true]) {
+    if (shouldReload) {
+      await page.reload();
+    }
+
+    await expect(page.getByText(speech, { exact: true })).toHaveCount(1);
+    await expect(page.getByText(followUp, { exact: true })).toHaveCount(1);
+    const texts = await page.locator("[data-message-id]").allTextContents();
+
+    expect(texts.indexOf(speech)).toBeLessThan(texts.indexOf(followUp));
+    expect(texts.indexOf(followUp)).toBeLessThan(texts.lastIndexOf("Fixture text answer"));
+  }
+
+  await page.getByRole("button", { name: "Send saved speech", exact: true }).last().click();
+  await expect.poll(nativeStarts).toBe(before + 2);
+  await expect(page.getByText(speech, { exact: true })).toHaveCount(1);
+});
+
+test("spoken continuation after interruption is retained once and playback is truncated", async ({ page }) => {
+  const speech = `Start a side pocket to inspect audio ${test.info().project.name}`;
+  const complete = `${speech}\nAnd preserve my follow-up.`;
+
+  await writeFile(
+    path.join(directory, "control.json"),
+    JSON.stringify({ transcript: speech, handoff: true, bargeIn: true })
+  );
+  await open(page);
+  const before = await nativeStarts();
+
+  await start(page);
+  await expect(page.getByText(complete, { exact: true })).toHaveCount(1);
+  await expect.poll(nativeStarts).toBe(before + 1);
+  await expect
+    .poll(async () => {
+      const journal = await readFile(path.join(directory, "provider.jsonl"), "utf8");
+
+      return journal.includes('"method":"provider/realtime/truncate"');
+    })
+    .toBe(true);
+  await expect(page.getByText("Fixture text answer", { exact: true }).last()).toBeVisible();
+  await page.getByRole("button", { name: "Stop realtime voice" }).click();
+  await page.reload();
+  await expect(page.getByText(complete, { exact: true })).toHaveCount(1);
+  expect(await nativeStarts()).toBe(before + 1);
+});
+
+test("spoken follow-up after a failed handoff remains visible in unified order after reconnect", async ({ page }) => {
+  const speech = `Unsent first request ${test.info().project.name}`;
+  const followUp = `Please investigate that saved request ${test.info().project.name}`;
+
+  await writeFile(path.join(directory, "control.json"), JSON.stringify({ transcript: speech, invalidHandoff: true }));
+  await open(page);
+  const before = await nativeStarts();
+
+  await start(page);
+  await expect(page.getByText(/Voice handoff contained unexpected instructions/)).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Message Pocket" })).toBeVisible();
+  await writeFile(path.join(directory, "control.json"), JSON.stringify({ transcript: followUp, handoff: true }));
+  await start(page);
+  await expect.poll(nativeStarts).toBe(before + 1);
+  await expect(page.getByText(followUp, { exact: true })).toHaveCount(1);
+  await expect(page.getByText("Fixture text answer", { exact: true }).last()).toBeVisible();
+  await page.getByRole("button", { name: "Stop realtime voice" }).click();
+  await page.reload();
+  await expect(page.getByText(speech, { exact: true })).toHaveCount(1);
+  await expect(page.getByText(followUp, { exact: true })).toHaveCount(1);
+  const texts = await page.locator("[data-message-id]").allTextContents();
+
+  expect(texts.indexOf(speech)).toBeLessThan(texts.indexOf(followUp));
+  expect(texts.indexOf(followUp)).toBeLessThan(texts.lastIndexOf("Fixture text answer"));
+  expect(await nativeStarts()).toBe(before + 1);
+});

@@ -54,7 +54,7 @@ export async function checkHeldTranscript(page: Page, request: APIRequestContext
       timeout: OPEN_TIMEOUT_MS,
     });
     await expect(dialog.getByText("Loading conversation…", { exact: true })).toHaveCount(0);
-    await expect(dialog.getByRole("status", { name: "Loading latest history", exact: true })).toBeVisible();
+    await expect(dialog.getByRole("status", { name: "Loading latest history", exact: true })).toHaveCount(0);
     await test.info().attach("held-native-history-open", {
       body: JSON.stringify({ elapsedMs: Date.now() - started, nativeHistoryHeld: true }),
       contentType: "application/json",

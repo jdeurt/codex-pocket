@@ -1,12 +1,12 @@
 /* eslint-disable jsdoc/require-param, jsdoc/require-returns -- Session operations share one owner and explicit provider identity. */
 import { type Data, object, string } from "../lib/protocol";
-import { OpenAIRealtime, REALTIME_VOICES, responseForSpeech } from "./openai-realtime";
-import { type VoiceSegment } from "../lib/voice-history";
+import { OpenAIRealtime } from "./openai-realtime";
 import { type VoiceSessionOwner, readVoiceConfiguration } from "./voice-session-owner";
 
+import { VoiceTurns } from "./voice-turns";
 import { VoiceHistory } from "./voice-history";
 import { parseOutputAudio } from "./realtime-schema";
-import { VoiceSessionStop, completedHandoffs, handoffVoice } from "./voice-handoff";
+import { VoiceSessionStop, handoffVoice, publishVoiceHandoff, retryVoice, settleVoice } from "./voice-handoff";
 
 /**
 Connect OpenAI speech to durable, verbatim main-session handoffs without depending on a harness transport.
@@ -18,11 +18,8 @@ export class OpenAIVoiceSession extends EventTarget {
   private error?: string;
   private transport?: OpenAIRealtime;
   private history?: VoiceHistory;
-  private historyThread?: string;
   private serial: Promise<void> = Promise.resolve();
-  private latestItemId?: string;
-  private responding = false;
-  private waiting: string[] = [];
+  private turns = new VoiceTurns();
   private stopping = new VoiceSessionStop();
 
   /**
@@ -60,12 +57,7 @@ export class OpenAIVoiceSession extends EventTarget {
   Restore the selected conversation's finalized speech.
   */
   private savedHistory() {
-    const threadId = this.owner.threadId();
-
-    if (!this.history || this.historyThread !== threadId) {
-      this.history = new VoiceHistory(threadId);
-      this.historyThread = threadId;
-    }
+    this.history ??= new VoiceHistory(this.owner.threadId());
 
     return this.history;
   }
@@ -74,18 +66,7 @@ export class OpenAIVoiceSession extends EventTarget {
   Start one response only after transcription has finalized, preserving its stable source identity.
   */
   private respond() {
-    if (this.responding || this.phase !== "active") {
-      return;
-    }
-
-    const itemId = this.waiting.shift();
-
-    if (!itemId) {
-      return;
-    }
-
-    this.responding = true;
-    this.transport?.send(responseForSpeech(itemId));
+    this.turns.respond(this.phase === "active" ? this.transport : undefined);
   }
 
   /**
@@ -93,27 +74,20 @@ export class OpenAIVoiceSession extends EventTarget {
   */
   private async finalized(event: Data, sessionId: string, role: "user" | "assistant") {
     const itemId = string(event.item_id);
-    const text = string(event.transcript);
+    const afterItemId = this.turns.anchor(itemId, sessionId, role, this.owner.lastItemId?.() ?? null);
+    const entry = await this.savedHistory().finalize(event, sessionId, role, afterItemId);
 
-    if (!itemId || !text.trim()) {
+    if (!entry) {
       return;
     }
 
-    const id = `realtime:${sessionId}:${itemId}:${role}`;
-    const history = this.savedHistory();
-    const entries = await history.read();
-    const existing = entries.find((entry) => entry.id === id);
-    const entry: VoiceSegment = { id, itemId, nativeSessionId: sessionId, role, text, done: true };
+    this.publish({ type: "transcriptDone", ...entry });
 
-    await history.save({ ...entry, ...(existing?.handoff && { handoff: existing.handoff }) });
-    this.publish({ type: "transcriptDone", role, text, itemId, id, nativeSessionId: sessionId });
-
-    if (role !== "user" || existing) {
+    if (role !== "user") {
       return;
     }
 
-    this.latestItemId = itemId;
-    this.waiting.push(itemId);
+    this.turns.observe(event);
     this.respond();
   }
 
@@ -126,33 +100,55 @@ export class OpenAIVoiceSession extends EventTarget {
     }
 
     const transport = this.transport;
-    const entry = await handoffVoice(this.owner, this.savedHistory(), event, sessionId, this.latestItemId);
+    const entry = await handoffVoice(
+      this.owner,
+      this.savedHistory(),
+      event,
+      sessionId,
+      this.turns.current?.items ?? []
+    );
 
     if (this.transport !== transport) {
       return;
     }
 
-    this.publish({ type: "handoff", itemId: entry.itemId, status: entry.handoff });
-
-    if (this.status().type === "active") {
-      this.transport?.send({
-        type: "conversation.item.create",
-        item: {
-          type: "function_call_output",
-          call_id: event.call_id,
-          output: JSON.stringify({ status: entry.handoff }),
-        },
-      });
-    }
+    publishVoiceHandoff(
+      event,
+      entry,
+      this.turns.current?.items ?? [],
+      (message) => {
+        this.publish(message);
+      },
+      (message) => transport?.send(message)
+    );
   }
 
   /**
   Translate only the provider events used by Pocket; raw frames stay off browser streams.
   */
   private async receive(event: Data, sessionId: string) {
+    if (
+      ["response.created", "response.output_audio.delta", "response.output_audio_transcript.done"].includes(
+        string(event.type)
+      ) &&
+      !this.turns.output(event)
+    ) {
+      return;
+    }
+
     switch (event.type) {
       case "input_audio_buffer.speech_started": {
+        this.turns.anchor(string(event.item_id), sessionId, "user", this.owner.lastItemId?.() ?? null);
+        this.turns.observe(event);
         this.publish({ type: "interrupted" });
+        break;
+      }
+
+      case "input_audio_buffer.speech_stopped":
+      case "input_audio_buffer.committed": {
+        this.turns.anchor(string(event.item_id), sessionId, "user", this.owner.lastItemId?.() ?? null);
+        this.turns.observe(event);
+        this.respond();
         break;
       }
 
@@ -177,12 +173,10 @@ export class OpenAIVoiceSession extends EventTarget {
       }
 
       case "response.done": {
-        for (const call of completedHandoffs(event)) {
-          await this.handoff(call, sessionId);
+        if (await this.turns.complete(event, (call) => this.handoff(call, sessionId))) {
+          this.respond();
         }
 
-        this.responding = false;
-        this.respond();
         break;
       }
 
@@ -205,19 +199,10 @@ export class OpenAIVoiceSession extends EventTarget {
   private async connect(attempt: number, endpoint?: string) {
     const settings = await readVoiceConfiguration(this.owner);
 
-    if (!settings.key) {
-      throw new Error("Add an OpenAI API key in Settings to enable realtime voice.");
-    }
-
-    if (!REALTIME_VOICES.includes(settings.voice)) {
-      throw new Error("Choose a supported OpenAI realtime voice in Settings.");
-    }
-
     if (this.attempt !== attempt) {
       throw new Error("Realtime stopped while connecting.");
     }
 
-    const token = crypto.randomUUID();
     const sessionId = crypto.randomUUID();
     const transport = new OpenAIRealtime((event) => {
       if (this.transport !== transport) {
@@ -227,13 +212,10 @@ export class OpenAIVoiceSession extends EventTarget {
       this.serial = this.enqueue(this.serial, event, sessionId, transport);
     });
 
-    this.token = token;
+    this.token = crypto.randomUUID();
     this.transport = transport;
-    this.phase = "connecting";
     this.error = undefined;
-    this.responding = false;
-    this.waiting = [];
-    this.latestItemId = undefined;
+    this.turns = new VoiceTurns();
 
     await transport.connect(settings.key, settings.voice, settings.model, endpoint);
 
@@ -244,7 +226,7 @@ export class OpenAIVoiceSession extends EventTarget {
     this.phase = "active";
     this.publish({ type: "started" });
 
-    return { token, nativeSessionId: sessionId, phase: this.phase };
+    return { token: this.token, nativeSessionId: sessionId, phase: this.phase };
   }
 
   /**
@@ -288,6 +270,15 @@ export class OpenAIVoiceSession extends EventTarget {
   }
 
   /**
+  Synchronize played audio only for the current browser owner.
+  */
+  truncate(token: string, itemId: string, audioEndMs: number) {
+    if (this.owns(token) && this.phase === "active") {
+      this.transport?.truncate(itemId, audioEndMs);
+    }
+  }
+
+  /**
   Reject new audio, finalize captured speech, then revoke the stream token.
   */
   stop(token: string) {
@@ -317,6 +308,17 @@ export class OpenAIVoiceSession extends EventTarget {
         this.publish({ type: "closed" });
       }
     );
+  }
+
+  /**
+  Send saved speech only on an explicit request, with the original durable receipt.
+  */
+  retry(id: string) {
+    const task = retryVoice(this.serial, this.owner, this.savedHistory(), id, () => this.phase === "idle");
+
+    this.serial = settleVoice(task);
+
+    return task;
   }
 
   /**

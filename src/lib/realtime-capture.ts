@@ -47,8 +47,6 @@ export function createVoiceResources(
     outputAnalyser,
     outputTime: 0,
     outputSources: new Set(),
-    outputParts: [],
-    outputSamples: 0,
     abort: new AbortController(),
     sending: Promise.resolve(),
     inputParts: [],

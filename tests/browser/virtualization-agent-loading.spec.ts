@@ -3,7 +3,6 @@ import { type AgentEntry, type AgentTranscript } from "../../src/lib/agents";
 import { initialSnapshot } from "../../src/lib/protocol";
 import { mount } from "./virtualization-fixture";
 
-const SKELETON_LINES = 3;
 const agent: AgentEntry = {
   id: "codex:loading-child",
   parentId: "loading-parent",
@@ -15,7 +14,7 @@ const agent: AgentEntry = {
   previewState: "loading",
 };
 
-test("Side Pocket previews and cold conversations use bounded skeletons until history arrives", async ({ page }) => {
+test("Side Pocket previews load while cold conversations quietly await history", async ({ page }) => {
   const gate = Promise.withResolvers<undefined>();
   const dialog = page.getByRole("dialog", { name: "Agents", exact: true });
   const loading = dialog.getByRole("status", { name: "Loading conversation", exact: true });
@@ -55,22 +54,7 @@ test("Side Pocket previews and cold conversations use bounded skeletons until hi
     ).toBeVisible();
     await expect(dialog.getByText("Loading preview…", { exact: true })).toHaveCount(0);
     await dialog.getByRole("button", { name: /Loading child/ }).click();
-    await expect(loading).toBeVisible();
-    await expect(loading.locator('[data-slot="skeleton"]')).toHaveCount(SKELETON_LINES);
-    await expect(dialog.getByText("Loading conversation…", { exact: true })).toHaveCount(0);
-    expect(
-      await loading.evaluate((element) => {
-        const container = element.getBoundingClientRect();
-
-        return [...element.querySelectorAll('[data-slot="skeleton"]')].every((skeleton) => {
-          const bounds = skeleton.getBoundingClientRect();
-
-          return bounds.width > 0 && bounds.left >= container.left && bounds.right <= container.right;
-        });
-      })
-    ).toBe(true);
-    await page.emulateMedia({ reducedMotion: "reduce" });
-    await expect(loading.locator('[data-slot="skeleton"]').first()).toHaveCSS("animation-name", "none");
+    await expect(loading).toHaveCount(0);
     gate.resolve(undefined);
     await expect(dialog.getByText("Loaded child history", { exact: true })).toBeVisible();
     await expect(loading).toHaveCount(0);
@@ -137,16 +121,16 @@ test("Side Pockets prioritize active rows and retain history through refresh, fa
   try {
     read.mode = "held";
     await page.evaluate(() => globalThis.dispatchEvent(new Event("online")));
-    await expect(loading).toBeVisible();
+    await expect(loading).toHaveCount(0);
     await expect(dialog.getByText("Cached child history", { exact: true })).toBeVisible();
     await expect(dialog.locator("[data-transcript-row]")).toHaveCount(1);
-    expect(await loading.evaluate((element) => !!element.closest('[data-slot="transcript-footer"]'))).toBe(true);
     const refreshed = page.waitForResponse("**/api/agents?agent=*");
 
     read.mode = "refreshing";
     gate.resolve(undefined);
     await refreshed;
-    await expect(loading.getByText("Saved messages may not be current yet.", { exact: true })).toBeVisible();
+    await expect(loading).toHaveCount(0);
+    await expect(dialog.getByText("Cached child history", { exact: true })).toBeVisible();
     read.mode = "failed";
     await page.evaluate(() => globalThis.dispatchEvent(new Event("online")));
     await expect(failure).toBeVisible();
