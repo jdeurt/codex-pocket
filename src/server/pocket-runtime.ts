@@ -3,7 +3,7 @@ import { type Config } from "./config";
 import { MAIN_INSTRUCTIONS } from "./pocket-prompts";
 import { delegations } from "./delegations";
 import { localDirectory } from "./local-state";
-import { parentPolicy } from "./harness/permissions";
+import { nativeDelegateModel, parentPolicy } from "./harness/permissions";
 import path from "node:path";
 import { savedSessionSettings } from "./session-settings";
 import { string } from "../lib/protocol";
@@ -85,7 +85,8 @@ export async function resumePocket(rpc: CodexRpc, config: Config) {
       ...effective,
       sandbox_mode: sandboxModes[resumed.sandbox?.type ?? ""] ?? effective.sandbox_mode,
       approval_policy: resumed.approvalPolicy ?? effective.approval_policy,
-      model: resumed.model,
+      // Pi catalog IDs must not become invalid native Codex delegate model IDs.
+      model: nativeDelegateModel(resumed.model),
       model_reasoning_effort: resumed.reasoningEffort ?? effort,
     }),
   });

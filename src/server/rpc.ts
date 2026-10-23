@@ -236,7 +236,7 @@ export class CodexRpc extends EventTarget {
   @param config - Validated native launch configuration.
   @param profile - Whether to include Pocket's native server arguments.
   */
-  async connect(config: Config, profile: "pocket" | "bare" = "pocket") {
+  async connect(config: Config, profile: "pocket" | "bare" | "pi" = "pocket") {
     this.transport.connect(config, profile);
     await this.initialize();
   }

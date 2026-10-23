@@ -1,0 +1,235 @@
+import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { type RpcEvent, object } from "../src/lib/protocol";
+import { CodexRpc } from "../src/server/rpc";
+import { CodexStore } from "./simulators/codex-store";
+import { PiMain } from "../src/server/pi-main";
+import assert from "node:assert/strict";
+import { openPiSession } from "../src/server/pi-session";
+import os from "node:os";
+import path from "node:path";
+import { readTaskState } from "../src/server/task-context";
+import { simulatorConfig } from "./simulators/launch";
+import test from "node:test";
+
+const FLOW_TIMEOUT_MS = 30_000;
+const COMPLETION_TIMEOUT_MS = 5000;
+const EVENT_POLL_MS = 10;
+const POLICY_READS = 3;
+
+/** Wait for a canonical completed run while retaining all streamed bridge-facing notifications.
+@param events - Captured canonical Pi events.
+@param run - Parent whose settings and prompt are exercised.
+@param text - Original user instruction.
+@returns The completed canonical event.
+*/
+async function prompt(events: RpcEvent[], run: PiMain, text: string) {
+  const completion = Promise.withResolvers<RpcEvent>();
+  const deadline = setTimeout(() => {
+    completion.reject(new Error("Pi run did not complete"));
+  }, COMPLETION_TIMEOUT_MS);
+  const timer = setInterval(() => {
+    const event = events.findLast((entry) => entry.method === "turn/completed");
+
+    if (event) {
+      completion.resolve(event);
+    }
+  }, EVENT_POLL_MS);
+
+  try {
+    await run.request("turn/start", { input: [{ type: "text", text }], clientUserMessageId: "pi-user-receipt" });
+
+    return await completion.promise;
+  } finally {
+    clearInterval(timer);
+    clearTimeout(deadline);
+  }
+}
+
+/** Verify tool execution, exact restored context, catalog validation and fail-closed provider setup.
+@param root - Private working directory.
+@param main - Production Pi session owner.
+@param create - Resource-tracked session constructor.
+@param events - Canonical captured lifecycle events.
+@param parentId - Native parent identity retained through migration.
+@param native - Native policy/migration transport.
+@param config - Parent configuration.
+@param errors - Unexpected background errors.
+*/
+async function verifyPi(
+  root: string,
+  main: PiMain,
+  create: () => PiMain,
+  events: RpcEvent[],
+  parentId: string,
+  native: CodexRpc,
+  config: ReturnType<typeof simulatorConfig>,
+  errors: unknown[]
+) {
+  await main.request("thread/resume", {});
+  const completion = await prompt(events, main, "Write the exact result in result.txt");
+
+  assert.equal(completion.params.turn?.status, "completed");
+  assert.equal(await readFile(path.join(root, "result.txt"), "utf8"), "Exact Pi tool result ✓");
+  assert.ok(events.some((event) => event.params.item?.type === "toolTrace"));
+  assert.ok(events.some((event) => event.params.item?.id === "pi-user-receipt"));
+  const mcpResults = events.filter((event) => event.params.item?.tool === "mcp__pocket__side_pocket_list");
+
+  assert.ok(mcpResults.some((event) => event.params.item?.status === "completed"));
+  const catalog = await main.request("pocket/models", {});
+
+  assert.match(JSON.stringify(catalog), /pocket-offline\/calendar-model/);
+  await assert.rejects(main.request("thread/settings/update", { model: "invented/unknown" }), /Unknown Pi model/);
+  await main.close();
+  const resumed = create();
+
+  await resumed.request("thread/resume", {});
+  const history = await resumed.request("thread/read", { threadId: parentId });
+
+  assert.match(JSON.stringify(history), /The result is ready/);
+  const active = await readTaskState(parentId);
+
+  assert.equal(active.messages.length, 1);
+  assert.equal(active.messages[0].text, "Write the exact result in result.txt");
+  assert.ok(active.messages[0].entries.some((entry) => entry.role === "toolResult"));
+  const rejected = new PiMain(
+    config,
+    native,
+    () => {
+      /*
+        No provider run starts on rejected access.
+        */
+    },
+    () => Promise.resolve(null),
+    () => {
+      /*
+        No provider run starts on rejected access.
+        */
+    }
+  );
+
+  await assert.rejects(rejected.request("thread/resume", {}), /API key/);
+  const restricted = new PiMain(
+    config,
+    native,
+    () => {
+      /*
+        No provider run starts on rejected access.
+        */
+    },
+    () => Promise.resolve("unused-placeholder"),
+    () => {
+      /*
+        No provider run starts on rejected access.
+        */
+    }
+  );
+
+  await assert.rejects(restricted.request("thread/resume", {}), /cannot enforce/);
+  assert.deepEqual(errors, []);
+  assert.ok(object(history).thread);
+}
+
+/** Run the actual Pi SDK tool loop against its native faux provider and the production Pocket MCP.
+@param root - Private host and native simulator state.
+*/
+async function piFlow(root: string) {
+  const config = simulatorConfig(root);
+  const store = new CodexStore(process.env.POCKET_SIMULATOR_STATE);
+  const parent = store.create({ cwd: root });
+
+  config.threadId = parent.id;
+  store.save();
+  const native = new CodexRpc();
+  const events: RpcEvent[] = [];
+  const errors: unknown[] = [];
+  const faux = fauxProvider({ provider: "pocket-offline", models: [{ id: "calendar-model" }] });
+
+  faux.setResponses([
+    fauxAssistantMessage(fauxToolCall("mcp__pocket__side_pocket_list", {}), { stopReason: "toolUse" }),
+    fauxAssistantMessage(fauxToolCall("write", { path: "result.txt", content: "Exact Pi tool result ✓" }), {
+      stopReason: "toolUse",
+    }),
+    fauxAssistantMessage("The result is ready."),
+  ]);
+  const factory: typeof openPiSession = async (...args) => {
+    const opened = await openPiSession(...args);
+
+    opened.runtime.registerNativeProvider(faux.provider);
+
+    return { ...opened, selection: "pocket-offline/calendar-model" };
+  };
+  const sessions: PiMain[] = [];
+  const create = () => {
+    const session = new PiMain(
+      config,
+      native,
+      (event) => {
+        events.push(structuredClone(event));
+      },
+      () => Promise.resolve("offline-placeholder-key"),
+      (error) => {
+        errors.push(error);
+      },
+      factory
+    );
+
+    sessions.push(session);
+
+    return session;
+  };
+  const main = create();
+
+  try {
+    await native.connect(config, "bare");
+    await verifyPi(root, main, create, events, parent.id, native, config, errors);
+  } finally {
+    await Promise.all(sessions.map((session) => session.close()));
+    await native.shutdown();
+  }
+}
+
+await test(
+  "Pi main executes native tools, restores source history and rejects unsupported access profiles",
+  {
+    timeout: FLOW_TIMEOUT_MS,
+  },
+  async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), "pocket-pi-flow-"));
+    const environment = {
+      CODEX_POCKET_STATE_DIR: root,
+      POCKET_SIMULATOR_STATE: path.join(root, "native.sqlite"),
+      POCKET_SIMULATOR_SCENARIO: path.join(root, "scenario.json"),
+    };
+    const previous = Object.fromEntries(Object.keys(environment).map((key) => [key, process.env[key]]));
+    const policy = { sandbox_mode: "danger-full-access", approval_policy: "never" };
+
+    Object.assign(process.env, environment);
+    await writeFile(
+      environment.POCKET_SIMULATOR_SCENARIO,
+      JSON.stringify({
+        scripts: [
+          ...Array.from({ length: POLICY_READS }, () => ({
+            method: "config/read",
+            result: { config: policy, origins: {} },
+          })),
+          { method: "config/read", result: { config: { ...policy, sandbox_mode: "workspace-write" }, origins: {} } },
+        ],
+      })
+    );
+
+    try {
+      await piFlow(root);
+    } finally {
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) {
+          Reflect.deleteProperty(process.env, key);
+        } else {
+          process.env[key] = value;
+        }
+      }
+
+      await rm(root, { recursive: true, force: true });
+    }
+  }
+);

@@ -2,7 +2,7 @@
 
 A main Pocket can delegate a task to a separate **Side Pocket** running Codex or Claude Code. Ask it to delegate work, and name the agent you want when that matters. The child keeps its own conversation and sends questions, progress, and results back to the parent.
 
-Main Pockets run Codex. Side Pockets are delegated workers, separate from the named conversations in the top-left Pockets menu.
+Main Pockets run Pi; see the [migration support and permission limits](pi-main-context.md). Side Pockets are delegated workers, separate from the named conversations in the top-left Pockets menu.
 
 ## Start and follow delegated work
 

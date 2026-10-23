@@ -35,6 +35,7 @@ export async function startSpinnerServer(server: SpinnerServer, origin: string) 
         ...process.env,
         ...build,
         NODE_ENV: "development",
+        POCKET_TEST_MAIN_HARNESS: "codex",
         CODEX_THREAD_ID: "spinner-fixture",
         CODEX_CWD: server.directory,
         CODEX_POCKET_STATE_DIR: server.directory,

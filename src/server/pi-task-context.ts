@@ -1,0 +1,209 @@
+import { type AgentSession, type SessionEntry, type SessionManager } from "@earendil-works/pi-coding-agent";
+import { type TaskContextState, groupTaskContext, ingestTaskEntry, readTaskState, saveTaskState } from "./task-context";
+import { isSameTask } from "./task-decisions";
+import { nativeText } from "./harness/transcript";
+import { saveTaskSource, taskDirectory } from "./task-archive";
+
+const PASS_INTERVAL_MS = 600_000;
+const LAST_ENTRY = -1;
+
+/**
+Maintain source ingestion separately from grouping; never rebuild active membership from closed tasks.
+*/
+export class PiTaskContext {
+  private state?: TaskContextState;
+  private timer?: NodeJS.Timeout;
+  private serial: Promise<void> = Promise.resolve();
+  private passController?: AbortController;
+
+  /** Bind one parent and report private background failures without losing source context.
+  @param owner - Durable parent identity.
+  @param readKey - Central settings credential reader.
+  @param onError - Host-owned diagnostic callback.
+  */
+  constructor(
+    private owner: string,
+    private readKey: () => Promise<string | null>,
+    private onError: (error: unknown) => void
+  ) {}
+
+  /** Serialize ingestion, grouping and persistence without poisoning later operations after errors.
+  @param operation - Next private-state mutation.
+  @returns Completion of this operation.
+  */
+  private enqueue(operation: () => Promise<void>) {
+    const previous = this.serial;
+
+    this.serial = (async () => {
+      try {
+        await previous;
+      } catch (error) {
+        this.onError(error);
+      }
+
+      await operation();
+    })();
+
+    return this.serial;
+  }
+
+  /** Group a changed active set while allowing incoming user work to preempt the provider call.
+  @param session - Idle native Pi session.
+  @param key - Current central credential.
+  */
+  private async process(session: AgentSession, key: string) {
+    const controller = new AbortController();
+
+    this.passController = controller;
+
+    try {
+      await this.groupAndCompact(session, key, controller.signal);
+    } catch (error) {
+      // Provider/compaction failures retain the checkpoint and must not reject later user submissions.
+      if (!(error instanceof Error && error.name === "AbortError")) {
+        this.onError(error);
+      }
+    } finally {
+      this.passController = undefined;
+    }
+  }
+
+  /** Apply checkpointed grouping, then use Pi's native compactor with exact archive references.
+  @param session - Idle native session.
+  @param key - Central provider credential.
+  @param signal - User-input cancellation for background grouping.
+  */
+  private async groupAndCompact(session: AgentSession, key: string, signal: AbortSignal) {
+    if (!this.state) {
+      return;
+    }
+
+    await groupTaskContext(this.owner, this.state, (candidate, matched) => isSameTask(key, candidate, matched, signal));
+
+    if (!this.state.compactionPending || session.isStreaming || signal.aborted) {
+      return;
+    }
+
+    await session.compact(
+      "Preserve all open tasks, pending questions, constraints, decisions and delegate identities. " +
+        `Exact task context is archived in ${taskDirectory(this.owner)}. ` +
+        "Include archive references for completed tasks and silently read originals when prior work is referenced."
+    );
+    this.state.compactionPending = false;
+    await saveTaskState(this.owner, this.state);
+  }
+
+  /** Add a finalized Pi source record, preserving exact payload and chronological source identity.
+  @param entry - Newly appended native entry, never a historical closed-group member.
+  */
+  accept(entry: SessionEntry) {
+    void this.enqueue(async () => {
+      if (!this.state) {
+        throw new Error("Task context has not been initialized.");
+      }
+
+      if (entry.type === "message") {
+        const source = {
+          id: entry.id,
+          sequence: this.state.revision,
+          role: entry.message.role,
+          text: nativeText("content" in entry.message ? entry.message.content : ""),
+          original: entry,
+        };
+
+        await saveTaskSource(this.owner, source);
+        ingestTaskEntry(this.state, source);
+      }
+
+      await saveTaskState(this.owner, this.state);
+    }).catch(this.onError);
+  }
+
+  /** Restore direct state and ingest only entries after the durable source cursor once on startup.
+  @param manager - Authoritative append-only Pi session source.
+  @param session - Session whose idle state gates provider calls and compaction.
+  */
+  async start(manager: SessionManager, session: AgentSession) {
+    this.state = await readTaskState(this.owner);
+    const cursor = this.state.sourceCursor;
+
+    if (cursor && !manager.getEntry(cursor)) {
+      throw new Error("Task ingestion cursor is missing from the Pi source; inspect before replaying history.");
+    }
+
+    // Startup catches up the unprocessed source tail. Grouping reads only this.state.messages.
+    const arrived: SessionEntry[] = [];
+
+    let tail = cursor ? manager.getChildren(cursor) : manager.getEntries();
+
+    while (tail.length > 0) {
+      arrived.push(...tail);
+      tail = cursor ? manager.getChildren(tail.at(LAST_ENTRY)?.id ?? "") : [];
+    }
+
+    for (const entry of arrived) {
+      this.accept(entry);
+    }
+
+    await this.serial;
+    this.timer = setInterval(() => {
+      if (session.isIdle) {
+        void this.pass(session).catch(this.onError);
+      }
+    }, PASS_INTERVAL_MS);
+    this.timer.unref();
+  }
+
+  /** Process a changed idle chat with durable task checkpoints, retaining active context on classification failure.
+  @param session - Pi session that owns the compaction operation.
+  @returns Completion of one serialized changed-chat pass.
+  */
+  pass(session: AgentSession) {
+    return this.enqueue(async () => {
+      if (
+        !this.state ||
+        !session.isIdle ||
+        (this.state.revision === this.state.lastSeen && !this.state.compactionPending)
+      ) {
+        return;
+      }
+
+      const key = await this.readKey();
+
+      if (!key) {
+        return;
+      }
+
+      await this.process(session, key);
+    });
+  }
+
+  /**
+  Give new user input priority over background classification.
+  */
+  interrupt() {
+    this.passController?.abort();
+  }
+
+  /** Wait for classification and source writes before accepting a new prompt.
+  @returns Completion of all currently queued archive operations.
+  */
+  async flush() {
+    try {
+      await this.serial;
+    } catch (error) {
+      if (!(error instanceof Error && error.name === "AbortError")) {
+        throw error;
+      }
+    }
+  }
+
+  /** Stop background classification and flush queued source writes before shutdown.
+  @returns Completion after outstanding source persistence settles.
+  */
+  async stop() {
+    clearInterval(this.timer);
+    this.interrupt();
+    await this.flush();
+  }
+}
