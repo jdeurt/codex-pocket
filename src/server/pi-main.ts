@@ -22,7 +22,7 @@ export class PiMain {
   private state?: PiState;
   private active?: Turn;
   private userIds: string[] = [];
-  private userMessages = new Map<number, string>();
+  private userMessages = new WeakMap<object, string>();
   private selection = "openai/gpt-6.1-sol";
   private effort = "medium";
   private writes: Promise<void> = Promise.resolve();
@@ -141,10 +141,10 @@ export class PiMain {
       let userId: string | undefined;
 
       if (event.message.role === "user") {
-        userId = this.userMessages.get(event.message.timestamp) ?? this.userIds.shift();
+        userId = this.userMessages.get(event.message) ?? this.userIds.shift();
 
         if (userId) {
-          this.userMessages.set(event.message.timestamp, userId);
+          this.userMessages.set(event.message, userId);
         }
       }
 
