@@ -68,6 +68,8 @@ export async function workspace(t: TestContext) {
       }
     }
 
+    globalThis.codexPocketSchedules?.close();
+    Reflect.deleteProperty(globalThis, "codexPocketSchedules");
     environment(Object.fromEntries(previous));
     await rm(directory, { recursive: true, force: true });
 
