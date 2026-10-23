@@ -1,6 +1,7 @@
 import { dataSchema } from "../lib/protocol";
 import { type sessionSettingsSchema } from "./session-settings";
 import { type z } from "zod";
+import { type ModelCatalogQuery } from "./model-catalog-query";
 
 const REQUEST_TIMEOUT_MS = 15_000;
 
@@ -22,22 +23,33 @@ function sessionOrigin() {
 Call only this main Pocket's typed control route; never open another native connection.
 @param settings - Optional explicit model/effort mutation; omission performs inspection.
 @param hasCatalogRequest - Whether to inspect Pi's native catalog instead of session settings.
+@param query - Optional read-only catalog search and pagination.
 @returns The connected host's effective settings or an explicit error without replay.
 */
-export async function callSession(settings?: z.infer<typeof sessionSettingsSchema>, hasCatalogRequest = false) {
+export async function callSession(
+  settings?: z.infer<typeof sessionSettingsSchema>,
+  hasCatalogRequest = false,
+  query: ModelCatalogQuery = {}
+) {
   const origin = sessionOrigin();
-  const response = await fetch(
-    new URL(
-      `/api/session?pocket=${encodeURIComponent(process.env.POCKET_ID ?? "main")}${hasCatalogRequest ? "&catalog=models" : ""}`,
-      origin
-    ),
-    {
-      method: settings ? "POST" : "GET",
-      headers: { Origin: origin, "Content-Type": "application/json" },
-      body: settings ? JSON.stringify(settings) : undefined,
-      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  const url = new URL("/api/session", origin);
+
+  url.searchParams.set("pocket", process.env.POCKET_ID ?? "main");
+
+  if (hasCatalogRequest) {
+    url.searchParams.set("catalog", "models");
+
+    for (const [key, value] of Object.entries(query)) {
+      url.searchParams.set(key, String(value));
     }
-  );
+  }
+
+  const response = await fetch(url, {
+    method: settings ? "POST" : "GET",
+    headers: { Origin: origin, "Content-Type": "application/json" },
+    body: settings ? JSON.stringify(settings) : undefined,
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
   const result = dataSchema.parse(await response.json());
 
   if (!response.ok) {

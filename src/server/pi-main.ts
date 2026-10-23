@@ -303,7 +303,7 @@ export class PiMain {
       }
 
       case "pocket/models": {
-        return this.runtime ? piModelCatalog(this.runtime) : [];
+        return piModelCatalog(this.runtime, params);
       }
 
       case "thread/settings/update": {

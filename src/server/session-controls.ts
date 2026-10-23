@@ -5,6 +5,7 @@ import { contextUsage } from "../lib/usage";
 import { delegations } from "./delegations";
 import { string } from "../lib/protocol";
 import { type z } from "zod";
+import { type ModelCatalogQuery } from "./model-catalog-query";
 
 /**
 Own the small typed parent control surface while reusing the bridge's transport and snapshot.
@@ -118,11 +119,12 @@ export class SessionControls {
   }
 
   /** Read Pi's native provider/model catalog over the existing parent connection.
+  @param query - Optional read-only provider/model lookup and pagination.
   @returns Available catalog selections, without credentials or additional inference.
   */
-  async models() {
+  async models(query: ModelCatalogQuery = {}) {
     await this.owner.ensureConnected();
 
-    return this.owner.agentReader().request("pocket/models");
+    return this.owner.agentReader().request("pocket/models", query);
   }
 }
