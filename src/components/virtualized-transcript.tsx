@@ -129,6 +129,7 @@ function MeasuredTranscript({
 }) {
   const viewport = useRef<HTMLDivElement>(null);
   const savedOffset = useRef<number | undefined>(undefined);
+  const initialEnd = useRef(!bookmark || bookmark.atEnd);
   const [follow, setFollow] = useState(bookmark?.atEnd ?? true);
 
   const [activityMeasurements] = useState<ActivityMeasurements>(() => new Map());
@@ -180,16 +181,20 @@ function MeasuredTranscript({
   const footerRow = items.at(LAST_ITEM);
   const blockStart = messages.at(0)?.start ?? footerRow?.start ?? 0;
   const resumeFollow = () => {
-    if (!suspended) {
-      setFollow(true);
+    if (suspended) {
+      return;
     }
+
+    initialEnd.current = false;
+    setFollow(true);
   };
 
   useLayoutEffect(() => {
-    if (!bookmark || bookmark.atEnd) {
+    // Initial footer and viewport measurements can arrive after the first end command.
+    if (!suspended && initialEnd.current) {
       virtualizer.scrollToEnd();
     }
-  }, [bookmark, virtualizer]);
+  }, [virtualizer, layout.size, layout.height, suspended]);
   useEffect(
     () => (storageKey ? subscribeTranscriptBookmark(storageKey, virtualizer, expanded) : undefined),
     [storageKey, virtualizer, expanded]
