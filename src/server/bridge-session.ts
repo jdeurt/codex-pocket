@@ -170,6 +170,7 @@ export class Bridge {
     await this.messages.recover(config.threadId);
 
     this.snapshot.connection = "connected";
+    this.snapshot.connectionRetry = undefined;
     this.snapshots.publish(this.messages.entries);
 
     if (!this.timer) {

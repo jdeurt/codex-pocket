@@ -1,6 +1,6 @@
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { type RpcEvent, object } from "../src/lib/protocol";
+import { type RpcEvent, object, threadSchema } from "../src/lib/protocol";
 import { CodexRpc } from "../src/server/rpc";
 import { CodexStore } from "./simulators/codex-store";
 import { PiMain } from "../src/server/pi-main";
@@ -82,6 +82,10 @@ async function verifyPi(
   assert.equal(completion.params.turn?.status, "completed");
   assert.equal(await readFile(path.join(root, "result.txt"), "utf8"), "Exact Pi tool result ✓");
   assert.ok(events.some((event) => event.params.item?.type === "toolTrace"));
+  const tools = completion.params.turn.items.filter((item) => item.type === "toolTrace");
+
+  assert.deepEqual(tools.find((item) => item.tool === "bash")?.toolLabels, ["Executed pwd"]);
+  assert.deepEqual(tools.find((item) => item.tool === "edit")?.toolLabels, ["Edited result.txt"]);
   assert.ok(events.some((event) => event.params.item?.id === "pi-user-receipt"));
   const mcpResults = events.filter((event) => event.params.item?.tool === "mcp__pocket__side_pocket_list");
 
@@ -97,6 +101,10 @@ async function verifyPi(
 
   await resumed.request("thread/resume", {});
   const history = await resumed.request("thread/read", { threadId: parentId });
+  const saved = threadSchema.parse(object(history).thread).turns.flatMap((turn) => turn.items);
+
+  assert.deepEqual(saved.find((item) => item.tool === "bash")?.toolLabels, ["Executed pwd"]);
+  assert.deepEqual(saved.find((item) => item.tool === "edit")?.toolLabels, ["Edited result.txt"]);
 
   assert.match(JSON.stringify(history), /The result is ready/);
   const active = await readTaskState(parentId);
@@ -176,9 +184,18 @@ async function piFlow(root: string) {
       { stopReason: "toolUse" }
     ),
     fauxAssistantMessage(fauxToolCall("mcp__pocket__side_pocket_list", {}), { stopReason: "toolUse" }),
-    fauxAssistantMessage(fauxToolCall("write", { path: "result.txt", content: "Exact Pi tool result ✓" }), {
+    fauxAssistantMessage(fauxToolCall("bash", { command: "pwd" }), { stopReason: "toolUse" }),
+    fauxAssistantMessage(fauxToolCall("write", { path: "result.txt", content: "Pi tool draft" }), {
       stopReason: "toolUse",
     }),
+    fauxAssistantMessage(
+      fauxToolCall("edit", {
+        path: "result.txt",
+        oldText: "Pi tool draft",
+        newText: "Exact Pi tool result ✓",
+      }),
+      { stopReason: "toolUse" }
+    ),
     fauxAssistantMessage("The result is ready."),
   ]);
   const factory: typeof openPiSession = async (...args) => {

@@ -44,18 +44,20 @@ export function toolPreview(item: Item): string[] {
 }
 
 /**
-Extract explicit SDK command and file targets before private input leaves the host boundary.
-@param name - Native Claude tool name.
-@param input - Native SDK tool input retained only on the computer.
+Extract explicit native command and edit targets before private input leaves the host boundary.
+@param name - Native Claude or Pi tool name.
+@param input - Native tool input retained only on the computer.
 @returns Display-only labels without copying the input object into the snapshot.
 */
-export function claudeToolPreview(name: string, input: Data): string[] {
-  if (name === "Bash" && typeof input.command === "string") {
+export function inputToolPreview(name: string, input: Data): string[] {
+  const tool = name.toLowerCase();
+
+  if (tool === "bash" && typeof input.command === "string") {
     return [`Executed ${commandPreview(input.command)}`];
   }
 
-  const path = string(input.file_path);
+  const path = string(input.file_path) || string(input.path);
 
   // Write can replace an existing file; its input alone cannot establish creation.
-  return path && ["Edit", "MultiEdit"].includes(name) ? [`Edited ${path}`] : [];
+  return path && ["edit", "multiedit"].includes(tool) ? [`Edited ${path}`] : [];
 }

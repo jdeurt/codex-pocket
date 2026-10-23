@@ -55,6 +55,7 @@ function scenario(threadId: string) {
         before: [event("error", { error: { message: "Persistent provider failure" }, willRetry: false })],
       },
       { method: "model/list", result: MODEL_PAGE, before: [progress] },
+      { method: "model/list", result: MODEL_PAGE, before: [retry] },
     ],
   };
 }
@@ -81,6 +82,12 @@ async function verifyRecovery(bridge: Bridge) {
   await rpc.request("model/list");
   await rpc.request("model/list");
   assert.equal(bridge.snapshot.error, "Persistent provider failure");
+  await rpc.request("model/list");
+  assert.deepEqual(bridge.snapshot.connectionRetry, { turnId: TURN_ID, message: "Reconnecting 5/5" });
+  await rpc.shutdown();
+  await bridge.ensureConnected();
+  assert.equal(bridge.snapshot.connection, "connected");
+  assert.equal(bridge.snapshot.connectionRetry, undefined);
 }
 
 await test(

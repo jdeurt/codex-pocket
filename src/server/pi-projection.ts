@@ -1,6 +1,7 @@
 import { type AgentMessage } from "@earendil-works/pi-agent-core";
 import { type Item, type Turn, object, string } from "../lib/protocol";
 import { nativeText } from "./harness/transcript";
+import { inputToolPreview, toolPreview } from "./tool-preview";
 
 /** Project Pi messages into Pocket's existing phone transcript without changing their source payload.
 @param message - Native Pi message or final tool result.
@@ -17,11 +18,14 @@ export function piItems(message: AgentMessage, turn: Turn, userId?: string): Ite
   }
 
   if (message.role === "toolResult") {
+    const call = turn.items.find((item) => item.id === message.toolCallId);
+
     return [
       {
         id: message.toolCallId,
         type: "toolTrace",
         tool: message.toolName,
+        toolLabels: call ? toolPreview(call) : [],
         status: message.isError ? "failed" : "completed",
         text: nativeText(message.content),
         source: "pi",
@@ -54,6 +58,7 @@ export function piItems(message: AgentMessage, turn: Turn, userId?: string): Ite
             id: part.id,
             type: "toolTrace",
             tool: part.name,
+            toolLabels: inputToolPreview(part.name, object(part.arguments)),
             title: part.name,
             input: part.arguments,
             text: "",
