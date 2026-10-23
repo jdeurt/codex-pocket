@@ -1,7 +1,8 @@
 import { type AdapterOptions, type HarnessRequest } from "../src/server/harness/types";
 import { type Data, object } from "../src/lib/protocol";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { CodexAdapter } from "../src/server/harness/codex";
+import { DelegationStore, type SidePocket } from "../src/server/delegations";
 import assert from "node:assert/strict";
 import { configSchema } from "../src/server/config";
 import os from "node:os";
@@ -11,11 +12,88 @@ import test from "node:test";
 const REPLAY = path.resolve("tests/fixtures/codex-session-replay.ts");
 const LOADER = path.resolve("node_modules/tsx/dist/loader.mjs");
 const SESSION = "fixture-native-session";
+const EXISTING_INSTRUCTIONS = "Existing replay instructions\n\n";
+const LAST_USER_MESSAGE = -2;
 
 interface Observations {
   requests: HarnessRequest[];
   metadata: Data[];
   output: string[];
+}
+
+/**
+Read the instructions received by the native subprocess at its session boundary.
+@param directory - Isolated native working directory.
+@returns Exact developer instructions received over RPC.
+*/
+async function receivedInstructions(directory: string) {
+  const filename = path.join(directory, "native-session-params.json");
+  const text = await readFile(filename, "utf8");
+  const params = object(JSON.parse(text));
+
+  assert.equal(typeof params.developerInstructions, "string");
+
+  return String(params.developerInstructions);
+}
+
+/**
+Continue adopted work through native RPC and verify its prompt and original transcript.
+@param adapter - Native adapter for the adopted saved conversation.
+@param child - Persisted adoption identity and current parent.
+@param core - Shared instructions received before adoption.
+*/
+async function continueAdopted(adapter: CodexAdapter, child: SidePocket, core: string) {
+  assert.equal(await adapter.open(), SESSION);
+  const instructions = await receivedInstructions(child.cwd);
+  const orientation = instructions.slice(EXISTING_INSTRUCTIONS.length);
+  const sharedBody = core.slice(core.indexOf("Your filesystem"));
+  const history = await adapter.history();
+
+  assert.ok(instructions.startsWith(EXISTING_INSTRUCTIONS));
+  assert.ok(
+    orientation.startsWith(`You have been adopted as a Side Pocket by parent Pocket ${JSON.stringify(child.parentId)}.`)
+  );
+  assert.ok(orientation.includes(`Your existing Codex session ${JSON.stringify(SESSION)}`));
+  assert.ok(orientation.includes(`ID ${JSON.stringify(child.id)}, titled ${JSON.stringify(child.title)}`));
+  assert.match(orientation, /existing task context,\nhistory, and ongoing work/u);
+  assert.ok(orientation.includes("saved session.\n\nYou are a Side Pocket,"));
+  assert.ok(orientation.endsWith(sharedBody));
+  assert.deepEqual(
+    history.map((message) => message.text),
+    ["choose", "Chosen Blue", "choose again", "Chosen Blue"]
+  );
+  await adapter.run("adopted-command", "Continue original work");
+  const updated = await adapter.history();
+
+  assert.deepEqual(updated.slice(0, history.length), history);
+  assert.equal(updated.at(LAST_USER_MESSAGE)?.text, "Continue original work");
+}
+
+/**
+Adopt the saved native conversation under a new parent and continue its original work.
+@param options - Offline native configuration and saved session identity.
+@param core - Shared Side Pocket instructions received before adoption.
+*/
+async function adoptedSession(options: AdapterOptions, core: string) {
+  const store = new DelegationStore(options.child.cwd);
+  const parentId = 'current-parent-"quoted"';
+
+  store.saveParent(parentId, { cwd: options.child.cwd, policy: options.child.policy });
+  const child = store.adoptions.adopt(
+    parentId,
+    { threadId: SESSION, title: "Adopted work", idempotencyKey: "adoption" },
+    { threadId: SESSION, cwd: options.child.cwd }
+  );
+  const adapter = new CodexAdapter({ ...options, child });
+
+  assert.deepEqual(store.queue.list(parentId, child.id), []);
+
+  try {
+    await continueAdopted(adapter, child, core);
+  } finally {
+    await adapter.close();
+    store.close();
+  }
 }
 
 /**
@@ -133,10 +211,18 @@ async function sessionFlow(directory: string) {
 
   try {
     const sessionId = await initialSession(adapter, observed);
+    const instructions = await receivedInstructions(directory);
+    const core = instructions.slice(EXISTING_INSTRUCTIONS.length);
     const resumed = { ...options, child: { ...options.child, sessionId, sessionStarted: true } };
 
+    assert.ok(instructions.startsWith(`${EXISTING_INSTRUCTIONS}You are a Side Pocket,`));
+    assert.match(core, /message category/u);
+    assert.match(core, /caveman mode: at most 1–3 short sentences/u);
+    assert.match(core, /does not shorten requested deliverables,\ndetailed answers, or completion reports/u);
     await adapter.close();
     await resumedSession(resumed);
+    assert.equal(await receivedInstructions(directory), instructions);
+    await adoptedSession(resumed, core);
     await disconnectedSession(resumed);
   } finally {
     await adapter.close();
