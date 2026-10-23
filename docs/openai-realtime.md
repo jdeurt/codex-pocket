@@ -1,6 +1,6 @@
 # OpenAI realtime integration
 
-JUA-69 replaces Codex realtime with OpenAI Realtime. This branch stages the independent provider transport, finalized transcript ledger, and handoff validation. The existing Pocket routes still use `RealtimeSession`; switching those routes and the browser requires the shared contracts below. This draft does not claim that the replacement is enabled in the app.
+JUA-69 replaces Codex realtime with OpenAI Realtime. This branch stages the independent provider transport, finalized transcript ledger, and handoff validation. The existing Pocket routes still use `RealtimeSession`; switching those routes and the browser requires the upstream implementations below. This draft does not claim that the replacement is enabled in the app.
 
 ## Implemented boundary
 
@@ -23,7 +23,7 @@ Only finalized speech enters the private transcript ledger. Each entry includes 
 
 Settings provides `readOpenAIApiKey(): Promise<string | null>` from `src/server/pocket-settings.ts`, first pushed at `91d3647` on `codex/jua-68-settings-credentials`. That implementation is not copied into this branch. The existing per-thread realtime voice/model file must not become a second settings store; centralized voice/model preferences remain to be agreed with the settings owner.
 
-Harness currently preserves `Bridge.send(id, text, attachmentIds)`, `exclusive`, and snapshots. Its existing typed-message guard rejects sends during realtime. Before connecting the new session, agree either a source-aware handoff that uses the existing durable outbox while voice stays active, or an explicit voice-to-text transition before `Bridge.send`. Do not invoke native turn methods or implement a second Pi entrypoint.
+Harness has agreed `Bridge.handoff({ id, transcript, source: { type: "realtime", sessionId, itemId } })`. It shares the durable receipt path with `send` and retains source metadata. Voice will call this method while audio is active; `Bridge.send(id, text, attachmentIds)` remains compatible for typed messages. Production wiring awaits the upstream commit implementing `handoff`. Do not invoke native turn methods or implement a second Pi entrypoint.
 
 The browser integration must load finalized history on reload, upsert transcript events by stable item identity, display handoff status separately from user text, and clear playback on `interrupted`. Canonical main-session user messages and saved voice entries need a provenance link to avoid duplicate display. Existing legacy native history without a provenance marker must not be hidden merely because its text resembles an internal wrapper. Full browser mode-switching and reload acceptance remains pending this integration.
 

@@ -2,7 +2,7 @@
 import { type Data, object, string } from "../lib/protocol";
 import { OpenAIRealtime, REALTIME_VOICES, responseForSpeech } from "./openai-realtime";
 import { type VoiceSegment } from "../lib/voice-history";
-import { type VoiceSessionOwner } from "./voice-session-owner";
+import { type VoiceSessionOwner, readVoiceConfiguration } from "./voice-session-owner";
 
 import { VoiceHistory } from "./voice-history";
 import { parseOutputAudio } from "./realtime-schema";
@@ -211,13 +211,11 @@ export class OpenAIVoiceSession extends EventTarget {
   Connect only while this start attempt still owns the session.
   */
   private async connect(attempt: number, endpoint?: string) {
-    const key = await this.owner.readKey();
+    const settings = await readVoiceConfiguration(this.owner);
 
-    if (!key) {
+    if (!settings.key) {
       throw new Error("Add an OpenAI API key in Settings to enable realtime voice.");
     }
-
-    const settings = await this.owner.preferences();
 
     if (!REALTIME_VOICES.includes(settings.voice)) {
       throw new Error("Choose a supported OpenAI realtime voice in Settings.");
@@ -245,7 +243,7 @@ export class OpenAIVoiceSession extends EventTarget {
     this.waiting = [];
     this.latestItemId = undefined;
 
-    await transport.connect(key, settings.voice, settings.model, endpoint);
+    await transport.connect(settings.key, settings.voice, settings.model, endpoint);
 
     if (this.transport !== transport) {
       throw new Error("Realtime stopped while connecting.");
