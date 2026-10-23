@@ -32,10 +32,10 @@ export async function checkActivityInterruptions(page: Page) {
 
   await send(page, prompt);
   await expect(page.getByText("INTERRUPT_TWO", { exact: true })).toBeVisible();
-  await expect(page.getByRole("status", { name: "Pocket activity" })).toContainText("Running commands");
+  await expect(page.getByRole("status", { name: "Pocket activity" })).toContainText("running commands");
   await send(page, firstSteer);
   await expect(page.getByText("INTERRUPT_THREE", { exact: true })).toBeVisible();
-  await expect(page.getByRole("status", { name: "Pocket activity" })).toContainText("Running commands");
+  await expect(page.getByRole("status", { name: "Pocket activity" })).toContainText("running commands");
   await send(page, secondSteer);
   await expect(page.getByText("INTERRUPT_FINAL", { exact: true })).toBeVisible();
 

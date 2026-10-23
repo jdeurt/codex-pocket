@@ -126,7 +126,7 @@ test("text after voice steers the existing main tool turn without replaying the 
   await open(page);
   await page.getByRole("textbox", { name: "Message Pocket" }).fill(draft);
   await start(page);
-  await expect(page.getByRole("status", { name: "Pocket activity" })).toBeVisible();
+  await expect(page.getByRole("status", { name: "Pocket activity" })).toHaveText("running commands");
   const starts = await nativeStarts();
 
   await page.getByRole("button", { name: "Stop realtime voice" }).click();
@@ -134,6 +134,7 @@ test("text after voice steers the existing main tool turn without replaying the 
   await page.getByRole("button", { name: /Send message; hold and swipe up/ }).click();
   await expect(page.getByText("Fixture backend answer", { exact: true }).last()).toBeVisible();
   await expect(page.getByText(draft, { exact: true })).toHaveCount(1);
+  await expect(page.getByRole("status", { name: "Pocket activity" })).toHaveCount(0);
   expect(await nativeStarts()).toBe(starts);
 });
 

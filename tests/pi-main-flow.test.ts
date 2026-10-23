@@ -113,9 +113,9 @@ async function verifyPi(
   assert.deepEqual(
     {
       duplicateBubbles: delivered.state.queue.length,
-      callingTools: activities.has("Calling tools"),
-      runningCommands: activities.has("Running commands"),
-      editingFiles: activities.has("Editing files"),
+      callingTools: activities.has("calling tools"),
+      runningCommands: activities.has("running commands"),
+      editingFiles: activities.has("editing files"),
       activeAfterCompletion: state.activeTurnId,
     },
     {

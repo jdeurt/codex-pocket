@@ -1,6 +1,22 @@
 import { type Data, type Item, type RpcEvent, type Snapshot, type Turn, object, string } from "../lib/protocol";
 
 const LAST_ITEM_INDEX = -1;
+const executions = new WeakMap<Turn, Map<string, string>>();
+const nativeActivity = new WeakSet<Turn>();
+const reasoning = new WeakSet<Turn>();
+const TOOL_ITEMS = new Set([
+  "toolTrace",
+  "commandExecution",
+  "fileChange",
+  "webSearch",
+  "mcpToolCall",
+  "dynamicToolCall",
+  "collabAgentToolCall",
+  "imageView",
+  "imageGeneration",
+  "subAgentActivity",
+  "sleep",
+]);
 const TOOL_ACTIVITIES = new Map(
   Object.entries({
     apply_patch: "Editing files",
@@ -120,13 +136,35 @@ export function itemActivity(item: Item): string | undefined {
   }
 }
 
+/** Select a phase from item lifecycle without treating completed tools as ongoing work.
+@param item - Native item, absent on malformed notifications.
+@param isStarted - Whether this is the start notification.
+@param isReasoning - Whether reasoning continues alongside tools.
+@returns The non-tool phase, or no change for user messages.
+*/
+function itemPhase(item: Item | undefined, isStarted: boolean, isReasoning: boolean) {
+  if (item?.type === "userMessage") {
+    return;
+  }
+
+  if (item && TOOL_ITEMS.has(item.type)) {
+    return isReasoning ? "Considering options" : "";
+  }
+
+  if (isStarted && item) {
+    return item.type === "reasoning" ? "Considering options" : ITEM_ACTIVITIES.get(item.type);
+  }
+
+  return "";
+}
+
 /**
 Project native progress notifications into the shared activity vocabulary.
 @param event - Validated native notification.
-@param turn - Canonical turn whose current item can clarify command progress.
+@param isReasoning - Whether native reasoning remains active alongside execution.
 @returns Updated activity label or undefined when this event carries no activity change.
 */
-function eventActivity(event: RpcEvent, turn: Turn | undefined) {
+function eventActivity(event: RpcEvent, isReasoning: boolean) {
   switch (event.method) {
     case "thread/activity/updated": {
       return typeof event.params.activity === "string" ? event.params.activity : undefined;
@@ -134,7 +172,7 @@ function eventActivity(event: RpcEvent, turn: Turn | undefined) {
 
     case "item/started":
     case "item/completed": {
-      return event.params.item ? itemActivity(event.params.item) : "";
+      return itemPhase(event.params.item, event.method === "item/started", isReasoning);
     }
 
     case "item/agentMessage/delta": {
@@ -152,22 +190,6 @@ function eventActivity(event: RpcEvent, turn: Turn | undefined) {
       return "Considering options";
     }
 
-    case "item/commandExecution/outputDelta":
-    case "item/commandExecution/terminalInteraction": {
-      const item = turn?.items.find((entry) => entry.id === event.params.itemId);
-
-      return item ? itemActivity(item) : "Running commands";
-    }
-
-    case "item/fileChange/outputDelta":
-    case "item/fileChange/patchUpdated": {
-      return "Editing files";
-    }
-
-    case "item/mcpToolCall/progress": {
-      return "Calling tools";
-    }
-
     case "hook/started": {
       return "Running hooks";
     }
@@ -178,30 +200,135 @@ function eventActivity(event: RpcEvent, turn: Turn | undefined) {
   }
 }
 
-/**
-Update activity only when a native event belongs to the current active turn.
+/** Read executing native items when reconciling a newly hydrated turn.
+@param turn - Canonical native history, replaced on reconciliation.
+@returns Active calls keyed by their stable invocation identities.
+*/
+function restoredExecutions(turn: Turn) {
+  return new Map(
+    turn.items
+      .filter((item) => item.source !== "pi" && TOOL_ITEMS.has(item.type))
+      .filter((item) => ["running", "inProgress"].includes(string(item.status)))
+      .map((item) => [item.id, itemActivity(item) ?? "Calling tools"])
+  );
+}
+
+/** Normalize human activity text without touching native tool names, paths or transcript payloads.
+@param label - Human description from the activity vocabulary.
+@returns Description with its first character in lowercase.
+*/
+function activityLabel(label: string) {
+  return label.charAt(0).toLowerCase() + label.slice(1);
+}
+
+/** Retain invocation state independently of message projection and thinking/token events.
+@param turn - Exact active turn, replaced when history is reconciled.
+@param event - Native lifecycle or authoritative adapter activity event.
+@returns Current executing calls for this turn.
+*/
+function updateExecutions(turn: Turn, event: RpcEvent) {
+  const calls = executions.get(turn) ?? restoredExecutions(turn);
+  const item = event.params.item;
+
+  executions.set(turn, calls);
+
+  if (event.method === "thread/activity/updated" && Array.isArray(event.params.activeTools)) {
+    nativeActivity.add(turn);
+    calls.clear();
+
+    for (const entry of event.params.activeTools) {
+      const tool = object(entry);
+
+      calls.set(string(tool.id), string(tool.activity));
+    }
+  } else if (item && item.source !== "pi" && TOOL_ITEMS.has(item.type)) {
+    if (event.method === "item/started") {
+      calls.set(item.id, itemActivity(item) ?? "Calling tools");
+    } else if (event.method === "item/completed") {
+      calls.delete(item.id);
+    }
+  }
+
+  return calls;
+}
+
+/** Track explicit reasoning separately from concurrent tool completion.
+@param turn - Current canonical turn.
+@param event - Native reasoning or assistant lifecycle event.
+*/
+function updateReasoning(turn: Turn, event: RpcEvent) {
+  if (
+    event.method.startsWith("item/reasoning/") ||
+    (event.method === "item/started" && event.params.item?.type === "reasoning")
+  ) {
+    reasoning.add(turn);
+  } else if (
+    event.method === "item/agentMessage/delta" ||
+    (event.method === "item/completed" && event.params.item?.type === "reasoning") ||
+    event.params.item?.type === "agentMessage"
+  ) {
+    reasoning.delete(turn);
+  }
+}
+
+/** Update activity only for the current turn; terminal errors invalidate its executing calls.
 @param state - Canonical mutable parent snapshot.
 @param event - Validated native notification.
 @param turn - Canonical turn resolved for this event.
 */
 export function updateActivity(state: Snapshot, event: RpcEvent, turn: Turn | undefined) {
-  if (state.activeTurnId && turn?.id === state.activeTurnId) {
-    state.activity = eventActivity(event, turn) ?? state.activity;
+  if (turn && event.method === "turn/completed") {
+    executions.delete(turn);
+    nativeActivity.delete(turn);
+    reasoning.delete(turn);
   }
+
+  if (!state.activeTurnId || turn?.id !== state.activeTurnId) {
+    return;
+  }
+
+  const calls = updateExecutions(turn, event);
+
+  if (event.method === "error" && event.params.willRetry !== true) {
+    calls.clear();
+    reasoning.delete(turn);
+    state.activity = "";
+
+    return;
+  }
+
+  // Pi transcript updates describe generated calls and saved results, not execution.
+  if (event.params.item?.source === "pi" || (nativeActivity.has(turn) && event.method !== "thread/activity/updated")) {
+    return;
+  }
+
+  updateReasoning(turn, event);
+
+  state.activity = eventActivity(event, reasoning.has(turn)) ?? state.activity;
 }
 
-/**
-Select current activity from native progress state or the last active-turn item.
+/** Select live calls before reasoning; history reconciliation replaces transient invocation state.
 @param state - Snapshot whose active turn owns the displayed activity.
-@returns Existing activity label, or undefined when no native turn is active.
+@returns Comma-separated active descriptions, current reasoning, or no active status.
 */
 export function currentActivity(state: Snapshot) {
-  return state.activeTurnId
-    ? (state.activity ??
-        state.turns
-          .find((turn) => turn.id === state.activeTurnId)
-          ?.items.map((item) => itemActivity(item))
-          .findLast((label) => label !== undefined) ??
-        "Considering options")
-    : undefined;
+  if (!state.activeTurnId || state.connection === "disconnected") {
+    return;
+  }
+
+  const turn = state.turns.find((entry) => entry.id === state.activeTurnId);
+
+  if (turn?.status !== "inProgress") {
+    return;
+  }
+
+  const calls = executions.get(turn) ?? restoredExecutions(turn);
+
+  return calls.size > 0
+    ? calls
+        .values()
+        .map((label) => activityLabel(label))
+        .toArray()
+        .join(", ")
+    : activityLabel(state.activity ?? "");
 }

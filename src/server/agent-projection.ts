@@ -34,9 +34,10 @@ export function projectAgentTranscript(record: AgentRecord, id: string): AgentTr
     reasoningEffort: record.agent.reasoningEffort,
     turns: record.turns ?? [],
     requests: record.requests ?? [],
-    activeTurnId: isActiveAgent(record.agent)
-      ? record.turns?.findLast((turn) => turn.status === "inProgress")?.id
-      : undefined,
+    activeTurnId:
+      !record.historyError && isActiveAgent(record.agent)
+        ? record.turns?.findLast((turn) => turn.status === "inProgress")?.id
+        : undefined,
   };
   const state = visibleSnapshot(raw, { tools: true });
 

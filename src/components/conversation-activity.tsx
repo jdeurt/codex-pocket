@@ -18,8 +18,8 @@ export function ConversationActivity({
   control?: ReactNode;
   isWorking?: boolean;
 }) {
-  const isThinking = isWorking && state.requests.length === 0;
-  const activity = state.activity ?? "Considering options";
+  const isThinking = isWorking && state.connection === "connected" && state.requests.length === 0;
+  const activity = state.activity ?? "";
   const indicator = isThinking ? (
     <div
       className="activity-indicator"
