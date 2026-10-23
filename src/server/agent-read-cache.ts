@@ -15,7 +15,10 @@ Read and project a lightweight native Codex preview without changing parent-owne
 @param record - Scoped Codex record whose session has been checked by the caller.
 */
 async function refreshPreview(record: AgentRecord) {
-  const value = await agentRead(() => codexPreview(bridge.agentReader(), record.sessionId ?? ""), 1);
+  const value = await agentRead(
+    () => codexPreview(bridge.agentReader(), record.sessionId ?? ""),
+    isActiveAgent(record.agent) ? 1 : 2
+  );
 
   record.agent.preview = value.preview;
 
@@ -144,7 +147,7 @@ Read a lightweight Codex preview or hydrate Claude's saved history.
 */
   private async readPreview(record: AgentRecord, revision: string) {
     if (record.agent.harness === "claude" || !record.sessionId || isAttached(record)) {
-      await this.full(record, false, 1);
+      await this.full(record, false, isActiveAgent(record.agent) ? 1 : 2);
 
       return;
     }
@@ -258,6 +261,7 @@ Retain complete native history while protecting the selected chat from eviction.
 @param record - Scoped agent whose full history is requested.
 @param isImage - Whether the request only needs existing image metadata.
 @param priority - Read-pool priority; zero also selects this transcript.
+@returns Whether saved history was returned while its native refresh is still pending.
 */
   async full(record: AgentRecord, isImage = false, priority = 0) {
     const revision = await this.selectRevision(record, priority);
@@ -276,11 +280,17 @@ Retain complete native history while protecting the selected chat from eviction.
         void pending.catch((error: unknown) => {
           log().warn({ err: error, agent: record.agent.id }, "agents.refresh_failed");
         });
-      } else {
-        await pending;
+
+        this.touchTranscript(record);
+
+        return true;
       }
+
+      await pending;
     }
 
     this.touchTranscript(record);
+
+    return false;
   }
 }

@@ -23,6 +23,7 @@ export interface AgentTranscript {
   agent: AgentEntry;
   state: Snapshot;
   history: "available" | "empty" | "unavailable";
+  isHistoryLoading?: boolean;
   warning?: string;
   updatedAt: number;
 }
@@ -48,6 +49,7 @@ export const agentTranscriptSchema = z.object({
   agent: agentEntrySchema,
   state: snapshotSchema,
   history: z.enum(["available", "empty", "unavailable"]),
+  isHistoryLoading: z.boolean().optional(),
   warning: z.string().optional(),
   updatedAt: z.number(),
 }) satisfies z.ZodType<AgentTranscript>;
