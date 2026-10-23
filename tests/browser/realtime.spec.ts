@@ -314,6 +314,12 @@ test("stop while audio context is suspended releases the acquired microphone", a
   await control.focus();
   await page.keyboard.press("Enter");
   await page.waitForFunction(() => (globalThis as typeof globalThis & { resumeEntered?: boolean }).resumeEntered);
+  // Playback first resumes before permission; this case must stop an acquired stream.
+  await page.waitForFunction(
+    () =>
+      (globalThis as typeof globalThis & { voiceFixtureTrack?: MediaStreamTrack }).voiceFixtureTrack?.readyState ===
+      "live"
+  );
   await page.getByRole("button", { name: "Stop realtime voice" }).click();
   await expect
     .poll(() =>
