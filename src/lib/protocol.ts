@@ -50,6 +50,7 @@ export interface RestartEvent {
 }
 export interface Snapshot {
   connection: "unconfigured" | "connecting" | "connected" | "disconnected";
+  executionBoundary?: string;
   title: string;
   model?: string;
   reasoningEffort?: string | null;
@@ -167,6 +168,7 @@ export const restartEventSchema = z.object({
 export const pendingRequestSchema = rpcEventSchema.extend({ id: z.union([z.string(), z.number()]) });
 export const snapshotSchema: z.ZodType<Snapshot> = z.object({
   connection: z.enum(["unconfigured", "connecting", "connected", "disconnected"]),
+  executionBoundary: z.string().optional(),
   title: z.string(),
   model: z.string().optional(),
   reasoningEffort: z.string().nullable().optional(),

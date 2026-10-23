@@ -92,8 +92,7 @@ export class PiMain {
       thread: this.thread(),
       model: this.modelId(),
       reasoningEffort: this.effort,
-      sandbox: { type: "dangerFullAccess" },
-      approvalPolicy: "never",
+      nativeDelegationProfile: opened.nativeDelegationProfile,
     };
   }
 
@@ -110,6 +109,8 @@ export class PiMain {
   private thread() {
     return {
       id: this.config.threadId,
+      harness: "pi",
+      executionBoundary: "Host process permissions; Pi does not enforce Codex sandbox or approval settings.",
       name: this.state?.name ?? "Pocket",
       turns: this.state?.turns ?? [],
       model: this.modelId(),

@@ -1,18 +1,6 @@
 import { object, string } from "../../lib/protocol";
 import type { ParentPolicy } from "./types";
 
-/** Map a main Pi selection to a compatible native Codex default without leaking another provider's ID.
-@param selection - Qualified Pi catalog selection or a legacy native model ID.
-@returns OpenAI's bare model ID, a legacy ID, or undefined to retain Codex's configured default.
-*/
-export function nativeDelegateModel(selection: string) {
-  if (selection.startsWith("openai/")) {
-    return selection.slice("openai/".length);
-  }
-
-  return selection.includes("/") ? undefined : selection;
-}
-
 /**
 Validate the parent's effective native access policy before allowing it to be inherited.
 @param config - Native effective configuration normalized at the protocol boundary.

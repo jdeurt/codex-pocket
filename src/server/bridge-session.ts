@@ -1,6 +1,6 @@
 import { type Config, readConfig } from "./config";
 import { RpcDiagnosticEvent, RpcDisconnectEvent, RpcNotificationEvent } from "./rpc-events";
-import { type MessageSource, type RpcEvent, type Snapshot, messageSourceSchema } from "../lib/protocol";
+import { type MessageSource, type RpcEvent, type Snapshot, messageSourceSchema, string } from "../lib/protocol";
 import { applyBridgeEvent, refreshSnapshotSchedules } from "./bridge-events";
 import { BridgeOutbox } from "./bridge-outbox";
 import { BridgeSnapshots } from "./bridge-snapshots";
@@ -155,6 +155,7 @@ export class Bridge {
     const { thread } = resumed;
 
     this.snapshot.model = resumed.model;
+    this.snapshot.executionBoundary = string(thread.executionBoundary) || undefined;
     this.snapshot.reasoningEffort = resumed.reasoningEffort;
     this.snapshot.title = thread.name?.length ? thread.name : "Pocket";
     this.snapshot.turns = await loadHistory(rpc, thread);

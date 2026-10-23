@@ -56,7 +56,7 @@ async function prompt(events: RpcEvent[], run: PiMain, text: string) {
   }
 }
 
-/** Verify tool execution, exact restored context, catalog validation and fail-closed provider setup.
+/** Verify tool execution, exact restored context, catalog validation and provider setup and execution-boundary reporting.
 @param root - Private working directory.
 @param main - Production Pi session owner.
 @param create - Resource-tracked session constructor.
@@ -121,23 +121,34 @@ async function verifyPi(
   );
 
   await assert.rejects(rejected.request("thread/resume", {}), /API key/);
+  await resumed.close();
   const restricted = new PiMain(
     config,
     native,
     () => {
       /*
-        No provider run starts on rejected access.
-        */
+      No inference is started.
+      */
     },
     () => Promise.resolve("unused-placeholder"),
     () => {
       /*
-        No provider run starts on rejected access.
-        */
+      No provider errors are expected.
+      */
     }
   );
 
-  await assert.rejects(restricted.request("thread/resume", {}), /cannot enforce/);
+  try {
+    const inspection = object(await restricted.request("thread/resume", {}));
+    const profile = object(inspection.nativeDelegationProfile);
+
+    assert.equal(profile.sandbox, "workspace-write");
+    assert.match(String(object(inspection.thread).executionBoundary), /Host process permissions/);
+    assert.equal(inspection.sandbox, undefined);
+  } finally {
+    await restricted.close();
+  }
+
   assert.deepEqual(errors, []);
   assert.ok(object(history).thread);
 }
@@ -208,7 +219,7 @@ async function piFlow(root: string) {
 }
 
 await test(
-  "Pi main executes native tools, restores source history and rejects unsupported access profiles",
+  "Pi main executes native tools, restores source history and reports the host execution boundary independently of Codex profiles",
   {
     timeout: FLOW_TIMEOUT_MS,
   },

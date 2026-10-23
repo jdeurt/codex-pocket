@@ -10,7 +10,7 @@ You need `git`, `curl`, internet access, and a Codex account. The public reposit
 curl -fsSL https://raw.githubusercontent.com/jdeurt/codex-pocket/main/install.sh | bash
 ```
 
-The installer downloads and checksums a private Node.js 24 runtime. It finds a local Codex executable, including one bundled with the Codex app, or installs Codex privately. It guides first-time sign-in and asks for a working folder, an optional phone HTTPS address, and permissions. The default working folder is `~/.pocket/workspace`; choose a project directory if you want the agent to work there.
+The installer downloads and checksums a private Node.js 24 runtime. It finds a local Codex executable, including one bundled with the Codex app, or installs Codex privately. It guides first-time sign-in and asks for a working folder, an optional phone HTTPS address, and native Codex permissions. The Pi main session uses host process permissions, independently of Codex sandbox settings; add its OpenAI key through Pocket Settings. The default working folder is `~/.pocket/workspace`; choose a project directory if you want the agent to work there.
 
 First setup creates a saved conversation and makes a short model call to confirm it works. Updates reuse the saved conversation. Setup writes private settings without changing your global Codex configuration or importing another Pocket checkout's data.
 
