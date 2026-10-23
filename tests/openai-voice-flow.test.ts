@@ -1,8 +1,20 @@
 /* eslint-disable @typescript-eslint/no-magic-numbers -- Business-flow assertions use provider PCM dimensions and exact delivery counts. */
+import { type Data } from "../src/lib/protocol";
 import { OpenAIVoiceSession } from "../src/server/openai-voice-session";
 import { openAIVoiceFixture, until } from "./fixtures/openai-voice";
 import assert from "node:assert/strict";
 import test from "node:test";
+
+/** Build the provider's completed response envelope instead of executing argument-stream events.
+@param calls - Function-call items confirmed by the provider.
+@returns Completed response event carrying its final function-call output.
+*/
+function completed(...calls: Data[]) {
+  return {
+    type: "response.done",
+    response: { status: "completed", output: calls.map((call) => ({ ...call, type: "function_call" })) },
+  };
+}
 
 void test("OpenAI voice preserves finalized speech, XML and handoff identity through text mode and reload", async () => {
   const flow = await openAIVoiceFixture();
@@ -33,6 +45,7 @@ void test("OpenAI voice preserves finalized speech, XML and handoff identity thr
 
     flow.emit(handoff);
     flow.emit({ ...handoff, call_id: "call-duplicate" });
+    flow.emit(completed(handoff, { ...handoff, call_id: "call-duplicate" }));
     flow.emit({
       type: "response.output_audio_transcript.done",
       item_id: "reply-1",
@@ -87,12 +100,14 @@ void test("OpenAI voice rejects generated rewrites and stale handoffs without ex
       transcript: "Fix interruptions.",
     });
     await until(() => flow.frames.some((event) => event.type === "response.create"));
-    flow.emit({
-      type: "response.function_call_arguments.done",
-      name: "handoff_to_pocket",
-      call_id: "bad-call",
-      arguments: JSON.stringify({ item_id: "speech-1", instructions: "Investigate CI and long history instead." }),
-    });
+    flow.emit(
+      completed({
+        type: "response.function_call_arguments.done",
+        name: "handoff_to_pocket",
+        call_id: "bad-call",
+        arguments: JSON.stringify({ item_id: "speech-1", instructions: "Investigate CI and long history instead." }),
+      })
+    );
     await until(() => flow.voice.status().type === "idle");
     assert.equal(flow.handoffs.length, 0);
     const saved = await flow.voice.transcripts();
@@ -106,12 +121,14 @@ void test("OpenAI voice rejects generated rewrites and stale handoffs without ex
       transcript: "Fix switching.",
     });
     await until(() => flow.events.some((event) => event.type === "transcriptDone" && event.itemId === "speech-2"));
-    flow.emit({
-      type: "response.function_call_arguments.done",
-      name: "handoff_to_pocket",
-      call_id: "stale-call",
-      arguments: JSON.stringify({ item_id: "speech-1" }),
-    });
+    flow.emit(
+      completed({
+        type: "response.function_call_arguments.done",
+        name: "handoff_to_pocket",
+        call_id: "stale-call",
+        arguments: JSON.stringify({ item_id: "speech-1" }),
+      })
+    );
     await until(() => flow.voice.status().type === "idle");
     assert.equal(flow.handoffs.length, 0);
     assert.match(String(flow.voice.status().error), /latest finalized speech/);
@@ -192,12 +209,14 @@ void test("OpenAI voice keeps Settings failures private and never retries uncert
       transcript: "Check voice switching.",
     });
     await until(() => flow.frames.some((event) => event.type === "response.create"));
-    flow.emit({
-      type: "response.function_call_arguments.done",
-      name: "handoff_to_pocket",
-      call_id: "uncertain-call",
-      arguments: JSON.stringify({ item_id: "speech-uncertain" }),
-    });
+    flow.emit(
+      completed({
+        type: "response.function_call_arguments.done",
+        name: "handoff_to_pocket",
+        call_id: "uncertain-call",
+        arguments: JSON.stringify({ item_id: "speech-uncertain" }),
+      })
+    );
     await until(() => uncertain.status().type === "idle");
     const reloaded = new OpenAIVoiceSession(flow.owner);
     const saved = await reloaded.transcripts();
@@ -207,6 +226,55 @@ void test("OpenAI voice keeps Settings failures private and never retries uncert
     assert.equal(flow.handoffs.length, 0);
   } finally {
     uncertain.disconnect("Fixture finished.");
+    await flow.close();
+  }
+});
+
+void test("OpenAI voice interruption cannot execute a cancelled function response", async () => {
+  const flow = await openAIVoiceFixture();
+
+  try {
+    const started = await flow.voice.start(flow.endpoint);
+
+    flow.emit({
+      type: "conversation.item.input_audio_transcription.completed",
+      item_id: "cancelled-speech",
+      transcript: "An interrupted request.",
+    });
+    await until(() => flow.frames.some((event) => event.type === "response.create"));
+    const call = {
+      type: "response.function_call_arguments.done",
+      name: "handoff_to_pocket",
+      call_id: "cancelled-call",
+      arguments: JSON.stringify({ item_id: "cancelled-speech" }),
+    };
+    const response = completed(call);
+
+    response.response.status = "cancelled";
+    flow.emit(call);
+    flow.emit(response);
+    flow.emit({
+      type: "conversation.item.input_audio_transcription.completed",
+      item_id: "corrected-speech",
+      transcript: "Keep this corrected spoken intent.",
+    });
+    await until(() => flow.frames.filter((event) => event.type === "response.create").length === 2);
+    assert.equal(flow.handoffs.length, 0);
+    flow.emit(
+      completed({
+        name: "handoff_to_pocket",
+        call_id: "corrected-call",
+        arguments: JSON.stringify({ item_id: "corrected-speech" }),
+      })
+    );
+    await until(() => flow.handoffs.length === 1);
+    assert.equal(flow.handoffs[0].transcript, "Keep this corrected spoken intent.");
+    await flow.voice.stop(started.token);
+    const saved = await flow.voice.transcripts();
+
+    assert.equal(saved[0].handoff, undefined);
+    assert.equal(saved[1].handoff, "sent");
+  } finally {
     await flow.close();
   }
 });

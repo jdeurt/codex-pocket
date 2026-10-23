@@ -8,7 +8,7 @@ The browser sends bounded PCM16 mono audio at 24 kHz to its selected Pocket. `Op
 
 `OpenAIVoiceSession` stores finalized speech in private host storage before displaying it or permitting a handoff. Entries include the exact transcript, provider item ID, session ID, role, and optional delivery status. Audio is not persisted or logged. Stable entry IDs prevent duplicate display when events repeat or history reloads.
 
-The voice model can call only `handoff_to_pocket({ item_id })`. The server resolves that ID against the latest finalized user speech in the current session. Missing speech, stale item IDs, extra instructions, and changed final transcripts fail closed. The main session receives the saved transcript unchanged through `Bridge.handoff`, with receipt ID `realtime:<sessionId>:<itemId>` and explicit source metadata. Generated tool instructions do not become user messages.
+The voice model can call only `handoff_to_pocket({ item_id })`. Handoffs run only after `response.done` confirms a completed response; streamed function arguments from cancelled or incomplete responses cannot execute work. The server resolves that ID against the latest finalized user speech in the current session. Missing speech, stale item IDs, extra instructions, and changed final transcripts fail closed. The main session receives the saved transcript unchanged through `Bridge.handoff`, with receipt ID `realtime:<sessionId>:<itemId>` and explicit source metadata. Generated tool instructions do not become user messages.
 
 The handoff ledger records an attempt before dispatch, and the main outbox verifies the receipt's content and source on retries. Duplicate tool calls reuse the existing result. Interrupted delivery becomes uncertain after reload and is never replayed automatically. The browser uses canonical receipt identity (`id` for Pi and `clientId` for Codex) to omit a duplicate voice copy once the main conversation or queue owns visible user text. An empty canonical item does not hide finalized speech while its text is still hydrating. It does not infer provenance from XML text. Intentionally pasted XML stays visible; historical native messages without provenance are not silently reclassified by their contents.
 
@@ -22,7 +22,7 @@ Settings dependency: `f09c33e` on `codex/jua-68-settings-credentials`.
 - `readPocketSettings()` exposes nullable `realtimeVoice` and `realtimeModel` overrides. Null selects Voice's provider defaults, `marin` and `gpt-realtime-2.1`.
 - `updatePocketSettings()` owns partial preference updates. The previous per-thread realtime preference files are no longer read or written.
 
-Harness dependency: `186f827` on `codex/jua-67-jua-71-pi-context`, including the agreed source-aware handoff interface.
+Harness dependency: `05df03e` on `codex/jua-67-jua-71-pi-context`, including the agreed source-aware handoff interface.
 
 ```ts
 Bridge.handoff({
@@ -32,7 +32,7 @@ Bridge.handoff({
 }): Promise<{ id: string; status: string }>
 ```
 
-`handoff` shares the durable receipt path with `send`. Voice validates returned delivery statuses, preserves uncertain outcomes, and leaves main-runtime ownership with the harness workstream. Both dependency histories are integrated into this branch. The Pi runtime is inherited unchanged from the harness workstream; voice commits implement the provider connection, history, and handoff consumer.
+`handoff` shares the durable receipt path with `send`. The main agent can read saved finalized speech through `pocket_realtime_inspect` when a request refers to earlier spoken context. Voice validates returned delivery statuses, preserves uncertain outcomes, and leaves main-runtime ownership with the harness workstream. Both dependency histories are integrated into this branch. The Pi runtime is inherited unchanged from the harness workstream; voice commits implement the provider connection, history, and handoff consumer.
 
 ## Verification
 

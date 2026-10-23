@@ -202,22 +202,8 @@ test("ordinary tap sends while hold, swipe and cancelled drag have distinct outc
 });
 
 test("event stream failure stops the microphone and allows a fresh realtime session", async ({ page }) => {
+  await observeMicrophone(page, "voiceFixtureTrack");
   await openChat(page);
-  await page.evaluate(() => {
-    const original = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
-
-    Object.defineProperty(navigator.mediaDevices, "getUserMedia", {
-      configurable: true,
-      value: async (constraints: MediaStreamConstraints) => {
-        const stream = await original(constraints);
-
-        (globalThis as typeof globalThis & { voiceFixtureTrack?: MediaStreamTrack }).voiceFixtureTrack =
-          stream.getAudioTracks()[0];
-
-        return stream;
-      },
-    });
-  });
   const beforeStop = await countNativeStops();
 
   await page.route("**/api/realtime/events", (route) => route.abort("failed"));
@@ -243,24 +229,30 @@ test("event stream failure stops the microphone and allows a fresh realtime sess
 });
 
 test("stop during pending microphone permission leaves no recording or native session", async ({ page }) => {
-  await openChat(page);
-  await page.evaluate(() => {
-    const original = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
-
-    navigator.mediaDevices.getUserMedia = async (constraints) => {
-      const stream = await original(constraints);
-
-      (
-        globalThis as typeof globalThis & { voiceFixtureTrack?: MediaStreamTrack; releaseVoiceMic?: () => void }
-      ).voiceFixtureTrack = stream.getAudioTracks()[0];
-
-      return new Promise<MediaStream>((resolve) => {
-        (globalThis as typeof globalThis & { releaseVoiceMic?: () => void }).releaseVoiceMic = () => {
-          resolve(stream);
-        };
-      });
+  await page.addInitScript(() => {
+    const context = new AudioContext();
+    const stream = context.createMediaStreamDestination().stream;
+    const fixture = globalThis as typeof globalThis & {
+      voiceFixtureTrack?: MediaStreamTrack;
+      releaseVoiceMic?: () => void;
+      permissionFixtureContext?: AudioContext;
     };
+
+    fixture.permissionFixtureContext = context;
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: {
+        getUserMedia: () =>
+          new Promise<MediaStream>((resolve) => {
+            fixture.voiceFixtureTrack = stream.getAudioTracks()[0];
+            fixture.releaseVoiceMic = () => {
+              resolve(stream);
+            };
+          }),
+      },
+    });
   });
+  await openChat(page);
   const nativeOutput = await readFile(nativeLog, "utf8");
   const startsBefore = nativeOutput
     .split("\n")
@@ -286,6 +278,11 @@ test("stop during pending microphone permission leaves no recording or native se
   const startsAfter = after.split("\n").filter((line) => line.includes('"method":"provider/realtime/start"')).length;
 
   expect(startsAfter).toBe(startsBefore);
+  await page.evaluate(() => {
+    void (
+      globalThis as typeof globalThis & { permissionFixtureContext?: AudioContext }
+    ).permissionFixtureContext?.close();
+  });
 });
 
 test("stop while audio context is suspended releases the acquired microphone", async ({ page }) => {

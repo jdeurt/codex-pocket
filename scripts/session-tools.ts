@@ -22,7 +22,7 @@ export function registerSessionTools(server: McpServer) {
     "pocket_realtime_inspect",
     {
       description:
-        "Read this main Pocket's current realtime selection and actual v2 voice list. The runtime does not expose a model catalog.",
+        "Read OpenAI realtime voices, central next-session settings, and saved finalized speech with handoff status. Consult this history when a voice request refers to earlier spoken context.",
       inputSchema: z.object({}).strict(),
     },
     () => toolResult(() => callRealtime())
@@ -31,7 +31,7 @@ export function registerSessionTools(server: McpServer) {
     "pocket_realtime_voice",
     {
       description:
-        "Select an available realtime voice for this main Pocket's next voice session. Active speech is unchanged.",
+        "Set the central OpenAI voice for future voice sessions. Inspect available voices first. Active speech is unchanged.",
       inputSchema: z.object({ voice: z.string().min(1) }).strict(),
     },
     ({ voice }) => toolResult(() => callRealtime({ voice }))
@@ -40,7 +40,7 @@ export function registerSessionTools(server: McpServer) {
     "pocket_realtime_model",
     {
       description:
-        "Select a realtime model override for this main Pocket's next voice session. The runtime has no model catalog; the next native start validates availability. Pass null to clear an override and use the configured default. Active speech is unchanged.",
+        "Set the central OpenAI Realtime model override for future voice sessions. OpenAI validates availability when a session starts. Pass null to restore the provider default. Active speech is unchanged.",
       inputSchema: z.object({ model: z.string().trim().min(1).nullable() }).strict(),
     },
     ({ model }) => toolResult(() => callRealtime({ model }))

@@ -6,7 +6,7 @@ import { type VoiceSessionOwner, readVoiceConfiguration } from "./voice-session-
 
 import { VoiceHistory } from "./voice-history";
 import { parseOutputAudio } from "./realtime-schema";
-import { VoiceSessionStop, handoffVoice } from "./voice-handoff";
+import { VoiceSessionStop, completedHandoffs, handoffVoice } from "./voice-handoff";
 
 /**
 Connect OpenAI speech to durable, verbatim main-session handoffs without depending on a harness transport.
@@ -176,12 +176,11 @@ export class OpenAIVoiceSession extends EventTarget {
         break;
       }
 
-      case "response.function_call_arguments.done": {
-        await this.handoff(event, sessionId);
-        break;
-      }
-
       case "response.done": {
+        for (const call of completedHandoffs(event)) {
+          await this.handoff(call, sessionId);
+        }
+
         this.responding = false;
         this.respond();
         break;

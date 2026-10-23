@@ -131,6 +131,8 @@ export async function realtimeProvider() {
         }
 
         case "response.create": {
+          const output: Data[] = [];
+
           if (options.handoff || options.backendToolUntilSteer) {
             const handoff = {
               type: "response.function_call_arguments.done",
@@ -140,9 +142,11 @@ export async function realtimeProvider() {
             };
 
             emit(handoff);
+            output.push({ ...handoff, type: "function_call" });
 
             if (options.duplicateHandoff) {
               emit({ ...handoff, call_id: `${sessionId}-duplicate` });
+              output.push({ ...handoff, type: "function_call", call_id: `${sessionId}-duplicate` });
             }
           } else {
             for (let index = 0; index < (options.burstChunks ?? 1); index++) {
@@ -156,7 +160,7 @@ export async function realtimeProvider() {
             emit({ type: "response.output_audio_transcript.done", item_id: `${sessionId}-reply`, transcript: "Hello" });
           }
 
-          emit({ type: "response.done" });
+          emit({ type: "response.done", response: { status: "completed", output } });
           break;
         }
         // No default

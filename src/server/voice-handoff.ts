@@ -1,10 +1,33 @@
-import { type Data, string } from "../lib/protocol";
+import { type Data, object, string } from "../lib/protocol";
 import type { VoiceHistory } from "./voice-history";
 import type { VoiceSessionOwner } from "./voice-session-owner";
 import { z } from "zod";
 
 const handoffArguments = z.object({ item_id: z.string().min(1) }).strict();
 const deliveryStatus = z.enum(["queued", "sent", "unknown", "sending"]);
+
+/**
+Select function calls only after the provider confirms that the response completed.
+@param event - Provider response completion; argument-done events can also belong to cancelled responses.
+@returns Completed function calls, excluding interrupted and incomplete responses.
+*/
+export function completedHandoffs(event: Data) {
+  const response = object(event.response);
+
+  if (response.status === "failed" || response.status === "incomplete") {
+    throw new Error("OpenAI voice response did not complete. No handoff was sent.");
+  }
+
+  if (response.status !== "completed" || !Array.isArray(response.output)) {
+    return [];
+  }
+
+  return response.output.flatMap((entry) => {
+    const item = object(entry);
+
+    return item.type === "function_call" ? [item] : [];
+  });
+}
 
 /**
 Resolve a tool call against finalized speech and durably record the attempt before dispatch.
