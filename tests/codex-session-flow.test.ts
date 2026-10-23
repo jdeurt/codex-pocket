@@ -67,6 +67,7 @@ async function continueAdopted(adapter: CodexAdapter, child: SidePocket, core: s
 
   assert.deepEqual(updated.slice(0, history.length), history);
   assert.equal(updated.at(LAST_USER_MESSAGE)?.text, "Continue original work");
+  assert.deepEqual(await adapter.run("silent-command", "silent"), { status: "completed", text: "" });
 }
 
 /**

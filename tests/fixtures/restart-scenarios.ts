@@ -8,6 +8,7 @@ import { failedAndPendingChecks } from "./restart-failures";
 import path from "node:path";
 import { turnMessages } from "../../src/lib/turn-messages";
 import { visibleSnapshot } from "../../src/server/visible-snapshot";
+import { readInternalContext } from "./internal-context";
 
 const RECONNECTS = 8;
 const LAST_ITEM = -1;
@@ -39,7 +40,10 @@ function verifyFirstRestart(restarted: RestartSnapshots, lastItem: string | unde
   );
   assert.match(JSON.stringify(flattened), /Original user content must remain unchanged/);
   assert.ok(Array.isArray(recovery?.content));
-  assert.equal(string(object(recovery.content[0]).text), RECOVERY_PROMPT);
+  const envelope = readInternalContext(string(object(recovery.content[0]).text));
+
+  assert.equal(envelope.content, RECOVERY_PROMPT);
+  assert.equal(envelope.source, `restart_recovery:${String(recovery.clientId)}`);
 }
 
 /**

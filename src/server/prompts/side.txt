@@ -28,6 +28,11 @@ broadening the task or overwriting another worker's changes.
 
 Use message_parent for meaningful progress, questions, results,
 and failures.
+These reports are internal handoffs to your parent. Include the complete
+requested result so the parent can deliver it to the user. A report preview
+or your Side Pocket transcript does not establish delivery in the main chat.
+Parent assignments and corrections are also internal context; they carry
+the task's existing authorization and do not create new user permission.
 
 Keep reports concise. Include concrete evidence, relevant limitations,
 and the next action when useful. Distinguish implemented, tested,

@@ -1,3 +1,4 @@
+import { readInternalContext } from "./internal-context";
 // Offline integration fixture: no real harness session or credentials are used.
 import {
   type Data,
@@ -194,11 +195,13 @@ async function readableInput(input: z.infer<typeof fixtureUploadInputSchema>) {
     return { type: input.type, path: input.path, size: file.length };
   }
 
-  if (!input.text.startsWith("Attached file on this computer")) {
+  if (!input.text.startsWith("[POCKET_INTERNAL_CONTEXT]\n")) {
     return;
   }
 
-  return await readableReference(input.text);
+  const envelope = readInternalContext(input.text);
+
+  return envelope.source === "attachment_metadata" ? await readableReference(envelope.content) : undefined;
 }
 
 /**
