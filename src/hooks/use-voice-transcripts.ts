@@ -4,6 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { dataSchema } from "@/lib/protocol";
 import { pocketUrl } from "@/lib/pockets";
 
+const HISTORY_TIMEOUT_MS = 10_000;
+
 /**
 Restore finalized speech after reload and upsert provider events by their stable provenance.
 @param threadId - Connected conversation identity; absent during setup or disconnection.
@@ -22,7 +24,7 @@ export function useVoiceTranscripts(threadId?: string) {
     }
 
     const attempt = generation.current;
-    const response = await fetch(url.current, { cache: "no-store" });
+    const response = await fetch(url.current, { cache: "no-store", signal: AbortSignal.timeout(HISTORY_TIMEOUT_MS) });
 
     if (!response.ok) {
       throw new Error("Voice history could not load. Reconnect Pocket and try again.");
