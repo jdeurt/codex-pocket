@@ -1,9 +1,10 @@
 import { expect, test } from "@playwright/test";
 import { type AgentEntry } from "../../src/lib/agents";
-import { initialSnapshot } from "../../src/lib/protocol";
+import { type Snapshot, initialSnapshot } from "../../src/lib/protocol";
 import { mount } from "./virtualization-fixture";
 
 const REPORT_GAP = 8;
+const HIT_TARGET = 44;
 const MESSAGE_GAP = 16;
 const TOLERANCE = 1;
 
@@ -23,8 +24,14 @@ const agent: AgentEntry = {
 test("original delegate reports open read-only history and retain questions, draft and focus", async ({
   page,
 }, info) => {
-  const report = { id: "report", agentId: agent.id, text: original, status: "completed" as const };
-  const state = {
+  const report = {
+    id: "report",
+    agentId: agent.id,
+    text: original,
+    status: "completed" as const,
+    final: { commandId: "child-command", outcome: "completed" as const },
+  };
+  const state: Snapshot = {
     ...initialSnapshot,
     connection: "connected" as const,
     threadId: "parent",
@@ -34,6 +41,11 @@ test("original delegate reports open read-only history and retain questions, dra
         status: "completed",
         items: [
           { id: "ordinary", type: "agentMessage", text: "Ordinary assistant text" },
+          {
+            id: "interim",
+            type: "delegateReport",
+            delegateReport: { id: "interim", agentId: agent.id, text: "Interim work update", status: "completed" },
+          },
           { id: "report", type: "delegateReport", delegateReport: report },
           { id: "following", type: "agentMessage", text: "Following assistant text" },
         ],
@@ -64,6 +76,8 @@ test("original delegate reports open read-only history and retain questions, dra
     };
   });
 
+  await expect(page.locator("[data-interim-report-id=interim]")).toHaveText("Interim work update");
+  await expect(page.locator("[data-report-id=interim]")).toHaveCount(0);
   await expect(button).toHaveAttribute("aria-expanded", "false");
   await expect(page.locator(".delegate-report-details")).toHaveCount(0);
   expect(Math.abs((geometry.textHeight ?? 0) - geometry.lineHeight)).toBeLessThan(TOLERANCE);
@@ -100,9 +114,20 @@ test("original delegate reports open read-only history and retain questions, dra
   await button.click();
   await expect(button).toHaveAttribute("aria-expanded", "true");
   await expect(page.locator(".delegate-report-details > div")).toHaveText(original.trimEnd());
-  await button.click();
+  await expect(page.locator('[data-slot="collapsible-content"]')).toHaveCSS("transition-duration", "0.2s");
+  await page.locator(".delegate-report-details > div").click();
   await expect(button).toHaveAttribute("aria-expanded", "false");
   await button.click();
+  const alignment = await open.evaluate((element) => ({
+    left: element.getBoundingClientRect().left,
+    icon: element.querySelector("svg")?.getBoundingClientRect().left,
+    text: element.parentElement?.getBoundingClientRect().left,
+    height: element.getBoundingClientRect().height,
+  }));
+
+  expect(alignment.icon).toBe(alignment.text);
+  expect(alignment.left).toBe(alignment.text);
+  expect(alignment.height).toBeGreaterThanOrEqual(HIT_TARGET);
   await open.click();
   await expect(page.getByRole("dialog", { name: "Agents", exact: true })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Side Pocket", exact: true })).toBeVisible();

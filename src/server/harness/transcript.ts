@@ -1,6 +1,7 @@
 import { type Data, type Item, type Turn, object, string } from "../../lib/protocol";
 import { type HarnessMessage } from "./types";
 import { type SessionMessage } from "@anthropic-ai/claude-agent-sdk";
+import { claudeToolPreview } from "../tool-preview";
 
 export type ClaudeMessage = SessionMessage;
 
@@ -90,6 +91,7 @@ function appendPart(context: MessageContext, part: Data, index: number) {
         nativeId: string(part.id),
         title: string(object(part.input).description) || string(object(part.input).name),
         tool: string(part.name),
+        toolLabels: claudeToolPreview(string(part.name), object(part.input)),
         status: "running",
         text: "",
       };

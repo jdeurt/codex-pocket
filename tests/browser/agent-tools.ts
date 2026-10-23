@@ -6,14 +6,23 @@ const expected = [
   {
     suffix: "mcp-text",
     tool: "Replay MCP result",
+    label: "Replay mcp result",
     status: "completed",
     text: "REPLAY_MCP_TEXT\nREPLAY_MCP_RESOURCE",
     image: true,
   },
-  { suffix: "mcp-error", tool: "Replay MCP failure", status: "failed", text: "REPLAY_MCP_ERROR", image: false },
+  {
+    suffix: "mcp-error",
+    tool: "Replay MCP failure",
+    label: "Replay mcp failure",
+    status: "failed",
+    text: "REPLAY_MCP_ERROR",
+    image: false,
+  },
   {
     suffix: "dynamic-text",
     tool: "Replay dynamic result",
+    label: "Replay dynamic result",
     status: "completed",
     text: "REPLAY_DYNAMIC_TEXT",
     image: true,
@@ -21,12 +30,14 @@ const expected = [
   {
     suffix: "dynamic-error",
     tool: "Replay dynamic failure",
+    label: "Replay dynamic failure",
     status: "failed",
     text: "REPLAY_DYNAMIC_ERROR",
     image: false,
   },
 ];
 const session = "tool-codex";
+const NAME_FORMAT_COUNT = 3;
 
 /**
 Checks native saved tool results through scoped GET routes and shared read-only traces.
@@ -88,10 +99,11 @@ export async function checkAgentTools(page: Page, request: APIRequestContext) {
   await mkdir(".local/agent-browser-screenshots", { recursive: true });
 
   for (const output of expected) {
-    const trace = chat.locator('[data-slot="trace"]').filter({ hasText: output.tool });
-    const trigger = trace.getByRole("button", { name: new RegExp(output.tool) });
+    const trace = chat.locator('[data-slot="trace"]').filter({ hasText: output.label });
+    const trigger = trace.getByRole("button", { name: new RegExp(output.label) });
 
-    await expect(trigger).toContainText(output.status === "failed" ? "Failed" : "Completed");
+    await expect(trigger).toHaveText(`${output.status === "failed" ? "Failed: " : ""}${output.label}`);
+    await expect(trigger.locator('[data-slot="trace-line"] > svg')).toHaveCount(output.status === "failed" ? 1 : 0);
     await trigger.click();
     await expect(trace.locator(".tool-output")).toHaveText(output.text);
     await expect(trace.locator(".tool-output")).toBeInViewport({ ratio: 1 });
@@ -107,11 +119,37 @@ export async function checkAgentTools(page: Page, request: APIRequestContext) {
       animations: "disabled",
       path: `.local/agent-browser-screenshots/tool-${output.suffix}.png`,
     });
-    await trigger.click();
+    await trace.locator(".tool-output").click();
+    await expect(trigger).toHaveAttribute("aria-expanded", "false");
   }
 
+  const labels = [
+    "Executed pwd",
+    "Executed npm run build --verbose",
+    "Executed echo abcdefghijklmnop",
+    "Executed 123456789012345",
+    "Executed abcdefghijklmnopqrstuvwxyz",
+    "Edited src/edited.ts",
+    "Created src/created.ts",
+    "Deleted src/deleted.ts",
+    "Message parent",
+    "Send http request",
+  ];
+
+  for (const label of labels) {
+    await expect(chat.getByText(label, { exact: true }).first()).toBeVisible();
+  }
+
+  await expect(chat.getByText("Message parent", { exact: true })).toHaveCount(NAME_FORMAT_COUNT);
+  const overflow = await chat.evaluate((element) => element.scrollWidth - element.clientWidth);
+
+  expect(overflow).toBeLessThanOrEqual(1);
   await expect(dialog.getByRole("textbox")).toHaveCount(0);
-  await expect(dialog.getByRole("button", { name: /Send|Approve|Decline|Resume|Interrupt/i })).toHaveCount(0);
+  await expect(
+    dialog
+      .getByRole("button", { name: /Send|Approve|Decline|Resume|Interrupt/i })
+      .and(dialog.locator(':not([data-slot="trace-collapsible-trigger"])'))
+  ).toHaveCount(0);
   await dialog.getByRole("button", { name: "Back to agents", exact: true }).click();
   await dialog.getByRole("button", { name: "Back to Pocket", exact: true }).click();
   await expect(draft).toHaveValue("Keep the parent tool replay draft");

@@ -57,7 +57,7 @@ export function projectAgentTranscript(record: AgentRecord, id: string): AgentTr
           .filter((part) => object(part).type === "text")
           .map((part) => ({ type: "text", text: string(object(part).text) })),
       }),
-      ...(item.type === "toolTrace" && { tool: item.tool, status: item.status }),
+      ...(item.type === "toolTrace" && { tool: item.tool, toolLabels: item.toolLabels, status: item.status }),
       ...(Array.isArray(item.images) && {
         images: item.images.map((_, index) => ({
           alt: "Image from Pocket",

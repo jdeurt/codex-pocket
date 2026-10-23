@@ -1,4 +1,5 @@
 import { type Item, object, string } from "../lib/protocol";
+import { toolPreview } from "./tool-preview";
 
 const names = new Map(
   Object.entries({
@@ -75,6 +76,7 @@ export function toolTrace(item: Item): Item | undefined {
     id: item.id,
     type: "toolTrace",
     tool: string(item.tool) || label,
+    toolLabels: toolPreview(item),
     status: string(item.status),
     text: nativeToolText(item) || string(item.text) || string(item.aggregatedOutput),
   };

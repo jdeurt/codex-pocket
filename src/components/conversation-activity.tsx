@@ -28,6 +28,6 @@ export function ConversationActivity({ state, control }: { state: Snapshot; cont
   return control ? (
     <ActivityIndicatorContext.Provider value={indicator}>{control}</ActivityIndicatorContext.Provider>
   ) : (
-    isThinking && <ActivityRow>{indicator}</ActivityRow>
+    <ActivityRow>{indicator}</ActivityRow>
   );
 }

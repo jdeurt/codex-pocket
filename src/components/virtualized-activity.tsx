@@ -13,6 +13,7 @@ import {
 import { type VirtualItem, elementScroll } from "@tanstack/react-virtual";
 import { ChatMessage } from "./chat-message";
 import { useTranscriptVirtualizer } from "@/hooks/use-transcript-virtualizer";
+import { collapseDetail } from "@/lib/disclosure-click";
 
 export type ActivityMeasurements = Map<string, VirtualItem[]>;
 
@@ -172,7 +173,12 @@ export function VirtualizedActivity({
             <TraceTitle>{open ? "Hide activity" : "Show activity"}</TraceTitle>
           </TraceLine>
         </TraceCollapsibleTrigger>
-        <TraceCollapsibleContent variant="messages">
+        <TraceCollapsibleContent
+          variant="messages"
+          onClick={(event) => {
+            collapseDetail(event, onOpenChange);
+          }}
+        >
           <div className="activity-messages">
             <ActivityMessages
               id={id}

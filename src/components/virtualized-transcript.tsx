@@ -135,7 +135,7 @@ function MeasuredTranscript({
   const rangeExtractor = useCallback((range: Range) => transcriptRange(rows, expanded, range), [rows, expanded]);
 
   // Keep the ordinary content row mounted so pending answer drafts survive recycling.
-  const footerKey = `footer:${rows.at(LAST_ITEM)?.id ?? "empty"}`;
+  const footerKey = "transcript-footer";
   const getItemKey = useCallback(
     (index: number) => (index === rows.length ? footerKey : rows[index].id),
     [rows, footerKey]

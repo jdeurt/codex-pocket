@@ -147,16 +147,10 @@ function TraceCollapsibleContent({
   className,
   children,
   variant = "default",
-  style,
   ...props
 }: React.ComponentProps<typeof CollapsibleContent> & { variant?: "default" | "messages" }) {
   return (
-    <CollapsibleContent
-      data-slot="trace-collapsible-content"
-      className="h-(--collapsible-panel-height) min-w-0 overflow-hidden transition-[height] motion-reduce:transition-none data-ending-style:h-0 data-starting-style:h-0"
-      style={(state) => ({ ...ACTIVITY_TRANSITION, ...(typeof style === "function" ? style(state) : style) })}
-      {...props}
-    >
+    <CollapsibleContent data-slot="trace-collapsible-content" {...props}>
       <div
         data-slot="trace-collapsible-content-inner"
         className={cn(

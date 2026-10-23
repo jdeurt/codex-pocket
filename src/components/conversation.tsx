@@ -96,6 +96,7 @@ export function Conversation({
   footer,
   suspended = false,
   realtimeSegments = [],
+  showTools = readOnly,
 }: {
   state: Snapshot;
   readOnly?: boolean;
@@ -104,6 +105,7 @@ export function Conversation({
   showActivity?: boolean;
   footer?: ReactNode;
   suspended?: boolean;
+  showTools?: boolean;
   realtimeSegments?: VoiceSegment[];
 }) {
   const projectedVoice = new Set([
@@ -116,7 +118,20 @@ export function Conversation({
   ]);
   const messages = state.turns.flatMap((turn) => {
     const entries = turnMessages(
-      readOnly ? { ...turn, items: turn.items.filter((item) => item.type !== "pocketRestart") } : turn,
+      {
+        ...turn,
+        items: turn.items.flatMap((item) => {
+          if (readOnly && item.type === "pocketRestart") {
+            return [];
+          }
+
+          if (!showTools && item.type === "toolTrace") {
+            return item.images?.length ? { ...item, type: "imageOutput" } : [];
+          }
+
+          return item;
+        }),
+      },
       turn.id === state.activeTurnId || turn.status === "inProgress"
     );
 

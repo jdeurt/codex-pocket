@@ -118,7 +118,7 @@
 }
 .transcript {
   --message-block-gap: 16px;
-  max-width: 768px;
+  max-width: 960px;
   width: 100%;
   margin-inline: auto;
   padding: 24px 24px 32px;
@@ -284,7 +284,8 @@
   gap: var(--message-block-gap);
 }
 .transcript [data-slot="trace-collapsible-content-inner"]:has(> .activity-messages) {
-  padding-top: var(--message-block-gap);
+  /* The 44px activity trigger already includes 10px below its 24px label. */
+  padding-top: calc(var(--message-block-gap) - 10px);
 }
 [data-variant="ghost"] > [data-slot="bubble-content"] {
   border: 0;
@@ -355,7 +356,7 @@
 .composer-wrap {
   position: relative;
   flex-shrink: 0;
-  width: min(100%, 768px);
+  width: min(100%, 736px);
   margin-inline: auto;
   padding: 0 16px max(16px, env(safe-area-inset-bottom));
 }

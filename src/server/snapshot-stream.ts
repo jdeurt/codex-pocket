@@ -66,6 +66,7 @@ export class SnapshotStream {
   */
   private encoded(state: Snapshot) {
     const visible = visibleSnapshot(state, {
+      tools: true,
       reports: state.threadId ? delegations().reports.list(state.threadId) : [],
     });
 

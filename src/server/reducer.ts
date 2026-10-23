@@ -39,6 +39,7 @@ function startNativeTurn(state: Snapshot, incoming: Turn | undefined, current: T
   state.activeTurnId = turn.id;
   state.activity = "Considering options";
   state.error = undefined;
+  state.connectionRetry = undefined;
 
   return turn;
 }
@@ -107,6 +108,41 @@ function updateNativeItem(state: Snapshot, item: Item | undefined, turnId: strin
 }
 
 /**
+Clear a transient native retry only after assistant output resumes for its exact turn.
+@param state - Owning parent snapshot.
+@param event - Native progress or completion event, already scoped to the parent.
+@param turnId - Native turn that produced this event.
+*/
+function clearRecoveredRetry(state: Snapshot, event: RpcEvent, turnId: string) {
+  const isResumed =
+    event.method === "item/agentMessage/delta" ||
+    event.method === "turn/completed" ||
+    (event.method === "item/completed" && event.params.item?.type === "agentMessage");
+
+  if (isResumed && state.connectionRetry?.turnId === turnId) {
+    state.connectionRetry = undefined;
+  }
+}
+
+/**
+Separate explicitly retrying native connection errors from persistent turn failures.
+@param state - Owning parent snapshot.
+@param event - Scoped native error with its explicit retry flag.
+@param turnId - Turn associated with the native error.
+*/
+function recordError(state: Snapshot, event: RpcEvent, turnId: string) {
+  const params = event.params;
+  const message = string(object(params.error).message) || string(params.message) || pretty(params);
+
+  if (turnId && params.willRetry === true) {
+    state.connectionRetry = { turnId, message };
+  } else {
+    state.error = message;
+    state.connectionRetry = undefined;
+  }
+}
+
+/**
 Apply an already scoped native event and then update its canonical activity projection.
 @param state - Mutable current parent snapshot.
 @param event - Validated native notification scoped before mutation.
@@ -114,6 +150,8 @@ Apply an already scoped native event and then update its canonical activity proj
 function reduceScopedEvent(state: Snapshot, event: RpcEvent) {
   const params = event.params;
   const turnId = string(params.turnId) || string(object(params.turn).id);
+
+  clearRecoveredRetry(state, event, turnId);
 
   let turn = state.turns.find((entry) => entry.id === turnId);
 
@@ -165,7 +203,8 @@ function reduceScopedEvent(state: Snapshot, event: RpcEvent) {
     }
 
     case "error": {
-      state.error = string(object(params.error).message) || string(params.message) || pretty(params);
+      recordError(state, event, turnId);
+
       break;
     }
 
