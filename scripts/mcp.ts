@@ -8,7 +8,7 @@ import { registerSpinnerTools } from "./spinner-tools";
 import { toolResult as result } from "../src/server/mcp-result";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { z } from "zod";
-import { searchTaskArchive } from "../src/server/task-archive";
+import { registerTaskTools } from "./task-tools";
 
 /**
 Starts the scoped MCP transport after its required launcher identity has been checked.
@@ -72,16 +72,7 @@ function start(owner: string) {
       registerAdoptionTools(server, owner);
       registerSpinnerTools(server, owner);
       registerSessionTools(server);
-      server.registerTool(
-        "pocket_task_search",
-        {
-          description:
-            "Silently locate prior task context files for this Pocket. Read returned Markdown paths " +
-            "directly to recover exact original messages and tool context before responding about previous work.",
-          inputSchema: z.object({ query: z.string().trim().min(1) }).strict(),
-        },
-        ({ query }) => result(() => searchTaskArchive(owner, query))
-      );
+      registerTaskTools(server, owner);
 
       return server;
     },

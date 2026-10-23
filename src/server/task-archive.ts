@@ -1,12 +1,14 @@
-import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { localDirectory } from "./local-state";
 import path from "node:path";
 import { z } from "zod";
+import { scheduleTaskIndex } from "./task-search";
+import { sourceLink, taskTimeline } from "./task-record-view";
+
+export { searchTaskArchive } from "./task-search";
 
 const LAST_ENTRY = -1;
-const EXCERPT_LENGTH = 800;
-const SEARCH_LIMIT = 5;
 
 export const contextEntrySchema = z.object({
   id: z.string(),
@@ -113,66 +115,31 @@ export async function archiveTask(
     status: isClosed ? "closed" : "open",
     matched: matched.map((message) => message.id),
   };
+  const directory = taskDirectory(owner);
+  const rawFile = group.file.replace(/\.md$/u, ".json");
+
+  // Keep the exact envelope outside the reading view, including unknown native fields.
+  const rawContent = JSON.stringify({ metadata, entries }, null, 2);
+
+  await writeTaskFile(directory, rawFile, rawContent);
   const content = [
     `# Task ${group.id}`,
     "",
     `Status: ${metadata.status}`,
+    `Envelope SHA-256: ${createHash("sha256").update(rawContent).digest("hex")}`,
+    `Owner: ${JSON.stringify(owner)}`,
+    `Anchor: ${JSON.stringify(group.anchor)}`,
+    `Matched user IDs: ${JSON.stringify(metadata.matched)}`,
     "",
-    "The exact source records below retain source IDs, ordering, calls and results. " +
-      "Interleaved messages are context, not task membership; matched lists the assigned user IDs.",
+    "Records are in source order. User headings group subsequent messages; tool-result references " +
+      "retain call ownership across interleaved users. Interleaved context is not task membership.",
     "",
-    "```json",
-    JSON.stringify(metadata, null, 2),
-    "```",
+    `[Full exact envelope and metadata](${sourceLink(path.join(directory, rawFile))})`,
+    "All native fields remain in the source files. Previews omit non-text content and explicitly truncate long text.",
     "",
-    "## Exact conversation and tool context",
-    "",
-    // Escape literal backticks so source content cannot terminate the JSON fence.
-    "```json",
-    JSON.stringify(entries, null, 2).replaceAll("`", String.raw`\u0060`),
-    "```",
-    "",
+    taskTimeline(entries, (entry) => path.join(directory, "source", `${String(entry.sequence)}.json`)),
   ].join("\n");
 
-  await writeTaskFile(taskDirectory(owner), group.file, content);
-}
-
-/** Search archive files separately from active grouping and return paths for direct reading.
-@param owner - Authorized parent identity.
-@param query - User's prior-task reference.
-@returns A small ranked set of original Markdown paths and excerpts.
-*/
-export async function searchTaskArchive(owner: string, query: string) {
-  const directory = taskDirectory(owner);
-  const words = query.toLocaleLowerCase().split(/\s+/u).filter(Boolean);
-
-  let names: string[];
-
-  try {
-    names = await readdir(directory);
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-      return [];
-    }
-
-    throw error;
-  }
-
-  const results = await Promise.all(
-    names
-      .filter((name) => name.endsWith(".md"))
-      .map(async (name) => {
-        const file = path.join(directory, name);
-        const content = await readFile(file, "utf8");
-        const lower = content.toLocaleLowerCase();
-        const score = words.filter((word) => lower.includes(word)).length;
-
-        return { file, score, excerpt: content.slice(0, EXCERPT_LENGTH) };
-      })
-  );
-
-  return results
-    .filter((result) => result.score > 0)
-    .toSorted((a, b) => b.score - a.score)
-    .slice(0, SEARCH_LIMIT);
+  await writeTaskFile(directory, group.file, content);
+  scheduleTaskIndex(owner);
 }
