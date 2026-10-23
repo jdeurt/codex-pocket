@@ -2,6 +2,24 @@
 
 The installer saves host settings in `~/.pocket/.env.local`. Edit runtime settings on the Mac, then run `pocket restart`. For the service port or state/log directories, run `pocket update` so the installer also rebuilds the login-service definition. Keep it private. Agent permissions, native login, and tool configuration belong on the computer.
 
+## Pocket Settings
+
+Open the top-left **Pockets** menu and select the **Settings** gear. This central area contains Pocket preferences, including **Show tool calls**, and the **OpenAI API key** option for advanced functionality, including realtime. These settings are global across Pockets. Per-conversation model and reasoning-effort controls remain available through [session tools](session-controls.md).
+
+Enter a key to save or replace it, or select **Remove saved key**. Pocket never sends a saved key back to the browser or stores it in browser storage. It saves the key and preferences in `settings.json` inside `CODEX_POCKET_STATE_DIR` (normally `~/.pocket/data`) with private file permissions and atomic replacement. This is local plaintext storage, so protect the host and its backups. No provider request is made when saving a key.
+
+A saved key takes precedence over the optional host `OPENAI_API_KEY` environment variable. Removing the saved key restores that fallback; remove the environment variable on the host and restart Pocket to disable it too. Settings shows which source is active. Provider sessions should read current settings when starting; a session already running may retain its original key.
+
+### Shared consumer contract
+
+- `src/lib/settings.ts` exports `PocketSettings`, `pocketSettingsSchema`, `PocketSettingsMutation`, and `pocketSettingsMutationSchema`.
+- `GET /api/settings` and successful `POST /api/settings` return `{ showToolCalls: boolean, openaiApiKeyConfigured: boolean, openaiApiKeySource: "saved" | "environment" | null }`, with `Cache-Control: no-store`. `showToolCalls` defaults to `false`.
+- POST accepts a nonempty strict partial object `{ showToolCalls?: boolean, openaiApiKey?: string | null }`. Omitted fields are preserved; `null` removes the saved key. Keys are trimmed, nonempty, at most 4096 characters, and contain no internal whitespace. Mutations use the existing host/origin and JSON-body guards. Updates are serialized to preserve simultaneous edits to different fields.
+- Failures return HTTP 400 and `{ error: string }`: GET uses `Could not load Pocket settings.`; POST uses `Could not save Pocket settings. Check your input and try again.` Credential-bearing parse errors are replaced before logging or responding.
+- `src/server/pocket-settings.ts` exports async `readPocketSettings()` for public status, `updatePocketSettings(input)` for partial persistence, and `readOpenAIApiKey(): Promise<string | null>` for server-only consumers. Pi and voice should call the reader when creating provider sessions, keep the key on the host, and handle `null` with an actionable Settings message. This module requires Node filesystem access; never import it into client code.
+- `src/hooks/use-pocket-settings.ts` exports `usePocketSettings()` with `{ data, error }` and `savePocketSettings(change)` for validated browser reads and updates. Readers poll and refresh on reconnect or visibility changes; successful local saves wake them immediately. Chat owns applying `data?.showToolCalls ?? false` to main transcript tool rendering.
+- Add future preference controls to `PocketSettingsPanel` in `src/components/pocket-settings.tsx` and extend these shared schemas and persistence together. Keep provider-specific behavior in its owning lane.
+
 ## Installer inputs
 
 Export these values before running the [installer](installation.md), or supply them to `pocket update`. Unspecified values reuse saved settings where available.
