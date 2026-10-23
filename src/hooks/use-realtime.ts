@@ -79,10 +79,6 @@ export function useRealtime(threadId?: string) {
         clearTimeout(current.inputTimer);
       }
 
-      if (current.outputTimer) {
-        clearTimeout(current.outputTimer);
-      }
-
       if (shouldDrain && current.token) {
         flushInput(current, () => {
           // The stop task reports the captured input error after the queue settles.
@@ -91,7 +87,6 @@ export function useRealtime(threadId?: string) {
         current.inputParts = [];
       }
 
-      current.outputParts = [];
       current.processor.onaudioprocess = null;
       current.processor.disconnect();
       current.source.disconnect();
@@ -125,8 +120,11 @@ export function useRealtime(threadId?: string) {
           const token = current.token ?? (typeof started?.token === "string" ? started.token : undefined);
 
           if (token) {
-            await realtimeCommand({ action: "stop", token }, current.commandUrl);
-            await refresh();
+            try {
+              await realtimeCommand({ action: "stop", token }, current.commandUrl);
+            } finally {
+              await refresh();
+            }
           }
         } catch (error_) {
           setError(error_ instanceof Error ? error_.message : "Realtime closure was not confirmed.");
@@ -332,6 +330,10 @@ export function useRealtime(threadId?: string) {
     state,
     error: error || history.error,
     segments: history.segments,
+    dismissError: () => {
+      setError("");
+      history.dismissError();
+    },
     start,
     stop,
     inputAnalyser: resources.current?.inputAnalyser,

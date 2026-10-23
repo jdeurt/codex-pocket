@@ -2,79 +2,17 @@
 import { type Data, dataSchema, object, string } from "../lib/protocol";
 import WebSocket, { type RawData } from "ws";
 import { audioSchema } from "./realtime-schema";
+import { configuration, REALTIME_MODEL } from "./realtime-configuration";
+
+export { REALTIME_MODEL, REALTIME_VOICES, responseForSpeech } from "./realtime-configuration";
 
 const CONNECT_TIMEOUT_MS = 15_000;
 const MAX_BUFFER_BYTES = 128_000;
 const MAX_EVENT_BYTES = 1_000_000;
 const FINAL_TRANSCRIPT_MS = 3000;
 const MIN_COMMIT_SAMPLES = 2400;
-export const REALTIME_MODEL = "gpt-realtime-2.1";
-export const REALTIME_VOICES = [
-  "alloy",
-  "ash",
-  "ballad",
-  "coral",
-  "echo",
-  "sage",
-  "shimmer",
-  "verse",
-  "marin",
-  "cedar",
-];
-
-/**
-Request a response only after the speech item's final transcript is durable.
-@param itemId - Provider identity of finalized user speech.
-@returns Provider response request bound to this speech item.
-*/
-export function responseForSpeech(itemId: string) {
-  return {
-    type: "response.create",
-    response: {
-      instructions:
-        `Respond to finalized speech item_id ${JSON.stringify(itemId)}. ` +
-        "If main-agent work is needed, pass this exact item_id to handoff_to_pocket. Do not paraphrase the request.",
-    },
-  };
-}
-
-/**
-Configure speech and one handoff tool; tool arguments identify saved speech rather than rewriting it.
-*/
-function configuration(voice: string) {
-  return {
-    type: "session.update",
-    session: {
-      type: "realtime",
-      output_modalities: ["audio"],
-      instructions:
-        "You are Pocket's voice interface. Speak briefly. For work requiring the main agent or tools, call " +
-        "handoff_to_pocket with the supplied finalized speech item_id. Never rewrite the user's request, " +
-        "claim to have performed tool work, or call tools for an older speech item.",
-      audio: {
-        input: {
-          format: { type: "audio/pcm", rate: 24_000 },
-          transcription: { model: "gpt-4o-transcribe" },
-          turn_detection: { type: "server_vad", create_response: false, interrupt_response: true },
-        },
-        output: { format: { type: "audio/pcm", rate: 24_000 }, voice },
-      },
-      tools: [
-        {
-          type: "function",
-          name: "handoff_to_pocket",
-          description: "Ask the main Pocket agent to act on this finalized speech, unchanged.",
-          parameters: {
-            type: "object",
-            properties: { item_id: { type: "string" } },
-            required: ["item_id"],
-            additionalProperties: false,
-          },
-        },
-      ],
-    },
-  };
-}
+const RESPONSE_TIMEOUT_MS = 30_000;
+const TRANSCRIPTION_TIMEOUT_MS = 10_000;
 
 /**
 Decode ws binary variants before validating the JSON event boundary.
@@ -95,8 +33,13 @@ export class OpenAIRealtime {
   private stopped = false;
   private uncommittedSamples = 0;
   private pendingTranscripts = new Set<string>();
+  private finalizedTranscripts = new Set<string>();
   private awaitingCommit = false;
   private inputSettled?: () => void;
+  private transcriptTimer?: NodeJS.Timeout;
+  private responseTimer?: NodeJS.Timeout;
+  private responseKey?: string;
+  private outputItem?: string;
 
   /**
   Bind the provider event consumer for this session.
@@ -109,15 +52,24 @@ export class OpenAIRealtime {
   private trackInput(event: Data) {
     const itemId = string(event.item_id);
 
+    if (event.type === "response.output_audio.delta") {
+      this.outputItem = itemId;
+    }
+
     switch (event.type) {
       case "input_audio_buffer.committed": {
         this.uncommittedSamples = 0;
         this.awaitingCommit = false;
-        this.pendingTranscripts.add(itemId);
+
+        if (!this.finalizedTranscripts.has(itemId)) {
+          this.pendingTranscripts.add(itemId);
+        }
+
         break;
       }
 
       case "conversation.item.input_audio_transcription.completed": {
+        this.finalizedTranscripts.add(itemId);
         this.pendingTranscripts.delete(itemId);
         break;
       }
@@ -129,9 +81,31 @@ export class OpenAIRealtime {
       // No default
     }
 
-    if (!this.awaitingCommit && this.pendingTranscripts.size === 0) {
-      this.inputSettled?.();
+    if (
+      event.type === "response.done" &&
+      string(object(object(event.response).metadata).pocket_turn) === this.responseKey
+    ) {
+      clearTimeout(this.responseTimer);
     }
+
+    if (this.pendingTranscripts.size > 0 && !this.transcriptTimer) {
+      this.transcriptTimer = setTimeout(() => {
+        this.receive({
+          type: "error",
+          error: {
+            message: "Speech transcription timed out. Saved speech is retained; finish or resend your request.",
+          },
+        });
+      }, TRANSCRIPTION_TIMEOUT_MS);
+    }
+
+    if (this.awaitingCommit || this.pendingTranscripts.size > 0) {
+      return;
+    }
+
+    clearTimeout(this.transcriptTimer);
+    this.transcriptTimer = undefined;
+    this.inputSettled?.();
   }
 
   /**
@@ -272,6 +246,32 @@ export class OpenAIRealtime {
     }
 
     this.socket.send(encoded);
+
+    if (event.type !== "response.create") {
+      return;
+    }
+
+    this.responseKey = string(object(object(event.response).metadata).pocket_turn);
+    clearTimeout(this.responseTimer);
+    this.responseTimer = setTimeout(() => {
+      this.receive({
+        type: "error",
+        error: {
+          message: "Voice response timed out. Send saved speech to retry; no automatic handoff will be replayed.",
+        },
+      });
+    }, RESPONSE_TIMEOUT_MS);
+  }
+
+  /**
+  Remove unplayed audio from provider context after browser barge-in.
+  */
+  truncate(itemId: string, audioEndMs: number) {
+    if (itemId !== this.outputItem) {
+      return;
+    }
+
+    this.send({ type: "conversation.item.truncate", item_id: itemId, content_index: 0, audio_end_ms: audioEndMs });
   }
 
   /**
@@ -294,6 +294,8 @@ export class OpenAIRealtime {
   close() {
     this.stopped = true;
     this.ready = false;
+    clearTimeout(this.transcriptTimer);
+    clearTimeout(this.responseTimer);
     this.socket?.terminate();
   }
 }

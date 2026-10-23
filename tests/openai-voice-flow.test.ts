@@ -40,12 +40,11 @@ void test("OpenAI voice preserves finalized speech, XML and handoff identity thr
       type: "response.function_call_arguments.done",
       name: "handoff_to_pocket",
       call_id: "call-1",
-      arguments: JSON.stringify({ item_id: "speech-1" }),
+      arguments: "{}",
     };
 
     flow.emit(handoff);
     flow.emit({ ...handoff, call_id: "call-duplicate" });
-    flow.emit(completed(handoff, { ...handoff, call_id: "call-duplicate" }));
     flow.emit({
       type: "response.output_audio_transcript.done",
       item_id: "reply-1",
@@ -56,7 +55,9 @@ void test("OpenAI voice preserves finalized speech, XML and handoff identity thr
       item_id: "reply-1",
       delta: Buffer.alloc(4800).toString("base64"),
     });
-    await until(() => flow.events.some((event) => event.type === "audio"));
+    flow.emit(completed(handoff, { ...handoff, call_id: "call-duplicate" }));
+    await until(() => flow.handoffs.length === 1);
+    assert.ok(flow.events.some((event) => event.type === "audio"));
     assert.equal(flow.handoffs.length, 1);
     assert.deepEqual(flow.handoffs[0], {
       id: `realtime:${started.nativeSessionId}:speech-1`,
@@ -89,7 +90,7 @@ void test("OpenAI voice preserves finalized speech, XML and handoff identity thr
   }
 });
 
-void test("OpenAI voice rejects generated rewrites and stale handoffs without executing tool work", async () => {
+void test("OpenAI voice rejects generated rewrites and model-selected speech identities without executing tool work", async () => {
   const flow = await openAIVoiceFixture();
 
   try {
@@ -101,12 +102,15 @@ void test("OpenAI voice rejects generated rewrites and stale handoffs without ex
     });
     await until(() => flow.frames.some((event) => event.type === "response.create"));
     flow.emit(
-      completed({
-        type: "response.function_call_arguments.done",
-        name: "handoff_to_pocket",
-        call_id: "bad-call",
-        arguments: JSON.stringify({ item_id: "speech-1", instructions: "Investigate CI and long history instead." }),
-      })
+      completed(
+        { name: "handoff_to_pocket", call_id: "valid-before-bad", arguments: "{}" },
+        {
+          type: "response.function_call_arguments.done",
+          name: "handoff_to_pocket",
+          call_id: "bad-call",
+          arguments: JSON.stringify({ item_id: "speech-1", instructions: "Investigate CI and long history instead." }),
+        }
+      )
     );
     await until(() => flow.voice.status().type === "idle");
     assert.equal(flow.handoffs.length, 0);
@@ -131,7 +135,7 @@ void test("OpenAI voice rejects generated rewrites and stale handoffs without ex
     );
     await until(() => flow.voice.status().type === "idle");
     assert.equal(flow.handoffs.length, 0);
-    assert.match(String(flow.voice.status().error), /latest finalized speech/);
+    assert.match(String(flow.voice.status().error), /unexpected instructions/);
   } finally {
     await flow.close();
   }
@@ -214,7 +218,7 @@ void test("OpenAI voice keeps Settings failures private and never retries uncert
         type: "response.function_call_arguments.done",
         name: "handoff_to_pocket",
         call_id: "uncertain-call",
-        arguments: JSON.stringify({ item_id: "speech-uncertain" }),
+        arguments: "{}",
       })
     );
     await until(() => uncertain.status().type === "idle");
@@ -246,7 +250,7 @@ void test("OpenAI voice interruption cannot execute a cancelled function respons
       type: "response.function_call_arguments.done",
       name: "handoff_to_pocket",
       call_id: "cancelled-call",
-      arguments: JSON.stringify({ item_id: "cancelled-speech" }),
+      arguments: "{}",
     };
     const response = completed(call);
 
@@ -264,15 +268,15 @@ void test("OpenAI voice interruption cannot execute a cancelled function respons
       completed({
         name: "handoff_to_pocket",
         call_id: "corrected-call",
-        arguments: JSON.stringify({ item_id: "corrected-speech" }),
+        arguments: "{}",
       })
     );
     await until(() => flow.handoffs.length === 1);
-    assert.equal(flow.handoffs[0].transcript, "Keep this corrected spoken intent.");
+    assert.equal(flow.handoffs[0].transcript, "An interrupted request.\nKeep this corrected spoken intent.");
     await flow.voice.stop(started.token);
     const saved = await flow.voice.transcripts();
 
-    assert.equal(saved[0].handoff, undefined);
+    assert.equal(saved[0].handoff, "sent");
     assert.equal(saved[1].handoff, "sent");
   } finally {
     await flow.close();

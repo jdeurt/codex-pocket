@@ -10,6 +10,8 @@ const controls = z.object({
   transcript: z.string().optional(),
   handoff: z.boolean().optional(),
   duplicateHandoff: z.boolean().optional(),
+  invalidHandoff: z.boolean().optional(),
+  bargeIn: z.boolean().optional(),
   backendToolUntilSteer: z.boolean().optional(),
   disconnectOnAudio: z.boolean().optional(),
   deferTranscript: z.boolean().optional(),
@@ -75,6 +77,7 @@ export async function realtimeProvider() {
     };
 
     let isReplied = false;
+    let hasInterrupted = false;
 
     peer.on("message", (raw) => {
       const event = decode(raw);
@@ -120,6 +123,11 @@ export async function realtimeProvider() {
           break;
         }
 
+        case "conversation.item.truncate": {
+          record({ method: "provider/realtime/truncate", ...event });
+          break;
+        }
+
         case "input_audio_buffer.commit": {
           if (options.deferTranscript) {
             finish();
@@ -132,13 +140,51 @@ export async function realtimeProvider() {
 
         case "response.create": {
           const output: Data[] = [];
+          const responseId = crypto.randomUUID();
 
-          if (options.handoff || options.backendToolUntilSteer) {
+          emit({ type: "response.created", response: { id: responseId, metadata: object(event.response).metadata } });
+
+          if (!hasInterrupted && options.bargeIn) {
+            hasInterrupted = true;
+            emit({
+              type: "response.output_audio.delta",
+              response_id: responseId,
+              item_id: `${sessionId}-reply`,
+              delta: audio(12_000),
+            });
+            setTimeout(() => {
+              emit({ type: "input_audio_buffer.speech_started", item_id: `${itemId}-continued` });
+              emit({
+                type: "response.output_audio.delta",
+                response_id: responseId,
+                item_id: `${sessionId}-reply`,
+                delta: audio(12_000),
+              });
+              emit({ type: "input_audio_buffer.committed", item_id: `${itemId}-continued`, previous_item_id: itemId });
+              emit({
+                type: "conversation.item.input_audio_transcription.completed",
+                item_id: `${itemId}-continued`,
+                transcript: "And preserve my follow-up.",
+              });
+              emit({
+                type: "response.done",
+                response: {
+                  id: responseId,
+                  status: "cancelled",
+                  metadata: object(event.response).metadata,
+                  output: [],
+                },
+              });
+            }, 150);
+            break;
+          }
+
+          if ([options.handoff, options.backendToolUntilSteer, options.invalidHandoff].some(Boolean)) {
             const handoff = {
               type: "response.function_call_arguments.done",
               name: "handoff_to_pocket",
               call_id: `${sessionId}-call`,
-              arguments: JSON.stringify({ item_id: itemId }),
+              arguments: JSON.stringify(options.invalidHandoff ? { instructions: "unrelated instructions" } : {}),
             };
 
             emit(handoff);
@@ -152,15 +198,24 @@ export async function realtimeProvider() {
             for (let index = 0; index < (options.burstChunks ?? 1); index++) {
               emit({
                 type: "response.output_audio.delta",
+                response_id: responseId,
                 item_id: `${sessionId}-reply`,
                 delta: audio(options.burstSamples ?? 2400),
               });
             }
 
-            emit({ type: "response.output_audio_transcript.done", item_id: `${sessionId}-reply`, transcript: "Hello" });
+            emit({
+              type: "response.output_audio_transcript.done",
+              response_id: responseId,
+              item_id: `${sessionId}-reply`,
+              transcript: "Hello",
+            });
           }
 
-          emit({ type: "response.done", response: { status: "completed", output } });
+          emit({
+            type: "response.done",
+            response: { status: "completed", metadata: object(event.response).metadata, output },
+          });
           break;
         }
         // No default
