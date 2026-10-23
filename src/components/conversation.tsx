@@ -3,7 +3,8 @@ import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Message, MessageContent } from "@/components/ui/message";
 import { type QueuedMessage, type Snapshot, string } from "@/lib/protocol";
-import { messageText, turnMessages } from "@/lib/turn-messages";
+import { hasMessageText, turnMessages } from "@/lib/turn-messages";
+import { type VoiceSegment } from "@/lib/voice-history";
 import { ConversationActivity } from "./conversation-activity";
 import { FileAttachments } from "./file-attachments";
 import { MessageScrollerItem } from "@/components/ui/message-scroller";
@@ -103,31 +104,16 @@ export function Conversation({
   showActivity?: boolean;
   footer?: ReactNode;
   suspended?: boolean;
-  realtimeSegments?: {
-    id: number;
-    role: "user" | "assistant";
-    text: string;
-    done: boolean;
-    nativeSessionId?: string;
-  }[];
+  realtimeSegments?: VoiceSegment[];
 }) {
-  const projectedVoice = new Set(
-    state.turns.flatMap((turn) =>
-      turn.items.flatMap((item) => {
-        const sessionId = string(item.realtimeSessionId);
-
-        let role = "";
-
-        if (item.type === "userMessage") {
-          role = "user";
-        } else if (item.type === "agentMessage") {
-          role = "assistant";
-        }
-
-        return sessionId && role ? `${sessionId}\0${role}\0${messageText(item) || string(item.text)}` : [];
-      })
-    )
-  );
+  const projectedVoice = new Set([
+    ...state.queue.map((entry) => entry.id),
+    ...state.turns.flatMap((turn) =>
+      turn.items.flatMap((item) =>
+        item.type === "userMessage" && hasMessageText(item) ? [item.id, string(item.clientId)] : []
+      )
+    ),
+  ]);
   const messages = state.turns.flatMap((turn) => {
     const entries = turnMessages(
       readOnly ? { ...turn, items: turn.items.filter((item) => item.type !== "pocketRestart") } : turn,
@@ -171,11 +157,10 @@ export function Conversation({
           .filter(
             (segment) =>
               segment.text.trim() &&
-              (!segment.nativeSessionId ||
-                !projectedVoice.has(`${segment.nativeSessionId}\0${segment.role}\0${segment.text}`))
+              !(segment.role === "user" && projectedVoice.has(`realtime:${segment.nativeSessionId}:${segment.itemId}`))
           )
           .map((segment) => (
-            <MessageScrollerItem messageId={`voice-${String(segment.id)}`} key={`voice-${String(segment.id)}`}>
+            <MessageScrollerItem messageId={`voice-${segment.id}`} key={`voice-${segment.id}`}>
               <Message align={segment.role === "user" ? "end" : "start"}>
                 <MessageContent>
                   <Bubble
@@ -186,6 +171,18 @@ export function Conversation({
                       <p className="whitespace-pre-wrap">{segment.text}</p>
                     </BubbleContent>
                   </Bubble>
+                  {segment.handoff && (
+                    <p className="delivery-status" role="status">
+                      {
+                        {
+                          sending: "Sending to Pocket agent…",
+                          queued: "Queued for Pocket agent",
+                          sent: "Sent to Pocket agent",
+                          unknown: "Handoff delivery uncertain. Check Pocket before retrying.",
+                        }[segment.handoff]
+                      }
+                    </p>
+                  )}
                 </MessageContent>
               </Message>
             </MessageScrollerItem>

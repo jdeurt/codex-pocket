@@ -1,23 +1,21 @@
 /* eslint-disable jsdoc/require-jsdoc, @typescript-eslint/no-magic-numbers, unicorn/no-top-level-assignment-in-function -- Native fixture is a stateful transport simulator with observed audio dimensions. */
 // Isolated native protocol fixture for complete Pocket voice sessions. No model or live thread is used.
-import { type Data, object } from "../../src/lib/protocol";
+import { type Data, type Turn, object, turnSchema } from "../../src/lib/protocol";
 import { appendFileSync, readFileSync } from "node:fs";
 import { readPipelinedFixtureRequests, writeFixtureRecord } from "./sequential-rpc";
 import path from "node:path";
 import { z } from "zod";
 
 const mainThreadId = "realtime-fixture-parent";
-const namedThreadId = "realtime-fixture-named";
 const backendTurnId = "voice-backend-turn";
 const logFile = path.resolve(".local/realtime-fixture/native.jsonl");
 const controlFile = path.resolve(".local/realtime-fixture/control.json");
 
-let isActive = false;
-let isReplied = false;
 let isBackendToolActive = false;
-let activeSessionId: unknown;
 let activeThreadId = mainThreadId;
 let textTurnSequence = 0;
+
+const savedTurns: Turn[] = [];
 
 const controlSchema = z.object({
   closeDelayMs: z.number().optional(),
@@ -28,6 +26,7 @@ const controlSchema = z.object({
   settingsDelayMs: z.number().int().nonnegative().optional(),
   textItemDelayMs: z.number().int().nonnegative().optional(),
   backendToolUntilSteer: z.boolean().optional(),
+  piReceiptIds: z.boolean().optional(),
   disconnectOnAudio: z.boolean().optional(),
   disconnectOnStop: z.boolean().optional(),
   audioAckDelayMs: z.number().optional(),
@@ -44,17 +43,36 @@ function control(): z.infer<typeof controlSchema> {
 }
 
 function event(method: string, params: Data) {
+  const turn = savedTurns.find((entry) => entry.id === params.turnId);
+  const item = object(params.item);
+
+  if (method === "turn/started") {
+    savedTurns.push(turnSchema.parse(params.turn));
+  } else if (method === "turn/completed") {
+    const completed = object(params.turn);
+    const existing = savedTurns.find((entry) => entry.id === completed.id);
+
+    if (existing) {
+      existing.status = "completed";
+    }
+  } else if (turn && typeof item.id === "string" && typeof item.type === "string") {
+    const index = turn.items.findIndex((entry) => entry.id === item.id);
+    const parsed = { ...item, id: item.id, type: item.type };
+
+    if (index === -1) {
+      turn.items.push(parsed);
+    } else {
+      turn.items[index] = parsed;
+    }
+  }
+
   writeFixtureRecord({ method, params: { threadId: activeThreadId, ...params } });
 }
 
-function audio(samples = 2400) {
-  const data = Buffer.alloc(samples * 2);
-
-  for (let i = 0; i < samples; i++) {
-    data.writeInt16LE(Math.round(Math.sin((i * 2 * Math.PI * 420) / 24_000) * 7000), i * 2);
-  }
-
-  return { data: data.toString("base64"), sampleRate: 24_000, numChannels: 1, samplesPerChannel: samples };
+function userItem(clientId: string) {
+  return control().piReceiptIds
+    ? { id: clientId, type: "userMessage" }
+    : { id: `user-${clientId}`, type: "userMessage", clientId };
 }
 
 async function ordinary(method: string | undefined, params: Data): Promise<Data | undefined> {
@@ -82,11 +100,7 @@ async function ordinary(method: string | undefined, params: Data): Promise<Data 
     }
 
     case "thread/turns/list": {
-      return { data: [], nextCursor: null };
-    }
-
-    case "thread/realtime/listVoices": {
-      return { voices: { v1: ["cove"], v2: ["marin", "cove"], v3: ["marin"], defaultV1: "cove", defaultV2: "marin" } };
+      return { data: savedTurns, nextCursor: null };
     }
 
     case "thread/settings/update": {
@@ -96,7 +110,7 @@ async function ordinary(method: string | undefined, params: Data): Promise<Data 
     }
 
     case "thread/read": {
-      return { thread: { id: activeThreadId, model: "fixture-model", reasoningEffort: "high", turns: [] } };
+      return { thread: { id: activeThreadId, model: "fixture-model", reasoningEffort: "high", turns: savedTurns } };
     }
 
     case "turn/start": {
@@ -105,14 +119,34 @@ async function ordinary(method: string | undefined, params: Data): Promise<Data 
         typeof params.clientUserMessageId === "string" ? params.clientUserMessageId : "missing-client-id";
       const input = Array.isArray(params.input) ? params.input : [];
       const text = input.map((entry) => object(entry).text).find((entry) => typeof entry === "string") ?? "";
-      const turn = { id: `text-turn-${String(++textTurnSequence)}`, status: "inProgress", items: [] };
-      const item = { id: `user-${clientId}`, type: "userMessage", clientId };
+      const turn = {
+        id: control().backendToolUntilSteer ? backendTurnId : `text-turn-${String(++textTurnSequence)}`,
+        status: "inProgress",
+        items: [],
+      };
+      const item = userItem(clientId);
 
       setTimeout(() => {
         event("turn/started", { turn });
         event("item/started", { turnId: turn.id, item });
         setTimeout(() => {
           event("item/completed", { turnId: turn.id, item: { ...item, content: [{ type: "text", text }] } });
+
+          if (control().backendToolUntilSteer) {
+            isBackendToolActive = true;
+            event("item/started", {
+              turnId: turn.id,
+              item: {
+                id: "voice-backend-tool",
+                type: "commandExecution",
+                command: "fixture backend work",
+                status: "inProgress",
+              },
+            });
+
+            return;
+          }
+
           event("item/completed", {
             turnId: turn.id,
             item: {
@@ -135,7 +169,7 @@ async function ordinary(method: string | undefined, params: Data): Promise<Data 
           typeof params.clientUserMessageId === "string" ? params.clientUserMessageId : "missing-client-id";
         const input = Array.isArray(params.input) ? params.input : [];
         const text = input.map((entry) => object(entry).text).find((entry) => typeof entry === "string") ?? "";
-        const item = { id: `user-${clientId}`, type: "userMessage", clientId };
+        const item = userItem(clientId);
 
         setTimeout(() => {
           event("item/started", { turnId: backendTurnId, item });
@@ -178,126 +212,20 @@ async function ordinary(method: string | undefined, params: Data): Promise<Data 
 async function execute(method: string | undefined, params: Data) {
   appendFileSync(
     logFile,
-    JSON.stringify({
-      method,
-      threadId: activeThreadId,
-      token: undefined,
-      sampleRate: object(params.audio).sampleRate,
-      voice: params.voice,
-      model: params.model,
-      nativeSessionId: method === "thread/realtime/appendAudio" ? activeSessionId : undefined,
-      samples: object(params.audio).samplesPerChannel,
-    }) + "\n"
+    JSON.stringify({ method, threadId: activeThreadId, clientId: params.clientUserMessageId }) + "\n"
   );
 
-  const response = await ordinary(method, params);
-
-  if (response !== undefined) {
-    return response;
+  if (method?.startsWith("thread/realtime/")) {
+    throw new Error("Pocket must use the independent OpenAI provider, never native realtime.");
   }
 
-  switch (method) {
-    case "thread/start": {
-      return { thread: { id: namedThreadId, turns: [] }, model: "fixture-model", reasoningEffort: "high" };
-    }
-
-    case "thread/realtime/start": {
-      if (isActive) {
-        throw new Error("Already active");
+  return method === "thread/start"
+    ? {
+        thread: { id: `realtime-fixture-named-${crypto.randomUUID()}`, turns: [] },
+        model: "fixture-model",
+        reasoningEffort: "high",
       }
-
-      isActive = true;
-      isReplied = false;
-      isBackendToolActive = false;
-      const sessionId = params.realtimeSessionId;
-
-      activeSessionId = sessionId;
-
-      setTimeout(() => {
-        event("thread/realtime/started", { version: "v2", realtimeSessionId: sessionId });
-      }, 50);
-
-      return {};
-    }
-
-    case "thread/realtime/appendAudio": {
-      if (!isActive) {
-        throw new Error("Not active");
-      }
-
-      const options = control();
-      const audioAckDelayMs = isReplied ? undefined : options.audioAckDelayMs;
-
-      if (!isReplied) {
-        isReplied = true;
-
-        setTimeout(() => {
-          if (options.backendToolUntilSteer) {
-            isBackendToolActive = true;
-            event("turn/started", { turn: { id: backendTurnId, status: "inProgress", items: [] } });
-            event("item/started", {
-              turnId: backendTurnId,
-              item: {
-                id: "voice-backend-tool",
-                type: "commandExecution",
-                command: "fixture backend work",
-                status: "inProgress",
-              },
-            });
-          }
-
-          event("thread/realtime/transcript/delta", { role: "user", delta: "Test voice" });
-          event("thread/realtime/transcript/done", { role: "user", text: "Test voice" });
-          event("thread/realtime/transcript/delta", { role: "assistant", delta: "Hello" });
-
-          for (let i = 0; i < (options.burstChunks ?? 1); i++) {
-            event("thread/realtime/outputAudio/delta", { audio: audio(options.burstSamples) });
-          }
-
-          event("thread/realtime/transcript/done", { role: "assistant", text: "Hello" });
-        }, 20);
-
-        if (options.disconnectOnAudio) {
-          setTimeout(() => process.kill(process.pid, "SIGTERM"), 90);
-        }
-      }
-
-      if (audioAckDelayMs) {
-        await new Promise((resolve) => setTimeout(resolve, audioAckDelayMs));
-        appendFileSync(logFile, JSON.stringify({ method: "fixture/realtime/audioAckReleased" }) + "\n");
-      }
-
-      return {};
-    }
-
-    case "thread/realtime/stop": {
-      isActive = false;
-      activeSessionId = undefined;
-      const options = control();
-
-      if (options.disconnectOnStop) {
-        setTimeout(() => process.kill(process.pid, "SIGTERM"), 80);
-      }
-
-      if (options.lateErrorMs !== undefined) {
-        setTimeout(() => {
-          event("thread/realtime/error", { message: "Stopped session error" });
-        }, options.lateErrorMs);
-      }
-
-      if (!options.missingClosed) {
-        setTimeout(() => {
-          event("thread/realtime/closed", {});
-        }, options.closeDelayMs ?? 0);
-      }
-
-      return {};
-    }
-
-    default: {
-      return {};
-    }
-  }
+    : ((await ordinary(method, params)) ?? {});
 }
 
 await readPipelinedFixtureRequests(execute);

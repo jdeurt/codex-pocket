@@ -3,14 +3,7 @@ import { dataSchema } from "./protocol";
 import { pocketUrl } from "./pockets";
 import { schedulePcm16 } from "./realtime-audio";
 import { z } from "zod";
-
-export interface VoiceSegment {
-  id: number;
-  role: "user" | "assistant";
-  text: string;
-  done: boolean;
-  nativeSessionId?: string;
-}
+import { type VoiceSegment, voiceSegmentSchema } from "./voice-history";
 
 export interface VoiceResources {
   commandUrl: string;
@@ -181,6 +174,16 @@ function flushOutput(current: VoiceResources, fail: (error: unknown) => void) {
   }
 }
 
+function receiveHandoff(
+  current: VoiceResources,
+  message: Record<string, unknown>,
+  receive: (id: string, status: unknown) => void
+) {
+  if (typeof message.itemId === "string" && current.nativeSessionId) {
+    receive(`realtime:${current.nativeSessionId}:${message.itemId}:user`, message.status);
+  }
+}
+
 export function receiveRealtime(
   current: VoiceResources,
   message: Record<string, unknown>,
@@ -188,7 +191,8 @@ export function receiveRealtime(
     active: () => void;
     stop: () => void;
     error: (message: string) => void;
-    transcript: (role: "user" | "assistant", text: string, isDone: boolean, sessionId?: string) => void;
+    transcript: (entry: VoiceSegment) => void;
+    handoff: (id: string, status: unknown) => void;
   }
 ) {
   if (!current.active) {
@@ -241,14 +245,37 @@ export function receiveRealtime(
     return;
   }
 
-  if (type !== "transcriptDelta" && type !== "transcriptDone") {
+  if (type === "handoff") {
+    receiveHandoff(current, message, callbacks.handoff);
+
     return;
   }
 
-  const role = message.role === "assistant" || message.role === "user" ? message.role : null;
+  if (type === "interrupted") {
+    current.outputParts = [];
+    current.outputSamples = 0;
+    current.outputTime = current.context.currentTime;
+    clearTimeout(current.outputTimer);
+    current.outputTimer = undefined;
 
-  if (role && typeof message.text === "string") {
-    callbacks.transcript(role, message.text, type === "transcriptDone", current.nativeSessionId);
+    for (const source of current.outputSources) {
+      source.stop();
+      source.disconnect();
+    }
+
+    current.outputSources.clear();
+
+    return;
+  }
+
+  if (type !== "transcriptDone") {
+    return;
+  }
+
+  const segment = voiceSegmentSchema.safeParse({ ...message, done: true });
+
+  if (segment.success) {
+    callbacks.transcript(segment.data);
   }
 }
 

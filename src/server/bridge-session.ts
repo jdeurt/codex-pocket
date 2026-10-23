@@ -197,7 +197,6 @@ export class Bridge {
       return;
     }
 
-    this.realtime.event(event);
     applyBridgeEvent(this.snapshot, this.config, event);
 
     if (event.id === undefined && event.method === "turn/completed") {

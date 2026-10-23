@@ -3,8 +3,9 @@ import { type Page, expect, test } from "@playwright/test";
 import { readFile, writeFile } from "node:fs/promises";
 import { dataSchema } from "../../src/lib/protocol";
 import path from "node:path";
+import { observeMicrophone } from "../fixtures/realtime-media-probe";
 
-const nativeLog = path.resolve(".local/realtime-fixture/native.jsonl");
+const nativeLog = path.resolve(".local/realtime-fixture/provider.jsonl");
 const controlFile = path.resolve(".local/realtime-fixture/control.json");
 const origin = "http://127.0.0.1:3119";
 
@@ -13,7 +14,7 @@ test.beforeEach(async () => writeFile(controlFile, "{}"));
 async function countNativeStops() {
   const log = await readFile(nativeLog, "utf8");
 
-  return log.split("\n").filter((line) => line.includes('"method":"thread/realtime/stop"')).length;
+  return log.split("\n").filter((line) => line.includes('"method":"provider/realtime/stop"')).length;
 }
 
 async function openChat(page: Page) {
@@ -40,40 +41,37 @@ test("realtime voice keeps draft and attachment, exchanges audio, applies next-s
   page,
   request,
 }) => {
+  await observeMicrophone(page, "voiceFixtureTrack");
   await openChat(page);
   await page.getByRole("textbox", { name: "Message Pocket" }).fill("unsent draft");
   await page
     .locator('input[type="file"]')
     .setInputFiles({ name: "note.txt", mimeType: "text/plain", buffer: Buffer.from("private draft attachment") });
   await expect(page.getByText("note.txt")).toBeVisible();
-  await page.evaluate(() => {
-    const original = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
-
-    navigator.mediaDevices.getUserMedia = async (constraints) => {
-      const stream = await original(constraints);
-
-      (globalThis as typeof globalThis & { voiceFixtureTrack?: MediaStreamTrack }).voiceFixtureTrack =
-        stream.getAudioTracks()[0];
-
-      return stream;
-    };
-  });
+  const initialResponse = await request.get("/api/realtime");
+  const initial = dataSchema.parse(await initialResponse.json());
+  const previousReplies = Array.isArray(initial.history)
+    ? initial.history.filter((entry) => dataSchema.parse(entry).text === "Hello").length
+    : 0;
+  const previousSpeech = Array.isArray(initial.history)
+    ? initial.history.filter((entry) => dataSchema.parse(entry).text === "Test voice").length
+    : 0;
   const control = page.getByRole("button", { name: "Start realtime voice" });
 
   await control.focus();
   await page.keyboard.press("Enter");
   await expect(page.getByRole("status", { name: "Realtime voice active" })).toBeVisible();
-  await expect(page.getByText("Test voice")).toBeVisible();
-  await expect(page.getByText("Hello", { exact: true })).toBeVisible();
+  await expect(page.getByText("Test voice")).toHaveCount(previousSpeech + 1);
+  await expect(page.getByText("Hello", { exact: true })).toHaveCount(previousReplies + 1);
   await expect(page.getByText("What are we working on?")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Attach images or files" })).toHaveCount(0);
   const settings = await request.get(`${origin}/api/realtime`);
 
   expect(settings.ok()).toBe(true);
-  expect(await settings.json()).toMatchObject({ voices: ["marin", "cove"] });
+  expect(await settings.json()).toMatchObject({ voices: expect.arrayContaining(["marin", "cedar"]) });
   const changed = await request.post(`${origin}/api/realtime`, {
     headers: { Origin: origin },
-    data: { action: "settings", voice: "cove", model: "fixture-audio-model" },
+    data: { action: "settings", voice: "cedar", model: "fixture-audio-model" },
   });
 
   expect(changed.ok()).toBe(true);
@@ -90,8 +88,8 @@ test("realtime voice keeps draft and attachment, exchanges audio, applies next-s
     )
   ).toBe("ended");
   await activateByKeyboard(page);
-  await expect(page.getByText("Test voice")).toHaveCount(2);
-  await expect(page.getByText("Hello", { exact: true })).toHaveCount(2);
+  await expect(page.getByText("Test voice")).toHaveCount(previousSpeech + 2);
+  await expect(page.getByText("Hello", { exact: true })).toHaveCount(previousReplies + 2);
   const beforeSecondStop = await countNativeStops();
 
   await page.getByRole("button", { name: "Stop realtime voice" }).click();
@@ -103,10 +101,10 @@ test("realtime voice keeps draft and attachment, exchanges audio, applies next-s
     .map((line) => dataSchema.parse(JSON.parse(line)));
 
   expect(
-    records.some((record) => record.method === "thread/realtime/appendAudio" && record.sampleRate === 24_000)
+    records.some((record) => record.method === "provider/realtime/appendAudio" && record.sampleRate === 24_000)
   ).toBe(true);
-  expect(records.findLast((record) => record.method === "thread/realtime/start")).toMatchObject({
-    voice: "cove",
+  expect(records.findLast((record) => record.method === "provider/realtime/start")).toMatchObject({
+    voice: "cedar",
     model: "fixture-audio-model",
   });
 });
@@ -204,22 +202,8 @@ test("ordinary tap sends while hold, swipe and cancelled drag have distinct outc
 });
 
 test("event stream failure stops the microphone and allows a fresh realtime session", async ({ page }) => {
+  await observeMicrophone(page, "voiceFixtureTrack");
   await openChat(page);
-  await page.evaluate(() => {
-    const original = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
-
-    Object.defineProperty(navigator.mediaDevices, "getUserMedia", {
-      configurable: true,
-      value: async (constraints: MediaStreamConstraints) => {
-        const stream = await original(constraints);
-
-        (globalThis as typeof globalThis & { voiceFixtureTrack?: MediaStreamTrack }).voiceFixtureTrack =
-          stream.getAudioTracks()[0];
-
-        return stream;
-      },
-    });
-  });
   const beforeStop = await countNativeStops();
 
   await page.route("**/api/realtime/events", (route) => route.abort("failed"));
@@ -245,28 +229,34 @@ test("event stream failure stops the microphone and allows a fresh realtime sess
 });
 
 test("stop during pending microphone permission leaves no recording or native session", async ({ page }) => {
-  await openChat(page);
-  await page.evaluate(() => {
-    const original = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
-
-    navigator.mediaDevices.getUserMedia = async (constraints) => {
-      const stream = await original(constraints);
-
-      (
-        globalThis as typeof globalThis & { voiceFixtureTrack?: MediaStreamTrack; releaseVoiceMic?: () => void }
-      ).voiceFixtureTrack = stream.getAudioTracks()[0];
-
-      return new Promise<MediaStream>((resolve) => {
-        (globalThis as typeof globalThis & { releaseVoiceMic?: () => void }).releaseVoiceMic = () => {
-          resolve(stream);
-        };
-      });
+  await page.addInitScript(() => {
+    const context = new AudioContext();
+    const stream = context.createMediaStreamDestination().stream;
+    const fixture = globalThis as typeof globalThis & {
+      voiceFixtureTrack?: MediaStreamTrack;
+      releaseVoiceMic?: () => void;
+      permissionFixtureContext?: AudioContext;
     };
+
+    fixture.permissionFixtureContext = context;
+    Object.defineProperty(navigator, "mediaDevices", {
+      configurable: true,
+      value: {
+        getUserMedia: () =>
+          new Promise<MediaStream>((resolve) => {
+            fixture.voiceFixtureTrack = stream.getAudioTracks()[0];
+            fixture.releaseVoiceMic = () => {
+              resolve(stream);
+            };
+          }),
+      },
+    });
   });
+  await openChat(page);
   const nativeOutput = await readFile(nativeLog, "utf8");
   const startsBefore = nativeOutput
     .split("\n")
-    .filter((line) => line.includes('"method":"thread/realtime/start"')).length;
+    .filter((line) => line.includes('"method":"provider/realtime/start"')).length;
   const control = page.getByRole("button", { name: "Start realtime voice" });
 
   await control.focus();
@@ -285,9 +275,14 @@ test("stop during pending microphone permission leaves no recording or native se
     )
     .toBe("ended");
   const after = await readFile(nativeLog, "utf8");
-  const startsAfter = after.split("\n").filter((line) => line.includes('"method":"thread/realtime/start"')).length;
+  const startsAfter = after.split("\n").filter((line) => line.includes('"method":"provider/realtime/start"')).length;
 
   expect(startsAfter).toBe(startsBefore);
+  await page.evaluate(() => {
+    void (
+      globalThis as typeof globalThis & { permissionFixtureContext?: AudioContext }
+    ).permissionFixtureContext?.close();
+  });
 });
 
 test("stop while audio context is suspended releases the acquired microphone", async ({ page }) => {

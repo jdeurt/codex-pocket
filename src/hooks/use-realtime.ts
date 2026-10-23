@@ -2,7 +2,6 @@
 /* eslint-disable @typescript-eslint/no-magic-numbers, jsdoc/require-returns, unicorn/try-complexity, complexity, @typescript-eslint/no-deprecated -- Web Audio capture is a sequential resource lifecycle; ScriptProcessor supports the current browser fixture and PCM dimensions follow the native protocol. */
 import {
   type VoiceResources,
-  type VoiceSegment,
   drainInput,
   flushInput,
   listenRealtime,
@@ -13,135 +12,140 @@ import {
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createVoiceResources } from "@/lib/realtime-capture";
 import { pcm16 } from "@/lib/realtime-audio";
+import { useVoiceTranscripts } from "./use-voice-transcripts";
 
 type VoiceState = "idle" | "starting" | "active" | "stopping";
 
 /**
 Own one browser microphone/playback pipeline and release it on every exit path.
+@param threadId - Connected main conversation whose saved speech can be restored.
 */
-export function useRealtime() {
+export function useRealtime(threadId?: string) {
   const [state, setState] = useState<VoiceState>("idle");
   const [error, setError] = useState("");
-  const [segments, setSegments] = useState<VoiceSegment[]>([]);
+  const history = useVoiceTranscripts(threadId);
+  const { refresh, transcript, handoff } = history;
   const resources = useRef<VoiceResources | null>(null);
   const pendingStream = useRef<MediaStream | null>(null);
   const pendingContext = useRef<AudioContext | null>(null);
   const captureCleanup = useRef<(() => void) | null>(null);
-  const nextId = useRef(0);
   const stopping = useRef(false);
   const stopTask = useRef<Promise<void> | null>(null);
   const generation = useRef(0);
   const starting = useRef(false);
 
-  const stop = useCallback(async (shouldDrain = true) => {
-    if (stopTask.current) {
-      return stopTask.current;
-    }
-
-    generation.current++;
-    starting.current = false;
-    setSegments((entries) => entries.map((entry) => (entry.done ? entry : { ...entry, done: true })));
-    const current = resources.current;
-    const waitingStream = pendingStream.current;
-    const waitingContext = pendingContext.current;
-
-    pendingStream.current = null;
-    pendingContext.current = null;
-    captureCleanup.current?.();
-    captureCleanup.current = null;
-
-    if (waitingStream) {
-      for (const track of waitingStream.getTracks()) {
-        track.stop();
+  const stop = useCallback(
+    async (shouldDrain = true) => {
+      if (stopTask.current) {
+        return stopTask.current;
       }
-    }
 
-    if (waitingContext) {
-      void waitingContext.close().catch(() => {
-        // The context may already be closing.
-      });
-    }
+      generation.current++;
+      starting.current = false;
+      const current = resources.current;
+      const waitingStream = pendingStream.current;
+      const waitingContext = pendingContext.current;
 
-    if (!current || stopping.current) {
-      setState("idle");
+      pendingStream.current = null;
+      pendingContext.current = null;
+      captureCleanup.current?.();
+      captureCleanup.current = null;
 
-      return;
-    }
-
-    stopping.current = true;
-    setState("stopping");
-    resources.current = null;
-    current.active = false;
-    current.draining = shouldDrain;
-
-    if (current.inputTimer) {
-      clearTimeout(current.inputTimer);
-    }
-
-    if (current.outputTimer) {
-      clearTimeout(current.outputTimer);
-    }
-
-    if (shouldDrain && current.token) {
-      flushInput(current, () => {
-        // The stop task reports the captured input error after the queue settles.
-      });
-    } else {
-      current.inputParts = [];
-    }
-
-    current.outputParts = [];
-    current.processor.onaudioprocess = null;
-    current.processor.disconnect();
-    current.source.disconnect();
-    current.inputAnalyser.disconnect();
-    current.outputAnalyser.disconnect();
-
-    for (const source of current.outputSources) {
-      source.stop();
-      source.disconnect();
-    }
-
-    current.outputSources.clear();
-
-    for (const track of current.stream.getTracks()) {
-      track.stop();
-    }
-
-    const task = (async () => {
-      try {
-        if (current.draining) {
-          try {
-            await drainInput(current);
-          } catch (error_) {
-            setError(error_ instanceof Error ? error_.message : "Audio delivery failed before stopping.");
-          }
-
-          current.draining = false;
+      if (waitingStream) {
+        for (const track of waitingStream.getTracks()) {
+          track.stop();
         }
+      }
 
-        const started = current.startingRequest ? await current.startingRequest : undefined;
-        const token = current.token ?? (typeof started?.token === "string" ? started.token : undefined);
-
-        if (token) {
-          await realtimeCommand({ action: "stop", token }, current.commandUrl);
-        }
-      } catch (error_) {
-        setError(error_ instanceof Error ? error_.message : "Realtime closure was not confirmed.");
-      } finally {
-        current.abort.abort();
-        void current.context.close().catch(() => {
+      if (waitingContext) {
+        void waitingContext.close().catch(() => {
           // The context may already be closing.
         });
-        stopping.current = false;
-        stopTask.current = null;
-        setState("idle");
       }
-    })();
 
-    stopTask.current = task;
-    await task;
-  }, []);
+      if (!current || stopping.current) {
+        setState("idle");
+
+        return;
+      }
+
+      stopping.current = true;
+      setState("stopping");
+      resources.current = null;
+      current.active = false;
+      current.draining = shouldDrain;
+
+      if (current.inputTimer) {
+        clearTimeout(current.inputTimer);
+      }
+
+      if (current.outputTimer) {
+        clearTimeout(current.outputTimer);
+      }
+
+      if (shouldDrain && current.token) {
+        flushInput(current, () => {
+          // The stop task reports the captured input error after the queue settles.
+        });
+      } else {
+        current.inputParts = [];
+      }
+
+      current.outputParts = [];
+      current.processor.onaudioprocess = null;
+      current.processor.disconnect();
+      current.source.disconnect();
+      current.inputAnalyser.disconnect();
+      current.outputAnalyser.disconnect();
+
+      for (const source of current.outputSources) {
+        source.stop();
+        source.disconnect();
+      }
+
+      current.outputSources.clear();
+
+      for (const track of current.stream.getTracks()) {
+        track.stop();
+      }
+
+      const task = (async () => {
+        try {
+          if (current.draining) {
+            try {
+              await drainInput(current);
+            } catch (error_) {
+              setError(error_ instanceof Error ? error_.message : "Audio delivery failed before stopping.");
+            }
+
+            current.draining = false;
+          }
+
+          const started = current.startingRequest ? await current.startingRequest : undefined;
+          const token = current.token ?? (typeof started?.token === "string" ? started.token : undefined);
+
+          if (token) {
+            await realtimeCommand({ action: "stop", token }, current.commandUrl);
+            await refresh();
+          }
+        } catch (error_) {
+          setError(error_ instanceof Error ? error_.message : "Realtime closure was not confirmed.");
+        } finally {
+          current.abort.abort();
+          void current.context.close().catch(() => {
+            // The context may already be closing.
+          });
+          stopping.current = false;
+          stopTask.current = null;
+          setState("idle");
+        }
+      })();
+
+      stopTask.current = task;
+      await task;
+    },
+    [refresh]
+  );
 
   const receive = useCallback(
     (current: VoiceResources, message: Record<string, unknown>) => {
@@ -151,22 +155,11 @@ export function useRealtime() {
         },
         error: setError,
         stop: () => void stop(false),
-        transcript: (role, text, done, sessionId) => {
-          setSegments((entries) => {
-            const index = entries.findLastIndex(
-              (entry) => entry.role === role && !entry.done && entry.nativeSessionId === sessionId
-            );
-
-            return index === -1
-              ? [...entries, { id: ++nextId.current, role, text, done, nativeSessionId: sessionId }]
-              : entries.map((entry, at) =>
-                  at === index ? { ...entry, text: done ? text : entry.text + text, done } : entry
-                );
-          });
-        },
+        transcript,
+        handoff,
       });
     },
-    [stop]
+    [stop, transcript, handoff]
   );
 
   const start = useCallback(async () => {
@@ -337,8 +330,8 @@ export function useRealtime() {
 
   return {
     state,
-    error,
-    segments,
+    error: error || history.error,
+    segments: history.segments,
     start,
     stop,
     inputAnalyser: resources.current?.inputAnalyser,
