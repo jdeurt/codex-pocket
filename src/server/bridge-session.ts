@@ -141,7 +141,7 @@ export class Bridge {
     this.rpc = rpc;
     this.hydration = events;
     this.observe(rpc);
-    await rpc.connect(config);
+    await rpc.connect(config, "pi");
     await this.restoreHistory(rpc, config, events);
   }
 

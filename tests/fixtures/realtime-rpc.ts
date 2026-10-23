@@ -26,6 +26,7 @@ const controlSchema = z.object({
   settingsDelayMs: z.number().int().nonnegative().optional(),
   textItemDelayMs: z.number().int().nonnegative().optional(),
   backendToolUntilSteer: z.boolean().optional(),
+  piReceiptIds: z.boolean().optional(),
   disconnectOnAudio: z.boolean().optional(),
   disconnectOnStop: z.boolean().optional(),
   audioAckDelayMs: z.number().optional(),
@@ -66,6 +67,12 @@ function event(method: string, params: Data) {
   }
 
   writeFixtureRecord({ method, params: { threadId: activeThreadId, ...params } });
+}
+
+function userItem(clientId: string) {
+  return control().piReceiptIds
+    ? { id: clientId, type: "userMessage" }
+    : { id: `user-${clientId}`, type: "userMessage", clientId };
 }
 
 async function ordinary(method: string | undefined, params: Data): Promise<Data | undefined> {
@@ -117,7 +124,7 @@ async function ordinary(method: string | undefined, params: Data): Promise<Data 
         status: "inProgress",
         items: [],
       };
-      const item = { id: `user-${clientId}`, type: "userMessage", clientId };
+      const item = userItem(clientId);
 
       setTimeout(() => {
         event("turn/started", { turn });
@@ -162,7 +169,7 @@ async function ordinary(method: string | undefined, params: Data): Promise<Data 
           typeof params.clientUserMessageId === "string" ? params.clientUserMessageId : "missing-client-id";
         const input = Array.isArray(params.input) ? params.input : [];
         const text = input.map((entry) => object(entry).text).find((entry) => typeof entry === "string") ?? "";
-        const item = { id: `user-${clientId}`, type: "userMessage", clientId };
+        const item = userItem(clientId);
 
         setTimeout(() => {
           event("item/started", { turnId: backendTurnId, item });

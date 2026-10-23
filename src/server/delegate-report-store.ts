@@ -4,6 +4,24 @@ import { type DelegateReport } from "../lib/delegate-reports";
 import { delegationCommandSchema, delegationMailSchema } from "./delegation-data";
 import { z } from "zod";
 
+const completedResultSchema = z.object({ status: z.literal("completed") });
+
+/** Require typed native completion evidence; legacy diagnostics and plain-text results prove no finality.
+@param result - Persisted native result or legacy diagnostic text.
+@returns Whether the command has a validated successful native result.
+*/
+function hasSuccessfulResult(result: string | null) {
+  if (!result) {
+    return false;
+  }
+
+  try {
+    return completedResultSchema.safeParse(JSON.parse(result)).success;
+  } catch {
+    return false;
+  }
+}
+
 /**
 Project original reports without inference, leaving parent delivery and evidence unchanged.
 */
@@ -35,7 +53,7 @@ Read incoming originals in arrival order for direct read-only agent navigation.
     const finalReports = new Map<string, string>();
 
     for (const command of commands) {
-      if (!command.result || object(JSON.parse(command.result)).status !== "completed") {
+      if (!hasSuccessfulResult(command.result)) {
         continue;
       }
 

@@ -10,7 +10,7 @@ The browser sends bounded PCM16 mono audio at 24 kHz to its selected Pocket. `Op
 
 The voice model can call only `handoff_to_pocket({ item_id })`. The server resolves that ID against the latest finalized user speech in the current session. Missing speech, stale item IDs, extra instructions, and changed final transcripts fail closed. The main session receives the saved transcript unchanged through `Bridge.handoff`, with receipt ID `realtime:<sessionId>:<itemId>` and explicit source metadata. Generated tool instructions do not become user messages.
 
-The handoff ledger records an attempt before dispatch, and the main outbox verifies the receipt's content and source on retries. Duplicate tool calls reuse the existing result. Interrupted delivery becomes uncertain after reload and is never replayed automatically. The browser uses canonical `clientId` receipt provenance to omit a duplicate voice copy once the main conversation or queue owns that user message. It does not infer provenance from XML text. Intentionally pasted XML stays visible; historical native messages without provenance are not silently reclassified by their contents.
+The handoff ledger records an attempt before dispatch, and the main outbox verifies the receipt's content and source on retries. Duplicate tool calls reuse the existing result. Interrupted delivery becomes uncertain after reload and is never replayed automatically. The browser uses canonical receipt identity (`id` for Pi and `clientId` for Codex) to omit a duplicate voice copy once the main conversation or queue owns visible user text. An empty canonical item does not hide finalized speech while its text is still hydrating. It does not infer provenance from XML text. Intentionally pasted XML stays visible; historical native messages without provenance are not silently reclassified by their contents.
 
 Stopping voice drains captured input and bounds the wait for a finalized transcript. Missing final speech produces a visible error. Finalized speech and the unsent text draft survive mode switching and page reload. A speech-start event clears queued playback. Microphone tracks are released on stop, permission cancellation, input loss, provider failure, and Pocket switching.
 
@@ -22,7 +22,7 @@ Settings dependency: `f09c33e` on `codex/jua-68-settings-credentials`.
 - `readPocketSettings()` exposes nullable `realtimeVoice` and `realtimeModel` overrides. Null selects Voice's provider defaults, `marin` and `gpt-realtime-2.1`.
 - `updatePocketSettings()` owns partial preference updates. The previous per-thread realtime preference files are no longer read or written.
 
-Harness interface dependency: `50d8f13` on `codex/jua-67-jua-71-pi-context`.
+Harness dependency: `1bd0467` on `codex/jua-67-jua-71-pi-context`, including the agreed source-aware handoff interface.
 
 ```ts
 Bridge.handoff({
@@ -32,7 +32,7 @@ Bridge.handoff({
 }): Promise<{ id: string; status: string }>
 ```
 
-`handoff` shares the durable receipt path with `send`. Voice validates returned delivery statuses, preserves uncertain outcomes, and leaves main-runtime ownership with the harness workstream. Both dependency histories are integrated into this branch; this change does not implement or modify the Pi runtime.
+`handoff` shares the durable receipt path with `send`. Voice validates returned delivery statuses, preserves uncertain outcomes, and leaves main-runtime ownership with the harness workstream. Both dependency histories are integrated into this branch. The Pi runtime is inherited unchanged from the harness workstream; voice commits implement the provider connection, history, and handoff consumer.
 
 ## Verification
 

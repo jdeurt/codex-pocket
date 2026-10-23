@@ -11,6 +11,14 @@ Expose parent-only inspection and explicit settings changes through the existing
 */
 export function registerSessionTools(server: McpServer) {
   server.registerTool(
+    "pocket_session_models",
+    {
+      description: "List Pi's provider/model catalog. Use a listed provider/model ID with pocket_session_settings.",
+      inputSchema: z.object({}).strict(),
+    },
+    () => toolResult(() => callSession(undefined, true))
+  );
+  server.registerTool(
     "pocket_realtime_inspect",
     {
       description:

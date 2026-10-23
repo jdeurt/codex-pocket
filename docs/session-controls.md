@@ -11,7 +11,7 @@ Settings affect subsequent turns and future delegates that inherit defaults. Act
 
 ## Persistence and uncertainty
 
-Pocket updates settings over the existing native connection, reads them back, and saves them in private `session-settings.json` under the parent thread ID. Reconnects restore only that parent's settings.
+Pocket updates settings over the existing native connection, reads them back, and saves them in private `session-settings/<parent-hash>.json` per parent (legacy `session-settings.json` is read for migration). Reconnects restore only that parent's settings.
 
 If native acceptance succeeds but readback or persistence fails, the result is uncertain. Inspect the current settings before retrying. Pocket does not automatically replay the mutation.
 

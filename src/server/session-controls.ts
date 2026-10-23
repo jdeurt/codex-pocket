@@ -5,6 +5,7 @@ import { contextUsage } from "../lib/usage";
 import { delegations } from "./delegations";
 import { string } from "../lib/protocol";
 import { type z } from "zod";
+import { nativeDelegateModel } from "./harness/permissions";
 
 /**
 Own the small typed parent control surface while reusing the bridge's transport and snapshot.
@@ -50,7 +51,12 @@ export class SessionControls {
     const parent = delegations().parent(threadId);
 
     await saveSessionSettings(threadId, { model, ...(effort && { effort }) });
-    delegations().saveParent(threadId, { ...parent, policy: { ...parent.policy, model, effort: effort || null } });
+    const nativeModel = nativeDelegateModel(model);
+
+    delegations().saveParent(threadId, {
+      ...parent,
+      policy: { ...parent.policy, model: nativeModel, effort: effort || null },
+    });
     this.owner.snapshot.model = model;
     this.owner.snapshot.reasoningEffort = effort || null;
     this.publish();
@@ -107,5 +113,14 @@ export class SessionControls {
 
       return this.updateConnected(settings);
     });
+  }
+
+  /** Read Pi's native provider/model catalog over the existing parent connection.
+  @returns Available catalog selections, without credentials or additional inference.
+  */
+  async models() {
+    await this.owner.ensureConnected();
+
+    return this.owner.agentReader().request("pocket/models");
   }
 }

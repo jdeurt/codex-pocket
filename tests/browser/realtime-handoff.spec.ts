@@ -39,7 +39,7 @@ test("configured OpenAI voice hands off exact speech once and preserves provenan
 
   await writeFile(
     path.join(directory, "control.json"),
-    JSON.stringify({ transcript, handoff: true, duplicateHandoff: true, textItemDelayMs: 750 })
+    JSON.stringify({ transcript, handoff: true, duplicateHandoff: true, piReceiptIds: true, textItemDelayMs: 750 })
   );
   await open(page);
   await page.getByRole("textbox", { name: "Message Pocket" }).fill("keep my unsent draft");

@@ -107,9 +107,9 @@ export function Conversation({
   const projectedVoice = new Set([
     ...state.queue.map((entry) => entry.id),
     ...state.turns.flatMap((turn) =>
-      turn.items
-        .filter((item) => item.type === "userMessage" && hasMessageText(item))
-        .map((item) => string(item.clientId))
+      turn.items.flatMap((item) =>
+        item.type === "userMessage" && hasMessageText(item) ? [item.id, string(item.clientId)] : []
+      )
     ),
   ]);
   const messages = state.turns.flatMap((turn) => {

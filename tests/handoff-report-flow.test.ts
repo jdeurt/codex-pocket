@@ -132,6 +132,16 @@ function reportFlow(root: string) {
   assert.ok(next);
   store.mail.message(child.id, next.id, { message: "Follow-up progress" });
   store.queue.recordResult(next, "completed", JSON.stringify({ status: "interrupted", text: "Interrupted" }));
+  const legacy = store.create(owner, {
+    title: "Legacy worker",
+    body: "Saved legacy work",
+    idempotencyKey: "legacy",
+  });
+  const legacyCommand = store.queue.claim(owner, legacy.id);
+
+  assert.ok(legacyCommand);
+  store.mail.message(legacy.id, legacyCommand.id, { message: "Legacy original report" });
+  store.queue.finish(legacyCommand, "completed", "offline fixture");
   assert.equal(store.reports.list(owner).filter((report) => report.final).length, 1);
   store.close();
   const restored = new DelegationStore(root);

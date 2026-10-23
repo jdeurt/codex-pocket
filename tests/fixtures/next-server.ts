@@ -75,6 +75,7 @@ export async function runNextFixture(
         ...process.env,
         ...build,
         NODE_ENV: "development",
+        POCKET_TEST_MAIN_HARNESS: "codex",
         CODEX_THREAD_ID: "",
         POCKET_CHILD_ID: "",
         POCKET_COMMAND_ID: "",

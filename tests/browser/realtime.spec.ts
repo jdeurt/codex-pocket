@@ -40,24 +40,27 @@ test("realtime voice keeps draft and attachment, exchanges audio, applies next-s
   page,
   request,
 }) => {
+  await page.addInitScript(() => {
+    const original = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+
+    Object.defineProperty(navigator.mediaDevices, "getUserMedia", {
+      configurable: true,
+      value: async (constraints: MediaStreamConstraints) => {
+        const stream = await original(constraints);
+
+        (globalThis as typeof globalThis & { voiceFixtureTrack?: MediaStreamTrack }).voiceFixtureTrack =
+          stream.getAudioTracks()[0];
+
+        return stream;
+      },
+    });
+  });
   await openChat(page);
   await page.getByRole("textbox", { name: "Message Pocket" }).fill("unsent draft");
   await page
     .locator('input[type="file"]')
     .setInputFiles({ name: "note.txt", mimeType: "text/plain", buffer: Buffer.from("private draft attachment") });
   await expect(page.getByText("note.txt")).toBeVisible();
-  await page.evaluate(() => {
-    const original = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
-
-    navigator.mediaDevices.getUserMedia = async (constraints) => {
-      const stream = await original(constraints);
-
-      (globalThis as typeof globalThis & { voiceFixtureTrack?: MediaStreamTrack }).voiceFixtureTrack =
-        stream.getAudioTracks()[0];
-
-      return stream;
-    };
-  });
   const initialResponse = await request.get("/api/realtime");
   const initial = dataSchema.parse(await initialResponse.json());
   const previousReplies = Array.isArray(initial.history)

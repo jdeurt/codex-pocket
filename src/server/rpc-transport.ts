@@ -6,6 +6,7 @@ import { createInterface } from "node:readline";
 import { log } from "./logging";
 import { once } from "node:events";
 import { pocketServerArgs } from "./pocket-runtime";
+import path from "node:path";
 import { waitForProcessExit } from "./harness/process";
 
 const HANDSHAKE_TIMEOUT_MS = 10_000;
@@ -81,8 +82,31 @@ export class RpcTransport extends EventTarget {
   @param config - Native binary, arguments and working directory.
   @param profile - Whether to install the main Pocket tools.
   */
-  connect(config: Config, profile: "pocket" | "bare") {
-    const args = profile === "pocket" ? pocketServerArgs(config) : config.serverArgs;
+  connect(config: Config, profile: "pocket" | "bare" | "pi") {
+    const isOfflineReplay = process.env.POCKET_TEST_MAIN_HARNESS === "codex" && config.codexBinary === process.execPath;
+
+    if (profile === "pi" && !isOfflineReplay) {
+      this.disconnected = false;
+      this.socket = undefined;
+      this.child = spawn(
+        process.execPath,
+        [
+          "--import",
+          path.join(process.cwd(), "node_modules/tsx/dist/loader.mjs"),
+          path.join(process.cwd(), "scripts/pi-main.ts"),
+        ],
+        {
+          cwd: process.cwd(),
+          shell: false,
+          env: { ...process.env, POCKET_PI_CONFIG: JSON.stringify(config) },
+        }
+      );
+      this.observe(this.child);
+
+      return;
+    }
+
+    const args = profile === "bare" ? config.serverArgs : pocketServerArgs(config);
 
     this.disconnected = false;
     this.socket = undefined;
