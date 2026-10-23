@@ -89,6 +89,15 @@ class ReplaySession {
     emit({ id: request.id, result: { turn } });
     emit({ method: "turn/started", params: { threadId: SESSION, turn } });
 
+    if (input[0].text === "silent") {
+      turn.status = "completed";
+      writeFileSync(this.filename, JSON.stringify(this.turns));
+      emit({ method: "turn/completed", params: { threadId: SESSION, turn } });
+      this.active = undefined;
+
+      return;
+    }
+
     if (input[0].text === "disconnect") {
       process.stderr.write("Isolated replay disconnect\n");
       process.stdin.destroy();

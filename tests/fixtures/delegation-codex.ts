@@ -1,3 +1,5 @@
+import { readInternalContext } from "./internal-context";
+import assert from "node:assert/strict";
 import { type Turn, string, turnSchema } from "../../src/lib/protocol";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
@@ -64,7 +66,7 @@ class SteeringReplay {
   @param request - Validated native start request.
   */
   private start(request: z.infer<typeof fixtureRequestSchema>) {
-    const text = inputSchema.parse(request.params.input)[0].text;
+    const { content: text } = readInternalContext(inputSchema.parse(request.params.input)[0].text);
     const turn: Turn = {
       id: crypto.randomUUID(),
       status: "inProgress",
@@ -100,7 +102,7 @@ class SteeringReplay {
   @param request - Validated native steering request.
   */
   private steer(request: z.infer<typeof fixtureRequestSchema>) {
-    const text = inputSchema.parse(request.params.input)[0].text;
+    const { content: text } = readInternalContext(inputSchema.parse(request.params.input)[0].text);
 
     if (text === "unsupported" || text === "reject") {
       writeFixtureRecord({
@@ -188,6 +190,15 @@ class SteeringReplay {
   */
   receive(line: string) {
     const request = fixtureRequestSchema.parse(JSON.parse(line));
+
+    if (request.method === "thread/start" || request.method === "thread/resume") {
+      const instructions = string(request.params.developerInstructions);
+
+      assert.match(instructions, /NATIVE_BASE_INSTRUCTIONS/);
+      assert.match(instructions, /\[POCKET_INTERNAL_CONTEXT\]/);
+      assert.match(instructions, /Include the complete/);
+      assert.match(instructions, /does not authenticate/);
+    }
 
     switch (request.method) {
       case "initialized": {
