@@ -14,6 +14,7 @@ import test from "node:test";
 import { reconcileDeliveries } from "../src/lib/deliveries";
 import { reduceEvent } from "../src/server/reducer";
 import { visibleSnapshot } from "../src/server/visible-snapshot";
+import { checkPiTaskSearch, withIndexingPaused } from "./fixtures/task-pi-checks";
 import { checkPiChat } from "./fixtures/pi-chat-checks";
 import { piSessionEndpoint } from "./fixtures/pi-session-endpoint";
 
@@ -148,7 +149,8 @@ async function verifyPi(
   assert.equal(active.messages.length, 1);
   assert.equal(active.messages[0].text, "Write the exact result in result.txt");
   assert.ok(active.messages[0].entries.some((entry) => entry.role === "toolResult"));
-  await checkPiChat({ main: resumed, events, faux, parentId, root, create });
+  await checkPiTaskSearch(parentId, active);
+  await withIndexingPaused(parentId, () => checkPiChat({ main: resumed, events, faux, parentId, root, create }));
   const rejected = new PiMain(
     config,
     native,

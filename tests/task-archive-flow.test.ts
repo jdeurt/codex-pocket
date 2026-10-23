@@ -7,6 +7,8 @@ import {
   saveTaskState,
 } from "../src/server/task-context";
 import { saveTaskSource, searchTaskArchive, taskDirectory } from "../src/server/task-archive";
+import { checkTaskSearch } from "./fixtures/task-search-checks";
+import { settleTaskIndex } from "../src/server/task-search";
 import assert from "node:assert/strict";
 import { isSameTask } from "../src/server/task-decisions";
 import os from "node:os";
@@ -16,6 +18,7 @@ import { z } from "zod";
 
 const evidenceSchema = z.object({ matched_user_messages: z.array(z.string()), candidate_user_message: z.string() });
 const questionSchema = z.object({ type: z.string() });
+const LARGE_OUTPUT_REPETITIONS = 2000;
 const requestSchema = z.object({
   model: z.string(),
   input: z.string(),
@@ -27,14 +30,15 @@ const requestSchema = z.object({
 @param state - Active working state.
 @param role - Native source role.
 @param text - Exact original text.
+@param original - Optional native message envelope.
 */
-async function append(owner: string, state: TaskContextState, role: string, text: string) {
+async function append(owner: string, state: TaskContextState, role: string, text: string, original?: unknown) {
   const entry = {
     id: crypto.randomUUID(),
     sequence: state.revision,
     role,
     text,
-    original: { role, content: text, toolCallId: "interleaved-call" },
+    original: original ?? { role, content: text, toolCallId: "interleaved-call" },
   };
 
   await saveTaskSource(owner, entry);
@@ -57,9 +61,35 @@ async function exerciseArchive(owner: string, count: () => number) {
   const state = await readTaskState(owner);
 
   await append(owner, state, "user", "A: build the calendar");
-  await append(owner, state, "assistant", "tool call: `calendar-write` with exact arguments");
+  await append(owner, state, "assistant", "tool call: `calendar-write` with exact arguments", {
+    timestamp: "2026-10-23T08:00:00.000Z",
+    message: {
+      role: "assistant",
+      provider: "openai",
+      content: [
+        { type: "text", text: "tool call: `calendar-write` with exact arguments" },
+        { type: "toolCall", id: "interleaved-call", name: "calendar-write", arguments: { path: "notes/calendar.md" } },
+      ],
+    },
+  });
   await append(owner, state, "user", "B: a separate task");
-  await append(owner, state, "toolResult", "interleaved-call result: exact bytes ✓");
+  const longOutput =
+    "interleaved-call result: exact bytes ✓\n" +
+    "retained output ".repeat(LARGE_OUTPUT_REPETITIONS) +
+    "late-calendar-needle";
+
+  await append(owner, state, "toolResult", longOutput, {
+    timestamp: "2026-10-23T08:00:01.000Z",
+    message: {
+      role: "toolResult",
+      toolCallId: "interleaved-call",
+      toolName: "calendar-write",
+      content: [
+        { type: "text", text: longOutput },
+        { type: "image", mimeType: "image/png", data: "private-image-payload" },
+      ],
+    },
+  });
   await append(owner, state, "user", "A: make that weekly");
   assert.deepEqual(await groupTaskContext(owner, state, isSameTaskRequest), []);
   const original = state.open;
@@ -96,10 +126,15 @@ async function exerciseArchive(owner: string, count: () => number) {
 
   assert.match(markdown, /Status: closed/);
   assert.match(markdown, /interleaved-call result: exact bytes ✓/);
-  assert.match(markdown, /\\u0060calendar-write\\u0060/);
+  assert.match(markdown, /`calendar-write`/);
+  assert.match(markdown, /Result of source/);
+  assert.match(markdown, /2026-10-23T08:00:01.000Z/);
+  assert.match(markdown, /Truncated:/);
+  assert.doesNotMatch(markdown, /late-calendar-needle|private-image-payload/);
   const results = await searchTaskArchive(owner, "exact bytes ✓");
 
   assert.ok(results.length > 0);
+  await checkTaskSearch(owner, original.file, longOutput);
   const final = await readTaskState(owner);
   const before = count();
 
@@ -142,6 +177,8 @@ await test("task context resumes open anchors, archives exact interleaving and r
   try {
     await exerciseArchive(owner, () => requests);
   } finally {
+    await settleTaskIndex(owner);
+
     if (previous === undefined) {
       delete process.env.CODEX_POCKET_STATE_DIR;
     } else {

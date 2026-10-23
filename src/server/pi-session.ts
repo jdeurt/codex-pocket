@@ -16,7 +16,8 @@ import path from "node:path";
 import { piModel, thinkingLevelSchema } from "./pi-models";
 import { piResources } from "./pi-resources";
 import { readFile } from "node:fs/promises";
-import { taskDirectory, writeTaskFile } from "./task-archive";
+import { taskDirectory } from "./task-archive";
+import { writeLegacyTask } from "./task-legacy";
 
 /** Restore a Pi source or recreate only an empty, unflushed session pointer.
 @param config - Exact parent identity and working directory.
@@ -59,14 +60,7 @@ async function migrate(native: CodexRpc, config: Config, manager: SessionManager
   const original = JSON.stringify({ source: "codex", thread, turns }, null, 2);
   const archive = path.join(taskDirectory(config.threadId), "legacy-codex.md");
 
-  await writeTaskFile(
-    taskDirectory(config.threadId),
-    "legacy-codex.md",
-    `# Imported Codex conversation\n\nSource thread: ${config.threadId}\n\n` +
-      "```json\n" +
-      original.replaceAll("`", String.raw`\u0060`) +
-      "\n```\n"
-  );
+  await writeLegacyTask(config.threadId, original);
   manager.appendCustomMessageEntry(
     "codex_migration",
     `Exact original conversation archive: ${archive}\n${original}`,

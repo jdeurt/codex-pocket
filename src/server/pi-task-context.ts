@@ -2,6 +2,7 @@ import { type AgentSession, type SessionEntry, type SessionManager } from "@eare
 import { type TaskContextState, groupTaskContext, ingestTaskEntry, readTaskState, saveTaskState } from "./task-context";
 import { isSameTask } from "./task-decisions";
 import { nativeText } from "./harness/transcript";
+import { scheduleTaskIndex } from "./task-search";
 import { saveTaskSource, taskDirectory } from "./task-archive";
 
 const PASS_INTERVAL_MS = 600_000;
@@ -125,6 +126,7 @@ export class PiTaskContext {
   */
   async start(manager: SessionManager, session: AgentSession) {
     this.state = await readTaskState(this.owner);
+    scheduleTaskIndex(this.owner);
     const cursor = this.state.sourceCursor;
 
     if (cursor && !manager.getEntry(cursor)) {
@@ -147,6 +149,8 @@ export class PiTaskContext {
 
     await this.serial;
     this.timer = setInterval(() => {
+      scheduleTaskIndex(this.owner);
+
       if (session.isIdle) {
         void this.pass(session).catch(this.onError);
       }
