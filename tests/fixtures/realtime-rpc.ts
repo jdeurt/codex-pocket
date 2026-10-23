@@ -27,6 +27,7 @@ const controlSchema = z.object({
   textItemDelayMs: z.number().int().nonnegative().optional(),
   backendToolUntilSteer: z.boolean().optional(),
   piReceiptIds: z.boolean().optional(),
+  answerText: z.string().optional(),
   disconnectOnAudio: z.boolean().optional(),
   disconnectOnStop: z.boolean().optional(),
   audioAckDelayMs: z.number().optional(),
@@ -152,7 +153,7 @@ async function ordinary(method: string | undefined, params: Data): Promise<Data 
             item: {
               id: `${turn.id}-answer`,
               type: "agentMessage",
-              text: "Fixture text answer",
+              text: control().answerText ?? "Fixture text answer",
               phase: "final_answer",
             },
           });

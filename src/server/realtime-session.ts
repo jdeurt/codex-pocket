@@ -5,7 +5,10 @@ import type { Bridge } from "./bridge-session";
 import { OpenAIVoiceSession } from "./openai-voice-session";
 import { settingsSchema } from "./realtime-schema";
 import { visibleSnapshot } from "./visible-snapshot";
-import { hasMessageText } from "../lib/turn-messages";
+import { hasMessageText, messageText } from "../lib/turn-messages";
+import { type Turn, string } from "../lib/protocol";
+
+const MISSING_ITEM = -1;
 
 /**
 Select an explicitly enabled loopback provider fixture; production always uses OpenAI.
@@ -59,6 +62,48 @@ export class RealtimeSession extends OpenAIVoiceSession {
       preferences,
       handoff: (input) => bridge.handoff(input),
     });
+  }
+
+  /** Return the final answer only to the receipt that owns the completed main turn.
+  @param completed - Completed, parent-scoped native turn and its ordered items, when supplied.
+  */
+  completed(completed?: Turn) {
+    if (!completed) {
+      return;
+    }
+
+    const turn = this.bridge.snapshot.turns.find((entry) => entry.id === completed.id) ?? completed;
+
+    if (turn.status !== "completed") {
+      return;
+    }
+
+    const lastUser = turn.items.findLastIndex((item) => item.type === "userMessage");
+    const user = turn.items.at(lastUser);
+    const finalIndex = turn.items.findLastIndex(
+      (item) => item.type === "agentMessage" && item.phase !== "commentary" && hasMessageText(item)
+    );
+
+    let firstIndex = finalIndex;
+
+    while (
+      firstIndex > lastUser + 1 &&
+      turn.items[firstIndex - 1].type === "agentMessage" &&
+      turn.items[firstIndex - 1].phase !== "commentary"
+    ) {
+      firstIndex--;
+    }
+
+    if (lastUser === MISSING_ITEM || !user || finalIndex <= lastUser) {
+      return;
+    }
+
+    const text = turn.items
+      .slice(firstIndex, finalIndex + 1)
+      .map((item) => messageText(item))
+      .join("\n");
+
+    this.answer(string(user.clientId) || user.id, text);
   }
 
   /**

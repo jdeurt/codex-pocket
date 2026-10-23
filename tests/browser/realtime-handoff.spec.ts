@@ -36,10 +36,39 @@ test("configured OpenAI voice hands off exact speech once and preserves provenan
   request,
 }) => {
   const transcript = `Fix voice interruptions and switching ${test.info().project.name}. Preserve <realtime_delegation>my spoken XML</realtime_delegation>.`;
+  const answer = `Voice playback answer for ${test.info().project.name}.`;
 
+  await page.addInitScript(() => {
+    class ObservedAudioContext extends AudioContext {
+      override createBufferSource() {
+        const source = super.createBufferSource();
+
+        source.addEventListener("ended", () => {
+          if (!source.buffer?.getChannelData(0).some((sample) => sample !== 0)) {
+            return;
+          }
+
+          const count = Number(globalThis.sessionStorage.getItem("pocket-fixture-playback") ?? "0");
+
+          globalThis.sessionStorage.setItem("pocket-fixture-playback", String(count + 1));
+        });
+
+        return source;
+      }
+    }
+
+    Object.defineProperty(globalThis, "AudioContext", { value: ObservedAudioContext });
+  });
   await writeFile(
     path.join(directory, "control.json"),
-    JSON.stringify({ transcript, handoff: true, duplicateHandoff: true, piReceiptIds: true, textItemDelayMs: 750 })
+    JSON.stringify({
+      transcript,
+      answerText: answer,
+      handoff: true,
+      duplicateHandoff: true,
+      piReceiptIds: true,
+      textItemDelayMs: 750,
+    })
   );
   await open(page);
   await page.getByRole("textbox", { name: "Message Pocket" }).fill("keep my unsent draft");
@@ -52,7 +81,20 @@ test("configured OpenAI voice hands off exact speech once and preserves provenan
   // The fixture publishes an empty canonical item before its delayed final text.
   await page.waitForTimeout(HYDRATION_PROBE_MS);
   expect(await page.getByText(transcript, { exact: true }).count()).toBe(1);
-  await expect(page.getByText("Fixture text answer", { exact: true }).last()).toBeVisible();
+  await expect(page.getByText(answer, { exact: true })).toBeVisible();
+  await expect.poll(() => page.evaluate(() => globalThis.sessionStorage.getItem("pocket-fixture-playback"))).toBe("1");
+  await expect(page.getByText(answer, { exact: true })).toHaveCount(1);
+  const providerLog = await readFile(path.join(directory, "provider.jsonl"), "utf8");
+  const playback = providerLog
+    .trim()
+    .split("\n")
+    .map((line) => dataSchema.parse(JSON.parse(line)))
+    .findLast((event) => object(event.response).tool_choice === "none");
+
+  expect(object(playback?.response).input).toEqual([
+    { type: "message", role: "user", content: [{ type: "input_text", text: answer }] },
+  ]);
+  await expect(page.getByText(/Sent to Pocket agent|Queued for Pocket agent|Sending to Pocket agent/)).toHaveCount(0);
   await page.getByRole("button", { name: "Stop realtime voice" }).click();
   await expect(page.getByRole("textbox", { name: "Message Pocket" })).toHaveValue("keep my unsent draft");
   await page.reload();

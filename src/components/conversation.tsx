@@ -162,7 +162,9 @@ export function Conversation({
                     {!!item.text.trim() && <p className="whitespace-pre-wrap">{item.text}</p>}
                   </BubbleContent>
                 </Bubble>
-                {item.status !== "sent" && <p className="delivery-status">{deliveryLabel(item.status)}</p>}
+                {item.status !== "sent" && (item.source?.type !== "realtime" || item.status === "unknown") && (
+                  <p className="delivery-status">{deliveryLabel(item.status)}</p>
+                )}
               </MessageContent>
             </Message>
           </MessageScrollerItem>

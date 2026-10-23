@@ -200,6 +200,7 @@ export class Bridge {
     applyBridgeEvent(this.snapshot, this.config, event);
 
     if (event.id === undefined && event.method === "turn/completed") {
+      this.realtime.completed(event.params.turn);
       void this.exclusive(() => this.messages.drain(this.rpc, this.config)).catch((error: unknown) => {
         this.snapshots.fail(error, this.messages.entries);
       });

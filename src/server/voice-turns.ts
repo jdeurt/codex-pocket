@@ -1,13 +1,16 @@
 import { type OpenAIRealtime } from "./openai-realtime";
-import { responseForSpeech } from "./realtime-configuration";
-import { completedHandoffs } from "./voice-handoff";
+import { responseForAnswer, responseForSpeech } from "./realtime-configuration";
+import { handoffVoice, publishVoiceHandoff, completedHandoffs } from "./voice-handoff";
 import { type Data, object, string } from "../lib/protocol";
+import type { VoiceSessionOwner } from "./voice-session-owner";
+import type { VoiceHistory } from "./voice-history";
 
 export interface SpeechResponse {
   key: string;
   items: string[];
   interrupted: boolean;
   providerId?: string;
+  answer?: string;
 }
 
 /**
@@ -16,6 +19,8 @@ Keep speech order and response ownership separate from transcription completion 
 export class VoiceTurns {
   private items: { id: string; previous?: string; final: boolean }[] = [];
   private consumed = new Set<string>();
+  private handoffs = new Set<string>();
+  private answers: string[] = [];
   private speaking?: string;
   private anchors = new Map<string, string | null>();
   private lastCanonical?: string | null;
@@ -72,6 +77,8 @@ export class VoiceTurns {
     switch (event.type) {
       case "input_audio_buffer.speech_started": {
         this.speaking = id;
+        this.handoffs.clear();
+        this.answers = [];
 
         if (this.current) {
           this.current.interrupted = true;
@@ -127,7 +134,57 @@ export class VoiceTurns {
     const response = this.next();
 
     if (response) {
-      transport.send(responseForSpeech(response.key, response.items));
+      transport.send(
+        response.answer
+          ? responseForAnswer(response.key, response.answer)
+          : responseForSpeech(response.key, response.items)
+      );
+    }
+  }
+
+  /** Dispatch this turn and retain its accepted receipt only while the connection still owns it.
+  @param event - Validated completed provider call.
+  @param owner - Durable main-agent delivery owner.
+  @param history - Current conversation's finalized speech ledger.
+  @param sessionId - Captured voice session namespace.
+  @param transport - Captured provider connection.
+  @param publish - Browser event sink.
+  @param isActive - Captured connection and lifecycle guard.
+  */
+  async handoff(
+    event: Data,
+    owner: VoiceSessionOwner,
+    history: VoiceHistory,
+    sessionId: string,
+    transport: OpenAIRealtime | undefined,
+    publish: (event: Data) => void,
+    isActive: () => boolean
+  ) {
+    if (!transport || !isActive()) {
+      return;
+    }
+
+    const items = this.current?.items ?? [];
+    const entry = await handoffVoice(owner, history, event, sessionId, items);
+
+    if (!isActive()) {
+      return;
+    }
+
+    if (entry.handoffId && (entry.handoff === "sent" || entry.handoff === "queued")) {
+      this.handoffs.add(entry.handoffId);
+    }
+
+    publishVoiceHandoff(event, entry, items, publish, transport.send.bind(transport));
+  }
+
+  /** Accept each answer once, excluding receipts invalidated by newer speech.
+  @param id - Original accepted handoff receipt.
+  @param text - Completed main-agent answer.
+  */
+  answer(id: string, text: string) {
+    if (text.trim() && this.handoffs.delete(id)) {
+      this.answers.push(text);
     }
   }
 
@@ -141,8 +198,18 @@ export class VoiceTurns {
 
     const pending = this.items.filter((item) => !this.consumed.has(item.id));
 
-    if (pending.length === 0 || pending.some((item) => !item.final)) {
+    if (pending.some((item) => !item.final)) {
       return;
+    }
+
+    if (pending.length === 0) {
+      const answer = this.answers.shift();
+
+      if (answer) {
+        this.current = { key: crypto.randomUUID(), items: [], interrupted: false, answer };
+      }
+
+      return this.current;
     }
 
     this.current = { key: crypto.randomUUID(), items: pending.map((item) => item.id), interrupted: false };
@@ -172,7 +239,13 @@ export class VoiceTurns {
     }
 
     if (!owned.interrupted) {
-      for (const call of completedHandoffs(event)) {
+      const calls = completedHandoffs(event);
+
+      if (owned.answer && calls.length > 0) {
+        throw new Error("Voice answer playback requested an unavailable action. No request was sent.");
+      }
+
+      for (const call of calls) {
         await handoff(call);
       }
     }
