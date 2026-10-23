@@ -125,6 +125,8 @@ void test("OpenAI voice rejects generated rewrites and model-selected speech ide
       transcript: "Fix switching.",
     });
     await until(() => flow.events.some((event) => event.type === "transcriptDone" && event.itemId === "speech-2"));
+    // A displayed transcript can precede the provider request; completion must echo this session's response key.
+    await until(() => flow.frames.filter((event) => event.type === "response.create").length === 2);
     flow.emit(
       completed({
         type: "response.function_call_arguments.done",
