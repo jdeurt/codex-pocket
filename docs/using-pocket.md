@@ -6,7 +6,7 @@ Send a task from the composer and follow the streamed response. Pocket shows que
 
 Open **Pockets** at the top left to create, name, rename, or switch conversations. Each entry shows its state and a short preview of its latest work. These main conversations are separate from delegated [Side Pockets](side-pockets.md).
 
-Each Pocket has its own history, draft, reading position, pending questions, settings, schedules, and delegates. New Pockets inherit the host's working directory and native configuration. Switching views leaves background work running. Different browser tabs can use different Pockets; the URL identifies the selected conversation.
+Each Pocket has its own history, draft, reading position, pending questions, session model settings, schedules, and delegates. New Pockets inherit the host's working directory and native configuration. Switching views leaves background work running. Different browser tabs can use different Pockets; the URL identifies the selected conversation.
 
 Deleting a Pocket removes its menu entry and closes its idle runtime. It retains saved Codex history and private delivery records on the computer. Resolve active work, pending questions, uncertain sends, active children, and schedules before deletion. Pocket asks for confirmation, switches to a surviving conversation when necessary, and prevents deletion of the last ready Pocket.
 
@@ -39,6 +39,8 @@ The Mac must be awake with Pocket running. Delivery also depends on the phone's 
 Keys, subscriptions, and delivery receipts are created automatically in `~/.pocket/data/push.json`. Preserve that file across updates; deleting it requires devices to enable notifications again. No separate notification service account is needed.
 
 ## Schedules and settings
+
+Open **Pockets → Settings** using the gear in the top-left menu for global preferences and the **OpenAI API key** option. A key enables advanced functionality, including realtime. You can save, replace, or remove a saved key; its value is never displayed again. See [Pocket Settings](configuration.md#pocket-settings) for host storage and environment-key behavior.
 
 Ask Pocket to [schedule a task](schedules.md) when you want it to act later. Tasks run on the Mac, so they depend on the host staying available.
 
