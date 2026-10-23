@@ -5,6 +5,7 @@ import { fauxAssistantMessage } from "@earendil-works/pi-ai";
 import { groupTaskContext, readTaskState } from "../../src/server/task-context";
 import { isSameTask } from "../../src/server/task-decisions";
 import { piWorkflow } from "../fixtures/pi-workflow";
+import { eventually } from "../fixtures/workflow";
 import { taskSearchPage } from "../../src/server/task-index-protocol";
 import { turnSchema } from "../../src/lib/protocol";
 import assert from "node:assert/strict";
@@ -75,7 +76,7 @@ await test("Pi migration preserves saved native history and search returns origi
 });
 
 await test("Pi source ingestion archives a continuing task after five unrelated messages and retrieves its original content", async (t) => {
-  const flow = await piWorkflow(t);
+  const flow = await piWorkflow(t, 2);
   const source = await readFile(new URL("../fixtures/history/task-decisions.json", import.meta.url), "utf8");
   const exchange = z.object({ candidate: z.string(), matched: z.array(z.string()), continues: z.boolean() });
   const exchanges = z.array(exchange).parse(JSON.parse(source));
@@ -101,10 +102,39 @@ await test("Pi source ingestion archives a continuing task after five unrelated 
   const canonical = await flow.history();
 
   assert.equal(canonical.length, messages.length);
-  await flow.main.close();
+  await eventually(async () => {
+    const state = await readTaskState(flow.parent.id);
+
+    return (
+      state.messages.length === messages.length &&
+      state.messages.every((message, index) =>
+        message.entries.some((entry) => entry.role === "assistant" && entry.text === `Recorded: ${messages[index]}`)
+      )
+    );
+  }, "All seven user messages and their final answers must reach active context before shutdown");
   const active = await readTaskState(flow.parent.id);
 
   assert.equal(active.messages.length, messages.length);
+  assert.deepEqual(
+    active.messages.map((message) => message.text),
+    messages
+  );
+  assert.deepEqual(
+    active.messages.map((message) => message.entries.map((entry) => [entry.role, entry.text])),
+    messages.map((text) => [
+      ["user", text],
+      ["assistant", `Recorded: ${text}`],
+    ])
+  );
+  await flow.main.close();
+  const reopened = flow.create();
+
+  await reopened.request("thread/resume", {});
+  await reopened.close();
+  const resumed = await readTaskState(flow.parent.id);
+
+  assert.deepEqual(resumed.messages, active.messages, "Resuming must not replay already ingested native messages");
+  assert.equal(resumed.revision, active.revision);
   t.mock.method(globalThis, "fetch", (url: unknown, options: RequestInit) => {
     assert.equal(url, "https://api.openai.com/v1/decisions");
     assert.equal(options.method, "POST");
@@ -123,7 +153,7 @@ await test("Pi source ingestion archives a continuing task after five unrelated 
       Response.json({ answers: [{ type: "predicate", name: "same_task", probability: expected.continues ? 1 : 0 }] })
     );
   });
-  const closed = await groupTaskContext(flow.parent.id, active, (candidate, matched) =>
+  const closed = await groupTaskContext(flow.parent.id, resumed, (candidate, matched) =>
     isSameTask("synthetic-classifier-key", candidate, matched)
   );
 

@@ -99,59 +99,71 @@ export class PiTaskContext {
     await saveTaskState(this.owner, this.state);
   }
 
-  /** Add a finalized Pi source record, preserving exact payload and chronological source identity.
+  /** Persist one committed native entry before advancing its durable ingestion cursor.
   @param entry - Newly appended native entry, never a historical closed-group member.
   */
-  accept(entry: SessionEntry) {
+  private async ingest(entry: SessionEntry) {
+    if (!this.state) {
+      throw new Error("Task context has not been initialized.");
+    }
+
+    if (entry.type === "message") {
+      const source = {
+        id: entry.id,
+        sequence: this.state.revision,
+        role: entry.message.role,
+        text: nativeText("content" in entry.message ? entry.message.content : ""),
+        original: entry,
+      };
+
+      await saveTaskSource(this.owner, source);
+      ingestTaskEntry(this.state, source);
+    }
+
+    this.state.sourceCursor = entry.id;
+    await saveTaskState(this.owner, this.state);
+  }
+
+  /** Queue a committed source-tail read after the SDK's synchronous message persistence.
+  @param manager - Authoritative append-only Pi session source; events can precede its append.
+  */
+  sync(manager: SessionManager) {
+    // enqueue awaits the preceding write before reading. message_end's listener returns
+    // to Pi so it can append the native entry before this queued operation observes it.
     void this.enqueue(async () => {
       if (!this.state) {
         throw new Error("Task context has not been initialized.");
       }
 
-      if (entry.type === "message") {
-        const source = {
-          id: entry.id,
-          sequence: this.state.revision,
-          role: entry.message.role,
-          text: nativeText("content" in entry.message ? entry.message.content : ""),
-          original: entry,
-        };
+      const cursor = this.state.sourceCursor;
 
-        await saveTaskSource(this.owner, source);
-        ingestTaskEntry(this.state, source);
+      if (cursor && !manager.getEntry(cursor)) {
+        throw new Error("Task ingestion cursor is missing from the Pi source; inspect before replaying history.");
       }
 
-      await saveTaskState(this.owner, this.state);
+      const arrived: SessionEntry[] = [];
+
+      let tail = cursor ? manager.getChildren(cursor) : manager.getEntries();
+
+      while (tail.length > 0) {
+        arrived.push(...tail);
+        tail = cursor ? manager.getChildren(tail.at(LAST_ENTRY)?.id ?? "") : [];
+      }
+
+      for (const entry of arrived) {
+        await this.ingest(entry);
+      }
     }).catch(this.onError);
   }
 
-  /** Restore direct state and ingest only entries after the durable source cursor once on startup.
+  /** Restore direct state and ingest only the unprocessed source tail before accepting work.
   @param manager - Authoritative append-only Pi session source.
   @param session - Session whose idle state gates provider calls and compaction.
   */
   async start(manager: SessionManager, session: AgentSession) {
     this.state = await readTaskState(this.owner);
     scheduleTaskIndex(this.owner);
-    const cursor = this.state.sourceCursor;
-
-    if (cursor && !manager.getEntry(cursor)) {
-      throw new Error("Task ingestion cursor is missing from the Pi source; inspect before replaying history.");
-    }
-
-    // Startup catches up the unprocessed source tail. Grouping reads only this.state.messages.
-    const arrived: SessionEntry[] = [];
-
-    let tail = cursor ? manager.getChildren(cursor) : manager.getEntries();
-
-    while (tail.length > 0) {
-      arrived.push(...tail);
-      tail = cursor ? manager.getChildren(tail.at(LAST_ENTRY)?.id ?? "") : [];
-    }
-
-    for (const entry of arrived) {
-      this.accept(entry);
-    }
-
+    this.sync(manager);
     await this.serial;
     this.timer = setInterval(() => {
       scheduleTaskIndex(this.owner);
