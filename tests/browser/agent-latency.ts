@@ -1,4 +1,5 @@
 import { type APIRequestContext, type Page, expect, test } from "@playwright/test";
+import { agentTranscriptSchema } from "../../src/lib/agents";
 import { control } from "./agent-replay";
 import { readFile } from "node:fs/promises";
 import { replayLogSchema } from "../fixtures/replay-protocol";
@@ -33,10 +34,14 @@ export async function checkHeldTranscript(page: Page, request: APIRequestContext
             .map((line) => replayLogSchema.parse(JSON.parse(line)));
 
           expect(response.ok()).toBe(true);
+          const transcript = agentTranscriptSchema.parse(await response.json());
 
-          return entries.some(
-            (entry) =>
-              entry.stage === "history-held" && entry.threadId === "native-codex" && entry.method === "thread/read"
+          return (
+            transcript.isHistoryLoading &&
+            entries.some(
+              (entry) =>
+                entry.stage === "history-held" && entry.threadId === "native-codex" && entry.method === "thread/read"
+            )
           );
         })
         .toBe(true);
@@ -49,6 +54,7 @@ export async function checkHeldTranscript(page: Page, request: APIRequestContext
       timeout: OPEN_TIMEOUT_MS,
     });
     await expect(dialog.getByText("Loading conversation…", { exact: true })).toHaveCount(0);
+    await expect(dialog.getByRole("status", { name: "Loading latest history", exact: true })).toBeVisible();
     await test.info().attach("held-native-history-open", {
       body: JSON.stringify({ elapsedMs: Date.now() - started, nativeHistoryHeld: true }),
       contentType: "application/json",
@@ -56,4 +62,7 @@ export async function checkHeldTranscript(page: Page, request: APIRequestContext
   } finally {
     await control("updated");
   }
+
+  await expect(dialog.locator(".agent-chat").getByText("LIVE_REPLAY_UPDATE", { exact: true })).toBeVisible();
+  await expect(dialog.getByRole("status", { name: "Loading latest history", exact: true })).toHaveCount(0);
 }

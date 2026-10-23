@@ -42,7 +42,7 @@ await test("cached attached history opens while refresh is held and never crosse
   const cache = new AgentReadCache();
 
   const open = async () => {
-    await cache.full(record);
+    assert.equal(await cache.full(record), true);
     state.didOpen = true;
   };
   const checkHeld = async () => {
@@ -56,7 +56,7 @@ await test("cached attached history opens while refresh is held and never crosse
     } finally {
       gate.resolve(undefined);
       await pending;
-      await cache.full(record, true);
+      assert.equal(await cache.full(record, true), false);
     }
   };
   const checkReplacement = async () => {

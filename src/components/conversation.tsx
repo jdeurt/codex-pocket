@@ -83,7 +83,7 @@ function deliveryLabel(status: QueuedMessage["status"]) {
 
 /**
 Compose canonical turn entries with standard transcript virtualization and current activity.
-@param props - Normalized snapshot, read-only options, activity control and covered-parent suspension.
+@param props - Normalized snapshot, read-only options, footer, activity control and covered-parent suspension.
 @returns The transcript, pending requests and existing conversation notices.
 */
 export function Conversation({
@@ -92,6 +92,7 @@ export function Conversation({
   emptyMessage = "No visible messages saved yet.",
   activityControl,
   showActivity = true,
+  footer,
   suspended = false,
   realtimeSegments = [],
 }: {
@@ -100,6 +101,7 @@ export function Conversation({
   emptyMessage?: string;
   activityControl?: ReactNode;
   showActivity?: boolean;
+  footer?: ReactNode;
   suspended?: boolean;
   realtimeSegments?: {
     id: number;
@@ -203,6 +205,7 @@ export function Conversation({
             />
           </MessageScrollerItem>
         ))}
+        {footer}
       </VirtualizedTranscript>
     </>
   );
