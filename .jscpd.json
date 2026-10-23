@@ -9,7 +9,14 @@
     "**/test-results/**",
     "**/playwright-report/**",
     "**/package-lock.json",
-    "**/next-env.d.ts"
+    "**/next-env.d.ts",
+    "**/.git/**",
+    "**/dist/**",
+    "**/build/**",
+    "**/out/**",
+    "**/coverage/**",
+    "**/vendor/**",
+    "**/tests/simulators/contracts/**"
   ],
   "ignoreIdentifiers": true,
   "ignoreLiterals": true,

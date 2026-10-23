@@ -1,5 +1,4 @@
 import { type Data, object, realtimeItemAddedSchema, rpcEventSchema, string } from "../lib/protocol";
-import { type PendingResponse, abandonPendingRealtime } from "./rpc-pending";
 import { RpcDiagnosticEvent, RpcDisconnectEvent, RpcNotificationEvent } from "./rpc-events";
 import {
   RpcError,
@@ -21,6 +20,14 @@ import { type z } from "zod";
 export { RpcError } from "./rpc-protocol";
 
 const ACKNOWLEDGEMENT_TIMEOUT_MS = 90_000;
+
+interface PendingResponse {
+  resolve: (value: unknown) => void;
+  reject: (error: Error) => void;
+  timer: NodeJS.Timeout;
+  method: string;
+  startedAt: number;
+}
 
 // One owned JSON-RPC connection, over stdio or the existing owner's Unix socket.
 /**
@@ -314,15 +321,6 @@ export class CodexRpc extends EventTarget {
   */
   request(method: string, params: Data = {}): Promise<unknown> {
     return this.running ? this.pendingRequest(method, params) : Promise.reject(new Error("Codex is not connected."));
-  }
-
-  /**
-  Stop waiting for an uncertain realtime acknowledgment without closing the shared connection.
-  Late responses retain their original IDs and cannot settle another request.
-  @param method - The audio or stop method to drain.
-  */
-  abandonRealtime(method: "thread/realtime/appendAudio" | "thread/realtime/stop") {
-    abandonPendingRealtime(this.pending, method);
   }
 
   /**
