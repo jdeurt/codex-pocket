@@ -31,6 +31,7 @@ function startWorker(directory: string) {
       CODEX_CWD: directory,
       CODEX_POCKET_STATE_DIR: directory,
       CODEX_BINARY: process.execPath,
+      POCKET_TEST_MAIN_HARNESS: "codex",
       CODEX_SERVER_ARGS: JSON.stringify(["--import", "tsx", path.resolve("tests/fixtures/restart-rpc.ts")]),
     },
     execArgv: ["--import", "tsx"],
