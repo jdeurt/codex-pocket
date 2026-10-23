@@ -7,6 +7,7 @@ import path from "node:path";
 const origin = "http://127.0.0.1:3119";
 const directory = path.resolve(".local/realtime-fixture");
 const dummyKey = "dummy-openai-key-for-local-fixture";
+const HYDRATION_PROBE_MS = 150;
 
 async function open(page: Page) {
   await page.goto("/");
@@ -48,6 +49,9 @@ test("configured OpenAI voice hands off exact speech once and preserves provenan
   await expect(page.getByRole("status", { name: "Realtime voice active" })).toBeVisible();
   await expect(page.getByText(transcript, { exact: true })).toHaveCount(1);
   await expect.poll(nativeStarts).toBe(before + 1);
+  // The fixture publishes an empty canonical item before its delayed final text.
+  await page.waitForTimeout(HYDRATION_PROBE_MS);
+  expect(await page.getByText(transcript, { exact: true }).count()).toBe(1);
   await expect(page.getByText("Fixture text answer", { exact: true }).last()).toBeVisible();
   await page.getByRole("button", { name: "Stop realtime voice" }).click();
   await expect(page.getByRole("textbox", { name: "Message Pocket" })).toHaveValue("keep my unsent draft");

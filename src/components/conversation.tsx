@@ -3,7 +3,7 @@ import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Message, MessageContent } from "@/components/ui/message";
 import { type QueuedMessage, type Snapshot, string } from "@/lib/protocol";
-import { turnMessages } from "@/lib/turn-messages";
+import { hasMessageText, turnMessages } from "@/lib/turn-messages";
 import { type VoiceSegment } from "@/lib/voice-history";
 import { ConversationActivity } from "./conversation-activity";
 import { FileAttachments } from "./file-attachments";
@@ -107,7 +107,9 @@ export function Conversation({
   const projectedVoice = new Set([
     ...state.queue.map((entry) => entry.id),
     ...state.turns.flatMap((turn) =>
-      turn.items.filter((item) => item.type === "userMessage").map((item) => string(item.clientId))
+      turn.items
+        .filter((item) => item.type === "userMessage" && hasMessageText(item))
+        .map((item) => string(item.clientId))
     ),
   ]);
   const messages = state.turns.flatMap((turn) => {
