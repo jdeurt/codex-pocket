@@ -76,7 +76,7 @@ async function migrate(native: CodexRpc, config: Config, manager: SessionManager
   return { sessionFile: manager.getSessionFile() ?? "", name: thread.name ?? "Pocket", turns };
 }
 
-/** Open a credential-isolated Pi session while preserving the host's existing permission boundary.
+/** Open a credential-isolated Pi session within the host process boundary, without claiming Codex sandbox enforcement.
 @param config - Exact parent configuration.
 @param native - Native reader for effective policy and legacy history.
 @param params - Canonical model and effort overrides.
@@ -92,14 +92,6 @@ export async function openPiSession(
   customTools: ToolDefinition[] = []
 ) {
   const { config: effective } = await native.request("config/read", { cwd: config.cwd, includeLayers: false });
-
-  if (effective.sandbox_mode !== "danger-full-access" || effective.approval_policy !== "never") {
-    throw new Error(
-      "Pi cannot enforce this Codex sandbox/approval profile. " +
-        "Pi main sessions currently support only an existing danger-full-access/never host policy; " +
-        "permissions were not changed."
-    );
-  }
 
   if (!key) {
     throw new Error("Add an OpenAI API key in Pocket Settings before starting the Pi main session.");
@@ -142,5 +134,15 @@ export async function openPiSession(
     customTools,
   });
 
-  return { session, runtime, manager, state, selection };
+  return {
+    session,
+    runtime,
+    manager,
+    state,
+    selection,
+    nativeDelegationProfile: {
+      sandbox: string(effective.sandbox_mode),
+      approvalPolicy: effective.approval_policy ?? null,
+    },
+  };
 }

@@ -4,18 +4,15 @@ Main Pocket sessions now run the pinned `@earendil-works/pi-coding-agent` SDK in
 
 This work depends on JUA-68's central settings implementation (`src/server/pocket-settings.ts`, `readOpenAIApiKey(): Promise<string | null>`). Pi receives the selected key through an in-memory credential store. It does not write another credential file or configure provider access. A missing key produces a Settings instruction before a provider request is attempted. Existing Pi provider sessions retain their key until reconnect.
 
-## Migration acceptance gap: restricted profiles
+## Execution boundary and legacy configuration
 
-| Existing effective Codex profile                      | Pi main behavior                                                  |
-| ----------------------------------------------------- | ----------------------------------------------------------------- |
-| `danger-full-access`, `approval_policy=never`         | Supported with Pi host tools and the existing Pocket MCP surface. |
-| `read-only` or `workspace-write`, any approval policy | Connection rejected before Pi tools start.                        |
-| `danger-full-access` with another approval policy     | Connection rejected before Pi tools start.                        |
-| Missing or unrecognized policy fields                 | Connection rejected.                                              |
+Pi main tools and the Pocket MCP connection run within the host process's existing machine and environment permissions. Pocket does not rely on harness-level sandboxing. Codex `read-only`, `workspace-write`, `danger-full-access` and approval settings are not enforced by Pi and do not gate the migration. No OS or environment security settings are changed.
 
-The phone displays the connection error: Pi cannot enforce the current sandbox/approval profile, and permissions were not changed. No migration fallback silently runs unrestricted tools. Existing active Codex main work must finish before migration. Consequently **JUA-67 is not fully accepted for all previously supported profiles**. No profile is changed automatically.
+`CODEX_SERVER_ARGS` and native Codex permission settings still configure native delegation and legacy conversation bootstrap/history access. Codex children inherit that native profile; Claude retains its existing supported native permission mapping. They are not security controls for the Pi main session. Session inspection reports this boundary explicitly instead of presenting a restrictive Codex profile as Pi enforcement.
 
-Pi's [isolation documentation](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/containerization.md) describes whole-process Docker, Docker Sandboxes and OpenShell isolation, plus tool execution through Gondolin. Whole-process isolation or host-enforced tool operations are viable integration directions. They still require verified mappings for host workspace mounts, network access, command approval, child inheritance and Pocket MCP operations. Tool-only isolation does not constrain unrelated host extensions. This PR does not invent that mapping or install persistent access.
+Existing active Codex main work must finish before migration to avoid duplicating an in-progress task. Missing provider credentials and unavailable native history remain actionable setup errors, independently of sandbox parity.
+
+Pi's [isolation documentation](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/docs/containerization.md) describes optional whole-process and tool-isolation deployments. This migration does not install or require them, change machine security, or create persistent access.
 
 The offline Codex protocol/browser fixtures explicitly select their Node replay transport with `POCKET_TEST_MAIN_HARNESS=codex`; this is accepted only when the configured binary is this Node executable. Production/native Codex binaries do not activate the replay path. The Pi business flow exercises the actual SDK with Pi's faux provider, not a model API call.
 
@@ -23,7 +20,7 @@ The offline Codex protocol/browser fixtures explicitly select their Node replay 
 
 Pi exposes its built-in tools, preserves structured phone questions through a native-cancellable `request_user_input` compatibility tool, and connects the same parent-scoped Pocket MCP server for scheduling, Side Pockets, adoption, spinner and session tools. Project instruction and skill discovery remain native Pi behavior. Executable project extensions are not auto-trusted. The effective existing developer instructions are composed with Pocket's main prompt.
 
-`pocket_session_models` lists Pi catalog selections. Main model settings resolve `provider/model` identities through that catalog; bare IDs select OpenAI. Unsupported names fail explicitly. Settings apply to subsequent turns and persist separately per parent. OpenAI-qualified selections become native bare model IDs when inherited by Codex delegates. Claude keeps its native model selection and permission checks.
+`pocket_session_models` lists Pi catalog selections. Main model settings resolve `provider/model` identities through that catalog; bare IDs select OpenAI. Unsupported names fail explicitly. Settings apply to subsequent turns and persist separately per parent. Native delegates retain the host's native Codex model/effort defaults, with explicit per-child overrides still available. Arbitrary Pi provider/model IDs or thinking levels are not passed into native Codex/Claude configuration. Claude keeps its own model selection and permission checks.
 
 On first migration, complete Codex history is saved as `legacy-codex.md` for silent retrieval and copied into a Pi custom context entry without executing it again, and its original phone transcript IDs are retained. New exact Pi source and the phone projection are private durable files. Interrupted Pi work is marked interrupted on restore; accepted or uncertain submissions are never replayed as fresh user input. Existing Pocket restart recovery remains separate.
 

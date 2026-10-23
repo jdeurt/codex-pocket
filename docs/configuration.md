@@ -63,24 +63,24 @@ These values configure the host process. The installer writes absolute paths for
 
 Origins must contain no trailing slash, path, query, or fragment. An allowed origin is a request guard, not a login system; protect remote access at the proxy or network boundary.
 
-Codex uses its local login and configuration. Pocket owns a local app-server process and resumes its configured conversation at startup. Use Pocket as that conversation's active owner. To work with a session owned elsewhere, follow [existing-session attachment](side-pockets.md#connect-an-existing-codex-session).
+Main conversations use Pi and the central OpenAI key. Pi tools run within the host process's existing machine and environment permissions; Codex sandbox and approval settings do not constrain Pi. Codex uses its local login and configuration for native delegates, legacy bootstrap and history access. Use Pocket as that conversation's active owner. To work with a session owned elsewhere, follow [existing-session attachment](side-pockets.md#connect-an-existing-codex-session).
 
-The installer offers native permissions or explicit unrestricted access. To configure unrestricted access through process arguments:
+The installer offers native Codex permissions or explicit unrestricted access for native work. These choices do not sandbox the Pi main session. To configure unrestricted native Codex access through process arguments:
 
 ```sh
 export CODEX_SERVER_ARGS='["app-server","--listen","stdio://","-c","sandbox_mode=\"danger-full-access\"","-c","approval_policy=\"never\""]'
 pocket update
 ```
 
-This grants the agent unrestricted access without approval prompts. Model and reasoning effort can be configured through native Codex settings or [Pocket's session tools](session-controls.md). Pocket applies the selected reasoning effort when resuming and starting turns; the header shows the effective model and effort.
+This configures native Codex work to run without sandbox restrictions or approval prompts. Main Pi model and reasoning choices use [Pocket's session tools](session-controls.md) and its model catalog; native delegate defaults remain independent. Session inspection reports the Pi execution boundary, and the header shows the main model and effort.
 
 ## Delivery and restart recovery
 
-Messages have durable IDs so reconnects can reconcile a pending send with confirmed history. If the process stops before acknowledging a send, its outcome is uncertain. Pocket retains the record for inspection rather than replaying work automatically. Check the saved Codex history and the relevant outbox receipt before retrying.
+Messages have durable IDs so reconnects can reconcile a pending send with confirmed history. If the process stops before acknowledging a send, its outcome is uncertain. Pocket retains the record for inspection rather than replaying work automatically. Check the saved harness history and relevant outbox receipt before retrying.
 
-When the owned Codex process resumes a conversation with history, Pocket sends one hidden recovery instruction through the same durable delivery system. It asks the agent to continue unfinished work and inspect expected delegates. Empty chats and browser reconnects do not trigger it. Pending recovery messages reuse their IDs; uncertain ones stay unresolved. Look for `recovery.queued` in the logs.
+When Pocket resumes a conversation with history, Pocket sends one hidden recovery instruction through the same durable delivery system. It asks the agent to continue unfinished work and inspect expected delegates. Empty chats and browser reconnects do not trigger it. Pending recovery messages reuse their IDs; uncertain ones stay unresolved. Look for `recovery.queued` in the logs.
 
-Pocket adds developer instructions while preserving native system instructions and saved history. A resumed Codex chat may retain earlier developer instructions. Create a new Pocket when you need a clean instruction context.
+Pocket adds its instructions while preserving existing developer instructions and saved history. A migrated conversation may retain earlier instructions. Create a new Pocket when you need a clean instruction context.
 
 Questions and supported command, file, and permission approvals appear on the phone. An unfamiliar request stays pending for handling on the computer. From a configured checkout, inspect requests or answer using the exact native response format:
 

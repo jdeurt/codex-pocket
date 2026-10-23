@@ -22,7 +22,7 @@ Settings dependency: `f09c33e` on `codex/jua-68-settings-credentials`.
 - `readPocketSettings()` exposes nullable `realtimeVoice` and `realtimeModel` overrides. Null selects Voice's provider defaults, `marin` and `gpt-realtime-2.1`.
 - `updatePocketSettings()` owns partial preference updates. The previous per-thread realtime preference files are no longer read or written.
 
-Harness dependency: `1bd0467` on `codex/jua-67-jua-71-pi-context`, including the agreed source-aware handoff interface.
+Harness dependency: `186f827` on `codex/jua-67-jua-71-pi-context`, including the agreed source-aware handoff interface.
 
 ```ts
 Bridge.handoff({
