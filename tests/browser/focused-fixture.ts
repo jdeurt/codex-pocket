@@ -122,6 +122,7 @@ export async function mountFocusedChat(page: Page) {
 
     return route.fulfill({ json: url.pathname === "/api/agents" ? agents : {} });
   });
+  await page.route("**/api/realtime", (route) => route.fulfill({ json: { history: [] } }));
   await page.addInitScript((state) => {
     /**
     Replays a single canonical snapshot through the browser's native event dispatch.

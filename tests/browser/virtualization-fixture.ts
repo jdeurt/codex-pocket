@@ -23,6 +23,7 @@ export async function mount(page: Page, state: Snapshot) {
     return await readFile("public/icon-192.png");
   });
 
+  await page.route("**/api/realtime", (route) => route.fulfill({ json: { history: [] } }));
   await page.route("**/api/images?*", (route) => route.fulfill({ contentType: "image/png", body: image }));
   // The real Chat/useThread path, with no bridge, real transcript or sending.
   await page.addInitScript((snapshot) => {
