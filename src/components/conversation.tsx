@@ -93,6 +93,7 @@ export function Conversation({
   emptyMessage = "No visible messages saved yet.",
   activityControl,
   showActivity = true,
+  isWorking = !!state.activeTurnId,
   footer,
   suspended = false,
   realtimeSegments = [],
@@ -103,6 +104,7 @@ export function Conversation({
   emptyMessage?: string;
   activityControl?: ReactNode;
   showActivity?: boolean;
+  isWorking?: boolean;
   footer?: ReactNode;
   suspended?: boolean;
   showTools?: boolean;
@@ -145,7 +147,7 @@ export function Conversation({
         storageKey={readOnly ? undefined : state.threadId}
         turns={messages}
         suspended={suspended}
-        status={showActivity && <ConversationActivity state={state} control={activityControl} />}
+        status={showActivity && <ConversationActivity state={state} control={activityControl} isWorking={isWorking} />}
       >
         <ConversationEmpty
           connection={state.connection}

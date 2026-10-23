@@ -1,7 +1,29 @@
 import { type AgentMessage } from "@earendil-works/pi-agent-core";
-import { type Item, type Turn, object, string } from "../lib/protocol";
+import { type Item, type Turn, type RpcEvent, object, string } from "../lib/protocol";
 import { nativeText } from "./harness/transcript";
 import { inputToolPreview, toolPreview } from "./tool-preview";
+
+const MISSING_ITEM = -1;
+
+/** Merge native Pi updates by identity before publishing the canonical transcript event.
+@param turn - Current submission owning these items.
+@param items - Native message or tool updates.
+@param threadId - Owning parent identity.
+@param emit - Existing Bridge event sink.
+*/
+export function publishPiItems(turn: Turn, items: Item[], threadId: string, emit: (event: RpcEvent) => void) {
+  for (const item of items) {
+    const index = turn.items.findIndex((existing) => existing.id === item.id);
+
+    if (index === MISSING_ITEM) {
+      turn.items.push(item);
+    } else {
+      turn.items[index] = item;
+    }
+
+    emit({ method: "item/completed", params: { threadId, turnId: turn.id, item } });
+  }
+}
 
 /** Project Pi messages into Pocket's existing phone transcript without changing their source payload.
 @param message - Native Pi message or final tool result.
@@ -14,7 +36,16 @@ export function piItems(message: AgentMessage, turn: Turn, userId?: string): Ite
   const id = `${turn.id}:${String(raw.timestamp)}:${string(raw.role)}`;
 
   if (message.role === "user") {
-    return [{ id: userId ?? id, type: "userMessage", content: message.content, source: "pi", original: message }];
+    return [
+      {
+        id: userId ?? id,
+        clientId: userId,
+        type: "userMessage",
+        content: message.content,
+        source: "pi",
+        original: message,
+      },
+    ];
   }
 
   if (message.role === "toolResult") {

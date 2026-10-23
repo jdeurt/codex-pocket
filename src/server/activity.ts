@@ -10,6 +10,14 @@ const TOOL_ACTIVITIES = new Map(
     search_files: "Searching files",
     view_image: "Viewing images",
     imagegen: "Generating images",
+    bash: "Running commands",
+    read: "Reading files",
+    write: "Editing files",
+    edit: "Editing files",
+    grep: "Searching files",
+    find: "Searching files",
+    ls: "Listing files",
+    pocket_session_settings: "Updating session",
   })
 );
 
@@ -77,6 +85,14 @@ Project one normalized native item into the existing activity vocabulary.
 */
 export function itemActivity(item: Item): string | undefined {
   switch (item.type) {
+    case "toolTrace": {
+      const tool = string(item.tool).split("__").at(LAST_ITEM_INDEX) ?? "";
+
+      return item.status === "running"
+        ? (TOOL_ACTIVITIES.get(tool.toLowerCase()) ?? "Calling tools")
+        : "Considering options";
+    }
+
     case "userMessage": {
       return;
     }
@@ -112,6 +128,10 @@ Project native progress notifications into the shared activity vocabulary.
 */
 function eventActivity(event: RpcEvent, turn: Turn | undefined) {
   switch (event.method) {
+    case "thread/activity/updated": {
+      return typeof event.params.activity === "string" ? event.params.activity : undefined;
+    }
+
     case "item/started":
     case "item/completed": {
       return event.params.item ? itemActivity(event.params.item) : "";

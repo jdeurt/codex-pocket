@@ -1,4 +1,5 @@
 import { type ModelRuntime } from "@earendil-works/pi-coding-agent";
+import { type Data, string } from "../lib/protocol";
 import { z } from "zod";
 
 const MISSING_SEPARATOR = -1;
@@ -34,4 +35,28 @@ export function piModelCatalog(runtime: ModelRuntime) {
     reasoning: model.reasoning,
     contextWindow: model.contextWindow,
   }));
+}
+
+/** Validate staged next-turn settings without invoking a model or creating a tool trace.
+@param runtime - Initialized Pi catalog, absent before resume.
+@param params - Canonical settings mutation.
+@param current - Current staged selection and effort.
+@returns Validated selection and effort for subsequent turns.
+*/
+export function piSettings(
+  runtime: ModelRuntime | undefined,
+  params: Data,
+  current: { model: string; effort: string }
+) {
+  if (!runtime) {
+    throw new Error("Pi is not initialized.");
+  }
+
+  const model = string(params.model) || current.model;
+  const effort = string(params.effort) || current.effort;
+
+  piModel(runtime, model);
+  thinkingLevelSchema.parse(effort);
+
+  return { model, effort };
 }

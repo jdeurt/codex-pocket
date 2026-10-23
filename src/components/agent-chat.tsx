@@ -1,5 +1,5 @@
 "use client";
-import { type AgentEntry, type AgentTranscript, agentTranscriptSchema } from "@/lib/agents";
+import { type AgentEntry, type AgentTranscript, agentTranscriptSchema, isActiveAgent } from "@/lib/agents";
 import { useEffect, useRef } from "react";
 import { ArrowLeftIcon } from "lucide-react";
 import { Button } from "./ui/button";
@@ -60,6 +60,7 @@ function AgentHistory({ data, error, isLoading }: { data?: AgentTranscript; erro
     <Conversation
       state={data?.state ?? initialSnapshot}
       readOnly
+      isWorking={!!data && isActiveAgent(data.agent)}
       footer={<HistoryReadStatus data={data} error={error} isLoading={isLoading} />}
       emptyMessage={
         data?.history === "unavailable" ? "Saved history is unavailable." : "No visible messages saved yet."
@@ -84,7 +85,7 @@ export function AgentChat({ id, agent, back }: { id: string; agent?: AgentEntry;
   }, [id]);
 
   return (
-    <div className="agent-chat">
+    <div className="agent-chat pb-[max(24px,env(safe-area-inset-bottom))]">
       <header className="chat-header agent-chat-header">
         <Button variant="ghost" size="icon-xl" aria-label="Back to agents" onClick={back}>
           <ArrowLeftIcon />

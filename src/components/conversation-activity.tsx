@@ -9,8 +9,16 @@ import { type Snapshot } from "@/lib/protocol";
 @param props - Current parent state and optional agents control sharing the reserved row.
 @returns The activity row and its accessible status content.
 */
-export function ConversationActivity({ state, control }: { state: Snapshot; control?: ReactNode }) {
-  const isThinking = !!state.activeTurnId && state.requests.length === 0;
+export function ConversationActivity({
+  state,
+  control,
+  isWorking = !!state.activeTurnId,
+}: {
+  state: Snapshot;
+  control?: ReactNode;
+  isWorking?: boolean;
+}) {
+  const isThinking = isWorking && state.requests.length === 0;
   const activity = state.activity ?? "Considering options";
   const indicator = isThinking ? (
     <div
