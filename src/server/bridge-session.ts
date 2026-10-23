@@ -1,6 +1,6 @@
 import { type Config, readConfig } from "./config";
 import { RpcDiagnosticEvent, RpcDisconnectEvent, RpcNotificationEvent } from "./rpc-events";
-import { type RpcEvent, type Snapshot } from "../lib/protocol";
+import { type MessageSource, type RpcEvent, type Snapshot, messageSourceSchema } from "../lib/protocol";
 import { applyBridgeEvent, refreshSnapshotSchedules } from "./bridge-events";
 import { BridgeOutbox } from "./bridge-outbox";
 import { BridgeSnapshots } from "./bridge-snapshots";
@@ -40,8 +40,7 @@ export class Bridge {
     }
   );
 
-  /**
-  Bind durable receipt delivery to this bridge's canonical snapshot owner.
+  /** Bind durable receipt delivery to this bridge's canonical snapshot owner.
   @param configured - Optional named-Pocket configuration, independent of the original environment.
   */
   constructor(private configured?: Config) {
@@ -80,8 +79,7 @@ export class Bridge {
     await this.initialize(config);
   }
 
-  /**
-  Publish connecting state and restore durable submissions before opening the transport.
+  /** Publish connecting state and restore durable submissions before opening the transport.
   @param config - Validated parent launch and conversation configuration.
   */
   private async initialize(config: Config) {
@@ -97,8 +95,7 @@ export class Bridge {
     await this.hydrate(config);
   }
 
-  /**
-  Accept only this connection's native events and retain host-only diagnostics.
+  /** Accept only this connection's native events and retain host-only diagnostics.
   @param rpc - Native client belonging to the current hydration attempt.
   */
   private observe(rpc: CodexRpc) {
@@ -134,8 +131,7 @@ export class Bridge {
     });
   }
 
-  /**
-  Buffer native notifications until the saved parent history is restored.
+  /** Buffer native notifications until the saved parent history is restored.
   @param config - Validated parent configuration for the native handshake.
   */
   private async hydrate(config: Config) {
@@ -149,8 +145,7 @@ export class Bridge {
     await this.restoreHistory(rpc, config, events);
   }
 
-  /**
-  Restore canonical history before replaying buffered events and draining recovery work.
+  /** Restore canonical history before replaying buffered events and draining recovery work.
   @param rpc - Observed native client whose notifications are buffered.
   @param config - Validated parent configuration.
   @param events - This connection's ordered hydration buffer.
@@ -193,8 +188,7 @@ export class Bridge {
     });
   }
 
-  /**
-  Apply parent-scoped native changes before publishing the canonical snapshot.
+  /** Apply parent-scoped native changes before publishing the canonical snapshot.
   @param event - Validated native protocol event.
   */
   private event(event: RpcEvent) {
@@ -214,8 +208,7 @@ export class Bridge {
     this.snapshots.publish(this.messages.entries);
   }
 
-  /**
-  Serialize parent operations while allowing work after an earlier failure.
+  /** Serialize parent operations while allowing work after an earlier failure.
   @param fn - Next parent operation in submission order.
   @returns This operation's result without swallowing its failure.
   */
@@ -243,8 +236,7 @@ export class Bridge {
     return this.snapshots.state;
   }
 
-  /**
-  Share one hydration attempt and reject new work after bridge shutdown.
+  /** Share one hydration attempt and reject new work after bridge shutdown.
   @returns Completion of the current hydration attempt.
   */
   async ensureConnected() {
@@ -287,14 +279,14 @@ export class Bridge {
     refreshSnapshotSchedules(this.snapshot, this.config);
   }
 
-  /**
-  Serialize idempotent message acceptance with native connection and queue delivery.
+  /** Serialize idempotent message acceptance with native connection and queue delivery.
   @param id - Caller-supplied durable message identity.
   @param text - User message text.
   @param attachmentIds - Managed upload identifiers in request order.
+  @param source - Optional finalized voice source retained with the durable receipt.
   @returns The message's durable delivery status.
   */
-  async send(id: string, text: string, attachmentIds: string[] = []) {
+  async send(id: string, text: string, attachmentIds: string[] = [], source?: MessageSource) {
     log().info({ id, text }, "message.received");
 
     return this.exclusive(async () => {
@@ -304,16 +296,23 @@ export class Bridge {
         throw new Error("Configure a thread on your computer first.");
       }
 
-      if (this.realtime.status().type !== "idle") {
+      if (!source && this.realtime.status().type !== "idle") {
         throw new Error("Stop realtime before sending a typed message.");
       }
 
-      return this.messages.send(this.config, this.rpc, id, text, attachmentIds);
+      return this.messages.send(this.config, this.rpc, id, text, attachmentIds, source);
     });
   }
 
-  /**
-  Serialize a validated answer against a still-pending native prompt.
+  /** Accept finalized user speech through the existing durable submission path.
+  @param input - Stable finalized transcript and provider provenance.
+  @returns Durable delivery receipt, including an existing receipt on an identical retry.
+  */
+  handoff(input: { id: string; transcript: string; source: MessageSource }) {
+    return this.send(input.id, input.transcript, [], messageSourceSchema.parse(input.source));
+  }
+
+  /** Serialize a validated answer against a still-pending native prompt.
   @param id - Native prompt identity.
   @param input - Untrusted answer from the HTTP boundary.
   @returns Completion after the resolved prompt has been persisted.

@@ -6,6 +6,7 @@ import type { Config } from "./config";
 import { drainReceipts } from "./bridge-delivery";
 import { isQueueRecovery } from "./recovery";
 import { log } from "./logging";
+import { type MessageSource } from "../lib/protocol";
 
 /**
 Own durable parent submissions and their ordered native delivery transitions.
@@ -30,11 +31,19 @@ export class BridgeOutbox {
   @param id - Durable message identity.
   @param text - User message text.
   @param attachmentIds - Managed upload identifiers in request order.
+  @param source - Optional finalized voice provenance, never inferred from text.
   @returns The receipt's durable delivery status.
   */
-  private async deliver(config: Config, rpc: CodexRpc, id: string, text: string, attachmentIds: string[]) {
+  private async deliver(
+    config: Config,
+    rpc: CodexRpc,
+    id: string,
+    text: string,
+    attachmentIds: string[],
+    source?: MessageSource
+  ) {
     const attachments = await resolveUploads(config.threadId, attachmentIds);
-    const receipt: Receipt = { id, text, ...(attachments.length > 0 && { attachments }), status: "queued" };
+    const receipt: Receipt = { id, text, source, ...(attachments.length > 0 && { attachments }), status: "queued" };
 
     this.entries.push(receipt);
     await this.persist(config.threadId);
@@ -84,18 +93,23 @@ export class BridgeOutbox {
   @param id - Durable message identity.
   @param text - User message text.
   @param attachmentIds - Managed upload identifiers in request order.
+  @param source - Optional finalized voice provenance retained in the durable receipt.
   @returns The existing or newly accepted delivery status.
   */
-  async send(config: Config, rpc: CodexRpc, id: string, text: string, attachmentIds: string[]) {
+  async send(config: Config, rpc: CodexRpc, id: string, text: string, attachmentIds: string[], source?: MessageSource) {
     const existing = this.entries.find((entry) => entry.id === id);
 
     if (existing) {
       assertMessageContent(existing, text, attachmentIds);
 
+      if (JSON.stringify(existing.source) !== JSON.stringify(source)) {
+        throw new Error("This message ID already has different source provenance.");
+      }
+
       return { id, status: existing.status };
     }
 
-    return this.deliver(config, rpc, id, text, attachmentIds);
+    return this.deliver(config, rpc, id, text, attachmentIds, source);
   }
 
   /**
