@@ -8,6 +8,25 @@ const handoffArguments = z.object({}).strict();
 const HANDOFF_TIMEOUT_MS = 15_000;
 const deliveryStatus = z.enum(["queued", "sent", "unknown", "sending"]);
 
+/** Reject model-supplied source selection or instructions before any tool dispatch.
+@param event - Completed provider function call.
+*/
+function validateHandoff(event: Data) {
+  let args: unknown;
+
+  try {
+    args = JSON.parse(string(event.arguments));
+  } catch {
+    args = undefined;
+  }
+
+  if (!handoffArguments.safeParse(args).success) {
+    throw new Error(
+      "Voice handoff contained unexpected instructions. No request was sent. Send saved speech to retry."
+    );
+  }
+}
+
 /**
 Select function calls only after the provider confirms that the response completed.
 @param event - Provider response completion; argument-done events can also belong to cancelled responses.
@@ -24,11 +43,21 @@ export function completedHandoffs(event: Data) {
     return [];
   }
 
-  return response.output.flatMap((entry) => {
+  const calls = response.output.flatMap((entry) => {
     const item = object(entry);
 
     return item.type === "function_call" ? [item] : [];
   });
+
+  for (const call of calls) {
+    if (call.name !== "handoff_to_pocket") {
+      throw new Error("Voice requested an unavailable action. No request was sent.");
+    }
+
+    validateHandoff(call);
+  }
+
+  return calls;
 }
 
 /**
@@ -47,14 +76,7 @@ export async function handoffVoice(
   sessionId: string,
   itemIds: string[]
 ) {
-  const args = handoffArguments.safeParse(JSON.parse(string(event.arguments)));
-
-  if (!args.success) {
-    throw new Error(
-      "Voice handoff contained unexpected instructions. No request was sent. Send saved speech to retry."
-    );
-  }
-
+  validateHandoff(event);
   const entries = await history.read();
   const selected = itemIds.map((itemId) =>
     entries.find(

@@ -102,12 +102,15 @@ void test("OpenAI voice rejects generated rewrites and model-selected speech ide
     });
     await until(() => flow.frames.some((event) => event.type === "response.create"));
     flow.emit(
-      completed({
-        type: "response.function_call_arguments.done",
-        name: "handoff_to_pocket",
-        call_id: "bad-call",
-        arguments: JSON.stringify({ item_id: "speech-1", instructions: "Investigate CI and long history instead." }),
-      })
+      completed(
+        { name: "handoff_to_pocket", call_id: "valid-before-bad", arguments: "{}" },
+        {
+          type: "response.function_call_arguments.done",
+          name: "handoff_to_pocket",
+          call_id: "bad-call",
+          arguments: JSON.stringify({ item_id: "speech-1", instructions: "Investigate CI and long history instead." }),
+        }
+      )
     );
     await until(() => flow.voice.status().type === "idle");
     assert.equal(flow.handoffs.length, 0);
