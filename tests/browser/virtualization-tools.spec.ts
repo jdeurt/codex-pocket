@@ -1,6 +1,7 @@
 import { type Snapshot, initialSnapshot } from "../../src/lib/protocol";
 import { expect, test } from "@playwright/test";
 import { mount, publish } from "./virtualization-fixture";
+import { pocketSettingsMutationSchema } from "../../src/lib/settings";
 
 const DESKTOP = { width: 1440, height: 1000 };
 const PHONE = { width: 390, height: 844 };
@@ -38,24 +39,43 @@ test("host tool preference reveals shared details while conversation, images and
 
   let isShowToolCalls = false;
 
-  await page.route("**/api/settings", (route) =>
-    route.fulfill({
-      json: { showToolCalls: isShowToolCalls, openaiApiKeyConfigured: false, openaiApiKeySource: null },
-    })
-  );
+  const savedPreferences: boolean[] = [];
 
-  const refresh = async () => {
-    await page.evaluate(() => globalThis.dispatchEvent(new Event("online")));
+  await page.route("**/api/settings", async (route) => {
+    if (route.request().method() === "POST") {
+      const change = pocketSettingsMutationSchema.parse(route.request().postDataJSON());
+
+      if (change.showToolCalls !== undefined) {
+        isShowToolCalls = change.showToolCalls;
+        savedPreferences.push(isShowToolCalls);
+      }
+    }
+
+    await route.fulfill({
+      json: {
+        showToolCalls: isShowToolCalls,
+        realtimeVoice: null,
+        realtimeModel: null,
+        openaiApiKeyConfigured: false,
+        openaiApiKeySource: null,
+      },
+    });
+  });
+
+  const changePreference = async (isChecked: boolean) => {
+    await page.getByRole("button", { name: "Open Pockets", exact: true }).click();
+    await page.getByRole("button", { name: "Settings", exact: true }).click();
+    await page.getByRole("checkbox", { name: /Show tool calls/ }).setChecked(isChecked);
+    await expect(page.getByText("Settings saved.", { exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Close Settings", exact: true }).click();
   };
   const tool = page.getByRole("button", { name: "Executed echo abcdefghijklmnop", exact: true });
   const composer = page.getByRole("textbox", { name: "Message Pocket" });
 
   await composer.fill("Keep my draft while changing settings");
-  await refresh();
   await expect(tool).toHaveCount(0);
   await expect(page.getByRole("img", { name: "Image from Pocket", exact: true })).toBeVisible();
-  isShowToolCalls = true;
-  await refresh();
+  await changePreference(true);
   await expect(tool).toBeVisible();
   await tool.click();
   await expect(page.locator(".tool-output")).toHaveText("Saved command details");
@@ -65,8 +85,7 @@ test("host tool preference reveals shared details while conversation, images and
   await expect(tool).toHaveAttribute("aria-expanded", "true");
   await page.locator(".tool-output").click();
   await expect(tool).toHaveAttribute("aria-expanded", "false");
-  isShowToolCalls = false;
-  await refresh();
+  await changePreference(false);
   await expect(tool).toHaveCount(0);
   await expect(page.getByText("The conversation stays visible", { exact: true })).toBeVisible();
 
@@ -127,5 +146,6 @@ test("host tool preference reveals shared details while conversation, images and
   }
 
   await expect(composer).toHaveValue("Keep my draft while changing settings");
+  expect(savedPreferences).toEqual([true, false]);
   expect(writes).toEqual([]);
 });

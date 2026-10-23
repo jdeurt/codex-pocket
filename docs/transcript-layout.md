@@ -17,7 +17,7 @@ At the transcript end:
 
 Short conversations align to the bottom. The scroll fade ends at the composer boundary and disappears at the transcript end. Notifications, errors, and attachments belong to the composer area below the status row. Empty, thinking-only, agents-only, and combined states keep the same vertical geometry.
 
-The transcript has a centered 960px maximum width; the composer has a centered 736px maximum width. Phone layouts retain their existing gutters. The virtual footer keeps one stable identity as messages arrive so its measured status height survives appends.
+The transcript has a centered 960px maximum width; the composer has a centered 736px maximum width. Phone layouts retain their existing gutters. The virtual footer keeps one stable identity as messages arrive so its measured status height survives appends. Overlays suspend following while covered and retain the prior following preference when closed.
 
 ## Reports, attachments, and navigation
 
@@ -27,7 +27,7 @@ Only reports carrying verified `final: { commandId, outcome: "completed" }` prov
 
 Expanded report bodies, activity messages, and tool details collapse when their non-interactive content is clicked. Links, buttons, focusable controls, and text selection keep their normal behavior. The shared collapsible panel owns the existing activity transition and reduced-motion behavior. Activity message padding accounts for the trigger's existing 10px below its label, keeping the visible message gap at 16px.
 
-Main-Pocket tool visibility uses the central Settings `showToolCalls` preference through `usePocketSettings()`. The hook and public schema are shared with the Settings workstream (initial implementation `91d3647`); its `/api/settings` route and toggle are required for persistent control. Hiding tool details preserves ordinary messages and tool-produced images. Both views use `ToolMessage`, with display-only `toolLabels` projected from explicit native commands and file-change operations. Private tool argument objects remain on the host.
+Main-Pocket tool visibility uses the central Settings `showToolCalls` preference through `usePocketSettings()`. The central Settings implementation at `f09c33e` is integrated, including the shared hook, public schema, `/api/settings` route, and persistent toggle. Hiding tool details preserves ordinary messages and tool-produced images. Both views use `ToolMessage`, with display-only `toolLabels` projected from explicit native commands and file-change operations. Private tool argument objects remain on the host.
 
 Recoverable native errors use `Snapshot.connectionRetry`, scoped to a native turn and set only for an explicit `willRetry` signal. Resumed assistant output or completion of that same turn clears the notice. Progress from another parent or turn cannot dismiss it, and fatal errors remain separate.
 

@@ -185,10 +185,6 @@ function MeasuredTranscript({
     }
   };
 
-  if (suspended && follow) {
-    setFollow(false);
-  }
-
   useLayoutEffect(() => {
     if (!bookmark || bookmark.atEnd) {
       virtualizer.scrollToEnd();
