@@ -1,6 +1,6 @@
 import { type CodexRpc, RpcError } from "./rpc";
 import { type Item, type Thread, type Turn, object, string } from "../lib/protocol";
-import { loadHistory, loadItems } from "./history";
+import { loadHistory, readHistoryTurns } from "./history";
 
 const METHOD_NOT_FOUND = -32_601;
 const TAIL_PAGE_SIZE = 10;
@@ -87,37 +87,19 @@ async function loadTail(rpc: CodexRpc, thread: Thread, previous: Turn[]) {
   const boundary = previous.findLast((turn) => ["completed", "failed", "interrupted"].includes(turn.status));
   const recent: Turn[] = [];
 
-  let cursor: string | null = null;
+  for await (const turn of readHistoryTurns(rpc, thread.id, "desc", TAIL_PAGE_SIZE)) {
+    recent.push(turn);
 
-  do {
-    const page: { data: Turn[]; nextCursor: string | null } = await rpc.request("thread/turns/list", {
-      threadId: thread.id,
-      cursor,
-      limit: TAIL_PAGE_SIZE,
-      sortDirection: "desc",
-      itemsView: "full",
-    });
-
-    for (const turn of page.data) {
-      if (turn.itemsView && turn.itemsView !== "full") {
-        turn.items = await loadItems(rpc, thread.id, turn.id);
-      }
-
-      recent.push(turn);
-
-      if (turn.id === boundary?.id) {
-        return [
-          ...previous.slice(
-            0,
-            previous.findIndex((entry) => entry.id === boundary.id)
-          ),
-          ...recent.toReversed(),
-        ];
-      }
+    if (turn.id === boundary?.id) {
+      return [
+        ...previous.slice(
+          0,
+          previous.findIndex((entry) => entry.id === boundary.id)
+        ),
+        ...recent.toReversed(),
+      ];
     }
-
-    cursor = page.nextCursor;
-  } while (cursor);
+  }
 
   return recent.toReversed();
 }

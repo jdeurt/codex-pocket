@@ -2,6 +2,7 @@ import { type CodexRpc, RpcError } from "./rpc";
 import { type Item, type Thread, type Turn } from "../lib/protocol";
 
 const METHOD_NOT_FOUND = -32_601;
+const HISTORY_PAGE_SIZE = 100;
 
 /**
 Read every native item page for a deferred turn in ascending order.
@@ -32,37 +33,35 @@ export async function loadItems(rpc: CodexRpc, threadId: string, turnId: string)
 }
 
 /**
-Read full turn pages in native chronological order, filling deferred item pages before returning.
+Read native turn pages, hydrating each turn only when the caller advances to it.
 @param rpc - Connected native Codex protocol client.
-@param thread - Thread whose entire saved history is requested.
-@returns Hydrated turns in chronological order.
+@param threadId - Thread whose saved history is requested.
+@param sortDirection - Native traversal order required by the reader.
+@param limit - Reader's existing native page size.
+@yields One hydrated turn in native traversal order.
 */
-async function loadTurns(rpc: CodexRpc, thread: Thread): Promise<Turn[]> {
-  const turns: Turn[] = [];
-
+export async function* readHistoryTurns(rpc: CodexRpc, threadId: string, sortDirection: "asc" | "desc", limit: number) {
   let cursor: string | null = null;
 
   do {
     const page: { data: Turn[]; nextCursor: string | null } = await rpc.request("thread/turns/list", {
-      threadId: thread.id,
+      threadId,
       cursor,
-      limit: 100,
-      sortDirection: "asc",
+      limit,
+      sortDirection,
       itemsView: "full",
     });
 
     for (const turn of page.data) {
       if (turn.itemsView && turn.itemsView !== "full") {
-        turn.items = await loadItems(rpc, thread.id, turn.id);
+        turn.items = await loadItems(rpc, threadId, turn.id);
       }
 
-      turns.push(turn);
+      yield turn;
     }
 
     cursor = page.nextCursor;
   } while (cursor);
-
-  return turns;
 }
 
 /**
@@ -85,7 +84,7 @@ Load complete native history, falling back only when the paginated method is uns
 */
 export async function loadHistory(rpc: CodexRpc, thread: Thread): Promise<Turn[]> {
   try {
-    return await loadTurns(rpc, thread);
+    return await Array.fromAsync(readHistoryTurns(rpc, thread.id, "asc", HISTORY_PAGE_SIZE));
   } catch (error) {
     if (!(error instanceof RpcError) || error.code !== METHOD_NOT_FOUND) {
       throw error;
