@@ -146,3 +146,87 @@ test("creation retries are idempotent and unknown Pocket IDs cannot send into an
   expect(unknown.ok()).toBe(false);
   await request.post("/api/pockets", { headers, data: { action: "delete", id } });
 });
+
+/** Open global Settings through the real hamburger menu and its gear action.
+@param page - Browser displaying a parent Pocket.
+*/
+async function openSettings(page: Page) {
+  await page.getByRole("button", { name: "Open Pockets", exact: true }).click();
+  await page.getByRole("button", { name: "Settings", exact: true }).click();
+  await expect(page.getByRole("dialog", { name: "Settings", exact: true })).toBeVisible();
+}
+
+test("central Settings persist tool visibility and write-only API keys across reloads and tabs", async ({
+  page,
+  context,
+  request,
+}, info) => {
+  const headers = { Origin: POCKETS_ORIGIN };
+  const reset = { showToolCalls: false, openaiApiKey: null };
+  const key = "sk-pocket-synthetic-browser-only";
+  const replacement = "sk-pocket-synthetic-replacement-only";
+  const checkbox = page.getByRole("checkbox", { name: "Show tool calls" });
+  const input = page.getByLabel("OpenAI API key", { exact: true });
+  const other = await context.newPage();
+
+  await request.post("/api/settings", { headers, data: reset });
+
+  try {
+    await page.goto("/");
+    await page.setViewportSize({ width: NARROW_WIDTH, height: PHONE_HEIGHT });
+    await openSettings(page);
+    await expect(checkbox).not.toBeChecked();
+    await checkbox.check();
+    await expect(page.getByRole("status").filter({ hasText: "Settings saved." })).toBeVisible();
+    await expect(input).toHaveAttribute("type", "password");
+    await input.fill(key);
+    await page.getByRole("button", { name: "Save API key", exact: true }).click();
+    await expect(input).toHaveValue("");
+    await expect(page.getByText("API key configured.", { exact: true })).toBeVisible();
+
+    const response = await request.get("/api/settings");
+    const publicSettings: unknown = await response.json();
+
+    expect(publicSettings).toEqual({
+      showToolCalls: true,
+      openaiApiKeyConfigured: true,
+      openaiApiKeySource: "saved",
+    });
+    await input.fill("invalid key with spaces");
+    await page.getByRole("button", { name: "Replace API key", exact: true }).click();
+    await expect(page.getByRole("alert")).toHaveText("Could not save Pocket settings. Check your input and try again.");
+    await expect(input).toHaveValue("invalid key with spaces");
+    await input.fill(replacement);
+    await page.getByRole("button", { name: "Replace API key", exact: true }).click();
+    await expect(input).toHaveValue("");
+    await page.reload();
+    await openSettings(page);
+    await expect(checkbox).toBeChecked();
+    await expect(page.getByText("API key configured.", { exact: true })).toBeVisible();
+    await expect(input).toHaveValue("");
+
+    await other.goto("/");
+    await openSettings(other);
+    await expect(other.getByRole("checkbox", { name: "Show tool calls" })).toBeChecked();
+    await other.getByRole("checkbox", { name: "Show tool calls" }).uncheck();
+    await expect(checkbox).not.toBeChecked();
+    await page.getByRole("button", { name: "Remove saved key", exact: true }).click();
+    await expect(page.getByText("No API key configured.", { exact: true })).toBeVisible();
+    await expect(other.getByText("No API key configured.", { exact: true })).toBeVisible();
+
+    const overflow = await page.getByRole("dialog", { name: "Settings", exact: true }).evaluate((dialog) => {
+      return dialog.scrollWidth - dialog.clientWidth;
+    });
+
+    expect(overflow).toBe(0);
+    await page.screenshot({ path: `.local/settings-${info.project.name}.png` });
+    await page.getByRole("button", { name: "Back to Pockets", exact: true }).click();
+    await measureMenu(page);
+    await expect(page.getByRole("button", { name: "New Pocket", exact: true })).toBeVisible();
+    await page.getByRole("button", { name: "Close Pockets", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Open Pockets", exact: true })).toBeFocused();
+  } finally {
+    await other.close();
+    await request.post("/api/settings", { headers, data: reset });
+  }
+});

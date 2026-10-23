@@ -25,7 +25,12 @@ if (!globalThis.codexPocketSettings) {
 @returns Validated saved settings, using defaults only when the file is absent.
 */
 async function readSavedSettings() {
-  return savedSettingsSchema.parse(await readLocal("settings.json", {}));
+  try {
+    return savedSettingsSchema.parse(await readLocal("settings.json", {}));
+  } catch {
+    // JSON parse failures can quote the credential-bearing file contents.
+    throw new Error("Could not read Pocket settings.");
+  }
 }
 
 /** Resolve an optional host credential without exposing it through public settings.
