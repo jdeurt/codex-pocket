@@ -21,7 +21,7 @@ The offline Codex protocol/browser fixtures explicitly select their Node replay 
 
 ## Tools, models and native history
 
-Pi exposes its built-in tools and connects the same parent-scoped Pocket MCP server for scheduling, Side Pockets, adoption, spinner and session tools. Project instruction and skill discovery remain native Pi behavior. Executable project extensions are not auto-trusted. The effective existing developer instructions are composed with Pocket's main prompt.
+Pi exposes its built-in tools, preserves structured phone questions through a native-cancellable `request_user_input` compatibility tool, and connects the same parent-scoped Pocket MCP server for scheduling, Side Pockets, adoption, spinner and session tools. Project instruction and skill discovery remain native Pi behavior. Executable project extensions are not auto-trusted. The effective existing developer instructions are composed with Pocket's main prompt.
 
 `pocket_session_models` lists Pi catalog selections. Main model settings resolve `provider/model` identities through that catalog; bare IDs select OpenAI. Unsupported names fail explicitly. Settings apply to subsequent turns and persist separately per parent. OpenAI-qualified selections become native bare model IDs when inherited by Codex delegates. Claude keeps its native model selection and permission checks.
 

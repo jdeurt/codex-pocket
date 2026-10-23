@@ -1,4 +1,10 @@
-import { ModelRuntime, SessionManager, SettingsManager, createAgentSession } from "@earendil-works/pi-coding-agent";
+import {
+  ModelRuntime,
+  SessionManager,
+  SettingsManager,
+  createAgentSession,
+  type ToolDefinition,
+} from "@earendil-works/pi-coding-agent";
 import { type PiState, readPiState } from "./pi-store";
 import { type Config } from "./config";
 import { type CodexRpc } from "./rpc";
@@ -75,9 +81,16 @@ async function migrate(native: CodexRpc, config: Config, manager: SessionManager
 @param native - Native reader for effective policy and legacy history.
 @param params - Canonical model and effort overrides.
 @param key - Central Settings key, held in memory only by Pi.
+@param customTools - Host-owned compatibility tools, including structured phone questions.
 @returns Pi session, source manager, model runtime and canonical projection.
 */
-export async function openPiSession(config: Config, native: CodexRpc, params: Data, key: string | null) {
+export async function openPiSession(
+  config: Config,
+  native: CodexRpc,
+  params: Data,
+  key: string | null,
+  customTools: ToolDefinition[] = []
+) {
   const { config: effective } = await native.request("config/read", { cwd: config.cwd, includeLayers: false });
 
   if (effective.sandbox_mode !== "danger-full-access" || effective.approval_policy !== "never") {
@@ -126,6 +139,7 @@ export async function openPiSession(config: Config, native: CodexRpc, params: Da
     sessionManager: manager,
     resourceLoader,
     settingsManager: SettingsManager.inMemory(),
+    customTools,
   });
 
   return { session, runtime, manager, state, selection };

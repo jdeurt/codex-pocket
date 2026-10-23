@@ -8,6 +8,7 @@ import { PiTaskContext } from "./pi-task-context";
 import { piItems } from "./pi-projection";
 import { openPiSession } from "./pi-session";
 import { piInput } from "./pi-input";
+import { PiQuestions } from "./pi-questions";
 
 const LAST_TURN = -1;
 
@@ -26,6 +27,7 @@ export class PiMain {
   private effort = "medium";
   private writes: Promise<void> = Promise.resolve();
   private tasks: PiTaskContext;
+  private questions: PiQuestions;
 
   /** Bind this parent's existing identity, native read-only compatibility transport and event sink.
   @param config - Validated host-owned parent configuration.
@@ -44,6 +46,7 @@ export class PiMain {
     private openSession: typeof openPiSession = openPiSession
   ) {
     this.tasks = new PiTaskContext(config.threadId, readKey, onError);
+    this.questions = new PiQuestions(config.threadId, () => this.active?.id, emit);
   }
 
   /** Serialize durable UI projections without discarding a previous persistence failure.
@@ -69,7 +72,9 @@ export class PiMain {
   @returns Canonical session metadata with the original parent identity.
   */
   private async resume(params: Data) {
-    const opened = await this.openSession(this.config, this.native, params, await this.readKey());
+    const opened = await this.openSession(this.config, this.native, params, await this.readKey(), [
+      this.questions.tool(),
+    ]);
 
     this.state = opened.state;
     this.session = opened.session;
@@ -329,5 +334,13 @@ export class PiMain {
     await this.session?.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
     this.session?.dispose();
     await this.writes;
+  }
+
+  /** Resolve a structured phone question on this existing Pi session.
+  @param id - Canonical pending request ID.
+  @param answer - Validated phone response.
+  */
+  respond(id: string | number, answer: unknown) {
+    this.questions.answer(String(id), answer);
   }
 }

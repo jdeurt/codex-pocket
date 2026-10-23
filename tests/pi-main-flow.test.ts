@@ -25,10 +25,20 @@ const POLICY_READS = 3;
 */
 async function prompt(events: RpcEvent[], run: PiMain, text: string) {
   const completion = Promise.withResolvers<RpcEvent>();
+  const answered = new Set<string | number>();
   const deadline = setTimeout(() => {
     completion.reject(new Error("Pi run did not complete"));
   }, COMPLETION_TIMEOUT_MS);
   const timer = setInterval(() => {
+    for (const entry of events) {
+      if (entry.method !== "item/tool/requestUserInput" || entry.id === undefined || answered.has(entry.id)) {
+        continue;
+      }
+
+      answered.add(entry.id);
+      run.respond(entry.id, { answers: { file: { answers: ["result.txt"] } } });
+    }
+
     const event = events.findLast((entry) => entry.method === "turn/completed");
 
     if (event) {
@@ -76,6 +86,8 @@ async function verifyPi(
   const mcpResults = events.filter((event) => event.params.item?.tool === "mcp__pocket__side_pocket_list");
 
   assert.ok(mcpResults.some((event) => event.params.item?.status === "completed"));
+  assert.ok(events.some((event) => event.method === "item/tool/requestUserInput"));
+  assert.ok(events.some((event) => event.method === "serverRequest/resolved"));
   const catalog = await main.request("pocket/models", {});
 
   assert.match(JSON.stringify(catalog), /pocket-offline\/calendar-model/);
@@ -146,6 +158,12 @@ async function piFlow(root: string) {
   const faux = fauxProvider({ provider: "pocket-offline", models: [{ id: "calendar-model" }] });
 
   faux.setResponses([
+    fauxAssistantMessage(
+      fauxToolCall("request_user_input", {
+        questions: [{ id: "file", question: "Which output file?", options: [{ label: "result.txt" }] }],
+      }),
+      { stopReason: "toolUse" }
+    ),
     fauxAssistantMessage(fauxToolCall("mcp__pocket__side_pocket_list", {}), { stopReason: "toolUse" }),
     fauxAssistantMessage(fauxToolCall("write", { path: "result.txt", content: "Exact Pi tool result ✓" }), {
       stopReason: "toolUse",

@@ -44,6 +44,12 @@ async function dispatch(method: string, params: Data): Promise<unknown> {
 @param message - Host-owned JSON-RPC frame.
 */
 async function receive(message: Data) {
+  if (!message.method && (typeof message.id === "string" || typeof message.id === "number")) {
+    main.respond(message.id, message.result);
+
+    return;
+  }
+
   if (message.id === undefined || !message.method) {
     return;
   }
