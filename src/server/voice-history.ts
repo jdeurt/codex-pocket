@@ -7,7 +7,7 @@ import { createHash } from "node:crypto";
 Persist only finalized speech and explicit handoff status; never store raw microphone audio.
 */
 export class VoiceHistory {
-  private entries?: VoiceSegment[];
+  private entries?: Promise<VoiceSegment[]>;
   private filename: string;
 
   /**
@@ -20,16 +20,23 @@ export class VoiceHistory {
   /**
   Restore saved speech without replaying any pending or uncertain tool work.
   */
-  async read() {
-    if (!this.entries) {
-      this.entries = voiceHistorySchema.parse(await readLocal(this.filename, []));
+  private async restore() {
+    const entries = voiceHistorySchema.parse(await readLocal(this.filename, []));
 
-      for (const entry of this.entries) {
-        if (entry.handoff === "sending") {
-          entry.handoff = "unknown";
-        }
+    for (const entry of entries) {
+      if (entry.handoff === "sending") {
+        entry.handoff = "unknown";
       }
     }
+
+    return entries;
+  }
+
+  /**
+  Share hydration with concurrent history readers so they cannot replace an in-flight ledger.
+  */
+  read() {
+    this.entries ??= this.restore();
 
     return this.entries;
   }

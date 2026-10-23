@@ -9,7 +9,7 @@ JUA-69 replaces Codex realtime with OpenAI Realtime. This branch stages the inde
 | Function         | Contract                                                                                                                         |
 | ---------------- | -------------------------------------------------------------------------------------------------------------------------------- |
 | `threadId()`     | Returns the selected main conversation's stable ID.                                                                              |
-| `readKey()`      | Reads `Promise<string \| null>` when starting each session. The settings workstream owns credential storage.                     |
+| `readKey()`      | Returns a key string or null asynchronously when starting a session. Settings owns credential storage.                           |
 | `preferences()`  | Returns `{ voice, model }`. Use centralized settings when available; the documented defaults are `marin` and `gpt-realtime-2.1`. |
 | `handoff(input)` | Accepts `{ id, transcript, source: { type: "realtime", sessionId, itemId } }` and returns durable delivery status.               |
 
