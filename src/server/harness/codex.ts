@@ -133,9 +133,7 @@ export class CodexAdapter implements HarnessAdapter {
         this.active = undefined;
         this.pending?.resolve({
           status: turn.status === "completed" || turn.status === "interrupted" ? turn.status : "failed",
-          text:
-            this.outputs.values().toArray().join("\n\n") ||
-            (turn.error?.message.length ? turn.error.message : "No response text."),
+          text: this.outputs.values().toArray().join("\n\n") || (turn.error?.message.length ? turn.error.message : ""),
         });
         break;
       }

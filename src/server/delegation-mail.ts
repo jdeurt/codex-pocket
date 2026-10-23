@@ -186,15 +186,19 @@ Read bounded child report history in chronological display order.
   }
 
   /**
-Check whether a managed command already produced an explicit parent message.
+Check whether a command already reported its final text, allowing silent completion after an explicit report.
 @param childId - Managed child identity.
 @param commandId - Command whose source-prefixed messages are checked.
-@returns Whether at least one explicit report is persisted for that command.
+@param text - Native final response; progress alone must not suppress a different completed result.
+@returns Whether the native result adds no content to existing explicit reports.
 */
-  hasMessage(childId: string, commandId: string) {
+  hasResult(childId: string, commandId: string, text: string) {
     return !!this.db
-      .prepare("SELECT 1 FROM delegation_mail WHERE childId=? AND sourceId LIKE ? LIMIT 1")
-      .get(childId, `message:${commandId}:%`);
+      .prepare(
+        "SELECT 1 FROM delegation_mail WHERE childId=? AND sourceId LIKE ? " +
+          "AND (?='' OR json_extract(payload,'$.message')=?) LIMIT 1"
+      )
+      .get(childId, `message:${commandId}:%`, text.trim(), text.trim());
   }
 
   /**
