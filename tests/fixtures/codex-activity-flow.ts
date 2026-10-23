@@ -160,6 +160,12 @@ export async function codexActivityFlow(root: string) {
 
     await checkActivityUi(child.state, "reading files, searching files");
     assert.equal(bridge.snapshot.turns[0].items[0].command, "cat CaseSensitive.txt");
+    await bridge.agentReader().shutdown();
+    await checkActivityUi(visibleSnapshot(bridge.snapshot), undefined);
+    parent.turns = [{ ...turn, items: [read, { ...search, status: "completed" }] }];
+    store.save();
+    await bridge.ensureConnected();
+    await checkActivityUi(visibleSnapshot(bridge.snapshot), "reading files");
     await bridge.agentReader().request("turn/interrupt", { threadId: parent.id, turnId: TURN_ID });
     await checkActivityUi(visibleSnapshot(bridge.snapshot), undefined);
     await bridge.agentReader().shutdown();
