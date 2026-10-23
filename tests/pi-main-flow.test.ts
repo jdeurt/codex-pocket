@@ -16,6 +16,7 @@ import { reduceEvent } from "../src/server/reducer";
 import { visibleSnapshot } from "../src/server/visible-snapshot";
 import { checkPiChat } from "./fixtures/pi-chat-checks";
 import { piSessionEndpoint } from "./fixtures/pi-session-endpoint";
+import { checkPiCatalog, registerCatalogFixtures } from "./fixtures/pi-catalog-checks";
 
 const FLOW_TIMEOUT_MS = 30_000;
 const COMPLETION_TIMEOUT_MS = 5000;
@@ -85,6 +86,7 @@ async function verifyPi(
   faux: ReturnType<typeof fauxProvider>
 ) {
   await main.request("thread/resume", {});
+  await checkPiCatalog(main, config.allowedOrigins[0], root, parentId);
   const completion = await prompt(events, main, "Write the exact result in result.txt");
 
   assert.equal(completion.params.turn?.status, "completed");
@@ -240,6 +242,7 @@ async function piFlow(root: string) {
     const opened = await openPiSession(...args);
 
     opened.runtime.registerNativeProvider(faux.provider);
+    registerCatalogFixtures(opened.runtime);
     opened.session.subscribe((event) => {
       nativePhases.add(event.type);
     });

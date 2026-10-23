@@ -4,6 +4,7 @@ import { callSession } from "../src/server/session-client";
 import { sessionSettingsSchema } from "../src/server/session-settings";
 import { toolResult } from "../src/server/mcp-result";
 import { z } from "zod";
+import { modelCatalogQuerySchema } from "../src/server/model-catalog-query";
 
 /**
 Expose parent-only inspection and explicit settings changes through the existing host connection.
@@ -13,10 +14,18 @@ export function registerSessionTools(server: McpServer) {
   server.registerTool(
     "pocket_session_models",
     {
-      description: "List Pi's provider/model catalog. Use a listed provider/model ID with pocket_session_settings.",
-      inputSchema: z.object({}).strict(),
+      description:
+        "Read Pi's installed model catalog without changing settings. " +
+        "Use provider for exact or fuzzy provider-name filtering; ambiguous searches return provider choices. " +
+        "A provider query returns just model names by default. Use view=providers to find providers, " +
+        "view=details for full entries, or model for exact ID/name lookup (optionally scoped by provider). " +
+        "Details include selection ID, raw modelId, provider, reasoning and contextWindow; unknowns are null. " +
+        "Exact IDs take precedence over display names. Resolve ambiguous models using their provider/ID. " +
+        "Queried lists accept offset/limit (default 50, maximum 100); continue with nextOffset. " +
+        "No arguments preserves the legacy full catalog. Listed IDs work with pocket_session_settings.",
+      inputSchema: modelCatalogQuerySchema,
     },
-    () => toolResult(() => callSession(undefined, true))
+    (query) => toolResult(() => callSession(undefined, true, query))
   );
   server.registerTool(
     "pocket_realtime_inspect",
