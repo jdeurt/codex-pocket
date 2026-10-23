@@ -93,6 +93,8 @@ test("short output fragments and delayed mobile HTTP responses keep microphone d
   await expect.poll(() => count("provider/realtime/appendAudio")).toBeGreaterThan(before + 3);
   await expect(page.getByRole("status", { name: "Realtime voice active" })).toBeVisible();
   await page.getByRole("button", { name: "Stop realtime voice" }).click();
+  await expect(page.getByRole("textbox", { name: "Message Pocket" })).toHaveValue("recovery draft");
+  await page.unrouteAll({ behavior: "wait" });
 });
 
 test("switching to text finalizes trailing speech and preserves the typed draft through reload", async ({ page }) => {
