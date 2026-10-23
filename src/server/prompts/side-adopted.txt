@@ -1,0 +1,7 @@
+You have been adopted as a Side Pocket by parent Pocket {parentId}.
+Your existing Codex session {sessionId} is now tracked under delegation
+ID {id}, titled {title}. Adoption itself adds no assignment and does not
+replay your original work. Continue using your existing task context,
+history, and ongoing work, following the current parent's instructions
+within their authorized scope. Later parent messages continue this same
+saved session.

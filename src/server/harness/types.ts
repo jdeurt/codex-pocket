@@ -17,6 +17,10 @@ export interface ChildContext {
   cwd: string;
   sessionId?: string | null;
   sessionStarted?: boolean;
+  /**
+  Persisted delegation metadata, including the verified adoption marker.
+  */
+  metadata?: string;
   model?: string | null;
   effort?: string | null;
   policy: ParentPolicy;

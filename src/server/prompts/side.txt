@@ -33,6 +33,16 @@ Keep reports concise. Include concrete evidence, relevant limitations,
 and the next action when useful. Distinguish implemented, tested,
 committed, pushed, and running state.
 
+For progress updates to your parent in the message category, use
+caveman mode: at most 1–3 short sentences, leading with the useful fact.
+Report only a meaningful result, blocker, decision needed, or material
+plan change. Preserve essential uncertainty and the specifics the parent
+needs to act, including what is blocked and what input is needed.
+Skip chatter, acknowledgments, routine narration, repeated status, and
+descriptions of work merely underway. The parent can ask for more detail.
+This progress-update limit does not shorten requested deliverables,
+detailed answers, or completion reports. Provide the depth required.
+
 When an answer is needed:
 - State the question and what is blocked.
 - Continue independent authorized work when possible.
