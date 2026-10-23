@@ -291,14 +291,17 @@ test("stop while audio context is suspended releases the acquired microphone", a
     const original = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
     const NativeContext = AudioContext;
 
-    navigator.mediaDevices.getUserMedia = async (constraints) => {
-      const stream = await original(constraints);
+    Object.defineProperty(navigator.mediaDevices, "getUserMedia", {
+      configurable: true,
+      value: async (constraints: MediaStreamConstraints) => {
+        const stream = await original(constraints);
 
-      (globalThis as typeof globalThis & { voiceFixtureTrack?: MediaStreamTrack }).voiceFixtureTrack =
-        stream.getAudioTracks()[0];
+        (globalThis as typeof globalThis & { voiceFixtureTrack?: MediaStreamTrack }).voiceFixtureTrack =
+          stream.getAudioTracks()[0];
 
-      return stream;
-    };
+        return stream;
+      },
+    });
     globalThis.AudioContext = class extends NativeContext {
       override resume() {
         (globalThis as typeof globalThis & { resumeEntered?: boolean }).resumeEntered = true;
@@ -314,6 +317,12 @@ test("stop while audio context is suspended releases the acquired microphone", a
   await control.focus();
   await page.keyboard.press("Enter");
   await page.waitForFunction(() => (globalThis as typeof globalThis & { resumeEntered?: boolean }).resumeEntered);
+  // Playback first resumes before permission; this case must stop an acquired stream.
+  await page.waitForFunction(
+    () =>
+      (globalThis as typeof globalThis & { voiceFixtureTrack?: MediaStreamTrack }).voiceFixtureTrack?.readyState ===
+      "live"
+  );
   await page.getByRole("button", { name: "Stop realtime voice" }).click();
   await expect
     .poll(() =>

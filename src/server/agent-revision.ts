@@ -1,5 +1,6 @@
 import { readdir, stat } from "node:fs/promises";
 import { type AgentRecord } from "./agent-sources";
+import { object } from "../lib/protocol";
 import os from "node:os";
 import path from "node:path";
 
@@ -137,6 +138,9 @@ export async function agentRevision(record: AgentRecord) {
   }
 
   record.fileRevision = fileRevision;
+  const owner = record.pocket ?? record.runtimeOwner;
+  const writes =
+    owner && record.agent.harness === "claude" ? object(JSON.parse(owner.metadata)).claudeWrites : undefined;
 
   return JSON.stringify({
     parent: record.agent.parentId,
@@ -149,5 +153,6 @@ export async function agentRevision(record: AgentRecord) {
     pocketStatus: record.pocket?.status,
     observedStatus: record.observedStatus,
     fileRevision,
+    writes,
   });
 }

@@ -22,6 +22,7 @@ import { modelDescription } from "@/lib/model-description";
 import { post } from "@/lib/client-api";
 import { useAppUpdate } from "@/hooks/use-app-update";
 import { useComposerViewport } from "@/hooks/use-composer-viewport";
+import { usePocketSettings } from "@/hooks/use-pocket-settings";
 import { usePathname } from "next/navigation";
 import { useRealtime } from "@/hooks/use-realtime";
 import { useVoiceGesture } from "@/hooks/use-voice-gesture";
@@ -71,6 +72,7 @@ Compose the active parent conversation, durable draft, uploads and message deliv
 // eslint-disable-next-line complexity, react-doctor/no-high-complexity-react-function -- Existing chat owns composer, uploads, navigation, and the new voice control.
 export function Chat() {
   const { state, connected: streamConnected } = useThread();
+  const settings = usePocketSettings();
   const [draft, setDraft] = useDraft();
   const isViewingFile = usePathname() === "/files";
   const [sending, setSending] = useState(false);
@@ -210,10 +212,13 @@ export function Chat() {
           realtimeSegments={voice.segments}
           suspended={agentsOpen || pocketsOpen || isViewingFile}
           activityControl={agentControl}
+          showTools={settings.data?.showToolCalls ?? false}
         />
         <footer className="composer-wrap">
           <NotificationPrompt />
-          <ComposerError errors={[voice.error, error, attachments.error, state.error]} />
+          <ComposerError
+            errors={[voice.error, error, attachments.error, state.error, state.connectionRetry?.message]}
+          />
           {!isVoiceActive && (
             <ComposerAttachments
               files={attachments.files}

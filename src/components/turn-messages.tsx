@@ -11,6 +11,7 @@ import { ChatMessage } from "./chat-message";
 import type { Item } from "@/lib/protocol";
 import type { TurnEntry } from "@/lib/turn-messages";
 import { useState } from "react";
+import { collapseDetail } from "@/lib/disclosure-click";
 
 /**
 Keep completed commentary in the existing animated activity disclosure.
@@ -28,7 +29,14 @@ function CompletedActivity({ items }: { items: Item[] }) {
             <TraceTitle>{open ? "Hide activity" : "Show activity"}</TraceTitle>
           </TraceLine>
         </TraceCollapsibleTrigger>
-        <TraceCollapsibleContent variant="messages">
+        <TraceCollapsibleContent
+          variant="messages"
+          onClick={(event) => {
+            collapseDetail(event, () => {
+              setOpen(false);
+            });
+          }}
+        >
           <div className="activity-messages">
             {items.map((item) => (
               <ChatMessage item={item} key={item.id} />

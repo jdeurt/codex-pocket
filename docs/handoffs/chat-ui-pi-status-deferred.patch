@@ -1,0 +1,139 @@
+diff --git a/src/server/activity.ts b/src/server/activity.ts
+index e81c7c2..41b1454 100644
+--- a/src/server/activity.ts
++++ b/src/server/activity.ts
+@@ -114,0 +115,4 @@ function eventActivity(event: RpcEvent, turn: Turn | undefined) {
++    case "thread/activity/updated": {
++      return typeof event.params.activity === "string" ? event.params.activity : undefined;
++    }
++
+diff --git a/src/server/pi-activity.ts b/src/server/pi-activity.ts
+new file mode 100644
+index 0000000..4068402
+--- /dev/null
++++ b/src/server/pi-activity.ts
+@@ -0,0 +1,112 @@
++import { type AgentSessionEvent } from "@earendil-works/pi-coding-agent";
++import { type RpcEvent } from "../lib/protocol";
++
++const TOOL_ACTIVITY = new Map([
++  ["bash", "Running commands"],
++  ["read", "Reading files"],
++  ["write", "Editing files"],
++  ["edit", "Editing files"],
++  ["grep", "Searching files"],
++  ["find", "Searching files"],
++  ["ls", "Listing files"],
++  ["pocket_session_settings", "Updating session"],
++]);
++
++/** Project authoritative Pi work phases without changing message or receipt identities. */
++export class PiActivity {
++  private tools = new Map<string, string>();
++
++  /** Bind the existing parent and its canonical event sink.
++  @param threadId - Owning Pocket identity.
++  @param emit - Existing bridge notification sink.
++  */
++  constructor(
++    private threadId: string,
++    private emit: (event: RpcEvent) => void
++  ) {}
++
++  /** Publish after message projection so completed items cannot hide native tool progress.
++  @param event - Actual Pi session event.
++  @param turnId - Current canonical submission, absent after settlement.
++  */
++  accept(event: AgentSessionEvent, turnId: string | undefined) {
++    const activity = this.phase(event);
++
++    if (!turnId || activity === undefined) {
++      return;
++    }
++
++    this.emit({
++      method: "thread/activity/updated",
++      params: { threadId: this.threadId, turnId, activity: [...this.tools.values()].at(-1) ?? activity },
++    });
++  }
++
++  /** Track executing calls independently of generated tool-call text and saved results.
++  @param event - Native Pi lifecycle event.
++  @returns Changed phase, or undefined when this event carries no work-state change.
++  */
++  private phase(event: AgentSessionEvent): string | undefined {
++    switch (event.type) {
++      case "agent_start":
++      case "agent_end":
++      case "agent_settled": {
++        this.tools.clear();
++
++        return event.type === "agent_start" ? "Considering options" : "";
++      }
++
++      case "tool_execution_start":
++      case "tool_execution_update": {
++        const name = event.toolName.split("__").at(-1) ?? event.toolName;
++
++        this.tools.set(event.toolCallId, TOOL_ACTIVITY.get(name) ?? "Calling tools");
++
++        return "Calling tools";
++      }
++
++      case "tool_execution_end": {
++        this.tools.delete(event.toolCallId);
++
++        return "Considering options";
++      }
++
++      case "message_start":
++      case "message_update":
++      case "message_end": {
++        if (event.message.role === "toolResult") {
++          return "Considering options";
++        }
++
++        if (event.message.role !== "assistant") {
++          return;
++        }
++
++        if (event.type === "message_update" && event.assistantMessageEvent.type.startsWith("thinking_")) {
++          return "Considering options";
++        }
++
++        return event.message.content.some((part) => part.type === "text" && part.text.length > 0)
++          ? ""
++          : "Considering options";
++      }
++
++      case "turn_start":
++      case "compaction_end": {
++        return "Considering options";
++      }
++
++      case "compaction_start": {
++        return "Summarizing conversations";
++      }
++
++      case "auto_retry_start": {
++        return "Retrying request";
++      }
++
++      default: {
++        return;
++      }
++    }
++  }
++}
+diff --git a/src/server/pi-main.ts b/src/server/pi-main.ts
+index 1b25efc..4f6d1be 100644
+--- a/src/server/pi-main.ts
++++ b/src/server/pi-main.ts
+@@ -11,0 +12 @@ import { PiQuestions } from "./pi-questions";
++import { PiActivity } from "./pi-activity";
+@@ -30,0 +32 @@ export class PiMain {
++  private activity: PiActivity;
+@@ -49,0 +52 @@ export class PiMain {
++    this.activity = new PiActivity(config.threadId, emit);
+@@ -86,0 +90 @@ export class PiMain {
++      this.activity.accept(event, this.active?.id);

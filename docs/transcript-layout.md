@@ -17,9 +17,21 @@ At the transcript end:
 
 Short conversations align to the bottom. The scroll fade ends at the composer boundary and disappears at the transcript end. Notifications, errors, and attachments belong to the composer area below the status row. Empty, thinking-only, agents-only, and combined states keep the same vertical geometry.
 
+The transcript has a centered 960px maximum width; the composer has a centered 736px maximum width. Phone layouts retain their existing gutters. Classic desktop scrollbars reserve symmetric gutters so the transcript and composer stay centered together. The virtual footer keeps one stable identity as messages arrive so its measured status height survives appends. Overlays suspend following while covered and retain the prior following preference when closed.
+
 ## Reports, attachments, and navigation
 
 Delegate reports start collapsed, with a single-line preview truncated to the message's allowed width. Expansion uses normal message spacing. Opening a read-only Side Pocket preserves the parent's draft and reading position. Pending history uses skeletons; error and empty states keep explanatory text.
+
+Only reports carrying verified `final: { commandId, outcome: "completed" }` provenance receive the incoming-agent indicator and final-report disclosure. Interim and legacy reports remain readable without that indicator. The integrated harness implementation at `186f827` supplies durable command association and exactly-once selection; delivery status alone cannot establish finality.
+
+The optional `Conversation.footer` slot matches Browsing’s loading-content contract. Agent list/loading state and the optional `AgentTranscript.isHistoryLoading` schema remain owned by Browsing.
+
+Expanded report bodies, activity messages, and tool details collapse when their non-interactive content is clicked. Links, buttons, focusable controls, and text selection keep their normal behavior. The shared collapsible panel owns the existing activity transition and reduced-motion behavior. Activity message padding accounts for the trigger's existing 10px below its label, keeping the visible message gap at 16px.
+
+Main-Pocket tool visibility uses the central Settings `showToolCalls` preference through `usePocketSettings()`. The central Settings implementation at `f09c33e` is integrated, including the shared hook, public schema, `/api/settings` route, and persistent toggle. Hiding tool details preserves ordinary messages and tool-produced images. Both views use `ToolMessage`, with display-only `toolLabels` projected from explicit native commands and file-change operations. Pi call labels also survive completion and saved-history reload. Native write tools that omit creation-versus-replacement metadata retain a generic label. Private tool argument objects remain on the host.
+
+Recoverable native errors use `Snapshot.connectionRetry`, scoped to a native turn and set only for an explicit `willRetry` signal. Resumed assistant output, completion of that same turn, or successful native connection rehydration clears the notice. Progress from another parent or turn cannot dismiss it, and fatal errors remain separate.
 
 Sent attachment rows fit inside their message bubble, with an 80% maximum bubble width. File rows and following message text use 16px external gaps. Assistant image previews remain separate. Markdown table outlines belong to their horizontal scrolling container.
 

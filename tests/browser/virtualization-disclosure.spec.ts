@@ -79,7 +79,7 @@ test("activity disclosure keeps shared outer gaps and hit target through expansi
             id: `detail-${String(index)}`,
             type: "agentMessage",
             phase: "commentary",
-            text: `Visible activity detail ${String(index)}`,
+            text: `Visible activity detail ${String(index)}${index === 0 ? " [Activity reference](#activity-reference)" : ""}`,
           })),
           {
             id: "after-control",
@@ -118,7 +118,9 @@ test("activity disclosure keeps shared outer gaps and hit target through expansi
           boxes: [previous, control, ...(open ? details : []), final].map((item) => {
             const box = item.getBoundingClientRect();
 
-            return { top: box.top, bottom: box.bottom };
+            const label = open && item === control ? item.querySelector('[data-slot="trace-line"]') : null;
+
+            return { top: box.top, bottom: label?.getBoundingClientRect().bottom ?? box.bottom };
           }),
         };
       },
@@ -203,5 +205,10 @@ test("activity disclosure keeps shared outer gaps and hit target through expansi
   });
 
   expect(collapsedBox?.height).toBeGreaterThanOrEqual(MIN_HIT_TARGET);
+  await show.click();
+  await page.getByRole("link", { name: "Activity reference", exact: true }).click();
+  await expect(hide).toHaveAttribute("aria-expanded", "true");
+  await page.locator('[data-message-id="detail-1"] .markdown').click();
+  await expect(show).toHaveAttribute("aria-expanded", "false");
   expect(writes).toEqual([]);
 });

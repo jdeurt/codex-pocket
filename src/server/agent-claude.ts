@@ -4,6 +4,7 @@ import { agentStatusSchema, isActiveAgent } from "../lib/agents";
 import { getSessionInfo, getSessionMessages, getSubagentMessages, listSubagents } from "@anthropic-ai/claude-agent-sdk";
 import { type AgentRecord } from "./agent-sources";
 import { agentRead } from "./agent-read-pool";
+import { applyClaudeWrites } from "./harness/claude-writes";
 
 const LAST_MESSAGE = -1;
 
@@ -55,7 +56,10 @@ export async function readClaude(record: AgentRecord, sessionId: string) {
     throw new Error("Saved Claude history is unavailable.");
   }
 
-  record.turns = claudeTranscript(messages);
+  const owner = record.pocket ?? record.runtimeOwner;
+  const writes = object(object(owner ? JSON.parse(owner.metadata) : {}).claudeWrites);
+
+  record.turns = applyClaudeWrites(claudeTranscript(messages), writes, sessionId, record.claudeAgent);
   applyClaudeMetadata(record, messages);
 }
 

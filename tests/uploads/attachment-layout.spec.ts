@@ -69,9 +69,11 @@ async function metrics(bubble: Locator) {
         bubbleWidth: element.getBoundingClientRect().width,
         availableWidth: container.getBoundingClientRect().width,
         nameTruncated: query("span[title]", rows[0]).scrollWidth > query("span[title]", rows[0]).clientWidth,
-        // CSS dimensions carry units; coercion must parse their numeric prefix.
+        // DOMRect retains fractional widths; clientWidth rounds them to whole pixels.
         contentWidth:
-          content.clientWidth -
+          content.getBoundingClientRect().width -
+          Number(style.borderLeftWidth.replace(/px$/, "")) -
+          Number(style.borderRightWidth.replace(/px$/, "")) -
           Number(style.paddingLeft.replace(/px$/, "")) -
           Number(style.paddingRight.replace(/px$/, "")),
         margins: rows.map((row) => [getComputedStyle(row).marginTop, getComputedStyle(row).marginBottom]),

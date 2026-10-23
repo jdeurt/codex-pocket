@@ -35,3 +35,10 @@
   padding-top: 8px;
   color: var(--muted-foreground);
 }
+.delegate-report-open {
+  align-self: stretch;
+  justify-content: flex-start;
+  min-height: 44px;
+  border: 0;
+  padding-inline: 0;
+}

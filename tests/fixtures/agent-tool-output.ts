@@ -25,7 +25,40 @@ export function replayToolOutputs(id: string, image: string) {
     durationMs: 1,
   };
 
+  const commands = [
+    "pwd",
+    "npm run build --verbose",
+    "echo abcdefghijklmnop next",
+    "123456789012345 next",
+    "abcdefghijklmnopqrstuvwxyz",
+  ];
+
   return [
+    ...commands.map((command, index) => ({
+      id: `${id}-command-${String(index)}`,
+      type: "commandExecution",
+      status: "completed",
+      command,
+      aggregatedOutput: `Saved output for ${command}`,
+    })),
+    {
+      id: `${id}-changes`,
+      type: "fileChange",
+      status: "completed",
+      changes: [
+        { path: "src/edited.ts", kind: { type: "update", move_path: null }, diff: "saved edit" },
+        { path: "src/created.ts", kind: { type: "add" }, diff: "saved addition" },
+        { path: "src/deleted.ts", kind: { type: "delete" }, diff: "saved deletion" },
+      ],
+    },
+    ...["message_parent", "messageParent", "MessageParent", "sendHTTPRequest"].map((tool) => ({
+      ...dynamic,
+      id: `${id}-${tool}`,
+      tool,
+      status: "completed",
+      contentItems: [{ type: "inputText", text: `Saved ${tool} output` }],
+      success: true,
+    })),
     {
       ...mcp,
       id: `${id}-mcp-text`,

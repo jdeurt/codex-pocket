@@ -169,7 +169,7 @@ export class Bridge {
     this.snapshot.restartEvents = await recordRestart(this.snapshot);
     await this.messages.recover(config.threadId);
 
-    this.snapshot.connection = "connected";
+    Object.assign(this.snapshot, { connection: "connected", connectionRetry: undefined });
     this.snapshots.publish(this.messages.entries);
 
     if (!this.timer) {

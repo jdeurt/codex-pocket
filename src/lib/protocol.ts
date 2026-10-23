@@ -66,6 +66,7 @@ export interface Snapshot {
   notices: { id: string; title: string; detail: string }[];
   scheduled: Record<string, { title: string; scheduledAt: number }>;
   error?: string;
+  connectionRetry?: { turnId: string; message: string };
 }
 export const initialSnapshot: Snapshot = {
   connection: "connecting",
@@ -184,4 +185,5 @@ export const snapshotSchema: z.ZodType<Snapshot> = z.object({
   notices: z.array(noticeSchema),
   scheduled: z.record(z.string(), scheduledTurnSchema),
   error: z.string().optional(),
+  connectionRetry: z.object({ turnId: z.string(), message: z.string() }).optional(),
 });
