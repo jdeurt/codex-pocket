@@ -75,7 +75,7 @@ export function Chat() {
   const isViewingFile = usePathname() === "/files";
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
-  const voice = useRealtime();
+  const voice = useRealtime(state.connection === "connected" ? state.threadId : undefined);
   const [voiceHeight, setVoiceHeight] = useState<number>();
   const { stop: stopVoice } = voice;
   const isVoiceActive = voice.state !== "idle";

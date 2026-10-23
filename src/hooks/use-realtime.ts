@@ -18,11 +18,12 @@ type VoiceState = "idle" | "starting" | "active" | "stopping";
 
 /**
 Own one browser microphone/playback pipeline and release it on every exit path.
+@param threadId - Connected main conversation whose saved speech can be restored.
 */
-export function useRealtime() {
+export function useRealtime(threadId?: string) {
   const [state, setState] = useState<VoiceState>("idle");
   const [error, setError] = useState("");
-  const history = useVoiceTranscripts();
+  const history = useVoiceTranscripts(threadId);
   const { refresh, transcript, handoff } = history;
   const resources = useRef<VoiceResources | null>(null);
   const pendingStream = useRef<MediaStream | null>(null);

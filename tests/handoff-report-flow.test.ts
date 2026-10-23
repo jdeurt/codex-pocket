@@ -1,4 +1,7 @@
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { WebSocketServer } from "ws";
+import { once } from "node:events";
+import { updatePocketSettings } from "../src/server/pocket-settings";
 import { Bridge } from "../src/server/bridge-session";
 import { DelegationStore } from "../src/server/delegations";
 import { configSchema } from "../src/server/config";
@@ -32,6 +35,20 @@ async function handoffFlow(root: string) {
   };
 
   await mkdir(path.join(root, ".local/realtime-fixture"), { recursive: true });
+  const provider = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+  const previousEndpoint = process.env.POCKET_REALTIME_TEST_URL;
+
+  provider.on("connection", (peer) => {
+    peer.once("message", () => {
+      peer.send(JSON.stringify({ type: "session.updated" }));
+    });
+  });
+  await once(provider, "listening");
+  const address = provider.address();
+
+  assert.ok(address && typeof address === "object");
+  process.env.POCKET_REALTIME_TEST_URL = `ws://127.0.0.1:${String(address.port)}/v1/realtime`;
+  await updatePocketSettings({ openaiApiKey: "dummy-local-handoff-key" });
 
   try {
     await bridge.ensureConnected();
@@ -68,6 +85,22 @@ async function handoffFlow(root: string) {
   } finally {
     bridge.close();
     resumed.close();
+
+    for (const client of provider.clients) {
+      client.terminate();
+    }
+
+    await new Promise<void>((resolve) => {
+      provider.close(() => {
+        resolve();
+      });
+    });
+
+    if (previousEndpoint === undefined) {
+      delete process.env.POCKET_REALTIME_TEST_URL;
+    } else {
+      process.env.POCKET_REALTIME_TEST_URL = previousEndpoint;
+    }
   }
 }
 

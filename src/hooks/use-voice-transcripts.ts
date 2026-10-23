@@ -6,21 +6,27 @@ import { pocketUrl } from "@/lib/pockets";
 
 /**
 Restore finalized speech after reload and upsert provider events by their stable provenance.
+@param threadId - Connected conversation identity; absent during setup or disconnection.
 @returns Saved speech, display errors and handlers shared by stream and stop finalization.
 */
-export function useVoiceTranscripts() {
+export function useVoiceTranscripts(threadId?: string) {
   const [segments, setSegments] = useState<VoiceSegment[]>([]);
   const [error, setError] = useState("");
   const mounted = useRef(false);
   const url = useRef(pocketUrl("/api/realtime"));
+  const isMounted = useCallback(() => mounted.current, []);
   const refresh = useCallback(async () => {
+    if (!isMounted()) {
+      return;
+    }
+
     const response = await fetch(url.current, { cache: "no-store" });
 
     if (!response.ok) {
       throw new Error("Voice history could not load. Reconnect Pocket and try again.");
     }
 
-    if (!mounted.current) {
+    if (!isMounted()) {
       return;
     }
 
@@ -29,7 +35,7 @@ export function useVoiceTranscripts() {
 
     setSegments((current) => new Map([...current, ...saved].map((entry) => [entry.id, entry])).values().toArray());
     setError("");
-  }, []);
+  }, [isMounted]);
   const transcript = useCallback((entry: VoiceSegment) => {
     setSegments((current) => new Map([...current, entry].map((segment) => [segment.id, segment])).values().toArray());
   }, []);
@@ -42,6 +48,10 @@ export function useVoiceTranscripts() {
   }, []);
 
   useEffect(() => {
+    if (!threadId) {
+      return;
+    }
+
     mounted.current = true;
     void refresh().catch(() => {
       if (mounted.current) {
@@ -52,7 +62,7 @@ export function useVoiceTranscripts() {
     return () => {
       mounted.current = false;
     };
-  }, [refresh]);
+  }, [refresh, threadId]);
 
   return { segments, error, refresh, transcript, handoff };
 }
