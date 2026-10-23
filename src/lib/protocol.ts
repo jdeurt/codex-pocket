@@ -37,8 +37,12 @@ export interface QueuedMessage {
   id: string;
   text: string;
   attachments?: FileAttachment[];
+  source?: MessageSource;
   status: "queued" | "sending" | "unknown" | "sent";
 }
+export const messageSourceSchema = z.object({ type: z.literal("realtime"), sessionId: z.string(), itemId: z.string() });
+
+export type MessageSource = z.infer<typeof messageSourceSchema>;
 export interface RestartEvent {
   id: string;
   threadId: string;
@@ -149,6 +153,7 @@ export const realtimeItemAddedSchema = z
   })
   .transform(({ method, params }): RpcEvent => ({ method, params: { threadId: params.threadId } }));
 export const queuedMessageSchema = z.object({
+  source: messageSourceSchema.optional(),
   id: z.string(),
   text: z.string(),
   attachments: z.array(fileAttachmentSchema).optional(),
