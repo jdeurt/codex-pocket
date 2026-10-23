@@ -69,6 +69,7 @@ await test("a Codex question accepts ordered corrections and an answer in the or
         {
           method: "item/tool/requestUserInput",
           params: {
+            isBlocking: true,
             itemId: "color-tool",
             questions: [
               {

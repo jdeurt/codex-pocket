@@ -9,6 +9,7 @@ const directory = path.resolve(".local/realtime-fixture");
 const allowedNoops = new Set(["input_audio_buffer.clear", "conversation.item.create", "response.cancel"]);
 const controls = z.object({
   transcript: z.string().optional(),
+  replyText: z.string().optional(),
   handoff: z.boolean().optional(),
   duplicateHandoff: z.boolean().optional(),
   invalidHandoff: z.boolean().optional(),
@@ -49,9 +50,9 @@ function audio(samples: number) {
   return data.toString("base64");
 }
 
-function playbackText(response: Data) {
+function playbackText(response: Data, replyText = "Hello") {
   if (response.tool_choice !== "none") {
-    return "Hello";
+    return replyText;
   }
 
   const input = response.input;
@@ -233,7 +234,7 @@ export async function realtimeProvider() {
               type: "response.output_audio_transcript.done",
               response_id: responseId,
               item_id: `${sessionId}-reply`,
-              transcript: playbackText(object(event.response)),
+              transcript: playbackText(object(event.response), options.replyText),
             });
           }
 

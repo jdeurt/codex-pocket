@@ -121,14 +121,25 @@ await test("reordered speech and repeated identical requests retain independent 
   );
   assert.notEqual(flow.bridge.snapshot.turns[0].items[0].clientId, flow.bridge.snapshot.turns[1].items[0].clientId);
   const history = await flow.voice.transcripts();
+  const users = history.filter((entry) => entry.role === "user");
 
+  assert.equal(users.length, SECOND_PLAYBACK);
   assert.deepEqual(
-    history.filter((entry) => entry.role === "user").map((entry) => [entry.text, entry.handoff]),
-    [
-      ["Fix interruptions", "sent"],
-      ["and switching.", "sent"],
-      ["Fix interruptions\nand switching.", "sent"],
-    ]
+    new Map(users.map((entry) => [entry.itemId, [entry.text, entry.handoff]])),
+    new Map([
+      ["first", ["Fix interruptions", "sent"]],
+      ["second", ["and switching.", "sent"]],
+      ["repeat", ["Fix interruptions\nand switching.", "sent"]],
+    ])
+  );
+  const firstSpeech = users.find((entry) => entry.itemId === "first");
+
+  assert.ok(firstSpeech);
+  assert.equal(firstSpeech.afterItemId, null);
+  assert.equal(users.find((entry) => entry.itemId === "second")?.afterItemId, firstSpeech.id);
+  assert.equal(
+    users.find((entry) => entry.itemId === "repeat")?.afterItemId,
+    flow.bridge.snapshot.turns[0].items.at(LAST)?.id
   );
 });
 

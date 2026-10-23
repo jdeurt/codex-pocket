@@ -11,6 +11,8 @@ const INTERRUPTED_AUDIO_MS = 500;
 test("speaking during playback stops queued browser audio, truncates heard output and allows text continuation", async ({
   page,
 }) => {
+  const replyText = `Recovered interruption ${test.info().project.name}.`;
+
   await page.addInitScript(() => {
     class ObservedAudioContext extends AudioContext {
       override createBufferSource() {
@@ -46,7 +48,10 @@ test("speaking during playback stops queued browser audio, truncates heard outpu
 
     Object.defineProperty(globalThis, "AudioContext", { value: ObservedAudioContext });
   });
-  await writeFile(path.join(directory, "control.json"), JSON.stringify({ transcript: "Hello Pocket.", bargeIn: true }));
+  await writeFile(
+    path.join(directory, "control.json"),
+    JSON.stringify({ transcript: "Hello Pocket.", bargeIn: true, replyText })
+  );
   await page.goto("/");
   const dismiss = page.getByRole("button", { name: "Dismiss notification prompt" });
 
@@ -58,22 +63,28 @@ test("speaking during playback stops queued browser audio, truncates heard outpu
   await page.getByRole("button", { name: "Start realtime voice" }).focus();
   await page.keyboard.press("Enter");
   await expect(page.getByText("And preserve my follow-up.", { exact: true })).toHaveCount(1);
-  await expect(page.getByText("Hello", { exact: true })).toBeVisible();
+  await expect(page.getByText(replyText, { exact: true })).toHaveCount(1);
   await expect
     .poll(() => page.evaluate(() => globalThis.sessionStorage.getItem("pocket-interruption-ended")))
     .toBe("2");
   expect(await page.evaluate(() => globalThis.sessionStorage.getItem("pocket-interruption-stopped"))).toBe("1");
   expect(await page.evaluate(() => globalThis.sessionStorage.getItem("pocket-interruption-started"))).toBe("2");
   const log = await readFile(path.join(directory, "provider.jsonl"), "utf8");
-  const truncations = log
+  const events = log
     .trim()
     .split("\n")
-    .map((line) => dataSchema.parse(JSON.parse(line)))
-    .filter((event) => event.method === "provider/realtime/truncate");
+    .map((line) => dataSchema.parse(JSON.parse(line)));
+  const currentSession = events.findLast((event) => event.method === "provider/realtime/start");
+
+  expect(currentSession).toBeDefined();
+  const outputItem = `${String(currentSession?.sessionId)}-reply`;
+  const truncations = events.filter(
+    (event) => event.method === "provider/realtime/truncate" && event.item_id === outputItem
+  );
 
   expect(truncations).toHaveLength(1);
   expect(truncations[0]).toMatchObject({ type: "conversation.item.truncate", content_index: 0 });
-  expect(String(truncations[0].item_id)).toMatch(/-reply$/);
+  expect(truncations[0].item_id).toBe(outputItem);
   expect(truncations[0].audio_end_ms).toBeGreaterThan(0);
   expect(truncations[0].audio_end_ms).toBeLessThan(INTERRUPTED_AUDIO_MS);
   await page.getByRole("button", { name: "Stop realtime voice" }).click();

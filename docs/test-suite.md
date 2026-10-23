@@ -85,10 +85,12 @@ The exact Node command prefix below is `node --import tsx scripts/test-flows.ts`
 | File in `tests/workflows/`  | `--test-name-pattern`            | Result                                                                                         |
 | --------------------------- | -------------------------------- | ---------------------------------------------------------------------------------------------- |
 | `conversation.test.ts`      | `Codex delivery retains`         | Pass; repeated after complete-history assertion correction                                     |
+| `conversation.test.ts`      | `Codex question accepts`         | Pass after supplying the native contract-required blocking field                               |
 | `pi.test.ts`                | `Pi executes requested file`     | Pass                                                                                           |
 | `pi.test.ts`                | `Pi questions retain`            | Pass                                                                                           |
 | `voice.test.ts`             | `voice delivers exact speech`    | Pass                                                                                           |
 | `voice.test.ts`             | `uncertain voice delivery`       | Pass                                                                                           |
+| `voice.test.ts`             | `reordered speech`               | Pass; exact identities, content/status, predecessor anchors and ordered native handoffs        |
 | `voice-playback.test.ts`    | `new speech interrupts`          | Pass                                                                                           |
 | `side-pockets.test.ts`      | `a Side Pocket receives current` | Pass; repeated after strict native replay correction                                           |
 | `side-pockets.test.ts`      | `Side Pocket capacity queues`    | Pass; eight real native children, joined dispatch barrier, ninth queued until release          |
@@ -109,6 +111,8 @@ npx playwright test tests/uploads/gif.spec.ts --project=uploads-chromium --grep=
 npx playwright test --config=playwright.realtime.config.ts tests/browser/workflows/voice.spec.ts --project=realtime-chromium --grep='configured OpenAI voice hands' --reporter=line
 npx playwright test --config=playwright.realtime.config.ts tests/browser/workflows/voice-interruption.spec.ts --project=realtime-chromium --grep='speaking during playback' --reporter=line
 ```
+
+The first PR CI run, [40034335570](https://github.com/jdeurt/codex-pocket/actions/runs/40034335570), passed static checks and macOS workflows but exposed three fixture/assertion issues: the Codex question omitted the contract-required `isBlocking` field; the voice case asserted physical ledger arrival order instead of the documented predecessor anchors; and the browser interruption case reused a reply from earlier tests. Corrections supply the native field, assert exact speech identities/content/status plus predecessor anchors and complete ordered native handoffs, and use a distinct reply with current-session truncation evidence. No production behavior changed for these CI failures. The run also exposed setup-node's automatic npm cache, which is now disabled so only the explicitly scoped content cache runs.
 
 Those six selected cases passed. The uploaded GIF case verifies original bytes through the actual native boundary, download and reload. The Side Pocket and interruption cases also passed with native mismatch journals enabled. The interruption case observes real nonzero Web Audio sources: one queued source is stopped, the provider receives a bounded truncation, the next answer finishes playback, and text delivery subsequently succeeds.
 
