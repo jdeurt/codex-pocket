@@ -14,7 +14,7 @@ Describe latest-history reads separately from the agent's execution activity.
 @returns A transient history status at the conversation tail, outside canonical messages.
 */
 function HistoryReadStatus({ data, error, isLoading }: { data?: AgentTranscript; error?: string; isLoading: boolean }) {
-  if (error || (!isLoading && !data?.isHistoryLoading && data?.history === "unavailable")) {
+  if (error || data?.history === "unavailable") {
     return (
       <div className="py-3 text-sm text-muted-foreground" role="alert" aria-label="History refresh failed">
         <p>Latest history could not be loaded.</p>
