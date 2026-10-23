@@ -12,6 +12,7 @@ import {
 import { appendFile, readFile, writeFile } from "node:fs/promises";
 import { fixtureFileReferenceSchema, fixtureUploadInputSchema } from "./replay-protocol";
 import { readFixtureRequests, writeFixtureRecord } from "./sequential-rpc";
+import { unexpectedRequest } from "./unexpected-request";
 import { setInterval, setTimeout } from "node:timers";
 import { setTimeout as delay } from "node:timers/promises";
 import path from "node:path";
@@ -286,6 +287,11 @@ async function execute(method: string | undefined, params: Data) {
       return { thread };
     }
 
+    case "thread/list": {
+      // Only the configured upload parent exists; there are no external Side Pockets to discover.
+      return { data: [], nextCursor: null };
+    }
+
     case "thread/turns/list": {
       return { data: thread.turns, nextCursor: null };
     }
@@ -296,7 +302,7 @@ async function execute(method: string | undefined, params: Data) {
     }
 
     default: {
-      throw new Error(`Unexpected fixture method ${String(method)}`);
+      return unexpectedRequest(method);
     }
   }
 }

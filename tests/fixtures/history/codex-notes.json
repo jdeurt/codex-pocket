@@ -1,0 +1,50 @@
+[
+  {
+    "id": "calendar-turn",
+    "status": "completed",
+    "error": null,
+    "items": [
+      {
+        "id": "calendar-user",
+        "clientId": "calendar-receipt",
+        "type": "userMessage",
+        "content": [{ "type": "text", "text": "Record the launchcalendar decision for Córdoba." }]
+      },
+      {
+        "id": "calendar-tool",
+        "type": "mcpToolCall",
+        "server": "calendar",
+        "tool": "read_event",
+        "arguments": { "id": "launch-review" },
+        "status": "completed",
+        "result": {
+          "content": [
+            {
+              "type": "text",
+              "text": "launchcalendar: Córdoba review is Thursday at 16:00 UTC. Keep the original agenda."
+            }
+          ]
+        }
+      },
+      { "id": "calendar-answer", "type": "agentMessage", "text": "The Córdoba review is Thursday at 16:00 UTC." }
+    ]
+  },
+  {
+    "id": "notes-turn",
+    "status": "completed",
+    "error": null,
+    "items": [
+      {
+        "id": "notes-user",
+        "clientId": "notes-receipt",
+        "type": "userMessage",
+        "content": [{ "type": "text", "text": "Keep the deployment notes separate." }]
+      },
+      {
+        "id": "notes-answer",
+        "type": "agentMessage",
+        "text": "Deployment notes remain separate from the calendar decision."
+      }
+    ]
+  }
+]

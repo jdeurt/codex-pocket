@@ -5,6 +5,7 @@ import { readFixtureRequests, writeFixtureRecord } from "./sequential-rpc";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import { unexpectedRequest } from "./unexpected-request";
 
 const directory = z.string().parse(process.env.CODEX_POCKET_STATE_DIR);
 const threadId = z.string().parse(process.env.CODEX_THREAD_ID);
@@ -103,6 +104,10 @@ Implements the native recovery lifecycle with host-selected resume and history f
 */
 async function execute(method: string | undefined, params: Data) {
   switch (method) {
+    case "initialize": {
+      return {};
+    }
+
     case "config/read": {
       return { config: { sandbox_mode: "read-only", approval_policy: "never" } };
     }
@@ -133,7 +138,7 @@ async function execute(method: string | undefined, params: Data) {
     }
 
     default: {
-      return {};
+      return unexpectedRequest(method);
     }
   }
 }

@@ -4,6 +4,7 @@ import { once } from "node:events";
 import path from "node:path";
 import { setTimeout } from "node:timers/promises";
 import { signalFixture } from "./next-server";
+import { assertExpectedRequests } from "./unexpected-request";
 
 const ORIGIN = "http://127.0.0.1:3191";
 const POLL_MS = 100;
@@ -103,11 +104,11 @@ export class UpdateHost {
     const child = this.child;
     const exited = child?.exitCode === null && child.signalCode === null ? once(child, "exit") : undefined;
 
-    if (!(child && exited)) {
-      return;
+    if (child && exited) {
+      signalFixture(child, "SIGKILL");
+      await exited;
     }
 
-    signalFixture(child, "SIGKILL");
-    await exited;
+    await assertExpectedRequests(path.join(this.directory, "state"));
   }
 }

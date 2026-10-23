@@ -1,7 +1,7 @@
 import { readInternalContext } from "./internal-context";
 import assert from "node:assert/strict";
 import { type Turn, string, turnSchema } from "../../src/lib/protocol";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { createInterface } from "node:readline";
 import { fixtureRequestSchema } from "./replay-protocol";
 import path from "node:path";
@@ -201,6 +201,16 @@ class SteeringReplay {
     }
 
     switch (request.method) {
+      case "initialize": {
+        writeFixtureRecord({ id: request.id, result: { userAgent: "pocket-workflow-native-replay" } });
+
+        return;
+      }
+
+      case "thread/start": {
+        break;
+      }
+
       case "initialized": {
         return;
       }
@@ -242,14 +252,23 @@ class SteeringReplay {
 
         return;
       }
+
+      default: {
+        const failure = `Unexpected native replay call: ${String(request.method)}`;
+
+        appendFileSync(path.join(process.cwd(), "unexpected-native.jsonl"), JSON.stringify(request) + "\n");
+        writeFixtureRecord({ id: request.id, error: { code: METHOD_NOT_FOUND, message: failure } });
+
+        return;
+      }
     }
 
     writeFixtureRecord({
       id: request.id,
       result:
-        request.method === "thread/start" || request.method === "thread/resume"
-          ? { thread: { id: this.sessionId, turns: this.turns }, model: "offline", reasoningEffort: "medium" }
-          : {},
+        request.method === "turn/interrupt"
+          ? {}
+          : { thread: { id: this.sessionId, turns: this.turns }, model: "offline", reasoningEffort: "medium" },
     });
   }
 }

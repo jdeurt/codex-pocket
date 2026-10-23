@@ -37,3 +37,7 @@ try {
 
   provider.server.close();
 }
+
+if (provider.failures.length > 0) {
+  throw new Error(provider.failures.join("\n"));
+}

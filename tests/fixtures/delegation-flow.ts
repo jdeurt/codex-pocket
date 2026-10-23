@@ -6,7 +6,7 @@ import {
   sidePocketSchema,
 } from "../../src/server/delegation-data";
 import { type HostEvent, type HostReply, hostPacketSchema } from "./delegation-protocol";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { Client } from "@modelcontextprotocol/client";
 import { DelegationStore } from "../../src/server/delegations";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
@@ -182,6 +182,9 @@ Creates durable private state and registers cleanup for every fake host and MCP 
 */
 export async function fixture(t: TestContext) {
   const directory = await mkdtemp(path.join(os.tmpdir(), "pocket-worker-flow-"));
+
+  await writeFile(path.join(directory, "unexpected-native.jsonl"), "");
+
   const store = new DelegationStore(directory);
   const peers: Peer[] = [];
   const clients: Client[] = [];
@@ -245,7 +248,10 @@ export async function fixture(t: TestContext) {
     }
 
     store.close();
+    const unexpected = await readFile(path.join(directory, "unexpected-native.jsonl"), "utf8");
+
     await rm(directory, { recursive: true, force: true });
+    assert.equal(unexpected, "", `Unmatched native requests:\n${unexpected}`);
   });
 
   return { store, directory, peer, mcp };

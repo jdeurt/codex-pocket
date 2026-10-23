@@ -7,7 +7,6 @@ import { parentInput } from "../../src/server/internal-context";
 import { nativeText } from "../../src/server/harness/transcript";
 import { readInternalContext } from "./internal-context";
 import assert from "node:assert/strict";
-import { writeFile } from "node:fs/promises";
 
 interface ReportFlow {
   parentId: string;
@@ -16,12 +15,12 @@ interface ReportFlow {
   send: (id: string, text: string) => Promise<unknown>;
 }
 
-/** Verify complete ordinary delivery beside one collapsed report and export the real projection for browser checks.
+/** Verify complete ordinary delivery beside one collapsed report and retain the original report beside the delivered content.
 @param visible - Production user-visible snapshot after report ingestion.
 @param reportId - Durable report identity.
 @param story - Complete requested artifact.
 */
-export async function checkReportProjection(visible: Snapshot, reportId: string, story: string) {
+export function checkReportProjection(visible: Snapshot, reportId: string, story: string) {
   const items = visible.turns.flatMap((turn) => turn.items);
 
   assert.deepEqual(
@@ -31,10 +30,6 @@ export async function checkReportProjection(visible: Snapshot, reportId: string,
   assert.ok(items.find((item) => item.id === reportId)?.delegateReport?.final);
   assert.equal(items.filter((item) => item.type === "agentMessage" && item.text === story).length, 1);
   assert.equal(items.find((item) => item.id === reportId)?.delegateReport?.text, story);
-
-  if (process.env.POCKET_VISIBILITY_SNAPSHOT) {
-    await writeFile(process.env.POCKET_VISIBILITY_SNAPSHOT, JSON.stringify(visible));
-  }
 }
 
 /** Forward a durable report through the actual Pi model boundary and retry the completed mailbox pass.

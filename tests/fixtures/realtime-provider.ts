@@ -6,6 +6,7 @@ import path from "node:path";
 import { z } from "zod";
 
 const directory = path.resolve(".local/realtime-fixture");
+const allowedNoops = new Set(["input_audio_buffer.clear", "conversation.item.create", "response.cancel"]);
 const controls = z.object({
   transcript: z.string().optional(),
   handoff: z.boolean().optional(),
@@ -59,8 +60,20 @@ function playbackText(response: Data) {
   return Array.isArray(content) ? string(object(content[0]).text) : "";
 }
 
+function emitAudio(emit: (event: Data) => void, responseId: string, itemId: string, options: z.infer<typeof controls>) {
+  for (let index = 0; index < (options.burstChunks ?? 1); index++) {
+    emit({
+      type: "response.output_audio.delta",
+      response_id: responseId,
+      item_id: itemId,
+      delta: audio(options.burstSamples ?? 2400),
+    });
+  }
+}
+
 export async function realtimeProvider() {
   const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+  const failures: string[] = [];
 
   server.on("connection", (peer, request) => {
     const sessionId = crypto.randomUUID();
@@ -92,6 +105,11 @@ export async function realtimeProvider() {
 
     peer.on("message", (raw) => {
       const event = decode(raw);
+
+      if (allowedNoops.has(string(event.type))) {
+        return;
+      }
+
       const options = control();
 
       switch (event.type) {
@@ -209,14 +227,7 @@ export async function realtimeProvider() {
               output.push({ ...handoff, type: "function_call", call_id: `${sessionId}-duplicate` });
             }
           } else {
-            for (let index = 0; index < (options.burstChunks ?? 1); index++) {
-              emit({
-                type: "response.output_audio.delta",
-                response_id: responseId,
-                item_id: `${sessionId}-reply`,
-                delta: audio(options.burstSamples ?? 2400),
-              });
-            }
+            emitAudio(emit, responseId, `${sessionId}-reply`, options);
 
             emit({
               type: "response.output_audio_transcript.done",
@@ -232,7 +243,14 @@ export async function realtimeProvider() {
           });
           break;
         }
-        // No default
+
+        default: {
+          const failure = `Unexpected realtime provider call: ${String(event.type)}`;
+
+          failures.push(failure);
+          record({ method: "provider/realtime/unexpected", event });
+          peer.close();
+        }
       }
     });
     peer.on("close", () => {
@@ -246,5 +264,5 @@ export async function realtimeProvider() {
     throw new Error("Local voice provider did not bind.");
   }
 
-  return { server, url: `ws://127.0.0.1:${String(address.port)}/v1/realtime` };
+  return { server, failures, url: `ws://127.0.0.1:${String(address.port)}/v1/realtime` };
 }

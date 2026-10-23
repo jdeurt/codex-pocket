@@ -36,101 +36,61 @@ The offline test suites below do not need this chat setup or native sign-in.
 
 ## Local checks
 
-Agents must follow [the development-check policy](../AGENTS.md): run only extremely focused tests and leave the full suite to CI. Lint edited files after each small batch and apply encountered lint rules to later edits.
-
-Keep integration and end-to-end business flows. Do not add isolated unit tests, absence-only probes, or browser tests that only compare component pixels. Use small fixtures unless scale is the behavior under test. See the [suite audit](test-suite.md) for the retained boundaries and cleanup decisions.
+Follow [AGENTS.md](../AGENTS.md): select an exact file and case during development, lint edited files after each batch, and leave complete suites to CI. The [behavior coverage map](test-suite.md) records source guidance, removed tests, replacement guarantees and verification limits.
 
 ```sh
-npx eslint path/to/changed.ts --max-warnings=0
-npx prettier --check path/to/changed.ts
-node --import tsx scripts/test-flows.ts tests/schedules.test.ts --test-name-pattern='schedule CRUD retains revisions'
+node --import tsx scripts/test-flows.ts tests/workflows/pi.test.ts --test-name-pattern='Pi executes requested file'
+npx eslint tests/workflows/pi.test.ts --max-warnings=0
+npx prettier --check tests/workflows/pi.test.ts
 ```
 
-CI runs `npm run check` (Prettier, zero-warning ESLint, and strict TypeScript checks), `npm test`, and the complete offline browser collections. The integration runner uses an empty PATH, disposable home, disabled native executable paths, and no inherited credentials. It accepts exact test-file paths plus Node test-name filters. It uses production adapters with deterministic protocol simulators. See [simulator coverage and limits](simulators.md).
+The integration runner recursively discovers `tests/**/*.test.ts`, rejects unknown selections and runs without inherited credentials or native executables. Real application workflows use disposable state and explicit external protocol fixtures. Do not replace internal application components with mocks or add unit, source-text, constant or file-inventory tests.
 
-```sh
-npm run review:duplicates
-npm run review:dead-code
-```
-
-The committed `.jscpd.json` sets similarity to `0.7`, normalizes identifiers/literals/annotations, allows two gap lines, and compares JavaScript and TypeScript. Reports go to ignored `.local/review/jscpd`. Review findings against callers and behavior before removing or combining code; generated files and dependencies are excluded.
+CI runs `npm run check`, `npm test`, the offline browser collection and the realtime collection. The macOS job also exercises installed commands, bootstrap and the native menu-bar window. These complete-suite commands are for CI, not agent development.
 
 ## Offline browser tests
 
-Install the browser engines once, then select one relevant project, file, and case:
+Install browser distributions once:
 
 ```sh
 npx playwright install chromium webkit
-CODEX_THREAD_ID= npm run test:e2e -- tests/browser/copy-action.spec.ts --project=copy-chromium-phone --grep 'native browser clipboard receives the decoded text'
 ```
 
-The root `playwright.config.ts` selects offline fixture projects by default. List them without starting servers:
+Select one file, project and case:
 
 ```sh
-CODEX_THREAD_ID= npm run test:e2e -- --list
+npm run test:e2e -- tests/browser/workflows/transcript.spec.ts --project=pockets-chromium --grep='saved native history'
+npm run test:e2e:realtime -- tests/browser/workflows/voice.spec.ts --project=realtime-chromium --grep='configured OpenAI voice hands'
 ```
 
-These npm scripts select feature collections. During agent development, also supply the exact file, project, and test-name filters after `--`:
+The default projects are `pockets-chromium`, `pockets-webkit`, `agents-chromium`, `agents-webkit`, `uploads-chromium`, `uploads-webkit` and `uploads-api`. Realtime uses `realtime-chromium`, `realtime-webkit` and `realtime-api`. Desktop Chromium and phone WebKit cover materially different browser environments without repeating every viewport combination. Realtime uses phone profiles with actual browser microphone/audio APIs and synthetic provider audio.
 
-| Script                    | Coverage                                                    |
-| ------------------------- | ----------------------------------------------------------- |
-| `test:agents`             | Agent history and replay                                    |
-| `test:e2e:copy`           | Copy controls                                               |
-| `test:e2e:focused`        | Focus and composer behavior                                 |
-| `test:e2e:virtualization` | Transcript scrolling, status geometry, reports, and loading |
-| `test:e2e:restart`        | Browser reconnect and recovery                              |
-| `test:e2e:uploads`        | Attachment delivery and stored bytes                        |
-| `test:e2e:attachments`    | Attachment layout                                           |
-| `test:e2e:spinner`        | Spinner selection and persistence                           |
-
-Named Pocket flows run in the default collection. Select them with `npm run test:e2e -- --project='pockets-*'`.
-
-The root configuration uses four isolated fixture servers:
-
-| Fixture                 | Port | Data source                                 |
-| ----------------------- | ---- | ------------------------------------------- |
-| Browser-local snapshots | 3101 | Model executable disabled                   |
-| Saved agent replay      | 3107 | Agent JSON-RPC and synthetic Claude history |
-| Upload replay           | 3118 | Upload JSON-RPC and original-byte records   |
-| Named Pockets           | 3467 | Offline Codex simulator processes           |
-
-Servers reject occupied ports rather than reusing an existing service. Each fixture has its own state and Next output directory. Spinner tests manage their own restart lifecycle. Fixture code lives under `tests/fixtures`; disposable state, screenshots, and other outputs live under `.local`.
-
-### Production update tests
+Discovery starts no servers and runs no cases:
 
 ```sh
-npm run test:e2e:updates
+npm run test:e2e -- --list
+npm run test:e2e:realtime -- --list
 ```
 
-This suite uses `playwright.update.config.ts`. It builds two production versions and serves an isolated fixture on port 3191. Chromium and WebKit flows cover automatic upgrades and rollback, draft/attachment preservation, pending work, and reconnection. It is separate from the default dev-server fixtures because it needs actual build identities and asset replacement.
+Each worker starts only its required Next/native/provider fixture, waits for `/api/version`, then tears it down and removes runtime state. Occupied ports fail. Projects have separate build directories under `.next/test-<project>`; server state lives under fixture-owned `.local` directories and is reset between projects. Keep `workers: 1` while these fixture origins are fixed. Traces and server diagnostics go to `test-results/`; neither runtime state nor results belong in caches.
 
-### Measure layout
+The `test:agents`, `test:e2e:uploads`, `test:e2e:copy`, `test:e2e:virtualization` and `test:e2e:restart` aliases select their current workflow collections. Agents must still add exact case/project filters. Attachment spacing, spinner pixels and synthetic viewport matrices have no collection aliases; their deliberate retirement is recorded in the coverage map.
 
-Use Playwright bounding boxes and computed styles for alignment, gaps, widths, overflow, and touch targets. Check transitions as well as screenshots: empty and active status rows, streaming messages, report expansion, keyboard resize, and reconnect. The [transcript layout reference](transcript-layout.md) lists the expected measurements and test files.
+## CI caches
 
-Device emulation cannot verify a physical iPhone's keyboard, file picker, or notification delivery. Report those limits separately from browser results.
+Inspection of base-commit [Check run 40020174377, attempt 1](https://github.com/jdeurt/codex-pocket/actions/runs/40020174377/attempts/1) showed package installs around 33–53 seconds, browser installation around 37 seconds and the realtime collection around four minutes. These are historical bottleneck measurements; the replacement's CI duration has not been measured. The smaller workflow collection reduces repeated browser work.
 
-## Live checks
+The local composite action caches npm's `_cacache` content store and Playwright's browser distributions. Keys include OS, architecture, exact runtime/tool versions and the dependency lockfile. Fallbacks retain compatible tool versions while allowing npm integrity checks and browser revision checks to repair missing downloads. Every job runs `npm ci --include=dev --prefer-offline`; browser jobs always install system libraries and ensure required browser revisions are present. No dependencies installed by another job, profiles, private runtime state, compiler output or test results are reused.
 
-Live checks require installed, signed-in native tooling and make real model calls. Keep them separate from offline checks and production conversations.
+## Production updates and live checks
+
+`npm run test:e2e:updates` remains separate: it builds two production versions and checks asset adoption, rollback, draft/file preservation and pending work. It is not part of the default dev-server collection.
+
+Live checks require installed, signed-in native tooling and disposable conversations:
 
 ```sh
 npm run test:simulators:native
-npm run build
 npm run test:e2e:live
 ```
 
-`test:e2e:live` enables `POCKET_LIVE_TESTS=1`, uses a new integration-test thread, and archives it afterward. Live mode replaces the offline server list. The queue, questions, schedules, images, and activity aliases also select this project but require the flag from the caller, for example:
-
-```sh
-POCKET_LIVE_TESTS=1 npm run test:e2e:queue
-```
-
-| Script              | Purpose                                                                                         |
-| ------------------- | ----------------------------------------------------------------------------------------------- |
-| `test:recovery`     | Hidden recovery inputs, resumed history, and interrupted-work recovery in a separate Codex chat |
-| `test:instructions` | Native instruction-loading checks                                                               |
-| `test:harnesses`    | Real Codex/Claude access, resume, history, and tool availability                                |
-| `test:delegation`   | A real parent exchanging work and answers with both harnesses, closing and resuming children    |
-
-These checks need their relevant native logins and use separate test state. A passing offline test does not establish live provider behavior. Run the relevant native calibration when changing a protocol model, and use the actual phone for device-specific checks.
+The queue/questions/schedules/images/activity live aliases require explicit `POCKET_LIVE_TESTS=1`. `test:recovery`, `test:instructions`, `test:harnesses` and `test:delegation` remain opt-in native checks. Offline passing results do not establish live compatibility or real microphone/phone delivery. Physical iPhone keyboard, file picker, notifications and audio require actual-device checks.

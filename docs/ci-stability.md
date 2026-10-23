@@ -58,20 +58,8 @@ The subsequent cleanup reduced ordinary history fixtures to 320 rows and exposed
 
 Cached restoration now finds the saved anchor in the original measurements and compensates only rows before it. Explicit adjustment policies, including nested activity, keep precedence, and normal user scrolling retains its existing policy. The bookmark flow keeps its images and three-pixel tolerance, waits for media before capturing its initial position, and passed three focused repetitions after the correction.
 
-## Reproduction and validation
+## Historical validation and current reproduction
 
-Select exact cases rather than a feature collection:
+The investigations above describe the earlier suite and fixes. The DX revision passed [Check run 39853635789](https://github.com/jdeurt/codex-pocket/actions/runs/39853635789) at `749f18c`; that historical run included 196 default browser cases and 75 realtime cases. It is not evidence for the later suite replacement.
 
-```sh
-npx playwright test tests/browser/virtualization.spec.ts --project=virtualization-chromium-desktop --grep 'large single-turn history'
-npx playwright test tests/browser/virtualization-activity.spec.ts --project=virtualization-chromium-desktop --grep 'a thousand activity messages' --repeat-each=3
-npx playwright test tests/browser/pockets.spec.ts --project=pockets-chromium-phone --grep 'named Pockets preserve separate conversations'
-```
-
-The development VM uses its installed `/usr/bin/chromium` through temporary, ignored Playwright configuration overrides. Those overrides select only the relevant project and fixture server; they are not CI configuration changes. WebKit is unavailable locally, so its validation relies on CI.
-
-Realtime CI retains failure traces, and both browser jobs upload failure results for seven days. The realtime composer geometry test records its before/after rectangles and includes them in position failures. These diagnostics preserve the original assertions and help distinguish layout failures from lifecycle timing.
-
-Repeated successful CI runs on the final revision are required to establish stability. Local repetitions alone do not meet that criterion.
-
-The DX fixes passed the complete [Check run 39853635789](https://github.com/jdeurt/codex-pocket/actions/runs/39853635789) at commit `749f18c`, before the later authorized test cleanup. That run included all 196 default browser cases and all 75 realtime cases. The [suite audit](test-suite.md) records subsequent removals and simplifications; the cleanup revision requires its own CI validation.
+Use the current [testing guide](testing.md) for exact workflow paths and project filters. The [coverage map](test-suite.md) records which historical probes were replaced or retired. Current browser jobs retain failure traces and fixture-server diagnostics for seven days. Local focused repetitions and cache checks do not establish CI stability; the replacement needs its own complete CI run.

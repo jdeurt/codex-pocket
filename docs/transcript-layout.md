@@ -39,15 +39,6 @@ PWA composer positioning must account for the safe area and keyboard without lea
 
 ## Regression coverage
 
-Files below are under `tests/browser/`:
+The current [workflow coverage map](test-suite.md) distinguishes automated guarantees from retired layout probes. Browser workflows under `tests/browser/workflows/` exercise independent conversations, actual native history, bounded mounted rows, reading-position restoration, read-only Side Pocket navigation, voice lifecycle and draft retention. The upload workflows retain original-byte and delivery guarantees.
 
-| Test                                   | Measurements or behavior                                                              |
-| -------------------------------------- | ------------------------------------------------------------------------------------- |
-| `pockets.spec.ts`                      | Menu overflow, header centering, touch targets, and independent named conversations   |
-| `virtualization-tail.spec.ts`          | Agent navigation, activity collapse, and returning to the actual transcript end       |
-| `virtualization-reports.spec.ts`       | One-line preview, shared spacing, expansion, and read-only navigation                 |
-| `virtualization-keyboard.spec.ts`      | Bottom alignment after blur and staged keyboard-close events without a scroll gesture |
-| `virtualization-pocket-scroll.spec.ts` | Reading-position restoration                                                          |
-| `virtualization-agent-loading.spec.ts` | Skeleton bounds, reduced motion, and replacement with loaded history                  |
-
-The attachment suites add narrow-phone and desktop width, padding, gap, and overflow checks. See [testing](testing.md#offline-browser-tests) for commands and browser profiles.
+The measurements above remain layout requirements. The lean replacement does not claim automated coverage for every pixel gap, nested-activity stress case, emulated keyboard transition or spinner appearance. Check relevant measurements when changing those surfaces, following the focused-development policy in [testing](testing.md).

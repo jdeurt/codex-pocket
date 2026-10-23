@@ -1,0 +1,53 @@
+name: Reproducible dependencies
+# Cache downloaded packages and browser distributions; every job installs its own dependencies and OS libraries.
+description: Install locked dependencies with runtime-specific download caches.
+inputs:
+  browsers:
+    description: Install the Chromium and WebKit distributions used by browser workflows.
+    required: false
+    default: "false"
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v7
+      with:
+        node-version: "24"
+    - name: Record toolchain versions
+      id: versions
+      shell: bash
+      run: |
+        echo "node=$(node -p process.versions.node)" >> "$GITHUB_OUTPUT"
+        echo "npm=$(npm --version)" >> "$GITHUB_OUTPUT"
+        echo "npm-cache=$(npm config get cache)/_cacache" >> "$GITHUB_OUTPUT"
+    - uses: actions/cache@v6
+      with:
+        path: ${{ steps.versions.outputs.npm-cache }}
+        key: npm-v1-${{ runner.os }}-${{ runner.arch }}-node-${{ steps.versions.outputs.node }}-npm-${{ steps.versions.outputs.npm }}-${{ hashFiles('package-lock.json') }}
+        restore-keys: |
+          npm-v1-${{ runner.os }}-${{ runner.arch }}-node-${{ steps.versions.outputs.node }}-npm-${{ steps.versions.outputs.npm }}-
+    - name: Install locked packages
+      shell: bash
+      run: npm ci --include=dev --prefer-offline
+    - name: Read locked Playwright version
+      if: inputs.browsers == 'true'
+      id: playwright
+      shell: bash
+      run: |
+        playwright_version=$(node -p "require('./node_modules/playwright-core/package.json').version")
+        echo "version=$playwright_version" >> "$GITHUB_OUTPUT"
+    - name: Restore browser distributions
+      if: inputs.browsers == 'true'
+      uses: actions/cache@v6
+      with:
+        path: ~/.cache/ms-playwright
+        key: browsers-v1-${{ runner.os }}-${{ runner.arch }}-node-${{ steps.versions.outputs.node }}-playwright-${{ steps.playwright.outputs.version }}-chromium-webkit-${{ hashFiles('package-lock.json') }}
+        restore-keys: |
+          browsers-v1-${{ runner.os }}-${{ runner.arch }}-node-${{ steps.versions.outputs.node }}-playwright-${{ steps.playwright.outputs.version }}-chromium-webkit-
+    - name: Install system browser libraries
+      if: inputs.browsers == 'true'
+      shell: bash
+      run: npx playwright install-deps chromium webkit
+    - name: Ensure required browser revisions are installed
+      if: inputs.browsers == 'true'
+      shell: bash
+      run: npx playwright install chromium webkit

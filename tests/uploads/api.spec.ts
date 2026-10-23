@@ -1,6 +1,7 @@
 import { MAX_FILE_BYTES, fileAttachmentSchema } from "../../src/lib/attachments";
 import { directory, isOk } from "./replay-state";
-import { expect, test } from "@playwright/test";
+import { expect } from "@playwright/test";
+import { test } from "../fixtures/browser-workflow";
 import { UPLOAD_ORIGIN } from "../fixtures/browser-defaults";
 import path from "node:path";
 import { readFile } from "node:fs/promises";
