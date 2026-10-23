@@ -37,11 +37,18 @@ class ToolGates {
   readonly waiting = new Map<string, ReturnType<typeof Promise.withResolvers<undefined>>>();
   readonly active = new Map<string, string>();
   readonly ended: string[] = [];
+  isReasoning = false;
 
   /** Track authoritative execution independently of the production activity implementation.
   @param event - Real Pi SDK notification before Pocket projects it.
   */
   observe(event: AgentSessionEvent) {
+    if (event.type === "message_update") {
+      this.isReasoning = ["thinking_start", "thinking_delta"].includes(event.assistantMessageEvent.type);
+    } else if (["message_start", "message_end", "turn_start", "agent_settled"].includes(event.type)) {
+      this.isReasoning = false;
+    }
+
     if (event.type === "tool_execution_start") {
       this.active.set(event.toolCallId, event.toolName === "read_file" ? "reading files" : "listing files");
     } else if (event.type === "tool_execution_end") {
@@ -107,7 +114,7 @@ export async function piActivityFlow(root: string) {
   const gates = new ToolGates();
   const provider = fauxProvider({ provider: "activity-offline", models: [{ id: "model" }] });
   const state = { ...structuredClone(initialSnapshot), connection: "connected" as const, threadId: parent.id };
-  const samples: { event: RpcEvent; expected: string; actual: string | undefined }[] = [];
+  const samples: { event: RpcEvent; expected: string; actual: string | undefined; isReasoning: boolean }[] = [];
   const errors: unknown[] = [];
   const factory: typeof openPiSession = async (settings, rpc, params, key) => {
     const opened = await openPiSession(settings, rpc, params, key, [
@@ -131,6 +138,7 @@ export async function piActivityFlow(root: string) {
         event: structuredClone(event),
         expected: gates.active.values().toArray().join(", "),
         actual: visibleSnapshot(state).activity,
+        isReasoning: gates.isReasoning,
       });
     },
     () => Promise.resolve("offline-placeholder"),
@@ -181,6 +189,10 @@ export async function piActivityFlow(root: string) {
     assert.deepEqual(gates.ended, ["second", "first", "third"]);
 
     for (const sample of samples) {
+      if (sample.event.method === "thread/activity/updated" && sample.actual === "considering options") {
+        assert.ok(sample.isReasoning, "Only native reasoning may publish the thinking fallback");
+      }
+
       if (sample.expected) {
         assert.equal(sample.actual, sample.expected, JSON.stringify(sample.event));
       } else if (sample.event.params.item?.status === "running") {

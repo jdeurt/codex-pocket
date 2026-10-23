@@ -37,7 +37,7 @@ function startNativeTurn(state: Snapshot, incoming: Turn | undefined, current: T
 
   turn.status = "inProgress";
   state.activeTurnId = turn.id;
-  state.activity = "Considering options";
+  state.activity = "";
   state.error = undefined;
   state.connectionRetry = undefined;
 

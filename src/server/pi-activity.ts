@@ -21,7 +21,7 @@ function messageActivity(
     return ["thinking_start", "thinking_delta"].includes(event.assistantMessageEvent.type) ? "Considering options" : "";
   }
 
-  return "Considering options";
+  return "";
 }
 
 /**
@@ -49,7 +49,7 @@ export class PiActivity {
       case "agent_settled": {
         this.tools.clear();
 
-        return event.type === "agent_start" ? "Considering options" : "";
+        return "";
       }
 
       case "tool_execution_start":
@@ -85,7 +85,7 @@ export class PiActivity {
       case "turn_start":
       case "compaction_end":
       case "auto_retry_end": {
-        return "Considering options";
+        return "";
       }
 
       case "compaction_start": {
