@@ -2,6 +2,7 @@
 import "./pocket-settings.css";
 import { OPENAI_API_KEY_LIMIT, type PocketSettingsMutation } from "@/lib/settings";
 import { savePocketSettings, usePocketSettings } from "@/hooks/use-pocket-settings";
+import { RealtimeSettingsFields } from "./realtime-settings-fields";
 import { useState } from "react";
 
 /** Keep the visibility control responsive while persisting its global preference.
@@ -144,6 +145,12 @@ export function PocketSettingsPanel({
               Removing a saved key restores the host environment key, if one is configured.
             </p>
           </section>
+          <RealtimeSettingsFields
+            key={JSON.stringify([data.realtimeVoice, data.realtimeModel])}
+            settings={data}
+            busy={busy}
+            save={didSave}
+          />
         </>
       )}
     </div>

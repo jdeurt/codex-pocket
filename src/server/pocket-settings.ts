@@ -1,10 +1,17 @@
-import { openaiApiKeySchema, pocketSettingsMutationSchema, type PocketSettingsMutation } from "../lib/settings";
+import {
+  openaiApiKeySchema,
+  pocketSettingsMutationSchema,
+  type PocketSettingsMutation,
+  realtimeSettingSchema,
+} from "../lib/settings";
 import { readLocal, writeLocal } from "./local-state";
 import { z } from "zod";
 
 const savedSettingsSchema = z
   .object({
     showToolCalls: z.boolean().default(false),
+    realtimeVoice: realtimeSettingSchema.nullable().default(null),
+    realtimeModel: realtimeSettingSchema.nullable().default(null),
     openaiApiKey: openaiApiKeySchema.nullable().default(null),
   })
   .strict();
@@ -25,7 +32,12 @@ if (!globalThis.codexPocketSettings) {
 @returns Validated saved settings, using defaults only when the file is absent.
 */
 async function readSavedSettings() {
-  return savedSettingsSchema.parse(await readLocal("settings.json", {}));
+  try {
+    return savedSettingsSchema.parse(await readLocal("settings.json", {}));
+  } catch {
+    // JSON parse failures can quote the credential-bearing file contents.
+    throw new Error("Could not read Pocket settings.");
+  }
 }
 
 /** Resolve an optional host credential without exposing it through public settings.
@@ -50,6 +62,8 @@ function publicSettings(saved: SavedSettings) {
 
   return {
     showToolCalls: saved.showToolCalls,
+    realtimeVoice: saved.realtimeVoice,
+    realtimeModel: saved.realtimeModel,
     openaiApiKeyConfigured: openaiApiKeySource !== null,
     openaiApiKeySource,
   };
@@ -94,6 +108,14 @@ export function updatePocketSettings(input: PocketSettingsMutation) {
 
     if (change.openaiApiKey !== undefined) {
       saved.openaiApiKey = change.openaiApiKey;
+    }
+
+    if (change.realtimeVoice !== undefined) {
+      saved.realtimeVoice = change.realtimeVoice;
+    }
+
+    if (change.realtimeModel !== undefined) {
+      saved.realtimeModel = change.realtimeModel;
     }
 
     await writeLocal("settings.json", saved);
