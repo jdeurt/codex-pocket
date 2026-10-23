@@ -103,6 +103,14 @@ export async function openPiSession(
   const state = saved ?? (await migrate(native, config, manager));
 
   for (const turn of state.turns) {
+    // Earlier Pi projections stored the receipt only as the item ID. Restore the
+    // canonical receipt field for delivery, attachments and internal notices.
+    for (const item of turn.items) {
+      if (item.source === "pi" && item.type === "userMessage") {
+        item.clientId ??= item.id;
+      }
+    }
+
     if (turn.status !== "inProgress") {
       continue;
     }

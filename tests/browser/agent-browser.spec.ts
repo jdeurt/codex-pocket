@@ -6,6 +6,7 @@ import { checkAgentAccess } from "./agent-api";
 import { checkAgentScroll } from "./agent-scroll";
 import { checkAgentTools } from "./agent-tools";
 import { checkAgentUploads } from "./agent-uploads";
+import { checkAgentTail } from "./agent-tail";
 import { checkHeldTranscript } from "./agent-latency";
 import { longName } from "../fixtures/agent-browser-data";
 import { mkdir } from "node:fs/promises";
@@ -110,9 +111,12 @@ test("offline replay: mobile/desktop read-only navigation, ellipsis, focus and p
   await page.keyboard.press("Escape");
   await dialog.getByRole("button", { name: /Claude Side Pocket/ }).click();
   await expect(dialog.getByText("Claude saved transcript claude-main", { exact: true })).toBeVisible();
+  await expect(dialog.getByRole("status", { name: "Pocket activity", exact: true })).toBeVisible();
+  await checkAgentTail(dialog.locator(".agent-chat"));
   await dialog.getByRole("button", { name: "Read", exact: true }).click();
   await expect(dialog.getByText("CLAUDE_REPLAY_TOOL_OUTPUT", { exact: true })).toBeVisible();
   await page.setViewportSize({ width: 1440, height: 1000 });
+  await checkAgentTail(dialog.locator(".agent-chat"));
   await page.screenshot({ animations: "disabled", path: ".local/agent-browser-screenshots/desktop-chat.png" });
   await dialog.getByRole("button", { name: "Back to agents", exact: true }).click();
   await page.screenshot({ animations: "disabled", path: ".local/agent-browser-screenshots/desktop-list.png" });
@@ -161,6 +165,11 @@ test("offline replay: live updates, retained terminal history, errors and zero a
   await expect(dialog.getByText(/Saved history is unavailable/).first()).toBeVisible();
   await control("updated");
   await expect(dialog.getByText(/Saved history is unavailable/)).toHaveCount(0);
+  await expect(dialog.getByRole("status", { name: "Pocket activity", exact: true })).toBeVisible();
+  await control("settled");
+  await expect(dialog.getByRole("status", { name: "Pocket activity", exact: true })).toHaveCount(0);
+  await control("updated");
+  await expect(dialog.getByRole("status", { name: "Pocket activity", exact: true })).toBeVisible();
   await page.keyboard.press("Escape");
   await dialog.getByRole("button", { name: /Empty Side Pocket/ }).click();
   await expect(

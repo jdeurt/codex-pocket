@@ -1,6 +1,6 @@
 import { fauxAssistantMessage, fauxProvider, fauxToolCall } from "@earendil-works/pi-ai";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
-import { type RpcEvent, object, threadSchema } from "../src/lib/protocol";
+import { type RpcEvent, initialSnapshot, object, threadSchema } from "../src/lib/protocol";
 import { CodexRpc } from "../src/server/rpc";
 import { CodexStore } from "./simulators/codex-store";
 import { PiMain } from "../src/server/pi-main";
@@ -11,11 +11,17 @@ import path from "node:path";
 import { readTaskState } from "../src/server/task-context";
 import { simulatorConfig } from "./simulators/launch";
 import test from "node:test";
+import { reconcileDeliveries } from "../src/lib/deliveries";
+import { reduceEvent } from "../src/server/reducer";
+import { visibleSnapshot } from "../src/server/visible-snapshot";
+import { checkPiChat } from "./fixtures/pi-chat-checks";
+import { piSessionEndpoint } from "./fixtures/pi-session-endpoint";
 
 const FLOW_TIMEOUT_MS = 30_000;
 const COMPLETION_TIMEOUT_MS = 5000;
 const EVENT_POLL_MS = 10;
-const POLICY_READS = 3;
+const POLICY_READS = 4;
+const LAST_SESSION = -1;
 
 /** Wait for a canonical completed run while retaining all streamed bridge-facing notifications.
 @param events - Captured canonical Pi events.
@@ -65,6 +71,7 @@ async function prompt(events: RpcEvent[], run: PiMain, text: string) {
 @param native - Native policy/migration transport.
 @param config - Parent configuration.
 @param errors - Unexpected background errors.
+@param faux - Offline native provider used for follow-up chat flows.
 */
 async function verifyPi(
   root: string,
@@ -74,7 +81,8 @@ async function verifyPi(
   parentId: string,
   native: CodexRpc,
   config: ReturnType<typeof simulatorConfig>,
-  errors: unknown[]
+  errors: unknown[],
+  faux: ReturnType<typeof fauxProvider>
 ) {
   await main.request("thread/resume", {});
   const completion = await prompt(events, main, "Write the exact result in result.txt");
@@ -87,6 +95,34 @@ async function verifyPi(
   assert.deepEqual(tools.find((item) => item.tool === "bash")?.toolLabels, ["Executed pwd"]);
   assert.deepEqual(tools.find((item) => item.tool === "edit")?.toolLabels, ["Edited result.txt"]);
   assert.ok(events.some((event) => event.params.item?.id === "pi-user-receipt"));
+  const state = { ...structuredClone(initialSnapshot), threadId: parentId };
+  const activities = new Set<string | undefined>();
+
+  for (const event of events) {
+    reduceEvent(state, structuredClone(event));
+    activities.add(visibleSnapshot(state).activity);
+  }
+
+  const delivered = reconcileDeliveries(visibleSnapshot(state), [
+    { id: "pi-user-receipt", text: "Write the exact result in result.txt", status: "sent" },
+  ]);
+
+  assert.deepEqual(
+    {
+      duplicateBubbles: delivered.state.queue.length,
+      callingTools: activities.has("Calling tools"),
+      runningCommands: activities.has("Running commands"),
+      editingFiles: activities.has("Editing files"),
+      activeAfterCompletion: state.activeTurnId,
+    },
+    {
+      duplicateBubbles: 0,
+      callingTools: true,
+      runningCommands: true,
+      editingFiles: true,
+      activeAfterCompletion: undefined,
+    }
+  );
   const mcpResults = events.filter((event) => event.params.item?.tool === "mcp__pocket__side_pocket_list");
 
   assert.ok(mcpResults.some((event) => event.params.item?.status === "completed"));
@@ -112,6 +148,7 @@ async function verifyPi(
   assert.equal(active.messages.length, 1);
   assert.equal(active.messages[0].text, "Write the exact result in result.txt");
   assert.ok(active.messages[0].entries.some((entry) => entry.role === "toolResult"));
+  await checkPiChat({ main: resumed, events, faux, parentId, root, create });
   const rejected = new PiMain(
     config,
     native,
@@ -174,7 +211,8 @@ async function piFlow(root: string) {
   const native = new CodexRpc();
   const events: RpcEvent[] = [];
   const errors: unknown[] = [];
-  const faux = fauxProvider({ provider: "pocket-offline", models: [{ id: "calendar-model" }] });
+  const nativePhases = new Set<string>();
+  const faux = fauxProvider({ provider: "pocket-offline", models: [{ id: "calendar-model" }, { id: "second-model" }] });
 
   faux.setResponses([
     fauxAssistantMessage(
@@ -202,6 +240,9 @@ async function piFlow(root: string) {
     const opened = await openPiSession(...args);
 
     opened.runtime.registerNativeProvider(faux.provider);
+    opened.session.subscribe((event) => {
+      nativePhases.add(event.type);
+    });
 
     return { ...opened, selection: "pocket-offline/calendar-model" };
   };
@@ -225,13 +266,25 @@ async function piFlow(root: string) {
     return session;
   };
   const main = create();
+  const endpoint = await piSessionEndpoint(() => sessions.at(LAST_SESSION));
+
+  config.allowedOrigins = [endpoint.origin];
 
   try {
     await native.connect(config, "bare");
-    await verifyPi(root, main, create, events, parent.id, native, config, errors);
+    await verifyPi(root, main, create, events, parent.id, native, config, errors, faux);
+
+    assert.deepEqual(
+      ["tool_execution_start", "tool_execution_update", "tool_execution_end", "auto_retry_start"].filter(
+        (phase) => !nativePhases.has(phase)
+      ),
+      [],
+      "The real SDK must exercise tool start/progress/end and provider retries"
+    );
   } finally {
     await Promise.all(sessions.map((session) => session.close()));
     await native.shutdown();
+    endpoint.server.close();
   }
 }
 

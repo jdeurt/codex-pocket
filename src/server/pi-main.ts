@@ -1,14 +1,15 @@
 import { type AgentSession, type AgentSessionEvent, type ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { type Data, type RpcEvent, type Turn, string } from "../lib/protocol";
 import { type PiState, savePiState } from "./pi-store";
-import { piModel, piModelCatalog, thinkingLevelSchema } from "./pi-models";
+import { piModel, piModelCatalog, piSettings, thinkingLevelSchema } from "./pi-models";
 import { type Config } from "./config";
 import { type CodexRpc } from "./rpc";
 import { PiTaskContext } from "./pi-task-context";
-import { piItems } from "./pi-projection";
+import { piItems, publishPiItems } from "./pi-projection";
 import { openPiSession } from "./pi-session";
 import { piInput } from "./pi-input";
 import { PiQuestions } from "./pi-questions";
+import { PiActivity } from "./pi-activity";
 
 const LAST_TURN = -1;
 
@@ -22,12 +23,14 @@ export class PiMain {
   private state?: PiState;
   private active?: Turn;
   private userIds: string[] = [];
+  private promptId?: string;
   private userMessages = new WeakMap<object, string>();
   private selection = "openai/gpt-6.1-sol";
   private effort = "medium";
   private writes: Promise<void> = Promise.resolve();
   private tasks: PiTaskContext;
   private questions: PiQuestions;
+  private activity: PiActivity;
 
   /** Bind this parent's existing identity, native read-only compatibility transport and event sink.
   @param config - Validated host-owned parent configuration.
@@ -47,6 +50,7 @@ export class PiMain {
   ) {
     this.tasks = new PiTaskContext(config.threadId, readKey, onError);
     this.questions = new PiQuestions(config.threadId, () => this.active?.id, emit);
+    this.activity = new PiActivity(config.threadId, emit);
   }
 
   /** Serialize durable UI projections without discarding a previous persistence failure.
@@ -84,6 +88,7 @@ export class PiMain {
     await this.tasks.start(opened.manager, opened.session);
     opened.session.subscribe((event) => {
       this.event(event);
+      this.activity.accept(event, this.active?.id);
     });
     await opened.session.bindExtensions({});
     await this.persist();
@@ -130,45 +135,32 @@ export class PiMain {
       this.emit({ method: "thread/compacted", params: { threadId: this.config.threadId } });
     }
 
-    if (!this.active || !["message_start", "message_update", "message_end"].includes(event.type)) {
+    if (event.type === "agent_settled" && event.aborted && this.active) {
+      this.active.status = "interrupted";
+    }
+
+    if (
+      !this.active ||
+      (event.type !== "message_start" && event.type !== "message_update" && event.type !== "message_end")
+    ) {
       return;
     }
 
-    if (event.type !== "message_start" && event.type !== "message_update" && event.type !== "message_end") {
-      return;
+    let userId: string | undefined;
+
+    if (event.message.role === "user") {
+      userId = this.userMessages.get(event.message) ?? this.promptId ?? this.userIds.shift();
+      this.promptId = undefined;
+
+      if (userId) {
+        this.userMessages.set(event.message, userId);
+      }
     }
 
-    {
-      let userId: string | undefined;
+    publishPiItems(this.active, piItems(event.message, this.active, userId), this.config.threadId, this.emit);
 
-      if (event.message.role === "user") {
-        userId = this.userMessages.get(event.message) ?? this.userIds.shift();
-
-        if (userId) {
-          this.userMessages.set(event.message, userId);
-        }
-      }
-
-      const items = piItems(event.message, this.active, userId);
-
-      for (const item of items) {
-        const index = this.active.items.findIndex((existing) => existing.id === item.id);
-
-        if (index === LAST_TURN) {
-          this.active.items.push(item);
-        } else {
-          this.active.items[index] = item;
-        }
-
-        this.emit({
-          method: "item/completed",
-          params: { threadId: this.config.threadId, turnId: this.active.id, item },
-        });
-      }
-
-      if (event.type === "message_end") {
-        void this.persist().catch(this.onError);
-      }
+    if (event.type === "message_end") {
+      void this.persist().catch(this.onError);
     }
   }
 
@@ -183,18 +175,20 @@ export class PiMain {
     }
 
     const last = this.session?.messages.findLast((message) => message.role === "assistant");
-    const isFailed = error !== undefined || last?.stopReason === "error";
+    const isInterrupted = turn.status === "interrupted" || last?.stopReason === "aborted";
+    const isFailed = !isInterrupted && (error !== undefined || last?.stopReason === "error");
 
     turn.status = isFailed ? "failed" : "completed";
     turn.error = isFailed
       ? { message: "Pi could not complete this turn. Inspect provider access and host logs." }
       : null;
 
-    if (last?.stopReason === "aborted") {
+    if (isInterrupted) {
       turn.status = "interrupted";
     }
 
     this.active = undefined;
+    this.promptId = undefined;
     await this.persist();
     this.emit({ method: "turn/completed", params: { threadId: this.config.threadId, turn } });
   }
@@ -235,7 +229,7 @@ export class PiMain {
     session.setThinkingLevel(thinkingLevelSchema.parse(this.effort));
     this.active = { id: crypto.randomUUID(), status: "inProgress", items: [] };
     this.state.turns.push(this.active);
-    this.userIds.push(string(params.clientUserMessageId));
+    this.promptId = string(params.clientUserMessageId);
     await this.persist();
     this.emit({ method: "turn/started", params: { threadId: this.config.threadId, turn: this.active } });
     const accepted = Promise.withResolvers<undefined>();
@@ -293,22 +287,30 @@ export class PiMain {
         return this.prompt(params, true);
       }
 
+      case "turn/interrupt": {
+        if (params.threadId && params.threadId !== this.config.threadId) {
+          return this.native.request(method, params);
+        }
+
+        if (!this.active || params.turnId !== this.active.id) {
+          throw new Error("The requested Pi turn is no longer active; inspect before interrupting.");
+        }
+
+        this.active.status = "interrupted";
+        await this.session?.abort();
+
+        return {};
+      }
+
       case "pocket/models": {
         return this.runtime ? piModelCatalog(this.runtime) : [];
       }
 
       case "thread/settings/update": {
-        if (!this.runtime) {
-          throw new Error("Pi is not initialized.");
-        }
+        const settings = piSettings(this.runtime, params, { model: this.selection, effort: this.effort });
 
-        const selection = string(params.model) || this.selection;
-        const effort = string(params.effort) || this.effort;
-
-        piModel(this.runtime, selection);
-        thinkingLevelSchema.parse(effort);
-        this.selection = selection;
-        this.effort = effort;
+        this.selection = settings.model;
+        this.effort = settings.effort;
 
         return {};
       }
