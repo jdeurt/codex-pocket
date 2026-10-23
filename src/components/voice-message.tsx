@@ -13,12 +13,6 @@ import { useState } from "react";
 export function VoiceMessage({ segment }: { segment: VoiceSegment }) {
   const [isSending, setSending] = useState(false);
   const [error, setError] = useState("");
-  const labels = {
-    sending: "Sending to Pocket agent…",
-    queued: "Queued for Pocket agent",
-    sent: "Sent to Pocket agent",
-    unknown: "Handoff delivery uncertain. Check Pocket before retrying.",
-  };
 
   return (
     <Message align={segment.role === "user" ? "end" : "start"}>
@@ -32,9 +26,9 @@ export function VoiceMessage({ segment }: { segment: VoiceSegment }) {
             <p className="whitespace-pre-wrap">{segment.text}</p>
           </BubbleContent>
         </Bubble>
-        {segment.handoff && (
+        {segment.handoff === "unknown" && (
           <p className="delivery-status" role="status">
-            {labels[segment.handoff]}
+            Handoff delivery uncertain. Check Pocket before retrying.
           </p>
         )}
         {segment.role === "user" && !segment.handoff && (

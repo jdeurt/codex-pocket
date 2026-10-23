@@ -51,6 +51,7 @@ export async function openAIVoiceFixture() {
 
   let socket: WebSocket | undefined;
   let authorization = "";
+  let responseId = "";
 
   server.on("connection", (peer, request) => {
     socket = peer;
@@ -67,10 +68,11 @@ export async function openAIVoiceFixture() {
         }
 
         case "response.create": {
+          responseId = crypto.randomUUID();
           peer.send(
             JSON.stringify({
               type: "response.created",
-              response: { id: "fixture-response", metadata: object(event.response).metadata },
+              response: { id: responseId, metadata: object(event.response).metadata },
             })
           );
           break;
@@ -122,6 +124,7 @@ export async function openAIVoiceFixture() {
     events,
     endpoint,
     auth: () => authorization,
+    responseId: () => responseId,
     emit: (event: Data) => {
       if (event.type === "response.done") {
         const request = frames.findLast((frame) => frame.type === "response.create");
@@ -130,7 +133,7 @@ export async function openAIVoiceFixture() {
       }
 
       if (event.type === "response.output_audio.delta" || event.type === "response.output_audio_transcript.done") {
-        event = { response_id: "fixture-response", ...event };
+        event = { response_id: responseId, ...event };
       }
 
       socket?.send(JSON.stringify(event));

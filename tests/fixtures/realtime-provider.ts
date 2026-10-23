@@ -48,6 +48,17 @@ function audio(samples: number) {
   return data.toString("base64");
 }
 
+function playbackText(response: Data) {
+  if (response.tool_choice !== "none") {
+    return "Hello";
+  }
+
+  const input = response.input;
+  const content = Array.isArray(input) ? object(input[0]).content : [];
+
+  return Array.isArray(content) ? string(object(content[0]).text) : "";
+}
+
 export async function realtimeProvider() {
   const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
 
@@ -141,6 +152,9 @@ export async function realtimeProvider() {
         case "response.create": {
           const output: Data[] = [];
           const responseId = crypto.randomUUID();
+          const isPlayback = object(event.response).tool_choice === "none";
+
+          record({ method: "provider/realtime/response", sessionId, response: event.response });
 
           emit({ type: "response.created", response: { id: responseId, metadata: object(event.response).metadata } });
 
@@ -179,7 +193,7 @@ export async function realtimeProvider() {
             break;
           }
 
-          if ([options.handoff, options.backendToolUntilSteer, options.invalidHandoff].some(Boolean)) {
+          if (!isPlayback && [options.handoff, options.backendToolUntilSteer, options.invalidHandoff].some(Boolean)) {
             const handoff = {
               type: "response.function_call_arguments.done",
               name: "handoff_to_pocket",
@@ -208,7 +222,7 @@ export async function realtimeProvider() {
               type: "response.output_audio_transcript.done",
               response_id: responseId,
               item_id: `${sessionId}-reply`,
-              transcript: "Hello",
+              transcript: playbackText(object(event.response)),
             });
           }
 

@@ -12,11 +12,19 @@ Cancelled responses cannot dispatch tools. Their saved speech remains available 
 
 The old “latest finalized item” check was incorrect: an asynchronous final from a different speech item could invalidate a legitimate in-flight response. Response ownership replaces that mutable global check; strict argument validation and immutable saved transcripts remain.
 
+## Main-agent answer playback
+
+An accepted handoff retains its durable receipt in the active voice connection. When the Bridge receives the main turn's completion, it returns the final assistant text to the receipt on that turn's latest user input. Queued work uses the same path once its own turn completes. An answer that arrives before the handoff acknowledgment waits behind the existing delivery and persistence barrier.
+
+Voice requests an audio response with that actual answer as its only input and tools disabled. It reads the answer aloud without substituting a delivery acknowledgment or repeating the main-agent work. PCM chunks stream through the existing playback path. The canonical main answer remains the transcript row; its spoken rendition does not add a second copy to saved voice history. Immediate conversational replies still use the ordinary speech response path.
+
+Each accepted receipt can trigger playback once. New speech invalidates pending answers and interrupts any current playback. Late audio and response completions remain subject to the active response identity. Stopping or restarting voice cannot replay an earlier connection's answers, and unrelated main turns cannot trigger playback.
+
 ## Delivery and recovery
 
 `VoiceHistory` saves finalized text, explicit role, provider identity, predecessor anchor, and handoff receipt/status in private host storage. Audio is neither persisted nor logged. A grouped turn uses one durable receipt shared by all its segments. The main outbox checks the receipt's content and source before accepting a retry.
 
-The ledger records `sending` before dispatch. Duplicate calls return the saved result. A lost dispatch acknowledgment becomes `unknown`; restart also treats an unfinished attempt as unknown. Pocket never automatically replays an uncertain action. Only accepted `sent` or `queued` results produce those UI labels.
+The ledger records `sending` before dispatch. Duplicate calls return the saved result. A lost dispatch acknowledgment becomes `unknown`; restart also treats an unfinished attempt as unknown. Pocket never automatically replays an uncertain action. Routine voice-origin and successful-delivery badges are hidden; provenance and delivery status remain in the ledger. Uncertain delivery retains its visible notice.
 
 Provider/configuration failures release capture and output. Missing transcription and response completion have bounded deadlines. Starting again creates fresh ownership and never reuses a previous microphone token. On normal stop, Pocket drains captured input, waits a bounded time for final speech, then closes the provider. History refresh runs even if stop finalization fails, so saved text remains available.
 
@@ -32,7 +40,7 @@ Pi projects accepted steering text immediately, before its current tool finishes
 
 ## Verification
 
-Provider-boundary business flows use real local WebSockets and private history/outbox persistence. They cover the reported filler race, reordered final transcripts, partial events, grouped speech, duplicate completions, repeated identical requests, strict arguments, cancellation, disconnect, stop finalization, and uncertain delivery. Browser flows use the real app and local provider with dummy credentials. They exercise failed handoff followed by text, explicit recovery, reload, spoken interruption, audio playback truncation, and draft/attachment cleanup. The real Pi-session integration uses an offline provider and actual tools to verify accepted steering visibility.
+Provider-boundary business flows use real local WebSockets and private history/outbox persistence. They cover the reported filler race, reordered final transcripts, partial events, grouped speech, duplicate completions, repeated identical requests, strict arguments, cancellation, disconnect, stop finalization, and uncertain delivery. Answer-playback flows verify exact main-answer input, conversational and delegated PCM streaming, an answer arriving before the dispatch acknowledgment, interruption, truncation, and stale-result suppression across newer speech and session restarts. Browser flows use the real app and local provider with dummy credentials. They exercise failed handoff followed by text, explicit recovery, reload, spoken interruption, audio playback truncation, and draft/attachment cleanup. The handoff browser flow also checks that the canonical answer reaches the provider and nonzero decoded PCM completes playback without a duplicate transcript row. The real Pi-session integration uses an offline provider and actual tools to verify accepted steering visibility.
 
 Run only named cases locally. CI owns full-suite validation and Chromium/WebKit coverage. These fixtures verify application/protocol behavior; they do not validate live OpenAI turn detection, microphone accuracy, device echo, or network performance. No live credentials or paid calls are needed for this suite.
 

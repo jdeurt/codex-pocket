@@ -2,14 +2,13 @@
 import { type Data, object, string } from "../lib/protocol";
 import { OpenAIRealtime } from "./openai-realtime";
 import { type VoiceSessionOwner, readVoiceConfiguration } from "./voice-session-owner";
-
 import { VoiceTurns } from "./voice-turns";
 import { VoiceHistory } from "./voice-history";
 import { parseOutputAudio } from "./realtime-schema";
-import { VoiceSessionStop, handoffVoice, publishVoiceHandoff, retryVoice, settleVoice } from "./voice-handoff";
+import { VoiceSessionStop, retryVoice, settleVoice } from "./voice-handoff";
 
 /**
-Connect OpenAI speech to durable, verbatim main-session handoffs without depending on a harness transport.
+Connect OpenAI speech to durable main-session handoffs and their completed answers.
 */
 export class OpenAIVoiceSession extends EventTarget {
   private token?: string;
@@ -39,7 +38,7 @@ export class OpenAIVoiceSession extends EventTarget {
   /**
   Handle events in provider order and reject stale session work after any asynchronous wait.
   */
-  private async enqueue(previous: Promise<void>, event: Data, sessionId: string, transport: OpenAIRealtime) {
+  private async enqueue(previous: Promise<void>, action: () => void | Promise<void>, transport: OpenAIRealtime) {
     await previous;
 
     if (this.transport !== transport) {
@@ -47,7 +46,7 @@ export class OpenAIVoiceSession extends EventTarget {
     }
 
     try {
-      await this.receive(event, sessionId);
+      await action();
     } catch (error) {
       this.disconnect(error instanceof Error ? error.message : "Realtime processing failed.");
     }
@@ -73,6 +72,10 @@ export class OpenAIVoiceSession extends EventTarget {
   Save final speech verbatim before displaying it or allowing a tool handoff.
   */
   private async finalized(event: Data, sessionId: string, role: "user" | "assistant") {
+    if (role === "assistant" && this.turns.current?.answer) {
+      return;
+    }
+
     const itemId = string(event.item_id);
     const afterItemId = this.turns.anchor(itemId, sessionId, role, this.owner.lastItemId?.() ?? null);
     const entry = await this.savedHistory().finalize(event, sessionId, role, afterItemId);
@@ -89,38 +92,6 @@ export class OpenAIVoiceSession extends EventTarget {
 
     this.turns.observe(event);
     this.respond();
-  }
-
-  /**
-  Resolve tool arguments exclusively against finalized speech and record delivery before dispatch.
-  */
-  private async handoff(event: Data, sessionId: string) {
-    if (event.name !== "handoff_to_pocket" || this.phase !== "active") {
-      return;
-    }
-
-    const transport = this.transport;
-    const entry = await handoffVoice(
-      this.owner,
-      this.savedHistory(),
-      event,
-      sessionId,
-      this.turns.current?.items ?? []
-    );
-
-    if (this.transport !== transport) {
-      return;
-    }
-
-    publishVoiceHandoff(
-      event,
-      entry,
-      this.turns.current?.items ?? [],
-      (message) => {
-        this.publish(message);
-      },
-      (message) => transport?.send(message)
-    );
   }
 
   /**
@@ -173,7 +144,21 @@ export class OpenAIVoiceSession extends EventTarget {
       }
 
       case "response.done": {
-        if (await this.turns.complete(event, (call) => this.handoff(call, sessionId))) {
+        const transport = this.transport;
+
+        if (
+          await this.turns.complete(event, (call) =>
+            this.turns.handoff(
+              call,
+              this.owner,
+              this.savedHistory(),
+              sessionId,
+              transport,
+              this.publish.bind(this),
+              () => this.transport === transport && this.phase === "active"
+            )
+          )
+        ) {
           this.respond();
         }
 
@@ -189,7 +174,6 @@ export class OpenAIVoiceSession extends EventTarget {
         this.disconnect("OpenAI Realtime disconnected. Start voice again to continue.");
         break;
       }
-      // No default
     }
   }
 
@@ -209,7 +193,7 @@ export class OpenAIVoiceSession extends EventTarget {
         return;
       }
 
-      this.serial = this.enqueue(this.serial, event, sessionId, transport);
+      this.serial = this.enqueue(this.serial, () => this.receive(event, sessionId), transport);
     });
 
     this.token = crypto.randomUUID();
@@ -234,6 +218,22 @@ export class OpenAIVoiceSession extends EventTarget {
   */
   async transcripts() {
     return this.savedHistory().read();
+  }
+
+  /**
+  Queue a completed main answer behind this connection's delivery receipt and provider events.
+  */
+  answer(handoffId: string, text: string) {
+    if (this.phase === "active" && this.transport) {
+      this.serial = this.enqueue(
+        this.serial,
+        () => {
+          this.turns.answer(handoffId, text);
+          this.respond();
+        },
+        this.transport
+      );
+    }
   }
 
   /**
