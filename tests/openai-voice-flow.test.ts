@@ -40,7 +40,7 @@ void test("OpenAI voice preserves finalized speech, XML and handoff identity thr
       type: "response.function_call_arguments.done",
       name: "handoff_to_pocket",
       call_id: "call-1",
-      arguments: JSON.stringify({ item_id: "speech-1" }),
+      arguments: "{}",
     };
 
     flow.emit(handoff);
@@ -90,7 +90,7 @@ void test("OpenAI voice preserves finalized speech, XML and handoff identity thr
   }
 });
 
-void test("OpenAI voice rejects generated rewrites and stale handoffs without executing tool work", async () => {
+void test("OpenAI voice rejects generated rewrites and model-selected speech identities without executing tool work", async () => {
   const flow = await openAIVoiceFixture();
 
   try {
@@ -132,7 +132,7 @@ void test("OpenAI voice rejects generated rewrites and stale handoffs without ex
     );
     await until(() => flow.voice.status().type === "idle");
     assert.equal(flow.handoffs.length, 0);
-    assert.match(String(flow.voice.status().error), /its finalized turn/);
+    assert.match(String(flow.voice.status().error), /unexpected instructions/);
   } finally {
     await flow.close();
   }
@@ -215,7 +215,7 @@ void test("OpenAI voice keeps Settings failures private and never retries uncert
         type: "response.function_call_arguments.done",
         name: "handoff_to_pocket",
         call_id: "uncertain-call",
-        arguments: JSON.stringify({ item_id: "speech-uncertain" }),
+        arguments: "{}",
       })
     );
     await until(() => uncertain.status().type === "idle");
@@ -247,7 +247,7 @@ void test("OpenAI voice interruption cannot execute a cancelled function respons
       type: "response.function_call_arguments.done",
       name: "handoff_to_pocket",
       call_id: "cancelled-call",
-      arguments: JSON.stringify({ item_id: "cancelled-speech" }),
+      arguments: "{}",
     };
     const response = completed(call);
 
@@ -265,7 +265,7 @@ void test("OpenAI voice interruption cannot execute a cancelled function respons
       completed({
         name: "handoff_to_pocket",
         call_id: "corrected-call",
-        arguments: JSON.stringify({ item_id: "cancelled-speech" }),
+        arguments: "{}",
       })
     );
     await until(() => flow.handoffs.length === 1);

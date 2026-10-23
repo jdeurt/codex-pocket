@@ -184,7 +184,7 @@ export async function realtimeProvider() {
               type: "response.function_call_arguments.done",
               name: "handoff_to_pocket",
               call_id: `${sessionId}-call`,
-              arguments: JSON.stringify({ item_id: options.invalidHandoff ? "unrelated-item" : itemId }),
+              arguments: JSON.stringify(options.invalidHandoff ? { instructions: "unrelated instructions" } : {}),
             };
 
             emit(handoff);

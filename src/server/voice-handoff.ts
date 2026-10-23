@@ -4,7 +4,7 @@ import type { VoiceHistory } from "./voice-history";
 import type { VoiceSessionOwner } from "./voice-session-owner";
 import { z } from "zod";
 
-const handoffArguments = z.object({ item_id: z.string().min(1) }).strict();
+const handoffArguments = z.object({}).strict();
 const HANDOFF_TIMEOUT_MS = 15_000;
 const deliveryStatus = z.enum(["queued", "sent", "unknown", "sending"]);
 
@@ -47,7 +47,14 @@ export async function handoffVoice(
   sessionId: string,
   itemIds: string[]
 ) {
-  const args = handoffArguments.parse(JSON.parse(string(event.arguments)));
+  const args = handoffArguments.safeParse(JSON.parse(string(event.arguments)));
+
+  if (!args.success) {
+    throw new Error(
+      "Voice handoff contained unexpected instructions. No request was sent. Send saved speech to retry."
+    );
+  }
+
   const entries = await history.read();
   const selected = itemIds.map((itemId) =>
     entries.find(
@@ -56,7 +63,7 @@ export async function handoffVoice(
   );
   const entry = selected[0];
 
-  if (!entry || selected.some((item) => !item) || args.item_id !== itemIds[0]) {
+  if (!entry || selected.some((item) => !item)) {
     throw new Error("Voice handoff did not match its finalized turn. No request was sent. Send saved speech to retry.");
   }
 
@@ -171,9 +178,7 @@ export async function retryVoice(
     throw new Error("Stop voice before sending saved speech.");
   }
 
-  await handoffVoice(owner, history, { arguments: JSON.stringify({ item_id: entry.itemId }) }, entry.nativeSessionId, [
-    entry.itemId,
-  ]);
+  await handoffVoice(owner, history, { arguments: "{}" }, entry.nativeSessionId, [entry.itemId]);
 
   return { history: await history.read() };
 }

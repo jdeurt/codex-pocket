@@ -29,7 +29,7 @@ void test("OpenAI voice binds a handoff to its response when a later filler fina
     await until(() => flow.frames.some((event) => event.type === "response.create"));
     flow.emit({ type: "input_audio_buffer.committed", item_id: "filler", previous_item_id: "request" });
     flow.emit({ type: "conversation.item.input_audio_transcription.completed", item_id: "filler", transcript: "Um" });
-    flow.emit(completed({ name: "handoff_to_pocket", call_id: "request-call", arguments: '{"item_id":"request"}' }));
+    flow.emit(completed({ name: "handoff_to_pocket", call_id: "request-call", arguments: "{}" }));
     await until(() => flow.handoffs.length === 1);
     assert.equal(flow.handoffs[0].transcript, "Can you kick off a side pocket for me and have it inspect voice?");
     assert.equal(flow.voice.status().type, "active");
@@ -62,7 +62,7 @@ void test("OpenAI voice assembles reordered finals and keeps repeated identical 
     const response = flow.frames.find((frame) => frame.type === "response.create");
 
     assert.ok(response);
-    const call = { name: "handoff_to_pocket", call_id: "multi", arguments: '{"item_id":"first"}' };
+    const call = { name: "handoff_to_pocket", call_id: "multi", arguments: "{}" };
 
     flow.emit(completed(call));
     await until(() => flow.handoffs.length === 1);
@@ -81,7 +81,7 @@ void test("OpenAI voice assembles reordered finals and keeps repeated identical 
       ...completed(call),
       response: { ...completed(call).response, metadata: object(response.response).metadata },
     });
-    flow.emit(completed({ name: "handoff_to_pocket", call_id: "repeat-call", arguments: '{"item_id":"repeat"}' }));
+    flow.emit(completed({ name: "handoff_to_pocket", call_id: "repeat-call", arguments: "{}" }));
     await until(() => flow.handoffs.length === 2);
     assert.notEqual(flow.handoffs[1].id, firstReceipt);
     assert.equal(flow.handoffs[1].transcript, flow.handoffs[0].transcript);
@@ -92,3 +92,59 @@ void test("OpenAI voice assembles reordered finals and keeps repeated identical 
     await flow.close();
   }
 });
+
+void test(
+  "OpenAI voice bounds a lost dispatch acknowledgment without replaying a late accepted action",
+  { timeout: 25_000 },
+  async () => {
+    const flow = await openAIVoiceFixture();
+    const delivery = Promise.withResolvers<{ status: string }>();
+
+    let calls = 0;
+
+    flow.owner.handoff = () => {
+      calls++;
+
+      return delivery.promise;
+    };
+
+    try {
+      await flow.voice.start(flow.endpoint);
+      flow.emit({
+        type: "conversation.item.input_audio_transcription.completed",
+        item_id: "uncertain",
+        transcript: "Create one side pocket.",
+      });
+      await until(() => flow.frames.some((event) => event.type === "response.create"));
+      const failed = new Promise<void>((resolve) => {
+        flow.voice.addEventListener(
+          "message",
+          (event) => {
+            if (event instanceof CustomEvent && object(event.detail).type === "error") {
+              resolve();
+            }
+          },
+          { once: true }
+        );
+      });
+
+      flow.emit(completed({ name: "handoff_to_pocket", call_id: "uncertain-call", arguments: "{}" }));
+      await failed;
+      assert.equal(flow.voice.status().type, "idle");
+      const saved = await flow.voice.transcripts();
+
+      assert.equal(saved[0].handoff, "unknown");
+      delivery.resolve({ status: "sent" });
+      await flow.voice.retry(saved[0].id);
+      assert.equal(calls, 1);
+      const resumed = await flow.voice.start(flow.endpoint);
+
+      await flow.voice.stop(resumed.token);
+      assert.equal(calls, 1);
+      assert.equal(saved[0].handoff, "unknown");
+    } finally {
+      delivery.resolve({ status: "sent" });
+      await flow.close();
+    }
+  }
+);

@@ -127,7 +127,7 @@ export class VoiceTurns {
     const response = this.next();
 
     if (response) {
-      transport.send(responseForSpeech(response.items[0], response.key, response.items));
+      transport.send(responseForSpeech(response.key, response.items));
     }
   }
 
