@@ -1,4 +1,4 @@
-/* eslint-disable jdeurt/const-on-top, @typescript-eslint/no-magic-numbers -- PCM16 bounds match native realtime v2. */
+/* eslint-disable @typescript-eslint/no-magic-numbers -- PCM16 bounds match native realtime v2. */
 import { object } from "../lib/protocol";
 import { z } from "zod";
 

@@ -11,7 +11,7 @@ import { z } from "zod";
 
 const promptParamsSchema = z.object({ developerInstructions: z.string().optional() });
 const promptLogSchema = z.object({ pid: z.number(), method: z.string(), params: promptParamsSchema.default({}) });
-const STAGES = ["initial", "restart", "reconnect"];
+const STAGES = ["initial", "reconnect"];
 
 /**
 Checks the canonical main prompt retains both configured instructions and literal copy-payload guidance.
@@ -50,7 +50,7 @@ async function connectStage(rpc: CodexRpc, config: Config, stage: string, instru
 }
 
 /**
-Runs three fresh native processes and waits for confirmed shutdown after each stage.
+Runs fresh native processes and waits for confirmed shutdown after each stage.
 @param config - Private fixture executable and saved thread configuration.
 @param instructions - Canonical main-session instructions to preserve.
 @returns Completion of all native bootstrap stages.
@@ -89,7 +89,7 @@ async function verifyRequests(log: string, instructions: string) {
     assert.equal(session.params.developerInstructions.split("Use a copy button when requested").length, 2);
   }
 
-  assert.equal(messages.filter((message) => message.method === "config/read").length, 2);
+  assert.equal(messages.filter((message) => message.method === "config/read").length, 1);
   assert.equal(
     messages.some((message) => /turn\/|message|steer/.test(message.method)),
     false

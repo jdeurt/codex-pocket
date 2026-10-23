@@ -142,7 +142,7 @@ test.describe("controlled transport failures", () => {
     });
     await openPocket(page);
     await page.getByRole("textbox", { name: "Message Pocket" }).fill("Send once during an update");
-    await page.getByRole("button", { name: "Send message", exact: true }).click();
+    await page.getByRole("button", { name: /^Send message(?:;|$)/ }).click();
     await expect.poll(() => sends).toBe(1);
     await host.stop();
     await host.start("b");

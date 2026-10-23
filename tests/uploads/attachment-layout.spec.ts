@@ -163,7 +163,7 @@ test("real uploads fill the original bubble interior with static file rows and e
 
   const layout = await test.step("Send and measure static attachment rows", async () => {
     await page.getByRole("textbox", { name: "Message Pocket" }).fill(message);
-    await page.getByRole("button", { name: "Send message", exact: true }).click();
+    await page.getByRole("button", { name: /^Send message(?:;|$)/ }).click();
     await expect(selected).toHaveCount(0);
 
     await expect(group.getByRole("listitem")).toHaveCount(2);
@@ -239,7 +239,7 @@ test("real uploads fill the original bubble interior with static file rows and e
           { name: "notes.txt", mimeType: "text/plain", buffer: Buffer.from("notes") },
         ]);
         await expect(selected.getByText("Ready to send", { exact: true })).toHaveCount(2);
-        await page.getByRole("button", { name: "Send message", exact: true }).click();
+        await page.getByRole("button", { name: /^Send message(?:;|$)/ }).click();
         await expect(selected).toHaveCount(0);
 
         await expect(fileOnlyBubble).toBeVisible();

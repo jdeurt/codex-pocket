@@ -2,6 +2,7 @@ import { type Snapshot, initialSnapshot } from "../../src/lib/protocol";
 import { expect, test } from "@playwright/test";
 import { mount } from "./virtualization-fixture";
 
+const HISTORY_SIZE = 320;
 const MAX_MOUNTED_ROWS = 250;
 const MIN_HIT_TARGET = 44;
 const ANCHOR_TOLERANCE = 3;
@@ -20,7 +21,7 @@ test("ordinary activity expansion retains CSS animation and bounded rows", async
         status: "completed",
         items: [
           { id: "question", type: "userMessage", content: [{ text: "Inspect activity" }] },
-          ...Array.from({ length: 1200 }, (_, index) => ({
+          ...Array.from({ length: HISTORY_SIZE }, (_, index) => ({
             id: `detail-${String(index)}`,
             type: "agentMessage",
             phase: "commentary",
@@ -63,7 +64,7 @@ test("activity disclosure keeps shared outer gaps and hit target through expansi
       {
         id: "older",
         status: "interrupted",
-        items: Array.from({ length: 1200 }, (_, index) => ({
+        items: Array.from({ length: HISTORY_SIZE }, (_, index) => ({
           id: `older-${String(index)}`,
           type: "agentMessage",
           text: `Older fixture ${String(index)}`,

@@ -1,4 +1,4 @@
-/* eslint-disable jdeurt/const-on-top, jsdoc/require-jsdoc, jsdoc/require-param, jsdoc/require-returns, unicorn/try-complexity, complexity -- Native session mutations are sequential and native notifications share one session handler. */
+/* eslint-disable jsdoc/require-jsdoc, jsdoc/require-param, jsdoc/require-returns, unicorn/try-complexity, complexity -- Native session mutations are sequential and native notifications share one session handler. */
 import { type RealtimeMessage, parseOutputAudio, settingsSchema, voiceListSchema } from "./realtime-schema";
 import { type RpcEvent, string } from "../lib/protocol";
 import { readLocal, writeLocal } from "./local-state";

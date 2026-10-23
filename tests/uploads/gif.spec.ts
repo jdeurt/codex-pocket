@@ -37,7 +37,7 @@ test("animated GIF exposes its durable original path to harness tools", async ({
     await expect(
       page.getByRole("list", { name: "Selected attachments" }).getByText("Ready to send", { exact: true })
     ).toBeVisible();
-    await page.getByRole("button", { name: "Send message", exact: true }).click();
+    await page.getByRole("button", { name: /^Send message(?:;|$)/ }).click();
     await expect(page.getByRole("list", { name: "Selected attachments" })).toHaveCount(0);
 
     return await requests();

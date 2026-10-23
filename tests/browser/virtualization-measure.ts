@@ -17,7 +17,9 @@ export async function hasVisibleCoverage(page: Page) {
     const bounds = element.getBoundingClientRect();
     const visible = [
       ...element.querySelectorAll<HTMLElement>(
-        ':scope [data-transcript-row]:not([data-activity-row]), :scope [data-activity-row] [data-slot="trace-collapsible-trigger"]'
+        ":scope [data-transcript-row]:not([data-activity-row]), " +
+          ':scope [data-activity-row] [data-slot="trace-collapsible-trigger"], ' +
+          ':scope [data-slot="transcript-footer"] > *'
       ),
     ]
       .map((item) => item.getBoundingClientRect())

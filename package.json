@@ -12,7 +12,7 @@
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit && tsc --project public/tsconfig.json",
     "check": "npm run format:check && npm run lint && npm run typecheck",
-    "test": "tsx scripts/test-simulators.ts --all",
+    "test": "tsx scripts/test-flows.ts",
     "test:e2e": "env -u NO_COLOR playwright test",
     "test:agents": "env -u NO_COLOR playwright test --project=agents",
     "desktop": "tsx scripts/desktop.ts",
@@ -38,7 +38,7 @@
     "usage": "tsx scripts/usage.ts",
     "review:duplicates": "jscpd",
     "review:dead-code": "jscpd --dead-code --dead-code-categories all --min-confidence 0 --include-tests --include-entry-exports",
-    "test:simulators": "tsx scripts/test-simulators.ts",
+    "test:simulators": "tsx scripts/test-flows.ts --simulators",
     "test:simulators:native": "tsx scripts/calibrate-simulators.ts",
     "simulators:extract": "tsx scripts/extract-simulator-contracts.ts",
     "test:e2e:updates": "env -u NO_COLOR playwright test --config=playwright.update.config.ts"

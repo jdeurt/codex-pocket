@@ -35,6 +35,7 @@ test("API confines IDs, origins, filenames, content and retries", async ({ reque
     const missingId = crypto.randomUUID();
 
     expect(downloaded.headers()["content-type"]).toBe("application/octet-stream");
+    expect(await downloaded.body()).toEqual(options.data);
     expect(downloaded.headers()["content-security-policy"]).toContain("sandbox");
     expect(
       await isOk(request.put(`/api/uploads?id=${traversalId}&name=..%2Fevil&type=text%2Fplain`, options))

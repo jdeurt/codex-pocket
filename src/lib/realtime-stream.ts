@@ -1,4 +1,4 @@
-/* eslint-disable jdeurt/const-on-top, jsdoc/require-jsdoc, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-deprecated -- Browser PCM and event boundaries follow native realtime v2. */
+/* eslint-disable jsdoc/require-jsdoc, @typescript-eslint/no-magic-numbers, @typescript-eslint/no-deprecated -- Browser PCM and event boundaries follow native realtime v2. */
 import { dataSchema } from "./protocol";
 import { pocketUrl } from "./pockets";
 import { schedulePcm16 } from "./realtime-audio";

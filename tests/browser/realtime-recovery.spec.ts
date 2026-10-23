@@ -1,4 +1,4 @@
-/* eslint-disable jdeurt/const-on-top, jsdoc/require-jsdoc, @typescript-eslint/no-magic-numbers, unicorn/no-global-object-property-assignment, unicorn/isolated-functions -- These assertions exercise browser and native lifecycle together. */
+/* eslint-disable jsdoc/require-jsdoc, @typescript-eslint/no-magic-numbers, unicorn/no-global-object-property-assignment, unicorn/isolated-functions -- These assertions exercise browser and native lifecycle together. */
 import { type Page, expect, test } from "@playwright/test";
 import { readFile, writeFile } from "node:fs/promises";
 import { dataSchema } from "../../src/lib/protocol";

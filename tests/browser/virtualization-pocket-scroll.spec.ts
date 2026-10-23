@@ -11,6 +11,15 @@ test("a Pocket restores its native virtualizer bookmark after leaving and reopen
   const anchor = await test.step("Save a settled native reading position", async () => {
     await settledAnchor(page);
     await scrollToFraction(page, READING_FRACTION);
+    await expect
+      .poll(() =>
+        page
+          .locator("[data-transcript-row] img")
+          .evaluateAll((images: HTMLImageElement[]) =>
+            images.every((image) => image.complete && image.naturalWidth > 0)
+          )
+      )
+      .toBe(true);
 
     return settledAnchor(page);
   });

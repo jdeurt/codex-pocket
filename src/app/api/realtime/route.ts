@@ -1,4 +1,4 @@
-/* eslint-disable jdeurt/const-on-top, jsdoc/require-param, jsdoc/require-returns, unicorn/try-complexity -- Route authorization and native dispatch are sequential. */
+/* eslint-disable jsdoc/require-param, jsdoc/require-returns, unicorn/try-complexity -- Route authorization and native dispatch are sequential. */
 import { errorResponse, guard, noStore, readBody } from "@/server/http";
 import { requestBridge } from "@/server/named-pockets";
 import { z } from "zod";

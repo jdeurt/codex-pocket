@@ -2,16 +2,22 @@
 
 The simulators let Pocket test its native integrations without installing or signing in to Codex or Claude Code. They reproduce protocol behavior with deterministic data; real-instance calibration checks selected behaviors against the installed tools.
 
-`npm test` runs every server/workflow test with an empty `PATH`, a disposable home, explicit nonexistent native executable settings, and no inherited credentials. Node and the TypeScript loader are addressed by absolute path. The simulator tests also exercise Pocket's production `CodexRpc` and the unmodified Claude Agent SDK.
+`npm test` runs the offline integration flows with an empty `PATH`, a disposable home, explicit nonexistent native executable settings, and no inherited credentials. Node and the TypeScript loader are addressed by absolute path. `scripts/test-flows.ts` discovers the retained integration files; `--simulators` selects the production `CodexRpc` and unmodified Claude Agent SDK flows. Isolated tests of the simulator classes themselves are excluded from the suite.
 
 ```sh
-npm test                      # Complete offline server/workflow suite
+npm test                      # Complete offline integration suite; CI only for agents
 npm run test:simulators        # Simulator integration flows only
 npm run test:simulators:native # Explicit authenticated native calibration
 npm run simulators:extract     # Refresh contracts from installed implementations
 ```
 
 The last two commands require installed native tooling; ordinary tests do not. Calibration creates an ephemeral Codex thread and a nonpersistent Claude session in a disposable working directory. It makes real inference calls. It writes only versions and passing behavior names to `.local/simulator-calibration.json`, then closes both processes. It does not select another main Pocket, restart production, or inspect an existing conversation.
+
+For focused development, pass an exact integration file and case to the isolated runner:
+
+```sh
+node --import tsx scripts/test-flows.ts tests/simulator-flow.test.ts --test-name-pattern='production Codex transport completes'
+```
 
 ## Interface snapshots
 

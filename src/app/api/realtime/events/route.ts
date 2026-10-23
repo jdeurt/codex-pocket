@@ -1,4 +1,4 @@
-/* eslint-disable jdeurt/const-on-top, jsdoc/require-param, jsdoc/require-returns, unicorn/try-complexity -- Stream setup and cleanup are sequential for one native owner. */
+/* eslint-disable jsdoc/require-param, jsdoc/require-returns, unicorn/try-complexity -- Stream setup and cleanup are sequential for one native owner. */
 import { errorResponse, guard, noStore } from "@/server/http";
 import { HTTP_FORBIDDEN } from "@/lib/constants";
 import { requestBridge } from "@/server/named-pockets";

@@ -119,7 +119,7 @@ test("focused composer contains page scrolling and preserves transcript and text
     ).toBe(1);
     await page.keyboard.press("Tab");
 
-    return (await attach.count()) > 0 ? attach : page.getByRole("button", { name: "Send message", exact: true });
+    return (await attach.count()) > 0 ? attach : page.getByRole("button", { name: /^Send message(?:;|$)/ });
   });
   const keyboardBefore = await test.step("Release composer focus and focus the native transcript", async () => {
     await expect(nextControl).toBeFocused();

@@ -32,8 +32,7 @@ Files below are under `tests/browser/`:
 | Test                                   | Measurements or behavior                                                              |
 | -------------------------------------- | ------------------------------------------------------------------------------------- |
 | `pockets.spec.ts`                      | Menu overflow, header centering, touch targets, and independent named conversations   |
-| `virtualization-tail.spec.ts`          | Reserved row, composer gap, and text alignment across states                          |
-| `virtualization-spinner.spec.ts`       | Visible SVG bounds, label gap, and composer position when status disappears           |
+| `virtualization-tail.spec.ts`          | Agent navigation, activity collapse, and returning to the actual transcript end       |
 | `virtualization-reports.spec.ts`       | One-line preview, shared spacing, expansion, and read-only navigation                 |
 | `virtualization-keyboard.spec.ts`      | Bottom alignment after blur and staged keyboard-close events without a scroll gesture |
 | `virtualization-pocket-scroll.spec.ts` | Reading-position restoration                                                          |

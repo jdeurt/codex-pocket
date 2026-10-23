@@ -1,4 +1,4 @@
-/* eslint-disable jdeurt/const-on-top, jsdoc/require-jsdoc, @typescript-eslint/no-magic-numbers -- PCM16 dimensions follow native realtime v2. */
+/* eslint-disable jsdoc/require-jsdoc, @typescript-eslint/no-magic-numbers -- PCM16 dimensions follow native realtime v2. */
 const TARGET_RATE = 24_000;
 
 export function pcm16(source: Float32Array, sourceRate: number) {

@@ -8,5 +8,5 @@ Sends a test prompt through the actual composer in an explicitly enabled live wo
 */
 export async function send(page: Page, text: string) {
   await page.getByRole("textbox", { name: "Message Pocket" }).fill(text);
-  await page.getByRole("button", { name: "Send message", exact: true }).click();
+  await page.getByRole("button", { name: /^Send message(?:;|$)/ }).click();
 }

@@ -6,6 +6,8 @@ import { type Snapshot } from "../../src/lib/protocol";
 import { history } from "../fixtures/virtualized-history";
 
 const MIN_MOUNTED_ROWS = 150;
+const STRESS_HISTORY = 1200;
+const ACTIVITY_HISTORY = 320;
 const SCROLL_STOPS = {
   middle: 0.5,
   nearStart: 0.02,
@@ -37,7 +39,7 @@ const row = "[data-transcript-row]";
 test("large single-turn history stays bounded through rapid scrollbar, wheel and keyboard scrolling", async ({
   page,
 }, info) => {
-  const writes = await mount(page, history());
+  const writes = await mount(page, history(STRESS_HISTORY));
   const mounted: number[] = [];
 
   await expect(page.locator('[data-message-id="message-1199"]')).toBeVisible();
@@ -234,7 +236,7 @@ test("empty and short chats preserve drafts, activity, images, selection and red
     status: "completed",
     items: [
       { id: "activity-user", type: "userMessage", content: [{ text: "Activity fixture" }] },
-      ...Array.from({ length: 700 }, (_, index) => ({
+      ...Array.from({ length: ACTIVITY_HISTORY }, (_, index) => ({
         id: `activity-${String(index)}`,
         type: "agentMessage",
         phase: "commentary",
@@ -277,6 +279,8 @@ test("empty and short chats preserve drafts, activity, images, selection and red
   await page.screenshot({ path: `.local/virtualization-${info.project.name}-image.png` });
   await scrollToFraction(page, 0);
   await scrollToFraction(page, 1);
-  await expect(page.locator('[data-transcript-row="activity-turn/activity-699"]')).toBeVisible();
+  await expect(
+    page.locator(`[data-transcript-row="activity-turn/activity-${String(ACTIVITY_HISTORY - 1)}"]`)
+  ).toBeVisible();
   expect(await page.locator(row).count()).toBeLessThan(MAX_MOUNTED_ROWS);
 });

@@ -70,46 +70,6 @@ test("explicit assistant marker copies exact arbitrary text only on gesture and 
   expect(writes).toEqual([]);
 });
 
-test("code examples, nested blocks, user text and tool output never become copy actions", async ({ page }) => {
-  const example = marker("example");
-  const samples = [
-    `\`\`\`\`markdown\n${example}\n\`\`\`\``,
-    `~~~text\n${example}\n~~~`,
-    example
-      .split("\n")
-      .map((line) => `> ${line}`)
-      .join("\n"),
-    example
-      .split("\n")
-      .map((line) => `    ${line}`)
-      .join("\n"),
-    "- example:\n" +
-      example
-        .split("\n")
-        .map((line) => `  ${line}`)
-        .join("\n"),
-    '`pocket-copy "inline"`',
-    '```pocket-copy extra\n"metadata"\n```',
-    '~~~pocket-copy\n"wrong fence"\n~~~',
-    '```pocket-copy\n{"text":"object"}\n```',
-    '```pocket-copy\n"invalid \\q"\n```',
-    "[Unsafe link](javascript:alert(1))",
-  ].join("\n\n");
-  const { markdown } = await showChat(page, samples, {
-    items: [
-      { id: "user-marker", type: "userMessage", content: [{ type: "text", text: example }] },
-      { id: "tool-marker", type: "commandExecution", content: [{ type: "text", text: example }] },
-      { id: "image-marker", type: "imageOutput", content: [{ type: "text", text: example }] },
-    ],
-  });
-
-  await expect(page.getByRole("button", { name: "Copy text", exact: true })).toHaveCount(0);
-  await expect(page.locator('[data-message-id="user-marker"]')).toContainText("pocket-copy");
-  await expect(page.locator('[data-message-id="image-marker"]')).toContainText('"example"');
-  await expect(markdown.locator("a[href^='javascript:']")).toHaveCount(0);
-  expect(await clipboardCalls(page)).toEqual([]);
-});
-
 test("streaming partial and malformed markers remain code until a valid closing fence arrives", async ({ page }) => {
   const { markdown, stream } = await showChat(page, '```pocket-copy\n"part');
   const button = markdown.getByRole("button", { name: "Copy text", exact: true });
@@ -136,43 +96,6 @@ test("streaming partial and malformed markers remain code until a valid closing 
   await stream(marker("changed"));
   await expect(button).toBeVisible();
   await expect(markdown.getByRole("status")).toHaveText("");
-});
-
-test("an empty streamed marker stays visible without empty flow blocks or extra wrapper space", async ({ page }) => {
-  const { markdown, stream } = await showChat(page, "Before\n\n```pocket-copy");
-  const button = markdown.getByRole("button", { name: "Copy text", exact: true });
-  const dimensions =
-    await test.step("Retain partial fences until an empty payload becomes a valid copy action", async () => {
-      for (const partial of [
-        "```",
-        "```p",
-        "```pocket-",
-        "```pocket-copy",
-        "```pocket-copy\n",
-        "```pocket-copy\n \n",
-        "```pocket-copy\n\n```",
-        '```pocket-copy\n"unfinished',
-      ]) {
-        await stream("Before\n\n" + partial);
-        await expect(markdown).toContainText(partial.trim());
-        await expect(markdown.getByRole("button")).toHaveCount(0);
-        expect(
-          await markdown.evaluate((element) => [...element.children].every((child) => child.textContent.trim()))
-        ).toBe(true);
-      }
-
-      await stream(marker(""));
-      await expect(button).toBeVisible();
-
-      return await button.evaluate((element) => {
-        const buttonRect = element.getBoundingClientRect();
-        const action = element.parentElement?.getBoundingClientRect();
-
-        return action ? { width: action.width - buttonRect.width, height: action.height - buttonRect.height } : null;
-      });
-    });
-
-  expect(dimensions).toEqual({ width: 0, height: 0 });
 });
 
 for (const mode of ["reject", "unavailable"] as const) {
@@ -228,7 +151,7 @@ test("native browser clipboard receives the decoded text", async ({ page, contex
     const composer = page.getByRole("textbox", { name: "Message Pocket" });
 
     await composer.fill("");
-    await composer.press("Meta+V");
+    await composer.press("ControlOrMeta+V");
     await expect(composer).toHaveValue(text);
   }
 

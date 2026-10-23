@@ -1,5 +1,4 @@
 "use client";
-/* eslint-disable jdeurt/const-on-top -- Pointer transitions depend on prior gesture state. */
 import { type MouseEvent, type PointerEvent, useRef, useState } from "react";
 
 const HOLD_MS = 350;

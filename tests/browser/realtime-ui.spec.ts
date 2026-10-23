@@ -1,4 +1,4 @@
-/* eslint-disable jdeurt/const-on-top, jsdoc/require-jsdoc, @typescript-eslint/no-magic-numbers, unicorn/isolated-functions, unicorn/consistent-function-scoping, unicorn/prefer-number-coercion -- Browser checks follow one complete gesture and conversation flow; computed CSS lengths include units. */
+/* eslint-disable jsdoc/require-jsdoc, @typescript-eslint/no-magic-numbers, unicorn/isolated-functions, unicorn/consistent-function-scoping, unicorn/prefer-number-coercion -- Browser checks follow one complete gesture and conversation flow; computed CSS lengths include units. */
 import { type Page, expect, test } from "@playwright/test";
 import { readFile, writeFile } from "node:fs/promises";
 import { dataSchema } from "../../src/lib/protocol";
@@ -107,18 +107,26 @@ test("composer keeps text geometry through realtime at narrow and wide viewports
 
   for (const width of widths) {
     await page.setViewportSize({ width, height: 844 });
-    await page.getByRole("textbox", { name: "Message Pocket" }).fill("unsent geometry draft");
+    await page.getByRole("textbox", { name: "Message Pocket" }).fill("unsent geometry draft\nsecond line");
     const normal = await geometry(page);
     const control = page.getByRole("button", { name: "Start realtime voice" });
 
+    expect(normal.input.height).toBeGreaterThan(44);
     await control.focus();
     await page.keyboard.press("Enter");
     await expect(page.getByRole("button", { name: "Stop realtime voice" })).toBeVisible();
     const voice = await geometry(page);
     const textInset = normal.input.x + normal.textPaddingLeft - normal.composer.x;
 
+    await test.info().attach(`composer-geometry-${String(width)}`, {
+      body: JSON.stringify({ normal, voice }),
+      contentType: "application/json",
+    });
     closeTo(voice.composer.x, normal.composer.x);
-    closeTo(voice.composer.y, normal.composer.y);
+    expect(
+      Math.abs(voice.composer.y - normal.composer.y),
+      JSON.stringify({ width, normal, voice })
+    ).toBeLessThanOrEqual(0.75);
     closeTo(voice.composer.width, normal.composer.width);
     closeTo(voice.composer.height, normal.composer.height);
     closeTo(voice.composerHeight, normal.composerHeight);
@@ -129,7 +137,9 @@ test("composer keeps text geometry through realtime at narrow and wide viewports
     closeTo(voice.button.width, normal.button.width);
     closeTo(voice.button.height, normal.button.height);
     await page.getByRole("button", { name: "Stop realtime voice" }).click();
-    await expect(page.getByRole("textbox", { name: "Message Pocket" })).toHaveValue("unsent geometry draft");
+    await expect(page.getByRole("textbox", { name: "Message Pocket" })).toHaveValue(
+      "unsent geometry draft\nsecond line"
+    );
     await waitForIdle(page);
   }
 });

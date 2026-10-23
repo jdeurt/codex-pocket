@@ -76,6 +76,7 @@ export function Chat() {
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const voice = useRealtime();
+  const [voiceHeight, setVoiceHeight] = useState<number>();
   const { stop: stopVoice } = voice;
   const isVoiceActive = voice.state !== "idle";
   const [agentsOpen, setAgentsOpen] = useState(false);
@@ -92,6 +93,7 @@ export function Chat() {
 
   const filePicker = useRef<HTMLInputElement>(null);
   const attachments = useAttachments(state.threadId);
+  const canSendAttachments = attachments.ready && attachments.files.every((file) => !!file.uploaded);
   const isConnected = streamConnected && state.connection === "connected";
   const status = connectionStatus(state, streamConnected);
 
@@ -183,16 +185,17 @@ export function Chat() {
     await deliverDraft(text);
   }
 
-  // eslint-disable-next-line jdeurt/const-on-top -- Gesture actions use the send handler defined above.
+  const startVoice = () => {
+    setVoiceHeight(textarea.current?.closest(".composer")?.getBoundingClientRect().height);
+    void voice.start();
+  };
   const voiceGesture = useVoiceGesture({
     active: isVoiceActive,
     enabled: isConnected,
     onTap: () => {
       void send();
     },
-    onStart: () => {
-      void voice.start();
-    },
+    onStart: startVoice,
     onStop: () => {
       void voice.stop();
     },
@@ -232,12 +235,7 @@ export function Chat() {
             }}
           >
             {!isVoiceActive && (
-              <button
-                type="button"
-                className="voice-keyboard-control"
-                onClick={() => void voice.start()}
-                disabled={!isConnected}
-              >
+              <button type="button" className="voice-keyboard-control" onClick={startVoice} disabled={!isConnected}>
                 Start realtime voice
               </button>
             )}
@@ -261,38 +259,36 @@ export function Chat() {
                 <FieldLabel className="sr-only" htmlFor="message">
                   Message Pocket
                 </FieldLabel>
-                <InputGroup className="composer">
+                <InputGroup className="composer" style={{ height: isVoiceActive ? voiceHeight : undefined }}>
                   {isVoiceActive ? (
                     <RealtimeSpectrum input={voice.inputAnalyser} output={voice.outputAnalyser} status={voice.state} />
                   ) : (
-                    <>
-                      <InputGroupTextarea
-                        ref={textarea}
-                        id="message"
-                        placeholder="Message Pocket…"
-                        value={draft}
-                        rows={1}
-                        maxLength={32_000}
-                        disabled={state.connection === "unconfigured" || sending}
-                        onChange={(event) => {
-                          setDraft(event.target.value);
-                          messageId.current = null;
-                        }}
-                        onKeyDown={(event) => {
-                          if (!(
-                            event.key === "Enter" &&
-                            !event.shiftKey &&
-                            !event.nativeEvent.isComposing &&
-                            globalThis.matchMedia("(pointer: fine)").matches
-                          )) {
-                            return;
-                          }
+                    <InputGroupTextarea
+                      ref={textarea}
+                      id="message"
+                      placeholder="Message Pocket…"
+                      value={draft}
+                      rows={1}
+                      maxLength={32_000}
+                      disabled={state.connection === "unconfigured" || sending}
+                      onChange={(event) => {
+                        setDraft(event.target.value);
+                        messageId.current = null;
+                      }}
+                      onKeyDown={(event) => {
+                        if (!(
+                          event.key === "Enter" &&
+                          !event.shiftKey &&
+                          !event.nativeEvent.isComposing &&
+                          globalThis.matchMedia("(pointer: fine)").matches
+                        )) {
+                          return;
+                        }
 
-                          event.preventDefault();
-                          void send();
-                        }}
-                      />
-                    </>
+                        event.preventDefault();
+                        void send();
+                      }}
+                    />
                   )}
                   <InputGroupAddon align="inline-end">
                     {!isVoiceActive && (
@@ -325,7 +321,7 @@ export function Chat() {
                       }
                       disabled={
                         voice.state === "stopping" ||
-                        (!isVoiceActive && (sending || !isConnected || !attachments.ready))
+                        (!isVoiceActive && (sending || !isConnected || !canSendAttachments))
                       }
                       onPointerDown={voiceGesture.onPointerDown}
                       onPointerMove={voiceGesture.onPointerMove}

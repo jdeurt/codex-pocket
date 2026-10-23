@@ -1,5 +1,5 @@
 "use client";
-/* eslint-disable jdeurt/const-on-top, @typescript-eslint/no-magic-numbers, jsdoc/require-param, jsdoc/require-returns -- Canvas drawing uses sequential measurements and fixed visual tuning constants. */
+/* eslint-disable @typescript-eslint/no-magic-numbers, jsdoc/require-param, jsdoc/require-returns -- Canvas drawing uses sequential measurements and fixed visual tuning constants. */
 import "./realtime-spectrum.css";
 import { useEffect, useRef } from "react";
 

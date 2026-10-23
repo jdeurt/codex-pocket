@@ -94,10 +94,11 @@ function ActivityMessages({
     const scroller = viewport.current;
 
     if (element && scroller && !suspended) {
-      // Supported scrollMargin composes virtual lists in one scroll element.
+      // The outer sizer can move this panel without changing its virtual origin.
+      // Refresh scrollMargin when either list changes its geometry or offset.
       setMargin(element.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop);
     }
-  }, [origin, viewport, suspended]);
+  }, [origin, end, scrollOffset, layout.size, viewport, suspended]);
 
   useLayoutEffect(() => {
     return () => {

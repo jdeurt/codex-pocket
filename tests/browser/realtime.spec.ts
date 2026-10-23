@@ -1,4 +1,4 @@
-/* eslint-disable jdeurt/const-on-top, jsdoc/require-jsdoc, @typescript-eslint/no-magic-numbers, unicorn/isolated-functions, unicorn/no-global-object-property-assignment -- Browser integration steps follow actual user action order and fixture timing. */
+/* eslint-disable jsdoc/require-jsdoc, @typescript-eslint/no-magic-numbers, unicorn/isolated-functions, unicorn/no-global-object-property-assignment -- Browser integration steps follow actual user action order and fixture timing. */
 import { type Page, expect, test } from "@playwright/test";
 import { readFile, writeFile } from "node:fs/promises";
 import { dataSchema } from "../../src/lib/protocol";

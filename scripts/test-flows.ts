@@ -5,12 +5,23 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
-const simulatorHome = await mkdtemp(path.join(os.tmpdir(), "pocket-offline-home-"));
+const flowHome = await mkdtemp(path.join(os.tmpdir(), "pocket-offline-home-"));
 const names = await readdir(path.join(root, "tests"));
+const args = process.argv.slice(2);
+const selected = args.filter((argument) => argument.startsWith("tests/") && argument.endsWith(".test.ts"));
 const tests = names.filter(
-  (name) => (process.argv.includes("--all") || name.startsWith("simulator")) && name.endsWith(".test.ts")
+  (name) =>
+    name.endsWith(".test.ts") &&
+    (!args.includes("--simulators") || name === "simulator-flow.test.ts") &&
+    (selected.length === 0 || selected.includes(`tests/${name}`))
 );
-const forwarded = process.argv.slice(2).filter((argument) => argument !== "--all");
+const forwarded = args.filter((argument) => argument !== "--simulators" && !selected.includes(argument));
+
+if (tests.length === 0 || selected.some((file) => !tests.includes(path.basename(file)))) {
+  await rm(flowHome, { recursive: true, force: true });
+  throw new Error("Select existing integration test files under tests/.");
+}
+
 const child = spawn(
   process.execPath,
   [
@@ -25,12 +36,12 @@ const child = spawn(
     env: {
       NODE_ENV: "test",
       PATH: "",
-      HOME: simulatorHome,
-      USERPROFILE: simulatorHome,
-      CODEX_HOME: simulatorHome,
-      CLAUDE_CONFIG_DIR: simulatorHome,
-      CODEX_BINARY: path.join(simulatorHome, "absent-codex"),
-      POCKET_CLAUDE_BINARY: path.join(simulatorHome, "absent-claude"),
+      HOME: flowHome,
+      USERPROFILE: flowHome,
+      CODEX_HOME: flowHome,
+      CLAUDE_CONFIG_DIR: flowHome,
+      CODEX_BINARY: path.join(flowHome, "absent-codex"),
+      POCKET_CLAUDE_BINARY: path.join(flowHome, "absent-claude"),
     },
     stdio: "inherit",
   }
@@ -51,5 +62,5 @@ function completion(): Promise<number> {
 try {
   process.exitCode = await completion();
 } finally {
-  await rm(simulatorHome, { recursive: true, force: true });
+  await rm(flowHome, { recursive: true, force: true });
 }
