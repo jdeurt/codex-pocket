@@ -69,7 +69,7 @@ export async function deliverMessage(rpc: CodexRpc, config: Config, state: Snaps
   const input = [
     ...(text ? [{ type: "text", text, text_elements: [] }] : []),
     ...attachmentInput(config.threadId, receipt.attachments ?? []).map((part) =>
-      "text" in part ? { ...part, text: internalContext("attachment_metadata", part.text) } : part
+      typeof part.text === "string" ? { ...part, text: internalContext("attachment_metadata", part.text) } : part
     ),
   ];
 
