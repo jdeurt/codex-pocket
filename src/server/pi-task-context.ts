@@ -3,6 +3,7 @@ import { type TaskContextState, groupTaskContext, ingestTaskEntry, readTaskState
 import { isSameTask } from "./task-decisions";
 import { nativeText } from "./harness/transcript";
 import { saveTaskSource, taskDirectory } from "./task-archive";
+import { internalContext } from "./internal-context";
 
 const PASS_INTERVAL_MS = 600_000;
 const LAST_ENTRY = -1;
@@ -85,9 +86,13 @@ export class PiTaskContext {
     }
 
     await session.compact(
-      "Preserve all open tasks, pending questions, constraints, decisions and delegate identities. " +
-        `Exact task context is archived in ${taskDirectory(this.owner)}. ` +
-        "Include archive references for completed tasks and silently read originals when prior work is referenced."
+      internalContext(
+        "task_compaction",
+        "Preserve all open tasks, pending questions, constraints, decisions and delegate identities. " +
+          "Preserve original roles, internal visibility and evidence of actual user delivery. " +
+          `Exact task context is archived in ${taskDirectory(this.owner)}. ` +
+          "Include archive references for completed tasks and silently read originals when prior work is referenced."
+      )
     );
     this.state.compactionPending = false;
     await saveTaskState(this.owner, this.state);

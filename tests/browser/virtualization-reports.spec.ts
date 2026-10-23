@@ -1,7 +1,12 @@
-import { expect, test } from "@playwright/test";
+import { type Page, expect, test } from "@playwright/test";
 import { type AgentEntry } from "../../src/lib/agents";
-import { type Snapshot, initialSnapshot } from "../../src/lib/protocol";
+import { type Snapshot, initialSnapshot, snapshotSchema } from "../../src/lib/protocol";
 import { mount } from "./virtualization-fixture";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import os from "node:os";
+import path from "node:path";
 
 const REPORT_GAP = 8;
 const HIT_TARGET = 44;
@@ -142,4 +147,49 @@ test("original delegate reports open read-only history and retain questions, dra
   await expect(open).toBeFocused();
   await expect(page.getByRole("textbox", { name: "Message Pocket" })).toHaveValue("Parent draft before report");
   expect(writes).toEqual([]);
+});
+
+/** Render a production Pi snapshot after mailbox delivery and verify complete artifact delivery across reload.
+@param page - Real browser showing the main chat.
+@param snapshotFile - Private file receiving the actual model and projection flow output.
+*/
+async function generatedStory(page: Page, snapshotFile: string) {
+  await promisify(execFile)(
+    process.execPath,
+    ["--import", "tsx", "--test", "--test-name-pattern=Pi main executes", "tests/pi-main-flow.test.ts"],
+    { env: { ...process.env, POCKET_VISIBILITY_SNAPSHOT: snapshotFile } }
+  );
+  const state = snapshotSchema.parse(JSON.parse(await readFile(snapshotFile, "utf8")));
+  const report = state.turns
+    .flatMap((turn) => turn.items)
+    .find((item) => item.type === "delegateReport")?.delegateReport;
+
+  expect(report).toBeDefined();
+  const story = report?.text ?? "";
+  const writes = await mount(page, state);
+  const delivered = page.locator(".markdown").filter({ hasText: "The dragon arrived carrying the learner car." });
+  const preview = page.locator(`[data-report-id="${report?.id ?? ""}"]`);
+
+  await expect(delivered).toHaveCount(1);
+  await expect(delivered).toHaveText(story);
+  await expect(preview).toHaveAttribute("aria-expanded", "false");
+  await expect(page.locator(".delegate-report-details")).toHaveCount(0);
+  await expect(page.getByText("[POCKET_INTERNAL_CONTEXT]", { exact: false })).toHaveCount(0);
+  await preview.click();
+  await expect(page.locator(".delegate-report-details > div")).toHaveText(story);
+  await page.reload();
+  await expect(delivered).toHaveCount(1);
+  await expect(delivered).toHaveText(story);
+  expect(writes).toEqual([]);
+}
+
+test("generated internal handoff delivers one complete story beside its collapsed report", async ({ page }) => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), "pocket-visibility-browser-"));
+  const snapshotFile = path.join(directory, "snapshot.json");
+
+  try {
+    await generatedStory(page, snapshotFile);
+  } finally {
+    await rm(directory, { recursive: true, force: true });
+  }
 });

@@ -3,6 +3,7 @@ import { type Config } from "./config";
 import { type Receipt } from "./outbox";
 import { type Snapshot } from "../lib/protocol";
 import { attachmentInput } from "./uploads";
+import { internalContext, parentInput } from "./internal-context";
 
 /**
 Start one native turn and record its active identity only while native state agrees.
@@ -64,9 +65,12 @@ Start or steer a persisted receipt, recovering only an explicit inactive-turn re
 @param receipt - Persisted message with original attachment metadata.
 */
 export async function deliverMessage(rpc: CodexRpc, config: Config, state: Snapshot, receipt: Receipt) {
+  const text = parentInput(receipt, state);
   const input = [
-    ...(receipt.text ? [{ type: "text", text: receipt.text, text_elements: [] }] : []),
-    ...attachmentInput(config.threadId, receipt.attachments ?? []),
+    ...(text ? [{ type: "text", text, text_elements: [] }] : []),
+    ...attachmentInput(config.threadId, receipt.attachments ?? []).map((part) =>
+      "text" in part ? { ...part, text: internalContext("attachment_metadata", part.text) } : part
+    ),
   ];
 
   if (!state.activeTurnId) {

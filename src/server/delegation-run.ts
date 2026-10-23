@@ -2,6 +2,7 @@ import type { DelegationCommand, DelegationStore, SidePocket } from "./delegatio
 import type { HarnessAdapter, HarnessResult } from "./harness/types";
 import { log } from "./logging";
 import { sessionAttachment } from "./session-adoption";
+import { internalContext } from "./internal-context";
 
 /**
 Owns one claimed command from native session opening through confirmed process cleanup.
@@ -38,7 +39,7 @@ export class DelegationRun {
     const { child, command } = this;
     const isClosing = this.store.get(child.parentId, child.id).status === "closing";
     const shouldNotify =
-      !isClosing && (!this.store.mail.hasMessage(child.id, command.id) || result.status !== "completed");
+      !isClosing && (!this.store.mail.hasResult(child.id, command.id, result.text) || result.status !== "completed");
     const status = result.status === "failed" ? "failed" : "completed";
 
     this.store.queue.recordResult(
@@ -103,12 +104,21 @@ export class DelegationRun {
     const attachment = sessionAttachment(this.child.metadata);
 
     if (attachment?.watchCommandId !== this.command.id) {
-      return this.adapter.run(this.command.id, this.command.body);
+      return this.adapter.run(this.command.id, this.input(this.command));
     }
 
     return attachment.turnId && this.adapter.watch
       ? this.adapter.watch(attachment.turnId)
       : Promise.reject(new Error("This adapter cannot observe the existing turn. Nothing was sent."));
+  }
+
+  /**
+  Attribute assignments and steering to their parent without claiming human authorship or delivery.
+  @param command - Original durable parent command, unchanged for retries and inspection.
+  @returns Model-facing internal handoff with the complete assignment.
+  */
+  private input(command: DelegationCommand) {
+    return internalContext(`parent_pocket:${this.child.parentId}:command:${command.id}`, command.body);
   }
 
   /**
@@ -154,7 +164,7 @@ export class DelegationRun {
     const isReady = await this.ready.promise;
     const result =
       isReady && !this.settled
-        ? await this.adapter.steer(command.id, command.body)
+        ? await this.adapter.steer(command.id, this.input(command))
         : { status: "idle" as const, detail: "The owned assignment ended before native delivery. Nothing was sent." };
 
     this.store.queue.steering.finish(command, result);
