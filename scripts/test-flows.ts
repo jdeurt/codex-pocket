@@ -35,6 +35,7 @@ const child = spawn(
     cwd: root,
     env: {
       NODE_ENV: "test",
+      POCKET_TEST_MAIN_HARNESS: "codex",
       PATH: "",
       HOME: flowHome,
       USERPROFILE: flowHome,

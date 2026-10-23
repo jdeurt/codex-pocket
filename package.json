@@ -46,6 +46,9 @@
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "0.3.303",
     "@base-ui/react": "^1.9.0",
+    "@earendil-works/pi-agent-core": "1.4.0",
+    "@earendil-works/pi-ai": "1.4.0",
+    "@earendil-works/pi-coding-agent": "1.4.0",
     "@modelcontextprotocol/server": "^2.3.1",
     "@next/env": "^16.4.2",
     "@shadcn/react": "^0.3.1",

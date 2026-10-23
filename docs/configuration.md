@@ -2,6 +2,26 @@
 
 The installer saves host settings in `~/.pocket/.env.local`. Edit runtime settings on the Mac, then run `pocket restart`. For the service port or state/log directories, run `pocket update` so the installer also rebuilds the login-service definition. Keep it private. Agent permissions, native login, and tool configuration belong on the computer.
 
+## Pocket Settings
+
+Open the top-left **Pockets** menu and select the **Settings** gear. This central area contains Pocket preferences, including **Show tool calls**, realtime voice/model overrides, and the **OpenAI API key** option for advanced functionality, including realtime. These settings are global across Pockets. Per-conversation model and reasoning-effort controls remain available through [session tools](session-controls.md).
+
+Enter a key to save or replace it, or select **Remove saved key**. Pocket never sends a saved key back to the browser or stores it in browser storage. It saves the key and preferences in `settings.json` inside `CODEX_POCKET_STATE_DIR` (normally `~/.pocket/data`) with private file permissions and atomic replacement. This is local plaintext storage, so protect the host and its backups. No provider request is made when saving a key.
+
+A saved key takes precedence over the optional host `OPENAI_API_KEY` environment variable. Removing the saved key restores that fallback; remove the environment variable on the host and restart Pocket to disable it too. Settings shows which source is active. Provider sessions should read current settings when starting; a session already running may retain its original key.
+
+**Realtime voice** and **Realtime model** are optional provider identifiers. Leave either field blank and save to restore that provider default. Changes apply to the next realtime session. Settings validates identifier syntax; the voice transport checks availability when starting a session.
+
+### Shared consumer contract
+
+- `src/lib/settings.ts` exports `PocketSettings`, `pocketSettingsSchema`, `PocketSettingsMutation`, and `pocketSettingsMutationSchema`.
+- `GET /api/settings` and successful `POST /api/settings` return `{ showToolCalls: boolean, realtimeVoice: string | null, realtimeModel: string | null, openaiApiKeyConfigured: boolean, openaiApiKeySource: "saved" | "environment" | null }`, with `Cache-Control: no-store`. `showToolCalls` defaults to `false`; both realtime overrides default to `null` (use provider defaults).
+- POST accepts a nonempty strict partial object `{ showToolCalls?: boolean, realtimeVoice?: string | null, realtimeModel?: string | null, openaiApiKey?: string | null }`. Omitted fields are preserved; explicit `null` clears a key or override. Keys are trimmed, nonempty, at most 4096 characters, and contain no internal whitespace. Realtime identifiers are trimmed, nonempty, at most 120 characters, and contain only letters, digits, underscore, dot, or hyphen. Provider availability is validated by the voice lane, which owns the catalog and defaults. Mutations use the existing host/origin and JSON-body guards. Updates are serialized to preserve simultaneous edits to different fields.
+- Failures return HTTP 400 and `{ error: string }`: GET uses `Could not load Pocket settings.`; POST uses `Could not save Pocket settings. Check your input and try again.` Credential-bearing parse errors are replaced before logging or responding.
+- `src/server/pocket-settings.ts` exports async `readPocketSettings()` for public status and realtime overrides, `updatePocketSettings(input)` for partial persistence, and `readOpenAIApiKey(): Promise<string | null>` for server-only consumers. Pi and voice should call the readers when creating provider sessions, keep the key on the host, and handle a missing key with an actionable Settings message. Voice should resolve null overrides through its own provider defaults. This module requires Node filesystem access; never import it into client code.
+- `src/hooks/use-pocket-settings.ts` exports `usePocketSettings()` with `{ data, error }` and `savePocketSettings(change)` for validated browser reads and updates. Readers poll and refresh on reconnect or visibility changes; successful local saves wake them immediately. Chat owns applying `data?.showToolCalls ?? false` to main transcript tool rendering.
+- Add future preference controls to `PocketSettingsPanel` in `src/components/pocket-settings.tsx` and extend these shared schemas and persistence together. Keep provider-specific behavior in its owning lane.
+
 ## Installer inputs
 
 Export these values before running the [installer](installation.md), or supply them to `pocket update`. Unspecified values reuse saved settings where available.
@@ -43,24 +63,24 @@ These values configure the host process. The installer writes absolute paths for
 
 Origins must contain no trailing slash, path, query, or fragment. An allowed origin is a request guard, not a login system; protect remote access at the proxy or network boundary.
 
-Codex uses its local login and configuration. Pocket owns a local app-server process and resumes its configured conversation at startup. Use Pocket as that conversation's active owner. To work with a session owned elsewhere, follow [existing-session attachment](side-pockets.md#connect-an-existing-codex-session).
+Main conversations use Pi and the central OpenAI key. Pi tools run within the host process's existing machine and environment permissions; Codex sandbox and approval settings do not constrain Pi. Codex uses its local login and configuration for native delegates, legacy bootstrap and history access. Use Pocket as that conversation's active owner. To work with a session owned elsewhere, follow [existing-session attachment](side-pockets.md#connect-an-existing-codex-session).
 
-The installer offers native permissions or explicit unrestricted access. To configure unrestricted access through process arguments:
+The installer offers native Codex permissions or explicit unrestricted access for native work. These choices do not sandbox the Pi main session. To configure unrestricted native Codex access through process arguments:
 
 ```sh
 export CODEX_SERVER_ARGS='["app-server","--listen","stdio://","-c","sandbox_mode=\"danger-full-access\"","-c","approval_policy=\"never\""]'
 pocket update
 ```
 
-This grants the agent unrestricted access without approval prompts. Model and reasoning effort can be configured through native Codex settings or [Pocket's session tools](session-controls.md). Pocket applies the selected reasoning effort when resuming and starting turns; the header shows the effective model and effort.
+This configures native Codex work to run without sandbox restrictions or approval prompts. Main Pi model and reasoning choices use [Pocket's session tools](session-controls.md) and its model catalog; native delegate defaults remain independent. Session inspection reports the Pi execution boundary, and the header shows the main model and effort.
 
 ## Delivery and restart recovery
 
-Messages have durable IDs so reconnects can reconcile a pending send with confirmed history. If the process stops before acknowledging a send, its outcome is uncertain. Pocket retains the record for inspection rather than replaying work automatically. Check the saved Codex history and the relevant outbox receipt before retrying.
+Messages have durable IDs so reconnects can reconcile a pending send with confirmed history. If the process stops before acknowledging a send, its outcome is uncertain. Pocket retains the record for inspection rather than replaying work automatically. Check the saved harness history and relevant outbox receipt before retrying.
 
-When the owned Codex process resumes a conversation with history, Pocket sends one hidden recovery instruction through the same durable delivery system. It asks the agent to continue unfinished work and inspect expected delegates. Empty chats and browser reconnects do not trigger it. Pending recovery messages reuse their IDs; uncertain ones stay unresolved. Look for `recovery.queued` in the logs.
+When Pocket resumes a conversation with history, Pocket sends one hidden recovery instruction through the same durable delivery system. It asks the agent to continue unfinished work and inspect expected delegates. Empty chats and browser reconnects do not trigger it. Pending recovery messages reuse their IDs; uncertain ones stay unresolved. Look for `recovery.queued` in the logs.
 
-Pocket adds developer instructions while preserving native system instructions and saved history. A resumed Codex chat may retain earlier developer instructions. Create a new Pocket when you need a clean instruction context.
+Pocket adds its instructions while preserving existing developer instructions and saved history. A migrated conversation may retain earlier instructions. Create a new Pocket when you need a clean instruction context.
 
 Questions and supported command, file, and permission approvals appear on the phone. An unfamiliar request stays pending for handling on the computer. From a configured checkout, inspect requests or answer using the exact native response format:
 

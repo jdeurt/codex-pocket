@@ -28,7 +28,12 @@ async function sessionInfo(request: Request) {
 
   await bridge.ensureConnected();
 
-  return Response.json(bridge.session.info(), { headers: noStore });
+  const result =
+    new URL(request.url).searchParams.get("catalog") === "models"
+      ? { models: await bridge.session.models() }
+      : bridge.session.info();
+
+  return Response.json(result, { headers: noStore });
 }
 
 /**

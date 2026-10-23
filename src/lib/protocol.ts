@@ -37,8 +37,12 @@ export interface QueuedMessage {
   id: string;
   text: string;
   attachments?: FileAttachment[];
+  source?: MessageSource;
   status: "queued" | "sending" | "unknown" | "sent";
 }
+export const messageSourceSchema = z.object({ type: z.literal("realtime"), sessionId: z.string(), itemId: z.string() });
+
+export type MessageSource = z.infer<typeof messageSourceSchema>;
 export interface RestartEvent {
   id: string;
   threadId: string;
@@ -46,6 +50,7 @@ export interface RestartEvent {
 }
 export interface Snapshot {
   connection: "unconfigured" | "connecting" | "connected" | "disconnected";
+  executionBoundary?: string;
   title: string;
   model?: string;
   reasoningEffort?: string | null;
@@ -149,6 +154,7 @@ export const realtimeItemAddedSchema = z
   })
   .transform(({ method, params }): RpcEvent => ({ method, params: { threadId: params.threadId } }));
 export const queuedMessageSchema = z.object({
+  source: messageSourceSchema.optional(),
   id: z.string(),
   text: z.string(),
   attachments: z.array(fileAttachmentSchema).optional(),
@@ -162,6 +168,7 @@ export const restartEventSchema = z.object({
 export const pendingRequestSchema = rpcEventSchema.extend({ id: z.union([z.string(), z.number()]) });
 export const snapshotSchema: z.ZodType<Snapshot> = z.object({
   connection: z.enum(["unconfigured", "connecting", "connected", "disconnected"]),
+  executionBoundary: z.string().optional(),
   title: z.string(),
   model: z.string().optional(),
   reasoningEffort: z.string().nullable().optional(),

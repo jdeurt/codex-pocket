@@ -1,9 +1,10 @@
 "use client";
 import "./pocket-menu.css";
-import { MenuIcon, PencilIcon, PlusIcon, Trash2Icon, XIcon } from "lucide-react";
+import { ArrowLeftIcon, MenuIcon, PencilIcon, PlusIcon, SettingsIcon, Trash2Icon, XIcon } from "lucide-react";
 import { POCKET_NAME_LIMIT, type Pocket, pocketHref, pocketsSchema, selectedPocketId } from "@/lib/pockets";
 import { useEffect, useRef, useState } from "react";
 import { Dialog } from "@base-ui/react/dialog";
+import { PocketSettingsPanel } from "./pocket-settings";
 import { post } from "@/lib/client-api";
 import { useAgentRead } from "@/hooks/use-agents";
 
@@ -121,6 +122,33 @@ function PocketEditor({
   );
 }
 
+/** Identify the current menu section and keep its navigation in the same modal.
+@param props - Current section, submission lock, and return callback.
+@returns Accessible title, description, back action, and close action.
+*/
+function MenuHeading({ isSettings, busy, back }: { isSettings: boolean; busy: boolean; back: () => void }) {
+  return (
+    <>
+      <div className="pockets-heading">
+        {isSettings && (
+          <button type="button" aria-label="Back to Pockets" disabled={busy} onClick={back}>
+            <ArrowLeftIcon aria-hidden="true" />
+          </button>
+        )}
+        <Dialog.Title>{isSettings ? "Settings" : "Pockets"}</Dialog.Title>
+        <Dialog.Close aria-label={isSettings ? "Close Settings" : "Close Pockets"} disabled={busy}>
+          <XIcon aria-hidden="true" />
+        </Dialog.Close>
+      </div>
+      <Dialog.Description className="sr-only">
+        {isSettings
+          ? "Manage Pocket preferences and the OpenAI API key on this computer."
+          : "Create named conversations and switch between their current work."}
+      </Dialog.Description>
+    </>
+  );
+}
+
 /** Place named-Pocket navigation at the top left while centering the current chat title.
 @param props - Current model description and connection label from the selected parent.
 @returns Header and accessible menu retaining the selected parent's independent URL.
@@ -136,6 +164,7 @@ export function PocketMenu({
 }) {
   const [open, setOpen] = useState(false);
   const [edit, setEdit] = useState<Edit | null>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const { data, error: readError } = useAgentRead("/api/pockets", pocketsSchema);
@@ -200,6 +229,7 @@ export function PocketMenu({
           onOpenChange(value);
           setError("");
           setEdit(null);
+          setSettingsOpen(false);
         }}
       >
         <Dialog.Trigger className="pocket-menu-trigger" aria-label="Open Pockets">
@@ -208,19 +238,18 @@ export function PocketMenu({
         <Dialog.Portal>
           <Dialog.Backdrop className="agents-backdrop" />
           <Dialog.Popup className="pockets-panel">
-            <div className="pockets-heading">
-              <Dialog.Title>Pockets</Dialog.Title>
-              <Dialog.Close aria-label="Close Pockets" disabled={busy}>
-                <XIcon aria-hidden="true" />
-              </Dialog.Close>
-            </div>
-            <Dialog.Description className="sr-only">
-              Create named conversations and switch between their current work.
-            </Dialog.Description>
+            <MenuHeading
+              isSettings={settingsOpen}
+              busy={busy}
+              back={() => {
+                setSettingsOpen(false);
+              }}
+            />
             <div className="pockets-content">
               {(error || readError) && <p role="alert">{error || readError}</p>}
-              {!data && !readError && <p role="status">Loading Pockets…</p>}
-              {edit ? (
+              {!data && !readError && !settingsOpen && <p role="status">Loading Pockets…</p>}
+              {settingsOpen && <PocketSettingsPanel busy={busy} onBusyChange={setBusy} />}
+              {edit && (
                 <PocketEditor
                   edit={edit}
                   busy={busy}
@@ -233,8 +262,19 @@ export function PocketMenu({
                   }}
                   submit={submit}
                 />
-              ) : (
+              )}
+              {!edit && !settingsOpen && (
                 <>
+                  <button
+                    className="pocket-create"
+                    type="button"
+                    onClick={() => {
+                      setSettingsOpen(true);
+                    }}
+                  >
+                    <SettingsIcon aria-hidden="true" />
+                    Settings
+                  </button>
                   <button
                     className="pocket-create"
                     type="button"

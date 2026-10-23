@@ -80,7 +80,7 @@ export function registerDelegationTools(server: McpServer, owner: string) {
     "side_pocket_capabilities",
     {
       description:
-        "Read the capabilities and permission mapping of available delegation harnesses. Main Pocket always uses Codex.",
+        "Read the capabilities and permission mapping of available delegation harnesses. Main Pocket uses Pi; delegated workers use their native Codex or Claude harness.",
       inputSchema: z.object({}).strict(),
     },
     () =>

@@ -135,6 +135,8 @@ class ReplaySession {
 
       case "thread/start":
       case "thread/resume": {
+        writeFileSync(path.join(process.cwd(), "native-session-params.json"), JSON.stringify(request.params));
+
         return { thread: { id: SESSION, turns: this.turns }, model: "offline-replay", reasoningEffort: null };
       }
 

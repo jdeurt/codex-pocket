@@ -81,6 +81,7 @@ export class UpdateHost {
           // Deliberately differ from compilation to catch runtime/client identity mismatches.
           POCKET_BUILD_VERSION: "runtime-must-not-replace-compiled-version",
           CODEX_THREAD_ID: "upload-replay-parent",
+          POCKET_TEST_MAIN_HARNESS: "codex",
           CODEX_CWD: process.cwd(),
           CODEX_BINARY: process.execPath,
           CODEX_SERVER_ARGS: JSON.stringify(["--import", "tsx", path.resolve("tests/fixtures/uploads-rpc.ts")]),
