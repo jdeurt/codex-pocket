@@ -1,6 +1,7 @@
 import { type ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { type Data, string } from "../lib/protocol";
 import { z } from "zod";
+import { modelCatalogQuerySchema, queryModelCatalog } from "./model-catalog-query";
 
 const MISSING_SEPARATOR = -1;
 
@@ -26,9 +27,24 @@ export function piModel(runtime: ModelRuntime, selection: string) {
 
 /** Expose catalog identities and reasoning support without including credentials.
 @param runtime - Pi's configured runtime.
+@param params - Optional provider, model, view, and pagination query; omission preserves the legacy catalog.
 @returns Public catalog metadata used by Pocket's session tools.
 */
-export function piModelCatalog(runtime: ModelRuntime) {
+export function piModelCatalog(runtime: ModelRuntime | undefined, params: Data = {}) {
+  const query = modelCatalogQuerySchema.parse(params);
+
+  if (Object.keys(query).length > 0) {
+    if (!runtime) {
+      throw new Error("Pi is not initialized. Reconnect the main Pocket before querying its model catalog.");
+    }
+
+    return queryModelCatalog(runtime.getModels(), runtime.getProviders(), query);
+  }
+
+  if (!runtime) {
+    return [];
+  }
+
   return runtime.getModels().map((model) => ({
     id: `${model.provider}/${model.id}`,
     name: model.name,
