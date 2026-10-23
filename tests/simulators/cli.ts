@@ -63,6 +63,12 @@ Read native launch flags forwarded by the actual Claude SDK.
 @returns Optional flag value.
 */
 function flag(name: string) {
+  const inline = process.argv.find((argument) => argument.startsWith(`${name}=`));
+
+  if (inline) {
+    return inline.slice(name.length + 1);
+  }
+
   const index = process.argv.indexOf(name);
 
   return index === NOT_FOUND ? undefined : process.argv[index + 1];

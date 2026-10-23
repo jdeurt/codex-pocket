@@ -18,6 +18,7 @@ import {
 } from "@anthropic-ai/claude-agent-sdk";
 import { claudeTranscript, harnessMessages, nativeText } from "./transcript";
 import { ClaudeAgents } from "./claude-agents";
+import { ClaudeWrites, applyClaudeWrites } from "./claude-writes";
 import { claudeOptions } from "./claude-options";
 import { claudePermissions } from "./permissions";
 import { log } from "../logging";
@@ -46,6 +47,8 @@ export class ClaudeAdapter implements HarnessAdapter {
 
   private nativeAgents = new ClaudeAgents();
 
+  private writes: ClaudeWrites;
+
   /**
 Retain a saved native session or allocate a new child identity.
 @param options - Scoped child context, inherited policy and worker callbacks.
@@ -53,6 +56,7 @@ Retain a saved native session or allocate a new child identity.
   constructor(private options: AdapterOptions) {
     this.sessionId = options.child.sessionId ?? crypto.randomUUID();
     this.resume = !!options.child.sessionId;
+    this.writes = new ClaudeWrites(this.sessionId, options.child.metadata);
   }
 
   /**
@@ -63,6 +67,11 @@ Publish native display metadata before forwarding assistant text.
     log().debug({ childId: this.options.child.id, message }, "side_pocket.claude.event");
 
     this.publishNative(message);
+    const writes = this.writes.observe(message);
+
+    if (writes) {
+      this.options.callbacks.metadata(writes);
+    }
 
     if (message.type === "system" && message.subtype === "init") {
       this.options.callbacks.metadata({
@@ -231,7 +240,7 @@ Read SDK saved messages and project canonical delegated history.
   async history(): Promise<HarnessMessage[]> {
     const messages = await getSessionMessages(this.sessionId, { dir: this.options.child.cwd });
 
-    return harnessMessages(claudeTranscript(messages));
+    return harnessMessages(applyClaudeWrites(claudeTranscript(messages), this.writes.saved, this.sessionId));
   }
 
   /**
