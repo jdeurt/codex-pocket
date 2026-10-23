@@ -1,6 +1,7 @@
 import { errorResponse, guard, noStore, readBody } from "@/server/http";
 import { requestBridge } from "@/server/named-pockets";
 import { sessionSettingsSchema } from "@/server/session-settings";
+import { readModelCatalogQuery } from "@/server/model-catalog-query";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -28,12 +29,15 @@ async function sessionInfo(request: Request) {
 
   await bridge.ensureConnected();
 
-  const result =
-    new URL(request.url).searchParams.get("catalog") === "models"
-      ? { models: await bridge.session.models() }
-      : bridge.session.info();
+  const params = new URL(request.url).searchParams;
 
-  return Response.json(result, { headers: noStore });
+  if (params.get("catalog") === "models") {
+    const catalog = await bridge.session.models(readModelCatalogQuery(params));
+
+    return Response.json(Array.isArray(catalog) ? { models: catalog } : catalog, { headers: noStore });
+  }
+
+  return Response.json(bridge.session.info(), { headers: noStore });
 }
 
 /**
