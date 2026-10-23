@@ -1,6 +1,7 @@
 import { MAX_FILE_BYTES, attachmentUrl } from "../../src/lib/attachments";
 import { control, deliveredCount, directory, requests } from "./replay-state";
-import { expect, test } from "@playwright/test";
+import { expect } from "@playwright/test";
+import { test } from "../fixtures/browser-workflow";
 import assert from "node:assert/strict";
 import { outboxSchema } from "../../src/server/outbox";
 import path from "node:path";

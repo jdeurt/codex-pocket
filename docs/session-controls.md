@@ -28,4 +28,4 @@ Only the main Pocket registers these tools. The host supplies its control origin
 
 Inspection uses `thread/read` and existing bridge observations. Mutation uses `thread/settings/update`, followed by native readback and parent-scoped persistence. Pi catalog listing uses `pocket_session_models`. Account/rate-limit controls, manual compaction, and generic terminal control are outside this interface. [Delegate steering and cancellation](side-pockets.md#agent-tools) have their own tools.
 
-`tests/session-controls-flow.test.ts` exercises the real bridge against an isolated protocol fixture. It checks active-turn preservation, persisted settings after a fresh bridge, and absence of turn execution or permission changes. This is offline integration evidence; authenticated native behavior requires a separate check.
+`tests/workflows/session-controls.test.ts` exercises the real bridge against an isolated protocol fixture. It checks active-turn preservation, persisted settings after a fresh bridge, and absence of turn execution or permission changes. This is offline integration evidence; authenticated native behavior requires a separate check.

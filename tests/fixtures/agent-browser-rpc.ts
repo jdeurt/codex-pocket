@@ -4,6 +4,7 @@ import { replayParent, replayTurns } from "./agent-browser-data";
 import { createInterface } from "node:readline";
 import { fixtureRequestSchema } from "./replay-protocol";
 import { z } from "zod";
+import { unexpectedRequest } from "./unexpected-request";
 // OFFLINE JSON-RPC replay. Refuses every mutation directed at a child session.
 
 /**
@@ -135,7 +136,7 @@ function response(method: string, params: Record<string, unknown>, state: string
 
     case "thread/resume": {
       if (params.threadId !== replayParent) {
-        throw new Error("Child resume forbidden in replay");
+        unexpectedRequest(`${method}:child`);
       }
 
       return { thread: { id: replayParent, turns: [] }, model: "gpt-replay", reasoningEffort: "high" };
@@ -173,14 +174,14 @@ function response(method: string, params: Record<string, unknown>, state: string
     case "turn/start":
     case "turn/steer": {
       if (params.threadId !== replayParent) {
-        throw new Error("Child action forbidden in replay");
+        unexpectedRequest(`${method}:child`);
       }
 
       return { turn: { id: "parent-recovery", status: "completed", items: [] } };
     }
 
     default: {
-      throw new Error(`Unsupported replay operation ${method}`);
+      return unexpectedRequest(method);
     }
   }
 }
@@ -271,8 +272,16 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     }) + "\n"
   );
 
-  if (!request.method || request.id === undefined) {
+  if (request.id === undefined) {
+    if (request.method !== "initialized") {
+      unexpectedRequest(request.method);
+    }
+
     return;
+  }
+
+  if (!request.method) {
+    unexpectedRequest(request.method);
   }
 
   serveRequest(request.id, request.method, request.params);

@@ -85,6 +85,10 @@ export class PiMain {
     this.effort = opened.session.thinkingLevel;
     await this.tasks.start(opened.manager, opened.session);
     opened.session.subscribe((event) => {
+      if (event.type === "message_end" || event.type === "entry_appended") {
+        this.tasks.sync(opened.manager);
+      }
+
       this.event(event);
       this.activity.accept(event, this.active?.id);
     });
@@ -125,10 +129,6 @@ export class PiMain {
   @param event - Authoritative Pi lifecycle or message event.
   */
   private event(event: AgentSessionEvent) {
-    if (event.type === "entry_appended") {
-      this.tasks.accept(event.entry);
-    }
-
     if (event.type === "compaction_end" && event.result) {
       this.emit({ method: "thread/compacted", params: { threadId: this.config.threadId } });
     }

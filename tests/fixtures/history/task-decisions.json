@@ -1,0 +1,32 @@
+[
+  { "candidate": "Make launchcalendar weekly.", "matched": ["Plan launchcalendar."], "continues": true },
+  {
+    "candidate": "Discuss receipts.",
+    "matched": ["Plan launchcalendar.", "Make launchcalendar weekly."],
+    "continues": false
+  },
+  {
+    "candidate": "Review keyboard.",
+    "matched": ["Plan launchcalendar.", "Make launchcalendar weekly."],
+    "continues": false
+  },
+  {
+    "candidate": "Prepare roadmap.",
+    "matched": ["Plan launchcalendar.", "Make launchcalendar weekly."],
+    "continues": false
+  },
+  {
+    "candidate": "Update colors.",
+    "matched": ["Plan launchcalendar.", "Make launchcalendar weekly."],
+    "continues": false
+  },
+  {
+    "candidate": "Check notifications.",
+    "matched": ["Plan launchcalendar.", "Make launchcalendar weekly."],
+    "continues": false
+  },
+  { "candidate": "Review keyboard.", "matched": ["Discuss receipts."], "continues": false },
+  { "candidate": "Prepare roadmap.", "matched": ["Discuss receipts."], "continues": false },
+  { "candidate": "Update colors.", "matched": ["Discuss receipts."], "continues": false },
+  { "candidate": "Check notifications.", "matched": ["Discuss receipts."], "continues": false }
+]

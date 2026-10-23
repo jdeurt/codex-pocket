@@ -5,6 +5,9 @@ import path from "node:path";
 import { runNextFixture } from "./next-server";
 import { simulatorArgs } from "../simulators/launch";
 
+const HISTORY_ROWS = 320;
+const USER_CADENCE = 4;
+
 const directory = path.resolve(".local/pockets-fixture");
 
 /** Seed a persisted parent after the fixture directory exists.
@@ -16,6 +19,18 @@ function seed() {
   const parent = store.create({ cwd: process.cwd() });
 
   parent.name = "Original Pocket";
+  parent.turns = [
+    {
+      id: "saved-notes",
+      status: "completed",
+      items: Array.from({ length: HISTORY_ROWS }, (_, index) => ({
+        id: `note-${String(index)}`,
+        type: index % USER_CADENCE === 0 ? "userMessage" : "agentMessage",
+        content: [{ type: "text", text: `Earlier note ${String(index)}` }],
+        text: `Earlier note ${String(index)}\n\nSaved conversation with **Markdown** and an independently recorded decision.`,
+      })),
+    },
+  ];
   store.save();
 
   return { parent, stateFile };
@@ -31,6 +46,7 @@ async function prepare() {
   await writeFile(
     path.join(directory, "scenario.json"),
     JSON.stringify({
+      turn: { chunks: ['Saved reply.\n\n```pocket-copy\n"café ✓\\nKeep exact text."\n```'] },
       scripts: [
         {
           method: "config/read",

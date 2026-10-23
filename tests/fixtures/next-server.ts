@@ -3,6 +3,8 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 import { once } from "node:events";
 import path from "node:path";
 
+const NEXT_SHUTDOWN_MS = 5000;
+
 /**
 Create private Next build and type paths for one fixture server.
 @param name - Fixed fixture name used to separate concurrent test servers.
@@ -11,9 +13,15 @@ Create private Next build and type paths for one fixture server.
 export async function fixtureBuild(
   name: "browser" | "agents" | "uploads" | "pockets" | "spinner" | "update-a" | "update-b" | "realtime"
 ) {
+  const buildName = process.env.POCKET_TEST_BUILD_NAME ?? name;
+
+  if (!/^[a-z0-9-]+$/.test(buildName)) {
+    throw new Error("Invalid fixture build name.");
+  }
+
   const directory = path.resolve(".next/test-configs");
-  const tsconfig = path.join(directory, `${name}.json`);
-  const distDir = `.next/test-${name}`;
+  const tsconfig = path.join(directory, `${buildName}.json`);
+  const distDir = `.next/test-${buildName}`;
   const source = {
     extends: path.relative(directory, path.resolve("tsconfig.json")),
     include: [
@@ -83,8 +91,16 @@ export async function runNextFixture(
       },
     }
   );
+  const resources: { shutdown?: NodeJS.Timeout } = {};
   const stop = () => {
+    if (resources.shutdown) {
+      return;
+    }
+
     signalFixture(host, "SIGTERM");
+    resources.shutdown = setTimeout(() => {
+      signalFixture(host, "SIGKILL");
+    }, NEXT_SHUTDOWN_MS);
   };
 
   process.once("SIGTERM", stop);
@@ -93,6 +109,7 @@ export async function runNextFixture(
   try {
     await once(host, "exit");
   } finally {
+    clearTimeout(resources.shutdown);
     process.removeListener("SIGTERM", stop);
     process.removeListener("SIGINT", stop);
     signalFixture(host, "SIGKILL");

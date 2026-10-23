@@ -1,6 +1,7 @@
 import { type Data } from "../../src/lib/protocol";
 import { createInterface } from "node:readline";
 import { fixtureRequestSchema } from "./replay-protocol";
+import { unexpectedRequest } from "./unexpected-request";
 
 type FixtureExecutor = (method: string | undefined, params: Data) => Promise<unknown>;
 
@@ -22,6 +23,10 @@ async function respond(line: string, execute: FixtureExecutor) {
   const request = fixtureRequestSchema.parse(JSON.parse(line));
 
   if (request.id === undefined) {
+    if (request.method !== "initialized") {
+      unexpectedRequest(request.method);
+    }
+
     return;
   }
 

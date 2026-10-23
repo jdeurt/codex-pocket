@@ -36,8 +36,7 @@ Read-only Side Pocket transcripts use the display-only attachment component. Onl
 ## Verification
 
 ```sh
-CODEX_THREAD_ID= npm run test:e2e:uploads
-CODEX_THREAD_ID= npm run test:e2e:attachments
+npm run test:e2e -- tests/uploads/uploads.spec.ts --project=uploads-chromium --grep='pick, retry, remove'
 ```
 
-The offline suites cover selection, retry, reload, file-only sends, harness payloads, original bytes, GIF preservation, uncertain acknowledgements, parent ownership, and file limits. Playwright measures attachment gaps, padding, widths, and overflow at narrow phone and desktop sizes in Chromium and WebKit. Physical phone picker and keyboard behavior still need device checks. See [testing](testing.md) for setup.
+The offline suites cover selection, retry, reload, file-only sends, harness payloads, original bytes, GIF preservation, uncertain acknowledgements, parent ownership, and file limits. The lean suite does not claim attachment pixel-spacing or width-matrix coverage. Physical phone picker and keyboard behavior still need device checks. See [testing](testing.md) for setup.

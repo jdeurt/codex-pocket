@@ -4,6 +4,7 @@ import { once } from "node:events";
 import path from "node:path";
 import { snapshotSchema } from "../../src/lib/protocol";
 import { z } from "zod";
+import { assertExpectedRequests } from "./unexpected-request";
 
 const PROCESS_TIMEOUT_MS = 15_000;
 const THREAD_ID = "isolated-restart-check";
@@ -61,12 +62,15 @@ Owns the fake bridge child across explicit restart and recovery workflow phases.
 export class RestartHost {
   private child: ChildProcess;
 
+  private activeDirectory: string;
+
   /**
   Starts the initial private bridge process.
   @param directory - Private native history and bridge state root.
   */
   constructor(private directory: string) {
     this.child = startWorker(directory);
+    this.activeDirectory = directory;
   }
 
   /**
@@ -87,6 +91,7 @@ export class RestartHost {
     }
 
     this.child = startWorker(directory);
+    this.activeDirectory = directory;
   }
 
   /**
@@ -125,5 +130,6 @@ export class RestartHost {
 
     this.child.kill("SIGTERM");
     await exited;
+    await assertExpectedRequests(this.activeDirectory);
   }
 }

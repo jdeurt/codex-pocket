@@ -6,18 +6,22 @@ import { spawn } from "node:child_process";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
 const flowHome = await mkdtemp(path.join(os.tmpdir(), "pocket-offline-home-"));
-const names = await readdir(path.join(root, "tests"));
+const names = await readdir(path.join(root, "tests"), { recursive: true });
 const args = process.argv.slice(2);
 const selected = args.filter((argument) => argument.startsWith("tests/") && argument.endsWith(".test.ts"));
 const tests = names.filter(
   (name) =>
     name.endsWith(".test.ts") &&
-    (!args.includes("--simulators") || name === "simulator-flow.test.ts") &&
+    (!args.includes("--simulators") ||
+      name === "workflows/pi.test.ts" ||
+      name === "workflows/conversation.test.ts" ||
+      name === "workflows/side-pockets.test.ts" ||
+      name === "workflows/claude-history.test.ts") &&
     (selected.length === 0 || selected.includes(`tests/${name}`))
 );
 const forwarded = args.filter((argument) => argument !== "--simulators" && !selected.includes(argument));
 
-if (tests.length === 0 || selected.some((file) => !tests.includes(path.basename(file)))) {
+if (tests.length === 0 || selected.some((file) => !tests.includes(file.slice("tests/".length)))) {
   await rm(flowHome, { recursive: true, force: true });
   throw new Error("Select existing integration test files under tests/.");
 }

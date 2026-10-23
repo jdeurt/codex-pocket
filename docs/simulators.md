@@ -2,7 +2,7 @@
 
 The simulators let Pocket test its native integrations without installing or signing in to Codex or Claude Code. They reproduce protocol behavior with deterministic data; real-instance calibration checks selected behaviors against the installed tools.
 
-`npm test` runs the offline integration flows with an empty `PATH`, a disposable home, explicit nonexistent native executable settings, and no inherited credentials. Node and the TypeScript loader are addressed by absolute path. `scripts/test-flows.ts` discovers the retained integration files; `--simulators` selects the production `CodexRpc` and unmodified Claude Agent SDK flows. Isolated tests of the simulator classes themselves are excluded from the suite.
+`npm test` runs the offline integration flows with an empty `PATH`, a disposable home, explicit nonexistent native executable settings, and no inherited credentials. Node and the TypeScript loader are addressed by absolute path. `scripts/test-flows.ts` discovers the retained integration files; `--simulators` selects the Pi, conversation, Side Pocket and Claude-history application workflows. Isolated tests of the simulator classes themselves are excluded from the suite.
 
 ```sh
 npm test                      # Complete offline integration suite; CI only for agents
@@ -16,7 +16,7 @@ The last two commands require installed native tooling; ordinary tests do not. C
 For focused development, pass an exact integration file and case to the isolated runner:
 
 ```sh
-node --import tsx scripts/test-flows.ts tests/simulator-flow.test.ts --test-name-pattern='production Codex transport completes'
+node --import tsx scripts/test-flows.ts tests/workflows/conversation.test.ts --test-name-pattern='Codex delivery retains'
 ```
 
 ## Interface snapshots
@@ -46,7 +46,7 @@ The snapshots cover the installed interfaces; built-in behavior is limited to th
 
 These are deterministic protocol simulators, not model emulators. They do not reason, execute shell tools, reproduce native tokenization, authenticate, contact MCP services, or predict remote billing/rate limits. Generated Claude usage and costs are explicitly zero. Use supplied native-shaped events when a test needs particular accounting, task, approval, or error data.
 
-Use `CodexSimulator` directly for complete state lifecycles, or launch `tests/simulators/cli.ts` through Node to test the actual transport. `simulatorConfig()` returns a production `CodexRpc` configuration. `preparedClaude()` writes a fixture before launching the actual SDK against the Node backend with an isolated environment.
+Application tests launch `tests/simulators/cli.ts` through Node or host it behind a real socket; they assert Pocket workflow outcomes rather than simulator behavior. `simulatorConfig()` returns a production `CodexRpc` configuration. `preparedClaude()` writes a fixture before launching the actual SDK against the Node backend with an isolated environment.
 
 A CLI scenario is a JSON file selected by `POCKET_SIMULATOR_SCENARIO`:
 
@@ -80,8 +80,8 @@ Set `POCKET_SIMULATOR_HARNESS=claude` for Claude's wire protocol. Otherwise the 
 
 ## Evidence and maintenance
 
-The same conformance functions run against both simulators and the real instances. The committed October 20 calibration records cover native initialization, Codex ephemeral-history rejection, model/effort readback, idle steer/interrupt rejection, streamed completion, seven filesystem operations, and Claude initialization/model catalogs, idle interrupt receipt, empty MCP catalog, model/permission mutation and streamed completion.
+The opt-in calibration command retains separate native probes; the replacement offline suite exercises Pocket workflows rather than dependency conformance. The committed October 20 calibration records cover native initialization, Codex ephemeral-history rejection, model/effort readback, idle steer/interrupt rejection, streamed completion, seven filesystem operations, and Claude initialization/model catalogs, idle interrupt receipt, empty MCP catalog, model/permission mutation and streamed completion.
 
-Offline flows cover durable reconnects, independent forks, active steering/interruption, archive lifecycle, actual SDK permission callbacks, original parent-session settings/usage behavior, strict malformed-request rejection and duplicate server replies. These cases are offline evidence; their entire state space has not been compared with native implementations.
+The current offline flows cover durable receipts and reconnects, questions and ordered steering, interruption and recovery, Side Pocket delivery, native history migration, read-only browser histories and private settings. Simulator filesystem, fork/archive, SDK callback and accounting permutations were retired. See the [behavior map](test-suite.md) for the replacement guarantees and the Pi live-ingestion regression and correction. Neither offline replay nor the historical calibration establishes current live compatibility.
 
 When adding behavior, retain the full interface snapshots, add a whole-flow scenario, and run the relevant assertions against a disposable real session. Keep native calibration opt-in. Do not turn an unknown operation into an empty successful response to make a test pass.

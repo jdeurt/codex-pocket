@@ -5,6 +5,7 @@ import { appendFileSync, readFileSync } from "node:fs";
 import { readPipelinedFixtureRequests, writeFixtureRecord } from "./sequential-rpc";
 import path from "node:path";
 import { z } from "zod";
+import { unexpectedRequest } from "./unexpected-request";
 
 const mainThreadId = "realtime-fixture-parent";
 const backendTurnId = "voice-backend-turn";
@@ -76,7 +77,7 @@ function userItem(clientId: string) {
     : { id: `user-${clientId}`, type: "userMessage", clientId };
 }
 
-async function ordinary(method: string | undefined, params: Data): Promise<Data | undefined> {
+async function ordinary(method: string | undefined, params: Data): Promise<Data> {
   switch (method) {
     case "initialize": {
       return {};
@@ -205,7 +206,7 @@ async function ordinary(method: string | undefined, params: Data): Promise<Data 
     }
 
     default: {
-      return;
+      return unexpectedRequest(method);
     }
   }
 }
@@ -217,7 +218,12 @@ async function execute(method: string | undefined, params: Data) {
   );
 
   if (method?.startsWith("thread/realtime/")) {
-    throw new Error("Pocket must use the independent OpenAI provider, never native realtime.");
+    unexpectedRequest(method);
+  }
+
+  if (method === "thread/list") {
+    // This voice fixture has no discoverable external Codex Side Pockets.
+    return { data: [], nextCursor: null };
   }
 
   return method === "thread/start"
@@ -226,7 +232,7 @@ async function execute(method: string | undefined, params: Data) {
         model: "fixture-model",
         reasoningEffort: "high",
       }
-    : ((await ordinary(method, params)) ?? {});
+    : await ordinary(method, params);
 }
 
 await readPipelinedFixtureRequests(execute);
