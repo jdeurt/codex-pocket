@@ -1,6 +1,7 @@
 /* eslint-disable jsdoc/require-param, jsdoc/require-returns -- History operations are bound to the constructor's thread identity. */
 import { type VoiceSegment, voiceHistorySchema } from "../lib/voice-history";
 import { readLocal, writeLocal } from "./local-state";
+import { type Data, string } from "../lib/protocol";
 import { createHash } from "node:crypto";
 
 /**
@@ -39,6 +40,35 @@ export class VoiceHistory {
     this.entries ??= this.restore();
 
     return this.entries;
+  }
+
+  /**
+  Persist an immutable final transcript before exposing it to delivery or the UI.
+  */
+  async finalize(event: Data, sessionId: string, role: "user" | "assistant", afterItemId: string | null) {
+    const itemId = string(event.item_id);
+
+    if (!itemId) {
+      return;
+    }
+
+    const id = `realtime:${sessionId}:${itemId}:${role}`;
+    const entries = await this.read();
+    const existing = entries.find((entry) => entry.id === id);
+    const entry: VoiceSegment = {
+      ...existing,
+      id,
+      itemId,
+      nativeSessionId: sessionId,
+      role,
+      text: string(event.transcript),
+      done: true,
+      afterItemId: existing ? existing.afterItemId : afterItemId,
+    };
+
+    await this.save(entry);
+
+    return entry;
   }
 
   /**

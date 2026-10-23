@@ -17,10 +17,8 @@ export interface VoiceResources {
   inputAnalyser: AnalyserNode;
   outputAnalyser: AnalyserNode;
   outputTime: number;
+  playback?: { itemId: string; start: number; samples: number };
   outputSources: Set<AudioBufferSourceNode>;
-  outputParts: string[];
-  outputSamples: number;
-  outputTimer?: ReturnType<typeof setTimeout>;
   abort: AbortController;
   sending: Promise<unknown>;
   startingRequest?: Promise<Record<string, unknown>>;
@@ -55,7 +53,6 @@ export async function realtimeCommand(body: unknown, url = pocketUrl("/api/realt
 
 const INPUT_BATCH_SAMPLES = 6000;
 const MAX_PENDING_INPUT_SAMPLES = 48_000;
-const OUTPUT_BATCH_SAMPLES = 2400;
 const STOP_DRAIN_MS = 1500;
 
 async function dispatchInput(
@@ -146,41 +143,59 @@ export function queueInput(current: VoiceResources, data: string, samples: numbe
   }
 }
 
-function flushOutput(current: VoiceResources, fail: (error: unknown) => void) {
-  if (current.outputTimer) {
-    clearTimeout(current.outputTimer);
-    current.outputTimer = undefined;
-  }
-
-  if (!current.active || !current.outputSamples) {
-    return;
-  }
-
-  const data = btoa(current.outputParts.join(""));
-
-  current.outputParts = [];
-  current.outputSamples = 0;
-
-  try {
-    current.outputTime = schedulePcm16(
-      current.context,
-      current.outputAnalyser,
-      current.outputSources,
-      current.outputTime,
-      data
-    );
-  } catch (error) {
-    fail(error);
-  }
-}
-
 function receiveHandoff(
   current: VoiceResources,
   message: Record<string, unknown>,
-  receive: (id: string, status: unknown) => void
+  receive: (id: string, status: unknown, handoffId?: string) => void
 ) {
   if (typeof message.itemId === "string" && current.nativeSessionId) {
-    receive(`realtime:${current.nativeSessionId}:${message.itemId}:user`, message.status);
+    receive(
+      `realtime:${current.nativeSessionId}:${message.itemId}:user`,
+      message.status,
+      typeof message.handoffId === "string" ? message.handoffId : undefined
+    );
+  }
+}
+
+function playOutput(current: VoiceResources, data: string, itemId: unknown) {
+  const samples = atob(data).length / 2;
+  const end = schedulePcm16(current.context, current.outputAnalyser, current.outputSources, current.outputTime, data);
+
+  if (typeof itemId === "string") {
+    if (current.playback?.itemId !== itemId) {
+      current.playback = { itemId: itemId, start: end - samples / 24_000, samples: 0 };
+    }
+
+    current.playback.samples += samples;
+  }
+
+  current.outputTime = end;
+}
+
+async function truncatePlayback(
+  current: VoiceResources,
+  callbacks: { error: (message: string) => void; stop: () => void }
+) {
+  const playback = current.playback;
+
+  current.playback = undefined;
+
+  if (!playback || !current.token) {
+    return;
+  }
+
+  const seconds = Math.max(0, Math.min(current.context.currentTime - playback.start, playback.samples / 24_000));
+
+  try {
+    await realtimeCommand(
+      { action: "truncate", token: current.token, itemId: playback.itemId, audioEndMs: Math.floor(seconds * 1000) },
+      current.commandUrl
+    );
+  } catch {
+    if (current.active) {
+      callbacks.error("Interrupted playback could not be synchronized. Start voice again to continue.");
+      callbacks.stop();
+    }
   }
 }
 
@@ -192,7 +207,7 @@ export function receiveRealtime(
     stop: () => void;
     error: (message: string) => void;
     transcript: (entry: VoiceSegment) => void;
-    handoff: (id: string, status: unknown) => void;
+    handoff: (id: string, status: unknown, handoffId?: string) => void;
   }
 ) {
   if (!current.active) {
@@ -225,21 +240,11 @@ export function receiveRealtime(
       return;
     }
 
-    const bytes = atob(audio.data.data);
-
-    current.outputParts.push(bytes);
-    current.outputSamples += bytes.length / 2;
-    const fail = (error: unknown) => {
+    try {
+      playOutput(current, audio.data.data, message.itemId);
+    } catch (error) {
       callbacks.error(error instanceof Error ? error.message : "Audio playback failed.");
       callbacks.stop();
-    };
-
-    if (current.outputSamples >= OUTPUT_BATCH_SAMPLES) {
-      flushOutput(current, fail);
-    } else {
-      current.outputTimer ??= setTimeout(() => {
-        flushOutput(current, fail);
-      }, 50);
     }
 
     return;
@@ -252,11 +257,8 @@ export function receiveRealtime(
   }
 
   if (type === "interrupted") {
-    current.outputParts = [];
-    current.outputSamples = 0;
+    void truncatePlayback(current, callbacks);
     current.outputTime = current.context.currentTime;
-    clearTimeout(current.outputTimer);
-    current.outputTimer = undefined;
 
     for (const source of current.outputSources) {
       source.stop();

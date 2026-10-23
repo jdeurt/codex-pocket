@@ -4,6 +4,8 @@ import { readOpenAIApiKey, readPocketSettings, updatePocketSettings } from "./po
 import type { Bridge } from "./bridge-session";
 import { OpenAIVoiceSession } from "./openai-voice-session";
 import { settingsSchema } from "./realtime-schema";
+import { visibleSnapshot } from "./visible-snapshot";
+import { hasMessageText } from "../lib/turn-messages";
 
 /**
 Select an explicitly enabled loopback provider fixture; production always uses OpenAI.
@@ -49,6 +51,10 @@ export class RealtimeSession extends OpenAIVoiceSession {
 
         return bridge.snapshot.threadId;
       },
+      lastItemId: () =>
+        visibleSnapshot(bridge.snapshot)
+          .turns.flatMap((turn) => turn.items)
+          .findLast(hasMessageText)?.id ?? null,
       readKey: readOpenAIApiKey,
       preferences,
       handoff: (input) => bridge.handoff(input),
