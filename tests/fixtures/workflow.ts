@@ -3,6 +3,7 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { type Data, type Turn } from "../../src/lib/protocol";
 import { CodexStore } from "../simulators/codex-store";
 import { configSchema } from "../../src/server/config";
+import { assertExpectedRequests } from "./unexpected-request";
 import { simulatorArgs } from "../simulators/launch";
 import assert from "node:assert/strict";
 import os from "node:os";
@@ -106,6 +107,7 @@ export async function nativeWorkspace(t: TestContext, scenario: Data = {}, turns
     })
   );
   isolated.environment({ POCKET_SIMULATOR_STATE: state, POCKET_SIMULATOR_SCENARIO: script });
+  isolated.cleanup(() => assertExpectedRequests(isolated.directory));
 
   return {
     ...isolated,

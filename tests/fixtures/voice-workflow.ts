@@ -1,7 +1,7 @@
 import { type Data, dataSchema, object } from "../../src/lib/protocol";
 import { type RawData, type WebSocket, WebSocketServer } from "ws";
 import { type TestContext } from "node:test";
-import { Bridge } from "../../src/server/bridge-session";
+import { workflowBridge } from "./workflow-bridge";
 import { nativeWorkspace, eventually } from "./workflow";
 import { updatePocketSettings } from "../../src/server/pocket-settings";
 import assert from "node:assert/strict";
@@ -93,7 +93,7 @@ export async function voiceWorkflow(t: TestContext, scenario?: Data) {
 
   assert.ok(address && typeof address === "object");
   fixture.environment({ POCKET_REALTIME_TEST_URL: `ws://127.0.0.1:${String(address.port)}/v1/realtime` });
-  const bridge = new Bridge(fixture.config);
+  const bridge = workflowBridge(fixture, fixture.config);
 
   fixture.cleanup(async () => {
     bridge.close();

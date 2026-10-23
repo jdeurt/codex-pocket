@@ -1,7 +1,7 @@
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { outboxSchema } from "../../src/server/outbox";
-import { Bridge } from "../../src/server/bridge-session";
+import { workflowBridge } from "../fixtures/workflow-bridge";
 import { nativeText } from "../../src/server/harness/transcript";
 import { object } from "../../src/lib/protocol";
 import { updatePocketSettings } from "../../src/server/pocket-settings";
@@ -63,11 +63,8 @@ await test("voice delivers exact speech once and plays the actual main answer th
   assert.equal(flow.bridge.snapshot.turns.length, 1);
   assert.equal(nativeText(flow.bridge.snapshot.turns[0].items[0].content), text);
   flow.bridge.close();
-  const reopened = new Bridge(flow.config);
+  const reopened = workflowBridge(flow, flow.config);
 
-  flow.cleanup(() => {
-    reopened.close();
-  });
   await reopened.ensureConnected();
   assert.equal(reopened.snapshot.turns.length, 1);
   const restored = await reopened.realtime.transcripts();
@@ -254,11 +251,8 @@ await test("uncertain voice delivery retains its receipt across restart and late
       ],
     })
   );
-  const reopened = new Bridge(flow.config);
+  const reopened = workflowBridge(flow, flow.config);
 
-  flow.cleanup(() => {
-    reopened.close();
-  });
   await reopened.ensureConnected();
   await reopened.realtime.retry(speech.id);
   assert.equal(reopened.snapshot.turns.length, 0);

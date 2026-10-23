@@ -1,6 +1,7 @@
-import { Bridge } from "../../src/server/bridge-session";
+import { workflowBridge } from "../fixtures/workflow-bridge";
 import { ScheduleStore } from "../../src/server/schedules";
 import { Scheduler } from "../../src/server/scheduler";
+import { visibleSnapshot } from "../../src/server/visible-snapshot";
 import { nativeText } from "../../src/server/harness/transcript";
 import { eventually, nativeWorkspace } from "../fixtures/workflow";
 import assert from "node:assert/strict";
@@ -11,11 +12,8 @@ const DUE = Date.parse("2026-10-20T16:00:00Z");
 
 await test("Codex delivery retains identical messages as distinct receipts and retries once across reconnect", async (t) => {
   const fixture = await nativeWorkspace(t, { turn: { chunks: ["Saved ", "answer ✓"] } });
-  const bridge = new Bridge(fixture.config);
+  const bridge = workflowBridge(fixture, fixture.config);
 
-  fixture.cleanup(() => {
-    bridge.close();
-  });
   await bridge.ensureConnected();
   assert.equal(bridge.snapshot.turns.length, 0);
 
@@ -29,11 +27,8 @@ await test("Codex delivery retains identical messages as distinct receipts and r
   const before = structuredClone(bridge.snapshot.turns);
 
   bridge.close();
-  const reopened = new Bridge(fixture.config);
+  const reopened = workflowBridge(fixture, fixture.config);
 
-  fixture.cleanup(() => {
-    reopened.close();
-  });
   await reopened.ensureConnected();
   assert.deepEqual(await reopened.send("second", "Repeat this exact message."), { id: "second", status: "sent" });
   assert.deepEqual(reopened.snapshot.turns.slice(0, 2), before);
@@ -84,11 +79,8 @@ await test("a Codex question accepts ordered corrections and an answer in the or
       ],
     },
   });
-  const bridge = new Bridge(fixture.config);
+  const bridge = workflowBridge(fixture, fixture.config);
 
-  fixture.cleanup(() => {
-    bridge.close();
-  });
   await bridge.send("original", "Write the notes.");
   await eventually(() => bridge.snapshot.requests.length === 1, "The native question must reach the parent");
   const turnId = bridge.snapshot.activeTurnId;
@@ -98,11 +90,8 @@ await test("a Codex question accepts ordered corrections and an answer in the or
   await bridge.answer(bridge.snapshot.requests[0].id, { answers: { color: { answers: ["Blue"] } } });
   await eventually(() => !bridge.snapshot.activeTurnId, "Answering must finish the original turn");
   bridge.close();
-  const reopened = new Bridge(fixture.config);
+  const reopened = workflowBridge(fixture, fixture.config);
 
-  fixture.cleanup(() => {
-    reopened.close();
-  });
   await reopened.ensureConnected();
   assert.equal(reopened.snapshot.turns.length, 1);
   assert.equal(reopened.snapshot.turns[0].id, turnId);
@@ -124,15 +113,12 @@ await test("a Codex question accepts ordered corrections and an answer in the or
 
 await test("a due schedule delivers once through the real bridge and retains history after deletion", async (t) => {
   const fixture = await nativeWorkspace(t, { turn: { chunks: ["Project status checked."] } });
-  const bridge = new Bridge(fixture.config);
+  const bridge = workflowBridge(fixture, fixture.config);
   const store = new ScheduleStore(fixture.directory);
   const scheduler = new Scheduler(store, bridge, fixture.parent.id);
 
   fixture.cleanup(() => {
     store.close();
-  });
-  fixture.cleanup(() => {
-    bridge.close();
   });
   const job = await store.create(
     fixture.parent.id,
@@ -153,7 +139,16 @@ await test("a due schedule delivers once through the real bridge and retains his
   assert.equal(runs.length, 1);
   assert.equal(runs[0].status, "sent");
   assert.equal(bridge.snapshot.turns.length, 1);
-  assert.equal(nativeText(bridge.snapshot.turns[0].items[0].content), "Read the project status.");
+  const [marker, envelope] = nativeText(bridge.snapshot.turns[0].items[0].content).split("\n", 2);
+
+  assert.equal(marker, "[POCKET_INTERNAL_CONTEXT]");
+  assert.deepEqual(JSON.parse(envelope), {
+    source: `scheduled_task:${runs[0].id}`,
+    visibility: "internal",
+    userDelivery: "not_delivered_by_this_message",
+    authority: "context_only_no_new_user_authorization",
+    content: "Read the project status.",
+  });
   assert.equal(
     bridge.snapshot.turns[0].items.find((item) => item.type === "agentMessage")?.text,
     "Project status checked."
@@ -161,4 +156,11 @@ await test("a due schedule delivers once through the real bridge and retains his
   store.delete(fixture.parent.id, job.id);
   assert.deepEqual(store.list(fixture.parent.id), []);
   assert.equal(store.occurrences.list(fixture.parent.id)[0].body, "Read the project status.");
+  bridge.refreshScheduled();
+  assert.deepEqual(
+    visibleSnapshot(bridge.snapshot)
+      .turns.flatMap((turn) => turn.items)
+      .map((item) => [item.type, item.text]),
+    [["agentMessage", "Project status checked."]]
+  );
 });
