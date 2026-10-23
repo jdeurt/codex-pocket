@@ -129,16 +129,16 @@ function MeasuredTranscript({
 }) {
   const viewport = useRef<HTMLDivElement>(null);
   const savedOffset = useRef<number | undefined>(undefined);
+  const initialEnd = useRef(!bookmark || bookmark.atEnd);
   const [follow, setFollow] = useState(bookmark?.atEnd ?? true);
 
   const [activityMeasurements] = useState<ActivityMeasurements>(() => new Map());
   const rangeExtractor = useCallback((range: Range) => transcriptRange(rows, expanded, range), [rows, expanded]);
 
   // Keep the ordinary content row mounted so pending answer drafts survive recycling.
-  const footerKey = `footer:${rows.at(LAST_ITEM)?.id ?? "empty"}`;
   const getItemKey = useCallback(
-    (index: number) => (index === rows.length ? footerKey : rows[index].id),
-    [rows, footerKey]
+    (index: number) => (index === rows.length ? "transcript-footer" : rows[index].id),
+    [rows]
   );
   const { virtualizer, layout } = useTranscriptVirtualizer({
     count: rows.length + 1,
@@ -180,20 +180,20 @@ function MeasuredTranscript({
   const footerRow = items.at(LAST_ITEM);
   const blockStart = messages.at(0)?.start ?? footerRow?.start ?? 0;
   const resumeFollow = () => {
-    if (!suspended) {
-      setFollow(true);
+    if (suspended) {
+      return;
     }
+
+    initialEnd.current = false;
+    setFollow(true);
   };
 
-  if (suspended && follow) {
-    setFollow(false);
-  }
-
   useLayoutEffect(() => {
-    if (!bookmark || bookmark.atEnd) {
+    // Initial footer and viewport measurements can arrive after the first end command.
+    if (!suspended && initialEnd.current) {
       virtualizer.scrollToEnd();
     }
-  }, [bookmark, virtualizer]);
+  }, [virtualizer, layout.size, layout.height, suspended]);
   useEffect(
     () => (storageKey ? subscribeTranscriptBookmark(storageKey, virtualizer, expanded) : undefined),
     [storageKey, virtualizer, expanded]
@@ -223,6 +223,9 @@ function MeasuredTranscript({
             onTouchStart={resumeFollow}
             onPointerDown={resumeFollow}
             onKeyDown={resumeFollow}
+            onScroll={({ currentTarget: target }) => {
+              initialEnd.current &&= target.scrollTop + target.clientHeight >= target.scrollHeight - END_THRESHOLD;
+            }}
           >
             <div className="transcript" style={{ paddingBlock: 0, minHeight: "100%", justifyContent: "flex-end" }}>
               <div style={{ height: layout.size, position: "relative", flexShrink: 0 }}>
