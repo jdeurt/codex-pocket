@@ -8,6 +8,15 @@ export const dynamic = "force-dynamic";
 
 const command = z.discriminatedUnion("action", [
   z.object({ action: z.literal("start") }).strict(),
+  z.object({ action: z.literal("retry"), id: z.string().min(1) }).strict(),
+  z
+    .object({
+      action: z.literal("truncate"),
+      token: z.uuid(),
+      itemId: z.string().min(1),
+      audioEndMs: z.number().int().nonnegative(),
+    })
+    .strict(),
   z.object({ action: z.literal("stop"), token: z.uuid() }).strict(),
   z.object({ action: z.literal("audio"), token: z.uuid(), audio: z.unknown() }).strict(),
   z
@@ -57,6 +66,17 @@ export async function POST(request: Request) {
       case "audio": {
         realtime.append(input.token, input.audio);
         result = { accepted: true };
+        break;
+      }
+
+      case "truncate": {
+        realtime.truncate(input.token, input.itemId, input.audioEndMs);
+        result = { accepted: true };
+        break;
+      }
+
+      case "retry": {
+        result = await realtime.retry(input.id);
         break;
       }
 

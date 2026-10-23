@@ -1,5 +1,5 @@
 /* eslint-disable jsdoc/require-param, jsdoc/require-returns, @typescript-eslint/no-magic-numbers -- These business flows exercise real local WebSocket and private-state persistence boundaries. */
-import { type Data, dataSchema } from "../../src/lib/protocol";
+import { type Data, dataSchema, object } from "../../src/lib/protocol";
 import { OpenAIVoiceSession } from "../../src/server/openai-voice-session";
 import { type VoiceSessionOwner } from "../../src/server/voice-session-owner";
 import { type RawData, type WebSocket, WebSocketServer } from "ws";
@@ -60,17 +60,34 @@ export async function openAIVoiceFixture() {
 
       frames.push(event);
 
-      if (event.type === "session.update") {
-        peer.send(JSON.stringify({ type: "session.updated", session: { id: "provider-session" } }));
-      } else if (event.type === "input_audio_buffer.commit") {
-        peer.send(JSON.stringify({ type: "input_audio_buffer.committed", item_id: "tail-speech" }));
-        peer.send(
-          JSON.stringify({
-            type: "conversation.item.input_audio_transcription.completed",
-            item_id: "tail-speech",
-            transcript: "Final words while switching.",
-          })
-        );
+      switch (event.type) {
+        case "session.update": {
+          peer.send(JSON.stringify({ type: "session.updated", session: { id: "provider-session" } }));
+          break;
+        }
+
+        case "response.create": {
+          peer.send(
+            JSON.stringify({
+              type: "response.created",
+              response: { id: "fixture-response", metadata: object(event.response).metadata },
+            })
+          );
+          break;
+        }
+
+        case "input_audio_buffer.commit": {
+          peer.send(JSON.stringify({ type: "input_audio_buffer.committed", item_id: "tail-speech" }));
+          peer.send(
+            JSON.stringify({
+              type: "conversation.item.input_audio_transcription.completed",
+              item_id: "tail-speech",
+              transcript: "Final words while switching.",
+            })
+          );
+          break;
+        }
+        // No default
       }
     });
   });
@@ -105,7 +122,19 @@ export async function openAIVoiceFixture() {
     events,
     endpoint,
     auth: () => authorization,
-    emit: (event: Data) => socket?.send(JSON.stringify(event)),
+    emit: (event: Data) => {
+      if (event.type === "response.done") {
+        const request = frames.findLast((frame) => frame.type === "response.create");
+
+        event = { ...event, response: { metadata: object(request?.response).metadata, ...object(event.response) } };
+      }
+
+      if (event.type === "response.output_audio.delta" || event.type === "response.output_audio_transcript.done") {
+        event = { response_id: "fixture-response", ...event };
+      }
+
+      socket?.send(JSON.stringify(event));
+    },
     drop: () => socket?.terminate(),
     async close() {
       voice.disconnect("Fixture finished.");

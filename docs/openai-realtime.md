@@ -1,52 +1,39 @@
 # OpenAI realtime voice
 
-Pocket uses OpenAI Realtime for microphone input and spoken responses. An OpenAI API key must be configured in central Settings. The key stays on the server, and each new voice session reads the current key, voice, and model preferences. No native Codex realtime methods are called.
+Pocket streams mono PCM16 at 24 kHz from the browser through its server to OpenAI Realtime. The server owns the provider WebSocket and credentials. Browser capture and playback have one lifecycle owner, and provider events have one serial persistence/delivery owner. Production uses OpenAI; only the development fixture can select a loopback provider.
 
-## Speech and handoffs
+## Turn ownership
 
-The browser sends bounded PCM16 mono audio at 24 kHz to its selected Pocket. `OpenAIRealtime` owns the authenticated provider WebSocket and waits for `session.updated` before accepting microphone input. Production connects to OpenAI; the development fixture can select only an explicit loopback WebSocket endpoint. The browser cannot select a provider endpoint or obtain the key.
+Semantic VAD with low eagerness gives unfinished phrases and fillers time to complete. Automatic provider responses are disabled: Pocket waits for the committed speech items' final transcripts before requesting a response. This is a transcript barrier, not an audio buffer. Microphone audio continues streaming while transcription, main-agent work, or output playback runs.
 
-`OpenAIVoiceSession` stores finalized speech in private host storage before displaying it or permitting a handoff. Entries include the exact transcript, provider item ID, session ID, role, and optional delivery status. Audio is not persisted or logged. Stable entry IDs prevent duplicate display when events repeat or history reloads.
+`VoiceTurns` tracks speech identities in provider order, independently of transcription completion order. A response owns an immutable ordered list of speech items and a unique key echoed through provider response metadata. A later final, including “Um”, cannot replace its input. The handoff tool has no arguments: the host already owns the response identity, so the model never has to copy opaque item IDs or choose source text. Unexpected tool arguments remain a hard error. Duplicate or stale response completions cannot execute another turn's tool call. Output is accepted only for the active provider response; barge-in stops browser playback, suppresses late output, and sends the played duration through `conversation.item.truncate`.
 
-The voice model can call only `handoff_to_pocket({ item_id })`. Handoffs run only after `response.done` confirms a completed response; streamed function arguments from cancelled or incomplete responses cannot execute work. The server resolves that ID against the latest finalized user speech in the current session. Missing speech, stale item IDs, extra instructions, and changed final transcripts fail closed. The main session receives the saved transcript unchanged through `Bridge.handoff`, with receipt ID `realtime:<sessionId>:<itemId>` and explicit source metadata. Generated tool instructions do not become user messages.
+Cancelled responses cannot dispatch tools. Their saved speech remains available and joins the next completed utterance, preserving the original words and any correction. A completed multi-segment handoff sends those exact segments joined by newlines. Known filler-only input cannot dispatch. The model is instructed to clarify unfinished requests and emit only the handoff tool call when delegating, without claiming acceptance before a tool result.
 
-The handoff ledger records an attempt before dispatch, and the main outbox verifies the receipt's content and source on retries. Duplicate tool calls reuse the existing result. Interrupted delivery becomes uncertain after reload and is never replayed automatically. The browser uses canonical receipt identity (`id` for Pi and `clientId` for Codex) to omit a duplicate voice copy once the main conversation or queue owns visible user text. An empty canonical item does not hide finalized speech while its text is still hydrating. It does not infer provenance from XML text. Intentionally pasted XML stays visible; historical native messages without provenance are not silently reclassified by their contents.
+The old “latest finalized item” check was incorrect: an asynchronous final from a different speech item could invalidate a legitimate in-flight response. Response ownership replaces that mutable global check; strict argument validation and immutable saved transcripts remain.
 
-Stopping voice drains captured input and bounds the wait for a finalized transcript. Missing final speech produces a visible error. Finalized speech and the unsent text draft survive mode switching and page reload. A speech-start event clears queued playback. Microphone tracks are released on stop, permission cancellation, input loss, provider failure, and Pocket switching.
+## Delivery and recovery
 
-## Shared interfaces
+`VoiceHistory` saves finalized text, explicit role, provider identity, predecessor anchor, and handoff receipt/status in private host storage. Audio is neither persisted nor logged. A grouped turn uses one durable receipt shared by all its segments. The main outbox checks the receipt's content and source before accepting a retry.
 
-Settings dependency: `f09c33e` on `codex/jua-68-settings-credentials`.
+The ledger records `sending` before dispatch. Duplicate calls return the saved result. A lost dispatch acknowledgment becomes `unknown`; restart also treats an unfinished attempt as unknown. Pocket never automatically replays an uncertain action. Only accepted `sent` or `queued` results produce those UI labels.
 
-- `readOpenAIApiKey(): Promise<string | null>` in `src/server/pocket-settings.ts` resolves the server-only credential.
-- `readPocketSettings()` exposes nullable `realtimeVoice` and `realtimeModel` overrides. Null selects Voice's provider defaults, `marin` and `gpt-realtime-2.1`.
-- `updatePocketSettings()` owns partial preference updates. The previous per-thread realtime preference files are no longer read or written.
+Provider/configuration failures release capture and output. Missing transcription and response completion have bounded deadlines. Starting again creates fresh ownership and never reuses a previous microphone token. On normal stop, Pocket drains captured input, waits a bounded time for final speech, then closes the provider. History refresh runs even if stop finalization fails, so saved text remains available.
 
-Harness dependency: `05df03e` on `codex/jua-67-jua-71-pi-context`, including the agreed source-aware handoff interface.
+Unsent finalized user speech has a **Send saved speech** action. Stop voice first, review the saved text, then send it explicitly. This uses the original receipt and serialized delivery path. It neither edits the draft nor consumes its attachments. Uncertain attempts display a check-before-retrying notice and have no resend action. Unfinalized audio cannot be reconstructed after a disconnect; the error remains visible so the user can finish or repeat it deliberately.
 
-```ts
-Bridge.handoff({
-  id,
-  transcript,
-  source: { type: "realtime", sessionId, itemId },
-}): Promise<{ id: string; status: string }>
-```
+## One transcript
 
-`handoff` shares the durable receipt path with `send`. The main agent can read saved finalized speech through `pocket_realtime_inspect` when a request refers to earlier spoken context. Voice validates returned delivery statuses, preserves uncertain outcomes, and leaves main-runtime ownership with the harness workstream. Both dependency histories are integrated into this branch. The Pi runtime is inherited unchanged from the harness workstream; voice commits implement the provider connection, history, and handoff consumer.
+Main and voice messages share the virtualized transcript. Saved voice messages carry predecessor item IDs observed when speech begins or commits. The renderer inserts them at those anchors, preserving provider speech order even when final transcripts arrive in another order. Main messages retain their native order. Receipt identity reconciles voice handoffs with canonical main messages; equal text never implies duplication.
+
+This replaces the old layout that rendered every main turn first and every voice entry afterward. A typed or spoken follow-up and its response now follow earlier voice activity. Legacy speech without anchors retains its saved order at the tail because its original position cannot be recovered reliably from timestamps.
+
+Pi projects accepted steering text immediately, before its current tool finishes. Later native user events update the original receipt in its original turn, including after cancellation and continuation. They do not erase the accepted follow-up while waiting for native consumption.
 
 ## Verification
 
-Local WebSocket business flows cover exact speech and pasted XML, audio exchange, strict handoff arguments, stale-item rejection, duplicate suppression, provider recovery, stop-time finalization, private configuration failures, and uncertain delivery after reload. Browser flows exercise the real app, central Settings, local provider, and durable main-session outbox with a dummy key.
+Provider-boundary business flows use real local WebSockets and private history/outbox persistence. They cover the reported filler race, reordered final transcripts, partial events, grouped speech, duplicate completions, repeated identical requests, strict arguments, cancellation, disconnect, stop finalization, and uncertain delivery. Browser flows use the real app and local provider with dummy credentials. They exercise failed handoff followed by text, explicit recovery, reload, spoken interruption, audio playback truncation, and draft/attachment cleanup. The real Pi-session integration uses an offline provider and actual tools to verify accepted steering visibility.
 
-The realtime browser collection retains gesture activation/cancellation, microphone cleanup, draft/attachment preservation, Pocket isolation, backpressure, reconnect, and active-tool steering coverage. Native Codex close-acknowledgment and media-RPC cases have been replaced with OpenAI token isolation, transcription deadlines, and source-aware handoff/reload flows.
+Run only named cases locally. CI owns full-suite validation and Chromium/WebKit coverage. These fixtures verify application/protocol behavior; they do not validate live OpenAI turn detection, microphone accuracy, device echo, or network performance. No live credentials or paid calls are needed for this suite.
 
-Run only relevant named cases during development, for example:
-
-```sh
-node --import tsx scripts/test-flows.ts tests/openai-voice-flow.test.ts --test-name-pattern='OpenAI voice'
-npx playwright test --config=playwright.realtime.config.ts --project=realtime-chromium-phone --grep 'configured OpenAI voice hands off'
-```
-
-CI owns full-suite validation. Live OpenAI audio verification remains unperformed because this workspace must not configure real credentials.
-
-Protocol references: [WebSocket connections](https://developers.openai.com/api/docs/guides/realtime-websocket), [conversation events](https://developers.openai.com/api/docs/guides/realtime-conversations), and [transcription](https://developers.openai.com/api/docs/guides/realtime-transcription).
+Protocol references: [Realtime conversations and function results](https://developers.openai.com/api/docs/guides/realtime-conversations), [semantic VAD](https://developers.openai.com/api/docs/guides/realtime-vad), and [WebSocket transport](https://developers.openai.com/api/docs/guides/realtime-websocket). WebSocket playback requires explicit client truncation; WebRTC would move playback ownership to the provider but also replace the existing authenticated transport and device integration. This change retains the supported transport and simplifies its turn and playback ownership.
