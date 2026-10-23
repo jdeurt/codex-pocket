@@ -9,6 +9,8 @@ import { FileAttachments } from "./file-attachments";
 import { Markdown } from "./markdown";
 import { SystemEvent } from "./system-event";
 import { ToolMessage } from "./tool-message";
+import { VoiceMessage } from "./voice-message";
+import { voiceSegmentSchema } from "@/lib/voice-history";
 
 /**
 Keep durable file metadata ahead of native image-only attachment fallback.
@@ -82,6 +84,12 @@ Dispatch restart notes, normalized tool traces and ordinary conversation message
 @returns The matching shared message presentation.
 */
 export function ChatMessage({ item }: { item: Item }) {
+  if (item.type === "voiceMessage") {
+    const segment = voiceSegmentSchema.parse(item.voice);
+
+    return <VoiceMessage segment={segment} />;
+  }
+
   if (item.type === "delegateReport" && item.delegateReport) {
     return <DelegateReport report={item.delegateReport} />;
   }

@@ -106,3 +106,58 @@ export function piItems(message: AgentMessage, turn: Turn, userId?: string): Ite
     }
   });
 }
+
+/**
+Reconcile accepted user receipts with Pi's later message events, including queued steering.
+*/
+export class PiMessages {
+  private identities = new WeakMap<object, string>();
+  userIds: string[] = [];
+  promptId?: string;
+
+  /** Project each native user message onto its original accepted receipt and turn.
+  @param message - Native Pi event payload.
+  @param active - Currently executing turn.
+  @param turns - Durable projection containing earlier accepted inputs.
+  @param threadId - Parent conversation identity.
+  @param emit - Bridge event sink.
+  */
+  publish(message: AgentMessage, active: Turn, turns: Turn[], threadId: string, emit: (event: RpcEvent) => void) {
+    let userId: string | undefined;
+
+    if (message.role === "user") {
+      userId = this.identities.get(message) ?? this.promptId ?? this.userIds.shift();
+      this.promptId = undefined;
+
+      if (userId) {
+        this.identities.set(message, userId);
+      }
+    }
+
+    const target = userId ? (turns.find((turn) => turn.items.some((item) => item.id === userId)) ?? active) : active;
+
+    publishPiItems(target, piItems(message, target, userId), threadId, emit);
+  }
+}
+
+/** Make accepted steering visible before Pi finishes its current tool.
+@param turn - Original turn accepting the input.
+@param receiptId - Durable submission identity.
+@param text - Exact accepted text.
+@param threadId - Parent conversation identity.
+@param emit - Bridge event sink.
+*/
+export function publishAcceptedPiInput(
+  turn: Turn,
+  receiptId: string,
+  text: string,
+  threadId: string,
+  emit: (event: RpcEvent) => void
+) {
+  publishPiItems(
+    turn,
+    [{ id: receiptId, clientId: receiptId, type: "userMessage", source: "pi", content: [{ type: "text", text }] }],
+    threadId,
+    emit
+  );
+}

@@ -15,6 +15,7 @@ const results = new Map<string, unknown>([
     },
   ],
   ["thread/turns/list", { data: [turn], nextCursor: null }],
+  ["turn/steer", { turnId: turn.id }],
 ]);
 
 createInterface({ input: process.stdin }).on("line", (line) => {
@@ -25,4 +26,18 @@ createInterface({ input: process.stdin }).on("line", (line) => {
   }
 
   process.stdout.write(JSON.stringify({ id, result: results.get(method) ?? {} }) + "\n");
+
+  if (method === "thread/resume") {
+    process.stdout.write(
+      JSON.stringify({
+        method: "item/started",
+        params: {
+          threadId: "spinner-fixture",
+          turnId: turn.id,
+          startedAtMs: Date.now(),
+          item: { id: "spinner-reasoning", type: "reasoning", summary: [], content: [] },
+        },
+      }) + "\n"
+    );
+  }
 });
