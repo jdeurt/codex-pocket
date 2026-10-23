@@ -21,12 +21,16 @@ function sessionOrigin() {
 /**
 Call only this main Pocket's typed control route; never open another native connection.
 @param settings - Optional explicit model/effort mutation; omission performs inspection.
+@param hasCatalogRequest - Whether to inspect Pi's native catalog instead of session settings.
 @returns The connected host's effective settings or an explicit error without replay.
 */
-export async function callSession(settings?: z.infer<typeof sessionSettingsSchema>) {
+export async function callSession(settings?: z.infer<typeof sessionSettingsSchema>, hasCatalogRequest = false) {
   const origin = sessionOrigin();
   const response = await fetch(
-    new URL(`/api/session?pocket=${encodeURIComponent(process.env.POCKET_ID ?? "main")}`, origin),
+    new URL(
+      `/api/session?pocket=${encodeURIComponent(process.env.POCKET_ID ?? "main")}${hasCatalogRequest ? "&catalog=models" : ""}`,
+      origin
+    ),
     {
       method: settings ? "POST" : "GET",
       headers: { Origin: origin, "Content-Type": "application/json" },

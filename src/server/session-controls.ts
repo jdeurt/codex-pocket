@@ -36,7 +36,7 @@ export class SessionControls {
       throw new Error("Native settings were accepted but readback is unavailable. Inspect before retrying.");
     }
 
-    return this.persist(threadId, model, string(thread.reasoningEffort));
+    return this.persist(threadId, model, string(thread.reasoningEffort), thread.harness === "pi");
   }
 
   /**
@@ -44,13 +44,20 @@ export class SessionControls {
   @param threadId - Owning saved native parent.
   @param model - Confirmed model identifier.
   @param effort - Confirmed reasoning effort, empty when unavailable.
+  @param isPi - Whether native delegate defaults must remain independent of Pi catalog choices.
   @returns Current inspection response.
   */
-  private async persist(threadId: string, model: string, effort: string) {
+  private async persist(threadId: string, model: string, effort: string, isPi: boolean) {
     const parent = delegations().parent(threadId);
 
     await saveSessionSettings(threadId, { model, ...(effort && { effort }) });
-    delegations().saveParent(threadId, { ...parent, policy: { ...parent.policy, model, effort: effort || null } });
+    const nativeModel = isPi ? parent.policy.model : model;
+    const nativeEffort = isPi ? parent.policy.effort : effort || null;
+
+    delegations().saveParent(threadId, {
+      ...parent,
+      policy: { ...parent.policy, model: nativeModel, effort: nativeEffort },
+    });
     this.owner.snapshot.model = model;
     this.owner.snapshot.reasoningEffort = effort || null;
     this.publish();
@@ -89,6 +96,7 @@ export class SessionControls {
       effort: state.reasoningEffort ?? null,
       activeTurnId: state.activeTurnId ?? null,
       connection: state.connection,
+      executionBoundary: state.executionBoundary ?? "Native harness configuration",
       usage: contextUsage(state.usage),
       lastCompactionAt: state.lastCompactionAt ?? null,
       effectiveFor: "subsequent turns; active work is unchanged",
@@ -107,5 +115,14 @@ export class SessionControls {
 
       return this.updateConnected(settings);
     });
+  }
+
+  /** Read Pi's native provider/model catalog over the existing parent connection.
+  @returns Available catalog selections, without credentials or additional inference.
+  */
+  async models() {
+    await this.owner.ensureConnected();
+
+    return this.owner.agentReader().request("pocket/models");
   }
 }

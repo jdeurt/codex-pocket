@@ -73,6 +73,7 @@ export async function resumePocket(rpc: CodexRpc, config: Config) {
     ...(effort && { config: { model_reasoning_effort: effort } }),
     developerInstructions: instructions,
   });
+  const isPi = resumed.thread.harness === "pi";
   const sandboxModes: Record<string, string> = {
     dangerFullAccess: "danger-full-access",
     readOnly: "read-only",
@@ -85,8 +86,9 @@ export async function resumePocket(rpc: CodexRpc, config: Config) {
       ...effective,
       sandbox_mode: sandboxModes[resumed.sandbox?.type ?? ""] ?? effective.sandbox_mode,
       approval_policy: resumed.approvalPolicy ?? effective.approval_policy,
-      model: resumed.model,
-      model_reasoning_effort: resumed.reasoningEffort ?? effort,
+      // Native delegates keep their own catalog/defaults; arbitrary Pi models and thinking levels are not native IDs.
+      model: isPi ? string(effective.model) : resumed.model,
+      model_reasoning_effort: isPi ? string(effective.model_reasoning_effort) : (resumed.reasoningEffort ?? effort),
     }),
   });
 

@@ -2,7 +2,7 @@
 
 A main Pocket can delegate a task to a separate **Side Pocket** running Codex or Claude Code. Ask it to delegate work, and name the agent you want when that matters. The child keeps its own conversation and sends questions, progress, and results back to the parent.
 
-Main Pockets run Codex. Side Pockets are delegated workers, separate from the named conversations in the top-left Pockets menu.
+Main Pockets run Pi; see the [migration support and permission limits](pi-main-context.md). Side Pockets are delegated workers, separate from the named conversations in the top-left Pockets menu.
 
 ## Start and follow delegated work
 
@@ -16,7 +16,7 @@ Pocket runs up to eight child turns concurrently across both harnesses, excludin
 
 ## Claude Code setup and permissions
 
-Claude delegation requires Claude Code installed and signed in on the Mac. Pocket discovers its executable or uses `POCKET_CLAUDE_BINARY` from `~/.pocket/.env.local`. `POCKET_CLAUDE_MODEL` sets the default Claude model; a model chosen for a particular child takes precedence. Codex children inherit the parent's model by default. Children inherit reasoning effort, with Codex `minimal` mapped to Claude `low`.
+Claude delegation requires Claude Code installed and signed in on the Mac. Pocket discovers its executable or uses `POCKET_CLAUDE_BINARY` from `~/.pocket/.env.local`. `POCKET_CLAUDE_MODEL` sets the default Claude model; a model chosen for a particular child takes precedence. Codex children use the host's native Codex model and reasoning defaults. Pi's main-session catalog choices are independent; choose a native model or effort explicitly for a child when needed. Claude maps native Codex `minimal` effort to `low`.
 
 Codex children use the parent's native sandbox and approval policy. Claude currently requires the parent to use `danger-full-access` with approval policy `never`; Pocket maps that to Claude `bypassPermissions`, permission skipping, and a disabled sandbox. It rejects other profiles because it cannot map their restrictions exactly. This gives Claude unrestricted access without approval prompts. Check the intended policy before enabling it.
 

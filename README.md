@@ -1,6 +1,6 @@
 # Pocket
 
-Pocket lets you work with Codex on your computer from your phone. Send a task, follow its progress, answer questions, and read the result without staying at your desk. The agents run on your computer and use its files, tools, and configured permissions.
+Pocket runs a configurable Pi conversation on your computer, with Codex and Claude Code delegates you can manage from your phone. Send a task, follow its progress, answer questions, and read the result without staying at your desk. Pi runs within the host process's machine and environment permissions; native delegates retain their own harness settings.
 
 You can keep separate named conversations, delegate work to Codex or Claude Code in **Side Pockets**, and bring existing Codex sessions into Pocket. Messages stream live, and the phone app supports file attachments, scheduled tasks, and push notifications.
 
@@ -14,7 +14,7 @@ Run in a terminal on your Mac:
 curl -fsSL https://raw.githubusercontent.com/jdeurt/codex-pocket/main/install.sh | bash
 ```
 
-Follow the prompts to sign in to Codex, choose a working folder and permissions, and optionally enter your phone's HTTPS address. Setup builds Pocket, creates its first conversation, and starts a service that runs when you log in. Open [localhost:3000](http://localhost:3000) on the Mac to try it.
+Follow the prompts to sign in to Codex, choose a working folder and native Codex permissions, and optionally enter your phone's HTTPS address. Setup builds Pocket, creates its first conversation, and starts a service that runs when you log in. Open [localhost:3000](http://localhost:3000) on the Mac and add an OpenAI API key in **Settings** to start the Pi main session. Codex sandbox settings apply to native work, not Pi.
 
 Pocket keeps its installation, settings, logs, and default working folder under `~/.pocket`. Codex and Claude Code keep their own native session storage. See [installation and updates](docs/installation.md) for unattended setup, storage paths, and recovery.
 

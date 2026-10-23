@@ -98,7 +98,7 @@ Collects and validates the permissions choice when no server arguments are confi
 @returns {Promise<string | undefined>} Explicit full-access arguments, or undefined for native defaults.
 */
 async function selectedServerArgs(prompt) {
-  const selection = await ask(prompt, "Codex permissions: default or full", "default");
+  const selection = await ask(prompt, "Native Codex permissions: default or full", "default");
 
   if (!["default", "full"].includes(selection)) {
     throw new Error("Choose default or full for Codex permissions.");

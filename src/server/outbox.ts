@@ -1,4 +1,4 @@
-import { type QueuedMessage, queuedMessageSchema } from "../lib/protocol";
+import { type MessageSource, type QueuedMessage, queuedMessageSchema } from "../lib/protocol";
 import { readLocal, writeLocal } from "./local-state";
 import { type FileAttachment } from "../lib/attachments";
 import { z } from "zod";
@@ -9,6 +9,7 @@ export interface Receipt {
   id: string;
   text: string;
   attachments?: FileAttachment[];
+  source?: MessageSource;
   status: QueuedMessage["status"];
 }
 export const outboxSchema = z.object({ threadId: z.string(), receipts: z.array(queuedMessageSchema) });
