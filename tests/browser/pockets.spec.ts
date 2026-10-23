@@ -162,7 +162,7 @@ test("central Settings persist tool visibility and write-only API keys across re
   request,
 }, info) => {
   const headers = { Origin: POCKETS_ORIGIN };
-  const reset = { showToolCalls: false, openaiApiKey: null };
+  const reset = { showToolCalls: false, openaiApiKey: null, realtimeVoice: null, realtimeModel: null };
   const key = "sk-pocket-synthetic-browser-only";
   const replacement = "sk-pocket-synthetic-replacement-only";
   const checkbox = page.getByRole("checkbox", { name: "Show tool calls" });
@@ -178,6 +178,10 @@ test("central Settings persist tool visibility and write-only API keys across re
     await expect(checkbox).not.toBeChecked();
     await checkbox.check();
     await expect(page.getByRole("status").filter({ hasText: "Settings saved." })).toBeVisible();
+    await page.getByLabel("Realtime voice", { exact: true }).fill("marin");
+    await page.getByLabel("Realtime model", { exact: true }).fill("gpt-realtime-synthetic");
+    await page.getByRole("button", { name: "Save realtime settings", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Save realtime settings", exact: true })).toBeEnabled();
     await expect(input).toHaveAttribute("type", "password");
     await input.fill(key);
     await page.getByRole("button", { name: "Save API key", exact: true }).click();
@@ -189,6 +193,8 @@ test("central Settings persist tool visibility and write-only API keys across re
 
     expect(publicSettings).toEqual({
       showToolCalls: true,
+      realtimeVoice: "marin",
+      realtimeModel: "gpt-realtime-synthetic",
       openaiApiKeyConfigured: true,
       openaiApiKeySource: "saved",
     });
@@ -202,6 +208,8 @@ test("central Settings persist tool visibility and write-only API keys across re
     await page.reload();
     await openSettings(page);
     await expect(checkbox).toBeChecked();
+    await expect(page.getByLabel("Realtime voice", { exact: true })).toHaveValue("marin");
+    await expect(page.getByLabel("Realtime model", { exact: true })).toHaveValue("gpt-realtime-synthetic");
     await expect(page.getByText("API key configured.", { exact: true })).toBeVisible();
     await expect(input).toHaveValue("");
 
@@ -213,6 +221,23 @@ test("central Settings persist tool visibility and write-only API keys across re
     await page.getByRole("button", { name: "Remove saved key", exact: true }).click();
     await expect(page.getByText("No API key configured.", { exact: true })).toBeVisible();
     await expect(other.getByText("No API key configured.", { exact: true })).toBeVisible();
+    await page.getByLabel("Realtime voice", { exact: true }).fill("");
+    await page.getByLabel("Realtime model", { exact: true }).fill("");
+    await page.getByRole("button", { name: "Save realtime settings", exact: true }).click();
+    await expect
+      .poll(async () => {
+        const settings = await request.get("/api/settings");
+        const value: unknown = await settings.json();
+
+        return value;
+      })
+      .toEqual({
+        showToolCalls: false,
+        realtimeVoice: null,
+        realtimeModel: null,
+        openaiApiKeyConfigured: false,
+        openaiApiKeySource: null,
+      });
 
     const overflow = await page.getByRole("dialog", { name: "Settings", exact: true }).evaluate((dialog) => {
       return dialog.scrollWidth - dialog.clientWidth;

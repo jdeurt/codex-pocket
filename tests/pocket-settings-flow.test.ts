@@ -55,7 +55,10 @@ async function readFromFreshProcess() {
     `import assert from 'node:assert/strict';
      import { readOpenAIApiKey, readPocketSettings } from './src/server/pocket-settings.ts';
      assert.equal(await readOpenAIApiKey(), ${JSON.stringify(SAVED_KEY)});
-     assert.equal((await readPocketSettings()).showToolCalls, true);`,
+     const settings = await readPocketSettings();
+     assert.equal(settings.showToolCalls, true);
+     assert.equal(settings.realtimeVoice, 'marin');
+     assert.equal(settings.realtimeModel, 'gpt-realtime-synthetic');`,
   ]);
 }
 
@@ -63,7 +66,11 @@ async function readFromFreshProcess() {
 @param directory - Disposable host state directory owned by this business flow.
 */
 async function persistSettings(directory: string) {
-  const responses = await Promise.all([update({ openaiApiKey: ` ${SAVED_KEY} ` }), update({ showToolCalls: true })]);
+  const responses = await Promise.all([
+    update({ openaiApiKey: ` ${SAVED_KEY} ` }),
+    update({ showToolCalls: true }),
+    update({ realtimeVoice: " marin ", realtimeModel: "gpt-realtime-synthetic" }),
+  ]);
 
   assert.equal(
     responses.every((response) => response.ok),
@@ -89,11 +96,13 @@ async function persistSettings(directory: string) {
 
   assert.deepEqual(pocketSettingsSchema.parse(await removed.json()), {
     showToolCalls: true,
+    realtimeVoice: "marin",
+    realtimeModel: "gpt-realtime-synthetic",
     openaiApiKeyConfigured: true,
     openaiApiKeySource: "environment",
   });
   assert.equal(await readOpenAIApiKey(), ENVIRONMENT_KEY);
-  await update({ showToolCalls: false });
+  await update({ showToolCalls: false, realtimeVoice: null, realtimeModel: null });
   assert.equal(await readOpenAIApiKey(), ENVIRONMENT_KEY);
   delete process.env.OPENAI_API_KEY;
   assert.equal(await readOpenAIApiKey(), null);
@@ -128,6 +137,8 @@ async function rejectUnsafeRequests(directory: string) {
     await update({ openaiApiKey: "" }),
     await update({ openaiApiKey: `${SAVED_KEY}\ninvalid` }),
     await update({ extra: SAVED_KEY }),
+    await update({ realtimeVoice: "invalid voice" }),
+    await update({ realtimeModel: "" }),
     await POST(
       new Request(`${ORIGIN}/api/settings`, {
         method: "POST",
@@ -177,6 +188,8 @@ await test("settings HTTP flow preserves partial updates, private keys, fresh-pr
     assert.equal(response.headers.get("Cache-Control"), "no-store");
     assert.deepEqual(pocketSettingsSchema.parse(await response.json()), {
       showToolCalls: false,
+      realtimeVoice: null,
+      realtimeModel: null,
       openaiApiKeyConfigured: false,
       openaiApiKeySource: null,
     });

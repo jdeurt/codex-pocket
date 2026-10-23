@@ -42,6 +42,8 @@ Keys, subscriptions, and delivery receipts are created automatically in `~/.pock
 
 Open **Pockets → Settings** using the gear in the top-left menu for global preferences and the **OpenAI API key** option. A key enables advanced functionality, including realtime. You can save, replace, or remove a saved key; its value is never displayed again. See [Pocket Settings](configuration.md#pocket-settings) for host storage and environment-key behavior.
 
+Set optional **Realtime voice** and **Realtime model** overrides there for the next voice session. Blank fields restore the provider defaults when saved.
+
 Ask Pocket to [schedule a task](schedules.md) when you want it to act later. Tasks run on the Mac, so they depend on the host staying available.
 
 You can ask Pocket to inspect or change its model and reasoning effort. Changes affect subsequent turns and future delegates that inherit defaults. Active turns and existing delegates keep their settings. See [session controls](session-controls.md) for the supported tools and accounting limits.

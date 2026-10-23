@@ -32,7 +32,7 @@
   height: 24px;
   accent-color: var(--primary);
 }
-.pocket-settings input[type="password"] {
+.pocket-settings input:not([type="checkbox"]) {
   width: 100%;
   min-width: 0;
   min-height: 44px;
