@@ -1,6 +1,6 @@
 "use client";
 import "./focused-composer.css";
-import { Alert, AlertDescription } from "@/components/ui/alert";
+import { ComposerError } from "./composer-error";
 import { ArrowUpIcon, MicIcon, PaperclipIcon, XIcon } from "lucide-react";
 import { type DraftAttachment, useAttachments } from "@/hooks/use-attachments";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
@@ -35,21 +35,6 @@ Require visible text or files and wait until every selected upload has a receipt
 */
 function hasMessage(text: string, files: DraftAttachment[]) {
   return (!!text.trim() || files.length > 0) && files.every((entry) => !!entry.uploaded);
-}
-
-/**
-Present the first actionable send, attachment or connection error beside the composer.
-@param props - Error sources in the order users can act on them.
-@returns The shared error alert when any source has failed.
-*/
-function ComposerError({ errors }: { errors: (string | undefined)[] }) {
-  const error = errors.find(Boolean);
-
-  return error ? (
-    <Alert variant="destructive" className="mb-3">
-      <AlertDescription>{error}</AlertDescription>
-    </Alert>
-  ) : null;
 }
 
 /**
@@ -218,6 +203,7 @@ export function Chat() {
           <NotificationPrompt />
           <ComposerError
             errors={[voice.error, error, attachments.error, state.error, state.connectionRetry?.message]}
+            dismissVoiceError={voice.error ? voice.dismissError : undefined}
           />
           {!isVoiceActive && (
             <ComposerAttachments

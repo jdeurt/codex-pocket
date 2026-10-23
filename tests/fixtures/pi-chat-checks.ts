@@ -165,6 +165,16 @@ async function checkSteering(flow: ChatFlow) {
     });
   }
 
+  const waiting = await snapshot(flow);
+
+  assert.deepEqual(
+    waiting.turns
+      .flatMap((turn) => turn.items)
+      .filter((item) => item.id === "steer-1" || item.id === "steer-2")
+      .map((item) => item.clientId),
+    ["steer-1", "steer-2"]
+  );
+
   flow.main.respond(question.id, { answers: { file: { answers: ["Yes"] } } });
   await waitFor(() => flow.events.slice(start).some((event) => event.method === "turn/completed"));
   const state = await snapshot(flow);

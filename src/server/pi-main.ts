@@ -5,7 +5,7 @@ import { piModel, piModelCatalog, piSettings, thinkingLevelSchema } from "./pi-m
 import { type Config } from "./config";
 import { type CodexRpc } from "./rpc";
 import { PiTaskContext } from "./pi-task-context";
-import { piItems, publishPiItems } from "./pi-projection";
+import { PiMessages, publishAcceptedPiInput } from "./pi-projection";
 import { openPiSession } from "./pi-session";
 import { piInput } from "./pi-input";
 import { PiQuestions } from "./pi-questions";
@@ -22,9 +22,7 @@ export class PiMain {
   private runtime?: ModelRuntime;
   private state?: PiState;
   private active?: Turn;
-  private userIds: string[] = [];
-  private promptId?: string;
-  private userMessages = new WeakMap<object, string>();
+  private messages = new PiMessages();
   private selection = "openai/gpt-6.1-sol";
   private effort = "medium";
   private writes: Promise<void> = Promise.resolve();
@@ -146,18 +144,7 @@ export class PiMain {
       return;
     }
 
-    let userId: string | undefined;
-
-    if (event.message.role === "user") {
-      userId = this.userMessages.get(event.message) ?? this.promptId ?? this.userIds.shift();
-      this.promptId = undefined;
-
-      if (userId) {
-        this.userMessages.set(event.message, userId);
-      }
-    }
-
-    publishPiItems(this.active, piItems(event.message, this.active, userId), this.config.threadId, this.emit);
+    this.messages.publish(event.message, this.active, this.state?.turns ?? [], this.config.threadId, this.emit);
 
     if (event.type === "message_end") {
       void this.persist().catch(this.onError);
@@ -188,7 +175,7 @@ export class PiMain {
     }
 
     this.active = undefined;
-    this.promptId = undefined;
+    this.messages.promptId = undefined;
     await this.persist();
     this.emit({ method: "turn/completed", params: { threadId: this.config.threadId, turn } });
   }
@@ -215,8 +202,14 @@ export class PiMain {
         throw new Error("The requested Pi turn is no longer active; inspect before continuing.");
       }
 
-      this.userIds.push(string(params.clientUserMessageId));
+      const turn = this.active;
+      const receiptId = string(params.clientUserMessageId);
+
+      this.messages.userIds.push(receiptId);
       await session.steer(text, images);
+      // Acceptance owns visibility even while Pi is waiting on a tool or is later interrupted.
+      publishAcceptedPiInput(turn, receiptId, text, this.config.threadId, this.emit);
+      await this.persist();
 
       return { turnId: this.active.id };
     }
@@ -229,7 +222,7 @@ export class PiMain {
     session.setThinkingLevel(thinkingLevelSchema.parse(this.effort));
     this.active = { id: crypto.randomUUID(), status: "inProgress", items: [] };
     this.state.turns.push(this.active);
-    this.promptId = string(params.clientUserMessageId);
+    this.messages.promptId = string(params.clientUserMessageId);
     await this.persist();
     this.emit({ method: "turn/started", params: { threadId: this.config.threadId, turn: this.active } });
     const accepted = Promise.withResolvers<undefined>();
