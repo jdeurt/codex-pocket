@@ -4,7 +4,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { dataSchema } from "../../src/lib/protocol";
 import path from "node:path";
 
-const nativeLog = path.resolve(".local/realtime-fixture/native.jsonl");
+const nativeLog = path.resolve(".local/realtime-fixture/provider.jsonl");
 const controlFile = path.resolve(".local/realtime-fixture/control.json");
 const origin = "http://127.0.0.1:3119";
 
@@ -13,7 +13,7 @@ test.beforeEach(async () => writeFile(controlFile, "{}"));
 async function countNativeStops() {
   const log = await readFile(nativeLog, "utf8");
 
-  return log.split("\n").filter((line) => line.includes('"method":"thread/realtime/stop"')).length;
+  return log.split("\n").filter((line) => line.includes('"method":"provider/realtime/stop"')).length;
 }
 
 async function openChat(page: Page) {
@@ -58,22 +58,30 @@ test("realtime voice keeps draft and attachment, exchanges audio, applies next-s
       return stream;
     };
   });
+  const initialResponse = await request.get("/api/realtime");
+  const initial = dataSchema.parse(await initialResponse.json());
+  const previousReplies = Array.isArray(initial.history)
+    ? initial.history.filter((entry) => dataSchema.parse(entry).text === "Hello").length
+    : 0;
+  const previousSpeech = Array.isArray(initial.history)
+    ? initial.history.filter((entry) => dataSchema.parse(entry).text === "Test voice").length
+    : 0;
   const control = page.getByRole("button", { name: "Start realtime voice" });
 
   await control.focus();
   await page.keyboard.press("Enter");
   await expect(page.getByRole("status", { name: "Realtime voice active" })).toBeVisible();
-  await expect(page.getByText("Test voice")).toBeVisible();
-  await expect(page.getByText("Hello", { exact: true })).toBeVisible();
+  await expect(page.getByText("Test voice").last()).toBeVisible();
+  await expect(page.getByText("Hello", { exact: true }).last()).toBeVisible();
   await expect(page.getByText("What are we working on?")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Attach images or files" })).toHaveCount(0);
   const settings = await request.get(`${origin}/api/realtime`);
 
   expect(settings.ok()).toBe(true);
-  expect(await settings.json()).toMatchObject({ voices: ["marin", "cove"] });
+  expect(await settings.json()).toMatchObject({ voices: expect.arrayContaining(["marin", "cedar"]) });
   const changed = await request.post(`${origin}/api/realtime`, {
     headers: { Origin: origin },
-    data: { action: "settings", voice: "cove", model: "fixture-audio-model" },
+    data: { action: "settings", voice: "cedar", model: "fixture-audio-model" },
   });
 
   expect(changed.ok()).toBe(true);
@@ -90,8 +98,8 @@ test("realtime voice keeps draft and attachment, exchanges audio, applies next-s
     )
   ).toBe("ended");
   await activateByKeyboard(page);
-  await expect(page.getByText("Test voice")).toHaveCount(2);
-  await expect(page.getByText("Hello", { exact: true })).toHaveCount(2);
+  await expect(page.getByText("Test voice")).toHaveCount(previousSpeech + 2);
+  await expect(page.getByText("Hello", { exact: true })).toHaveCount(previousReplies + 2);
   const beforeSecondStop = await countNativeStops();
 
   await page.getByRole("button", { name: "Stop realtime voice" }).click();
@@ -103,10 +111,10 @@ test("realtime voice keeps draft and attachment, exchanges audio, applies next-s
     .map((line) => dataSchema.parse(JSON.parse(line)));
 
   expect(
-    records.some((record) => record.method === "thread/realtime/appendAudio" && record.sampleRate === 24_000)
+    records.some((record) => record.method === "provider/realtime/appendAudio" && record.sampleRate === 24_000)
   ).toBe(true);
-  expect(records.findLast((record) => record.method === "thread/realtime/start")).toMatchObject({
-    voice: "cove",
+  expect(records.findLast((record) => record.method === "provider/realtime/start")).toMatchObject({
+    voice: "cedar",
     model: "fixture-audio-model",
   });
 });
@@ -266,7 +274,7 @@ test("stop during pending microphone permission leaves no recording or native se
   const nativeOutput = await readFile(nativeLog, "utf8");
   const startsBefore = nativeOutput
     .split("\n")
-    .filter((line) => line.includes('"method":"thread/realtime/start"')).length;
+    .filter((line) => line.includes('"method":"provider/realtime/start"')).length;
   const control = page.getByRole("button", { name: "Start realtime voice" });
 
   await control.focus();
@@ -285,7 +293,7 @@ test("stop during pending microphone permission leaves no recording or native se
     )
     .toBe("ended");
   const after = await readFile(nativeLog, "utf8");
-  const startsAfter = after.split("\n").filter((line) => line.includes('"method":"thread/realtime/start"')).length;
+  const startsAfter = after.split("\n").filter((line) => line.includes('"method":"provider/realtime/start"')).length;
 
   expect(startsAfter).toBe(startsBefore);
 });

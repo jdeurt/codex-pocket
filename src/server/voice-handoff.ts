@@ -63,3 +63,36 @@ export async function handoffVoice(
 
   return entry;
 }
+
+/**
+Share overlapping HTTP-stop and stream-abort cleanup for the same browser token.
+*/
+export class VoiceSessionStop {
+  private current?: { token: string; task: Promise<void> };
+
+  /** Finish captured input before releasing its session, including failure paths.
+  @param finish - Final transcription and persistence barrier.
+  @param release - Cleanup bound to the captured provider connection.
+  */
+  private async finish(finish: () => Promise<void>, release: () => void) {
+    try {
+      await finish();
+    } finally {
+      release();
+    }
+  }
+
+  /** Return the same shutdown barrier when more than one exit path stops a token.
+  @param token - Browser token whose input is draining.
+  @param finish - Final transcription and persistence barrier.
+  @param release - Cleanup bound to the captured provider connection.
+  @returns Completion of this token's existing or new shutdown.
+  */
+  run(token: string, finish: () => Promise<void>, release: () => void) {
+    if (this.current?.token !== token) {
+      this.current = { token, task: this.finish(finish, release) };
+    }
+
+    return this.current.task;
+  }
+}

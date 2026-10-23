@@ -1,14 +1,6 @@
-/* eslint-disable @typescript-eslint/no-magic-numbers -- PCM16 bounds match native realtime v2. */
+/* eslint-disable @typescript-eslint/no-magic-numbers -- PCM16 bounds match OpenAI Realtime. */
 import { object } from "../lib/protocol";
 import { z } from "zod";
-
-export interface RealtimeMessage {
-  type: string;
-  role?: string;
-  text?: string;
-  audio?: z.infer<typeof audioSchema>;
-  error?: string;
-}
 
 export const audioSchema = z
   .object({
@@ -25,12 +17,10 @@ export const audioSchema = z
 export const settingsSchema = z
   .object({ voice: z.string().min(1).optional(), model: z.string().trim().min(1).max(120).nullable().optional() })
   .strict();
-const voicesSchema = z.object({ v2: z.array(z.string()), defaultV2: z.string() }).loose();
-export const voiceListSchema = z.object({ voices: voicesSchema });
 
 /**
-Validate native output before forwarding binary audio to a browser.
-@param value - Untrusted native audio value.
+Validate provider output before forwarding binary audio to a browser.
+@param value - Untrusted provider audio value.
 @returns PCM16 audio with verified dimensions, or undefined.
 */
 export function parseOutputAudio(value: unknown) {

@@ -158,7 +158,7 @@ void test("OpenAI voice finalizes captured speech before switching to text mode"
       numChannels: 1,
       samplesPerChannel: 2400,
     });
-    await flow.voice.stop(started.token);
+    await Promise.all([flow.voice.stop(started.token), flow.voice.stop(started.token)]);
     const reloaded = new OpenAIVoiceSession(flow.owner);
     const entries = await reloaded.transcripts();
 

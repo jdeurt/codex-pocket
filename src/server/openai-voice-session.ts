@@ -6,7 +6,7 @@ import { type VoiceSessionOwner, readVoiceConfiguration } from "./voice-session-
 
 import { VoiceHistory } from "./voice-history";
 import { parseOutputAudio } from "./realtime-schema";
-import { handoffVoice } from "./voice-handoff";
+import { VoiceSessionStop, handoffVoice } from "./voice-handoff";
 
 /**
 Connect OpenAI speech to durable, verbatim main-session handoffs without depending on a harness transport.
@@ -23,6 +23,7 @@ export class OpenAIVoiceSession extends EventTarget {
   private latestItemId?: string;
   private responding = false;
   private waiting: string[] = [];
+  private stopping = new VoiceSessionStop();
 
   /**
   Bind credentials and durable main-session delivery.
@@ -200,14 +201,6 @@ export class OpenAIVoiceSession extends EventTarget {
   }
 
   /**
-  Finish provider transcription and then the corresponding persistence queue.
-  */
-  private async finishInput() {
-    await this.transport?.finishInput();
-    await this.serial;
-  }
-
-  /**
   Connect only while this start attempt still owns the session.
   */
   private async connect(attempt: number, endpoint?: string) {
@@ -298,22 +291,33 @@ export class OpenAIVoiceSession extends EventTarget {
   /**
   Reject new audio, finalize captured speech, then revoke the stream token.
   */
-  async stop(token: string) {
+  stop(token: string) {
     if (!this.owns(token)) {
-      return;
+      return Promise.resolve();
     }
+
+    const transport = this.transport;
 
     this.phase = "stopping";
 
-    try {
-      await this.finishInput();
-    } finally {
-      this.token = undefined;
-      this.transport?.close();
-      this.transport = undefined;
-      this.phase = "idle";
-      this.publish({ type: "closed" });
-    }
+    return this.stopping.run(
+      token,
+      async () => {
+        await transport?.finishInput();
+        await this.serial;
+      },
+      () => {
+        if (this.transport !== transport) {
+          return;
+        }
+
+        this.token = undefined;
+        transport?.close();
+        this.transport = undefined;
+        this.phase = "idle";
+        this.publish({ type: "closed" });
+      }
+    );
   }
 
   /**

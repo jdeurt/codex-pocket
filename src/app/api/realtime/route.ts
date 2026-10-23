@@ -16,7 +16,7 @@ const command = z.discriminatedUnion("action", [
 ]);
 
 /**
-Read native realtime voices and this parent's next-session selection.
+Read OpenAI voices, central next-session preferences and finalized speech.
 */
 export async function GET(request: Request) {
   try {
@@ -32,7 +32,7 @@ export async function GET(request: Request) {
 }
 
 /**
-Dispatch one scoped control through the selected parent's existing native bridge.
+Dispatch one scoped control through the selected Pocket's OpenAI voice session.
 */
 export async function POST(request: Request) {
   try {
@@ -55,7 +55,7 @@ export async function POST(request: Request) {
       }
 
       case "audio": {
-        await realtime.append(input.token, input.audio);
+        realtime.append(input.token, input.audio);
         result = { accepted: true };
         break;
       }

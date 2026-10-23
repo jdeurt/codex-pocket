@@ -6,7 +6,7 @@ import path from "node:path";
 
 const origin = "http://127.0.0.1:3119";
 const controlFile = path.resolve(".local/realtime-fixture/control.json");
-const nativeLog = path.resolve(".local/realtime-fixture/native.jsonl");
+const nativeLog = path.resolve(".local/realtime-fixture/provider.jsonl");
 
 test.beforeEach(async () => writeFile(controlFile, "{}"));
 
@@ -21,23 +21,15 @@ async function openChat(page: Page) {
   await expect(page.getByRole("button", { name: /Send message; hold and swipe up/ })).toBeEnabled();
 }
 
-async function countStarts() {
+async function countProvider(method: string) {
   const log = await readFile(nativeLog, "utf8");
 
-  return log.split("\n").filter((line) => line.includes('"method":"thread/realtime/start"')).length;
+  return log.split("\n").filter((line) => line.includes(`"method":"provider/realtime/${method}"`)).length;
 }
 
-async function countStops() {
-  const log = await readFile(nativeLog, "utf8");
-
-  return log.split("\n").filter((line) => line.includes('"method":"thread/realtime/stop"')).length;
-}
-
-async function countAudio() {
-  const log = await readFile(nativeLog, "utf8");
-
-  return log.split('"method":"thread/realtime/appendAudio"').length;
-}
+const countStarts = () => countProvider("start");
+const countStops = () => countProvider("stop");
+const countAudio = () => countProvider("appendAudio");
 
 async function cancelWithoutClick(page: Page) {
   const button = page.getByRole("button", { name: /Send message; hold and swipe up/ });
@@ -261,10 +253,14 @@ test("switching Pockets stops the old microphone owner and keeps each draft and 
   expect(created.ok()).toBe(true);
   await openChat(page);
   await page.getByRole("textbox", { name: "Message Pocket" }).fill("unsent main draft");
+  const previousStarts = await countStarts();
+  const previousAudio = await countAudio();
+
   await page.getByRole("button", { name: "Start realtime voice" }).focus();
   await page.keyboard.press("Enter");
   await expect(page.getByRole("status", { name: "Realtime voice active" })).toBeVisible();
   await expect(page.getByText("Test voice").first()).toBeVisible();
+  await expect.poll(countAudio).toBeGreaterThan(previousAudio);
   const beforeStop = await countStops();
 
   await page.getByRole("button", { name: "Open Pockets" }).click();
@@ -284,15 +280,23 @@ test("switching Pockets stops the old microphone owner and keeps each draft and 
   await expect(page.getByRole("status", { name: "Realtime voice active" })).toBeVisible();
   await expect.poll(countAudio).toBeGreaterThan(beforeNamedAudio);
   const log = await readFile(nativeLog, "utf8");
+  const sessions = log
+    .trim()
+    .split("\n")
+    .map((line) => dataSchema.parse(JSON.parse(line)))
+    .filter((entry) => entry.method === "provider/realtime/start")
+    .slice(previousStarts)
+    .map((entry) => entry.sessionId);
   const audioOwners = log
     .trim()
     .split("\n")
     .map((line) => dataSchema.parse(JSON.parse(line)))
-    .filter((entry) => entry.method === "thread/realtime/appendAudio")
-    .map((entry) => entry.threadId);
+    .filter((entry) => entry.method === "provider/realtime/appendAudio")
+    .map((entry) => entry.sessionId)
+    .filter((id) => sessions.includes(id));
 
-  expect(audioOwners).toContain("realtime-fixture-parent");
-  expect(audioOwners.at(-1)).toBe("realtime-fixture-named");
+  expect(sessions).toHaveLength(2);
+  expect(new Set(audioOwners)).toEqual(new Set(sessions));
   await page.getByRole("button", { name: "Stop realtime voice" }).click();
   await page.getByRole("button", { name: "Open Pockets" }).click();
   await page.locator('a.pocket-link[href="/"]').click();
