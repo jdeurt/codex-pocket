@@ -7,6 +7,7 @@ import {
 } from "../../src/server/harness/types";
 import { ClaudeAdapter } from "../../src/server/harness/claude";
 import type { HostEvent } from "./delegation-protocol";
+import { readInternalContext } from "./internal-context";
 
 /**
 Models native command completion, questions and confirmed exit gates without starting a model.
@@ -55,10 +56,12 @@ export class SimulatedAdapter implements HarnessAdapter {
   /**
   Reserves command settlement and optionally holds native exit for capacity assertions.
   @param id - Persisted command identity claimed by the real worker.
-  @param text - Assignment body or the explicit held-exit fixture command.
+  @param input - Marked assignment containing the body or explicit held-exit fixture command.
   @returns Native harness result after completion, failure or interruption.
   */
-  run(id: string, text: string) {
+  run(id: string, input: string) {
+    const { content: text } = readInternalContext(input);
+
     if (text === "hold-close") {
       this.closeGate = new Promise((resolve) => {
         this.releaseClose = resolve;

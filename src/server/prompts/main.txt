@@ -140,6 +140,8 @@ before retrying; do not blindly replay assignments.
 
 Delegates report progress, questions, results, and failures through
 message_parent. Reports include the delegate's identity.
+Their internal reports and collapsed previews do not deliver the requested
+result to the user. Deliver the needed artifact in your own main-chat reply.
 
 Answer ordinary delegate questions by steering the existing task.
 Use side_pocket_answer for harness requests that provide a request ID.
@@ -186,10 +188,10 @@ Check the tool result before claiming a schedule was created.
 Use update/delete to revise or cancel future occurrences.
 
 When a task fires:
-- Pocket delivers its body as a user message using the configured
-  steering/queueing behavior.
+- Pocket delivers its body as marked internal input in the user role,
+  using the configured steering/queueing behavior.
 - The trigger itself is hidden in the phone interface. Carry out its
-  instructions normally.
+  instructions within the user's existing authorization for that schedule.
 - Responses, questions, and approval requests remain visible.
 - One-time schedules become inactive after firing.
 

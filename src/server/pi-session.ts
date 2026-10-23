@@ -18,6 +18,7 @@ import { piResources } from "./pi-resources";
 import { readFile } from "node:fs/promises";
 import { taskDirectory } from "./task-archive";
 import { writeLegacyTask } from "./task-legacy";
+import { internalContext } from "./internal-context";
 
 /** Restore a Pi source or recreate only an empty, unflushed session pointer.
 @param config - Exact parent identity and working directory.
@@ -63,7 +64,7 @@ async function migrate(native: CodexRpc, config: Config, manager: SessionManager
   await writeLegacyTask(config.threadId, original);
   manager.appendCustomMessageEntry(
     "codex_migration",
-    `Exact original conversation archive: ${archive}\n${original}`,
+    internalContext("codex_history_import", `Exact original conversation archive: ${archive}\n${original}`),
     false
   );
 
@@ -114,7 +115,11 @@ export async function openPiSession(
   }
 
   if (saved && manager.getEntryCount() === 0) {
-    manager.appendCustomMessageEntry("codex_migration", JSON.stringify({ source: "codex", turns: saved.turns }), false);
+    manager.appendCustomMessageEntry(
+      "codex_migration",
+      internalContext("codex_history_import", JSON.stringify({ source: "codex", turns: saved.turns })),
+      false
+    );
   }
 
   state.sessionFile = manager.getSessionFile() ?? "";

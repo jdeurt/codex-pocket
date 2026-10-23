@@ -41,11 +41,18 @@ async function verifyActiveAndLater(
   );
   assert.equal(worker.starts().length, 1);
   assert.equal(later.status, "queued");
+  flow.store.mail.message(childId, worker.starts()[0].id, { message: "Still writing the requested result." });
   await worker.call("complete", { childId });
   await worker.until(() => worker.starts().length === 2);
   assert.equal(worker.starts()[1].text, "distinct later task");
+  const completed = flow.store.mail.history(owner, childId).filter((mail) => mail.kind === "completion");
+
+  assert.equal(completed.length, 1, "Progress must not suppress a later full result");
+  assert.deepEqual(JSON.parse(completed[0].payload), { status: "completed", text: "Simulated result" });
+  flow.store.mail.message(childId, worker.starts()[1].id, { message: "Simulated result" });
   await worker.call("complete", { childId });
   await state(flow.store, () => flow.store.get(owner, childId).status === "idle");
+  assert.equal(flow.store.mail.history(owner, childId).filter((mail) => mail.kind === "completion").length, 1);
 }
 
 /**

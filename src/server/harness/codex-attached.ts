@@ -47,7 +47,7 @@ export class AttachedCodexAdapter implements HarnessAdapter {
 
     return {
       status: turn.status === "completed" || turn.status === "interrupted" ? turn.status : "failed",
-      text: text || this.output.values().toArray().join("\n\n") || (turn.error?.message ?? "No response text."),
+      text: text || this.output.values().toArray().join("\n\n") || (turn.error?.message ?? ""),
     };
   }
 
