@@ -45,7 +45,7 @@ if (process.env.CODEX_TEST_ACTIVITY === "1") {
       await expect(page.getByText("ACTIVITY_ONE_FIRST", { exact: true })).toBeVisible();
 
       await expect(turn.getByRole("button", { name: "Show activity", exact: true })).toHaveCount(0);
-      await expect(page.getByRole("status", { name: "Pocket activity" })).toContainText("Running commands");
+      await expect(page.getByRole("status", { name: "Pocket activity" })).toContainText("running commands");
 
       return await page.getByRole("status", { name: "Pocket activity" }).evaluate((element) => ({
         color: getComputedStyle(element).color,
@@ -271,7 +271,7 @@ if (process.env.CODEX_TEST_ACTIVITY === "1") {
       await expect(observer.getByText(/STREAM_START[\s\S]*STREAM_END/).last()).toBeVisible();
       await observer.close();
       await send(page, "Run the read-only shell command sleep 5, then reply BEFORE_STEER. Do not change any files.");
-      await expect(page.getByRole("status", { name: "Pocket activity" })).toContainText("Running commands");
+      await expect(page.getByRole("status", { name: "Pocket activity" })).toContainText("running commands");
       await send(page, "Steering update: reply exactly STEER_OK instead.");
 
       if (process.env.CODEX_TEST_ACTIVE_MODE === "queue") {

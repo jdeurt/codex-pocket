@@ -2,8 +2,6 @@ import { type AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import { type RpcEvent } from "../lib/protocol";
 import { itemActivity } from "./activity";
 
-const LAST_TOOL = -1;
-
 /** Describe assistant streaming without interpreting generated tool arguments as execution progress.
 @param event - Native Pi message event.
 @returns Current message phase, or undefined for user input.
@@ -11,21 +9,19 @@ const LAST_TOOL = -1;
 function messageActivity(
   event: Extract<AgentSessionEvent, { type: "message_start" | "message_update" | "message_end" }>
 ) {
-  if (event.message.role === "toolResult") {
-    return "Considering options";
-  }
-
   if (event.message.role !== "assistant") {
     return;
   }
 
-  if (event.type === "message_update" && event.assistantMessageEvent.type.startsWith("thinking_")) {
-    return "Considering options";
+  if (event.type === "message_end") {
+    return "";
   }
 
-  return event.message.content.some((part) => part.type === "text" && part.text.length > 0)
-    ? ""
-    : "Considering options";
+  if (event.type === "message_update") {
+    return ["thinking_start", "thinking_delta"].includes(event.assistantMessageEvent.type) ? "Considering options" : "";
+  }
+
+  return "Considering options";
 }
 
 /**
@@ -58,6 +54,10 @@ export class PiActivity {
 
       case "tool_execution_start":
       case "tool_execution_update": {
+        if (event.type === "tool_execution_update" && !this.tools.has(event.toolCallId)) {
+          return;
+        }
+
         const label = itemActivity({
           id: event.toolCallId,
           type: "toolTrace",
@@ -67,13 +67,13 @@ export class PiActivity {
 
         this.tools.set(event.toolCallId, label ?? "Calling tools");
 
-        return "Calling tools";
+        return "";
       }
 
       case "tool_execution_end": {
         this.tools.delete(event.toolCallId);
 
-        return "Considering options";
+        return "";
       }
 
       case "message_start":
@@ -112,7 +112,12 @@ export class PiActivity {
     if (turnId && activity !== undefined) {
       this.emit({
         method: "thread/activity/updated",
-        params: { threadId: this.threadId, turnId, activity: this.tools.values().toArray().at(LAST_TOOL) ?? activity },
+        params: {
+          threadId: this.threadId,
+          turnId,
+          activity: this.tools.size > 0 ? this.tools.values().toArray().join(", ") : activity,
+          activeTools: [...this.tools].map(([id, label]) => ({ id, activity: label })),
+        },
       });
     }
   }
