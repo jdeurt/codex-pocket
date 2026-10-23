@@ -1,8 +1,9 @@
-/* eslint-disable jsdoc/require-jsdoc, @typescript-eslint/no-magic-numbers, unicorn/no-global-object-property-assignment, unicorn/isolated-functions -- Browser recovery assertions follow complete microphone and provider lifecycles. */
+/* eslint-disable jsdoc/require-jsdoc, @typescript-eslint/no-magic-numbers -- Browser recovery assertions follow complete microphone and provider lifecycles. */
 import { type Page, expect, test } from "@playwright/test";
 import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { object } from "../../src/lib/protocol";
+import { observeMicrophone } from "../fixtures/realtime-media-probe";
 
 const directory = path.resolve(".local/realtime-fixture");
 const controlFile = path.join(directory, "control.json");
@@ -34,18 +35,8 @@ async function start(page: Page) {
 test.beforeEach(async () => writeFile(controlFile, "{}"));
 
 test("unexpected microphone track end stops capture and the OpenAI session", async ({ page }) => {
+  await observeMicrophone(page, "droppedTrack");
   await open(page);
-  await page.evaluate(() => {
-    const original = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
-
-    navigator.mediaDevices.getUserMedia = async (constraints) => {
-      const stream = await original(constraints);
-
-      (globalThis as typeof globalThis & { droppedTrack?: MediaStreamTrack }).droppedTrack = stream.getAudioTracks()[0];
-
-      return stream;
-    };
-  });
   await start(page);
   const before = await count("provider/realtime/stop");
 

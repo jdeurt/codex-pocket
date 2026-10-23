@@ -3,6 +3,7 @@ import { type Page, expect, test } from "@playwright/test";
 import { readFile, writeFile } from "node:fs/promises";
 import { dataSchema } from "../../src/lib/protocol";
 import path from "node:path";
+import { observeMicrophone } from "../fixtures/realtime-media-probe";
 
 const nativeLog = path.resolve(".local/realtime-fixture/provider.jsonl");
 const controlFile = path.resolve(".local/realtime-fixture/control.json");
@@ -40,21 +41,7 @@ test("realtime voice keeps draft and attachment, exchanges audio, applies next-s
   page,
   request,
 }) => {
-  await page.addInitScript(() => {
-    const original = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
-
-    Object.defineProperty(navigator.mediaDevices, "getUserMedia", {
-      configurable: true,
-      value: async (constraints: MediaStreamConstraints) => {
-        const stream = await original(constraints);
-
-        (globalThis as typeof globalThis & { voiceFixtureTrack?: MediaStreamTrack }).voiceFixtureTrack =
-          stream.getAudioTracks()[0];
-
-        return stream;
-      },
-    });
-  });
+  await observeMicrophone(page, "voiceFixtureTrack");
   await openChat(page);
   await page.getByRole("textbox", { name: "Message Pocket" }).fill("unsent draft");
   await page
@@ -74,8 +61,8 @@ test("realtime voice keeps draft and attachment, exchanges audio, applies next-s
   await control.focus();
   await page.keyboard.press("Enter");
   await expect(page.getByRole("status", { name: "Realtime voice active" })).toBeVisible();
-  await expect(page.getByText("Test voice").last()).toBeVisible();
-  await expect(page.getByText("Hello", { exact: true }).last()).toBeVisible();
+  await expect(page.getByText("Test voice")).toHaveCount(previousSpeech + 1);
+  await expect(page.getByText("Hello", { exact: true })).toHaveCount(previousReplies + 1);
   await expect(page.getByText("What are we working on?")).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Attach images or files" })).toHaveCount(0);
   const settings = await request.get(`${origin}/api/realtime`);
