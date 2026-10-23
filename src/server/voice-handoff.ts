@@ -4,6 +4,7 @@ import type { VoiceSessionOwner } from "./voice-session-owner";
 import { z } from "zod";
 
 const handoffArguments = z.object({ item_id: z.string().min(1) }).strict();
+const deliveryStatus = z.enum(["queued", "sent", "unknown", "sending"]);
 
 /**
 Resolve a tool call against finalized speech and durably record the attempt before dispatch.
@@ -51,7 +52,14 @@ export async function handoffVoice(
     throw new Error("Voice handoff delivery is uncertain. Check the conversation before sending again.");
   }
 
-  await history.save({ ...entry, handoff: result.status });
+  const status = deliveryStatus.safeParse(result.status);
+
+  if (!status.success) {
+    await history.save({ ...entry, handoff: "unknown" });
+    throw new Error("Voice handoff returned an unknown delivery state. Check the conversation before retrying.");
+  }
+
+  await history.save({ ...entry, handoff: status.data });
 
   return entry;
 }
