@@ -40,6 +40,14 @@ export function hasPiHistory(turns: Turn[]) {
   return false;
 }
 
+/** Restore a missing receipt from its stable native message identity.
+@param item - Saved canonical item.
+@returns Independent receipt projection when repair is needed.
+*/
+function restoredReceipt(item: Turn["items"][number]) {
+  return item.source === "pi" && item.type === "userMessage" ? { ...item, clientId: item.clientId ?? item.id } : item;
+}
+
 /** Restore receipt identities and mark interrupted host work without changing stored input.
 @param state - Saved or migrated canonical projection.
 @param sessionFile - Current native session path.
@@ -49,9 +57,7 @@ export function restoredPiState(state: PiState, sessionFile: string): PiState {
   const turns: Turn[] = [];
 
   for (const turn of state.turns) {
-    const items = Array.from(turn.items, (item) =>
-      item.source === "pi" && item.type === "userMessage" ? { ...item, clientId: item.clientId ?? item.id } : item
-    );
+    const items = Array.from(turn.items, restoredReceipt);
 
     const restored = { ...turn, items };
 

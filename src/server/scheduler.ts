@@ -15,6 +15,13 @@ export class Scheduler {
   private timer?: NodeJS.Timeout;
 
   /**
+  Enter the guarded scheduler from its native timer.
+  */
+  private wake = () => {
+    void this.tick();
+  };
+
+  /**
 Bind the existing schedule store and parent bridge without starting timers or dispatching work.
 @param store - Private schedule and occurrence store.
 @param bridge - Existing parent bridge owning idempotent native delivery.
@@ -33,7 +40,9 @@ Claim due occurrences and disable invalid recurrences before refreshing the pare
   private async collectDue(now: number) {
     for (const schedule of this.store.due(this.threadId, now)) {
       const next = await attempt(nextOccurrence, schedule.calendar, now);
-      const claimed = next.ok ? attempt(() => this.store.occurrences.claim(schedule, next.value, now)) : next;
+      const claimed = next.ok
+        ? attempt(this.store.occurrences.claim.bind(this.store.occurrences), schedule, next.value, now)
+        : next;
 
       if (claimed.ok) {
         continue;
@@ -60,22 +69,37 @@ Dispatch one persisted occurrence and retain the bridge's existing delivery stat
 Dispatch persisted pending occurrences serially through the parent's idempotent receipt boundary.
 */
   private async dispatch() {
-    const pending = this.store.occurrences
-      .list(this.threadId)
-      .filter((entry) => ["pending", "queued"].includes(entry.status));
+    const pending = this.store.occurrences.list(this.threadId);
 
     for (const run of pending) {
+      if (!["pending", "queued"].includes(run.status)) {
+        continue;
+      }
+
       if (run.status === "pending" && !this.store.occurrences.begin(run.id)) {
         continue;
       }
 
-      const delivered = await attempt(() => this.dispatchRun(run));
+      const delivered = await attempt(this.dispatchRun.bind(this), run);
 
       if (!delivered.ok) {
         const error = delivered.error;
 
         // Bridge persists uncertain sends; retrying this same ID only reads that receipt.
-        this.store.occurrences.setStatus(run.id, "pending", error instanceof Error ? error.message : String(error));
+        const recorded = attempt(
+          this.store.occurrences.setStatus.bind(this.store.occurrences),
+          run.id,
+          "pending",
+          error instanceof Error ? error.message : String(error)
+        );
+
+        if (!recorded.ok) {
+          throw new AggregateError(
+            [error, recorded.error],
+            "Scheduled delivery failed and its retry state could not be saved."
+          );
+        }
+
         break;
       }
     }
@@ -86,7 +110,7 @@ Recover interrupted occurrence records and acquire the existing unrefed polling 
 */
   start() {
     this.store.occurrences.recover(this.threadId);
-    this.timer = setInterval(() => void this.tick(), INTERVAL_MS);
+    this.timer = setInterval(this.wake, INTERVAL_MS);
     this.timer.unref();
     void this.tick();
   }
@@ -102,8 +126,8 @@ Run one non-overlapping due-collection and dispatch cycle, retaining diagnostic 
 
     this.running = true;
 
-    const collected = await attempt(() => this.collectDue(now));
-    const dispatched = collected.ok ? await attempt(() => this.dispatch()) : collected;
+    const collected = await attempt(this.collectDue.bind(this), now);
+    const dispatched = collected.ok ? await attempt(this.dispatch.bind(this)) : collected;
 
     this.running = false;
 

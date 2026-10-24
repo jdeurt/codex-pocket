@@ -89,7 +89,12 @@ Estimate tokens only from an explicit caller-supplied dated price source; never 
 */
 export function estimatedCost(records: UsageRecord[], prices: UsagePrice[]) {
   const record = records.at(0);
-  const price = prices.find((entry) => entry.harness === record?.harness && entry.model === record.model);
 
-  return price ? estimatePriced(records, price) : null;
+  for (const price of prices) {
+    if (price.harness === record?.harness && price.model === record.model) {
+      return estimatePriced(records, price);
+    }
+  }
+
+  return null;
 }

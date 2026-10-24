@@ -1,27 +1,23 @@
-import { type ChildProcess } from "node:child_process";
+import type { ChildProcess } from "node:child_process";
+import { once } from "node:events";
+import { t } from "try";
 
 const PROCESS_EXIT_TIMEOUT_MS = 5000;
 
-/**
-Wait for this owned native child to exit, escalating only its own process after the existing deadline.
-@param child - Owned child process, absent or already exited when no wait is needed.
+/** Join an owned child and escalate only that process after its grace period.
+@param child - Owned process, absent or already exited when no wait is required.
 */
 export async function waitForProcessExit(child: ChildProcess | undefined) {
-  if (child?.exitCode !== null || child.signalCode !== null) {
+  if (!child?.pid || child.exitCode !== null || child.signalCode !== null) {
     return;
   }
 
-  await new Promise<void>((resolve) => {
-    const pending: { timer?: NodeJS.Timeout } = {};
-    const finish = () => {
-      clearTimeout(pending.timer);
-      child.off("exit", finish);
-      child.off("error", finish);
-      resolve();
-    };
+  const timer = setTimeout(child.kill.bind(child, "SIGKILL"), PROCESS_EXIT_TIMEOUT_MS);
+  const exited = await t(once(child, "exit"));
 
-    pending.timer = setTimeout(() => child.kill("SIGKILL"), PROCESS_EXIT_TIMEOUT_MS);
-    child.once("exit", finish);
-    child.once("error", finish);
-  });
+  clearTimeout(timer);
+
+  if (!exited.ok) {
+    throw exited.error;
+  }
 }

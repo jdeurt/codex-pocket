@@ -1,3 +1,4 @@
+import { requireResults, requireSettled } from "../lib/results";
 import { t as captureResult } from "try";
 import { configForPocket, pocketHost, requestConfig } from "./pocket-config";
 import { CodexRpc } from "./rpc";
@@ -21,7 +22,7 @@ if (!globalThis.namedPocketRuntimes) {
 @param id - Named Pocket identity, when available.
 */
 async function connectInBackground(runtime: NamedRuntime, event: string, id?: string) {
-  const connected = await captureResult(() => runtime.connect());
+  const connected = await captureResult(runtime.connect.bind(runtime));
 
   if (!connected.ok) {
     log().error({ error: connected.error, id }, event);
@@ -60,22 +61,28 @@ export async function requestBridge(request: Request, isStreaming = false) {
   return runtime.bridge;
 }
 
+/** Connect a saved parent after resolving its current native configuration.
+@param id - Durable parent identity.
+*/
+async function startSavedPocket(id: string) {
+  await runtimeFor(id, await configForPocket(id)).connect();
+}
+
 /**
 Start all saved parents independently; retain failures for the next explicit reconnect.
 */
 export async function startNamedPockets() {
   await pocketHost();
   pocketStore().recover();
-  await Promise.allSettled(
-    pocketStore()
-      .list()
-      .filter((entry) => entry.state === "ready")
-      .map(async (entry) => {
-        const runtime = runtimeFor(entry.id, await configForPocket(entry.id));
+  const pending: Promise<void>[] = [];
 
-        await runtime.connect();
-      })
-  );
+  for (const entry of pocketStore().list()) {
+    if (entry.state === "ready") {
+      pending.push(startSavedPocket(entry.id));
+    }
+  }
+
+  requireSettled(await Promise.allSettled(pending), "One or more saved Pockets failed to start.");
 }
 
 /** Start and name the native thread on a connected creation transport.
@@ -103,19 +110,16 @@ async function materialize(rpc: CodexRpc, config: Config, id: string, name: stri
 @param name - Validated name.
 */
 async function createNative(config: Config, id: string, name: string) {
+  const store = pocketStore();
   const rpc = new CodexRpc();
 
-  const connected = await captureResult(() => rpc.connect(config, "bare"));
+  const connected = await captureResult(rpc.connect.bind(rpc), config, "bare");
   const created = connected.ok ? await captureResult(materialize, rpc, config, id, name) : connected;
 
-  rpc.close();
+  const closed = await captureResult(rpc.shutdown.bind(rpc));
+  const recorded = created.ok ? created : captureResult(store.finish.bind(store), id, false);
 
-  if (created.ok) {
-    return;
-  }
-
-  pocketStore().finish(id, false);
-  throw created.error;
+  requireResults([created, closed, recorded], "Pocket creation or native cleanup failed.");
 }
 
 /** Persist a named empty conversation before making it selectable.
@@ -159,6 +163,20 @@ export async function deletePocket(id: string) {
 Stop every background owner when the host shuts down, without changing its saved catalog.
 */
 export async function stopNamedPockets() {
-  await Promise.allSettled(runtimes.values().map((runtime) => runtime.close()));
-  runtimes.clear();
+  const owned = [...runtimes];
+  const pending: Promise<void>[] = [];
+
+  for (const [, runtime] of owned) {
+    pending.push(runtime.close());
+  }
+
+  const closed = await Promise.allSettled(pending);
+
+  for (const [index, result] of closed.entries()) {
+    if (result.status === "fulfilled") {
+      runtimes.delete(owned[index][0]);
+    }
+  }
+
+  requireSettled(closed, "One or more Pocket runtimes failed to stop.");
 }

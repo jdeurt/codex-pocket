@@ -1,6 +1,7 @@
+import { usageReport } from "../../src/server/usage-report";
 import test, { type TestContext } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { finished } from "node:stream/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -191,3 +192,46 @@ await test("operation and cleanup failures both reach the caller", cleanupBounda
 await test("metadata stream cancellation releases its producer exactly once", metadataBoundary);
 await test("visible projection accepts frozen canonical history", projectionBoundary);
 await test("retrieval capabilities preserve the original state", capabilitiesBoundary);
+
+/** Retain cumulative accounting across interval boundaries and malformed source records.
+@param context - Native fixture cleanup owner.
+*/
+async function usageBoundary(context: TestContext) {
+  const directory = await mkdtemp(path.join(tmpdir(), "pocket-usage-"));
+
+  context.after(rm.bind(undefined, directory, { recursive: true, force: true }));
+  const rows = [
+    JSON.stringify({ type: "session_meta", payload: { id: "parent" } }),
+    JSON.stringify({ type: "turn_context", payload: { model: "fixture-model" } }),
+    JSON.stringify({
+      timestamp: "2026-01-02T00:00:00Z",
+      payload: {
+        type: "token_count",
+        info: { total_token_usage: { input_tokens: 100, cached_input_tokens: 40, output_tokens: 10 } },
+      },
+    }),
+    '{"payload":',
+    JSON.stringify({
+      timestamp: "2026-01-02T00:02:00Z",
+      payload: {
+        type: "token_count",
+        info: { total_token_usage: { input_tokens: 150, cached_input_tokens: 60, output_tokens: 20 } },
+      },
+    }),
+  ];
+
+  await writeFile(path.join(directory, "session.jsonl"), rows.join("\n"));
+  const report = await usageReport(
+    { start: "2026-01-02T00:01:00Z", end: "2026-01-02T00:03:00Z", timezone: "UTC" },
+    { codex: directory, claude: path.join(directory, "absent") }
+  );
+
+  assert.equal(report.coverage.malformedLines, 1);
+  assert.equal(report.records.length, 1);
+  assert.equal(report.records[0].sessionId, "parent");
+  assert.equal(report.records[0].model, "fixture-model");
+  assert.deepEqual(report.records[0].categories, { input_tokens: 50, cached_input_tokens: 20, output_tokens: 10 });
+  assert.equal(report.chats[0].estimate, null);
+}
+
+await test("native usage preserves prior counters across a malformed record and report boundary", usageBoundary);

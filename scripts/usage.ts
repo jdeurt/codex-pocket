@@ -2,7 +2,7 @@ import { homedir } from "node:os";
 import { parseArgs } from "node:util";
 import path from "node:path";
 import { readFile } from "node:fs/promises";
-import { usagePricesSchema } from "../src/server/usage-cost";
+import { usagePricesSchema } from "../src/state/usage-cost";
 import { usageReport } from "../src/server/usage-report";
 
 const { values } = parseArgs({

@@ -27,17 +27,21 @@ Retain every finite numeric provider usage category, including nested cache-dura
 @returns Numeric token categories with their original names intact.
 */
 export function usageNumbers(value: unknown, prefix = ""): Record<string, number> {
-  return Object.fromEntries(
-    Object.entries(object(value)).flatMap(([key, entry]) => {
-      const name = prefix ? `${prefix}.${key}` : key;
+  const result: Record<string, number> = {};
 
-      if (typeof entry === "number" && Number.isFinite(entry) && entry >= 0) {
-        return [[name, entry]];
-      }
+  const entries = Object.entries(object(value));
 
-      return entry && typeof entry === "object" ? Object.entries(usageNumbers(entry, name)) : [];
-    })
-  );
+  for (const [key, entry] of entries) {
+    const name = prefix ? `${prefix}.${key}` : key;
+
+    if (typeof entry === "number" && Number.isFinite(entry) && entry >= 0) {
+      result[name] = entry;
+    } else if (entry && typeof entry === "object") {
+      Object.assign(result, usageNumbers(entry, name));
+    }
+  }
+
+  return result;
 }
 
 /**
@@ -47,11 +51,7 @@ Apply Codex session/model metadata before collecting incremental accounting from
 @param source - Original JSONL path retained as provenance.
 @returns One incremental usage record, or undefined for metadata and duplicate counters.
 */
-export function codexUsage(
-  row: Record<string, unknown>,
-  session: UsageSession,
-  source: string
-): UsageRecord | undefined {
+export function codexUsage(row: Record<string, unknown>, session: UsageSession, source: string) {
   const payload = object(row.payload);
   const info = object(payload.info);
   const totals = usageNumbers(info.total_token_usage);
@@ -59,45 +59,52 @@ export function codexUsage(
   const nativeSource = object(payload.source);
   const subagent = object(nativeSource.subagent);
 
-  const categories = Object.fromEntries(
-    Object.entries(totals).map(([key, value]) => [
-      key,
-      value >= (session.cumulative[key] ?? 0)
-        ? value - (session.cumulative[key] ?? 0)
-        : (usageNumbers(info.last_token_usage)[key] ?? value),
-    ])
-  );
+  const categories: Record<string, number> = {};
+  const last = usageNumbers(info.last_token_usage);
+
+  let next = session;
+  let hasUsage = false;
+
+  for (const [key, value] of Object.entries(totals)) {
+    const previous = session.cumulative[key] ?? 0;
+    const count = value >= previous ? value - previous : (last[key] ?? value);
+
+    categories[key] = count;
+    hasUsage ||= count > 0;
+  }
 
   if (row.type === "session_meta") {
-    session.id = string(payload.id) || session.id;
-    session.forkedFromId = string(payload.forked_from_id) || null;
-    session.parentId = string(payload.forked_from_id) || string(object(subagent.thread_spawn).parent_thread_id) || null;
+    next = {
+      ...next,
+      id: string(payload.id) || session.id,
+      forkedFromId: string(payload.forked_from_id) || null,
+      parentId: string(payload.forked_from_id) || string(object(subagent.thread_spawn).parent_thread_id) || null,
+    };
   } else if (row.type === "turn_context") {
-    session.model = string(payload.model) || session.model;
+    next = { ...next, model: string(payload.model) || session.model };
   }
 
   if (payload.type !== "token_count" || Object.keys(totals).length === 0) {
-    return;
+    return { session: next, record: undefined };
   }
 
-  session.cumulative = totals;
+  next = { ...next, cumulative: totals };
+  const record: UsageRecord | undefined = hasUsage
+    ? {
+        id: `${next.id}:${timestamp}:${JSON.stringify(totals)}`,
+        sessionId: next.id,
+        parentId: next.parentId,
+        forkedFromId: next.forkedFromId,
+        harness: "codex",
+        model: next.model,
+        timestamp,
+        categories,
+        source,
+        reportedCostUSD: null,
+      }
+    : undefined;
 
-  if (Object.values(categories).every((value) => value === 0)) {
-    return;
-  }
-
-  return {
-    id: `${session.id}:${timestamp}:${JSON.stringify(totals)}`,
-    sessionId: session.id,
-    parentId: session.parentId,
-    forkedFromId: session.forkedFromId,
-    harness: "codex",
-    model: session.model,
-    timestamp,
-    categories,
-    source,
-    reportedCostUSD: null,
-  };
+  return { session: next, record };
 }
 
 /**
