@@ -1,3 +1,4 @@
+import { pocketForThread } from "../state/pockets";
 import { type Config, readConfig } from "./config";
 import { pocketStore } from "./pocket-store";
 
@@ -45,9 +46,7 @@ export function requestConfig(request: Request) {
 */
 export async function configForOwner(owner: string) {
   const host = await pocketHost();
-  const entry = pocketStore()
-    .list()
-    .find((pocket) => pocket.threadId === owner);
+  const entry = pocketForThread(pocketStore().list(), owner);
 
   if (!entry) {
     throw new Error("Parent chat is unavailable.");

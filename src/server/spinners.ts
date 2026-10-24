@@ -1,3 +1,5 @@
+import { valueAfterCleanup } from "../lib/results";
+import { findById } from "../lib/identity";
 import { COLUMNS, PRIVATE_FILE_MODE, assetInfoSchema, spinnerStorage, storedSpinnerSchema } from "./spinner-db";
 import { type ValidatedRaster, rasterFile, validatedRaster } from "./spinner-raster";
 import { closeSync, constants, openSync, readFileSync, unlinkSync } from "node:fs";
@@ -8,7 +10,7 @@ import { localDirectory } from "./local-state";
 import path from "node:path";
 import { writeFile } from "node:fs/promises";
 import { z } from "zod";
-import { t as attempt } from "try";
+import { t as attempt, ok } from "try";
 
 const MAX_SAVED = 32;
 const MAX_LIBRARY_BYTES = 67_108_864;
@@ -39,9 +41,9 @@ Select an existing digest or insert its managed image inside the active transact
 @param id - New managed asset identifier.
 @param digest - SHA-256 digest of the original bytes.
 @param raster - Validated original image and derived metadata.
-@param saved - Records whether the new file became a catalog asset.
+@returns Whether the new file became a catalog asset.
 */
-  private registerAsset(id: string, digest: string, raster: ValidatedRaster, saved: { used: boolean }) {
+  private registerAsset(id: string, digest: string, raster: ValidatedRaster) {
     const existing = z
       .object({ id: z.string() })
       .optional()
@@ -51,10 +53,10 @@ Select an existing digest or insert its managed image inside the active transact
       this.db.prepare("UPDATE spinner_assets SET tone=? WHERE id=?").run(JSON.stringify(raster.tone), existing.id);
       this.db.prepare("UPDATE spinner_preference SET activeId=? WHERE singleton=1").run(existing.id);
 
-      return;
+      return false;
     }
 
-    this.insertAsset(id, digest, raster, saved);
+    return this.insertAsset(id, digest, raster);
   }
 
   /**
@@ -62,9 +64,9 @@ Enforce library capacity before registering a new managed image.
 @param id - New managed asset identifier.
 @param digest - SHA-256 digest of the original bytes.
 @param raster - Validated original image and derived metadata.
-@param saved - Marks the new file as retained after insertion.
+@returns Whether the new file was registered.
 */
-  private insertAsset(id: string, digest: string, raster: ValidatedRaster, saved: { used: boolean }) {
+  private insertAsset(id: string, digest: string, raster: ValidatedRaster) {
     const { count, bytes } = z
       .object({ count: z.number(), bytes: z.number() })
       .parse(this.db.prepare("SELECT COUNT(*) AS count,COALESCE(SUM(bytes),0) AS bytes FROM spinner_assets").get());
@@ -89,7 +91,8 @@ Enforce library capacity before registering a new managed image.
         JSON.stringify(raster.tone)
       );
     this.db.prepare("UPDATE spinner_preference SET activeId=? WHERE singleton=1").run(id);
-    saved.used = true;
+
+    return true;
   }
 
   /**
@@ -136,13 +139,32 @@ Keep the managed file open until its read and any tone migration finish.
 
     const completed = await attempt(this.assetBytes(file, id, asset));
 
-    closeSync(file);
+    return valueAfterCleanup(completed, attempt(closeSync, file));
+  }
 
-    if (!completed.ok) {
-      throw completed.error;
+  /** Remove a registered file and its metadata under the caller's native transaction.
+  @param id - Validated managed image identity.
+  */
+  private deleteAsset(id: string) {
+    const asset = this.db.prepare("SELECT id FROM spinner_assets WHERE id=?").get(id);
+
+    if (!asset) {
+      throw new Error("Saved spinner not found. Use spinner_status for managed IDs.");
     }
 
-    return completed.value;
+    this.db.prepare("UPDATE spinner_preference SET activeId=NULL WHERE singleton=1 AND activeId=?").run(id);
+
+    const removed = attempt(unlinkSync, path.join(this.assets, id));
+
+    if (!removed.ok) {
+      const error = removed.error;
+
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+        throw new Error("Could not delete the managed spinner copy. Try again.", { cause: error });
+      }
+    }
+
+    this.db.prepare("DELETE FROM spinner_assets WHERE id=?").run(id);
   }
 
   /**
@@ -157,7 +179,7 @@ Read the saved library and resolve the active managed spinner.
       .object({ activeId: z.string().nullable() })
       .parse(this.db.prepare("SELECT activeId FROM spinner_preference WHERE singleton=1").get());
 
-    return { current: assets.find((asset) => asset.id === activeId) ?? null, saved: assets };
+    return { current: findById(assets, activeId) ?? null, saved: assets };
   }
 
   /**
@@ -171,25 +193,13 @@ Save validated original bytes and atomically select their catalog entry.
     const digest = createHash("sha256").update(raster.input).digest("hex");
     const target = path.join(this.assets, id);
 
-    const saved = { used: false };
-
     await writeFile(target, raster.input, { mode: PRIVATE_FILE_MODE, flag: "wx" });
 
-    const outcome = attempt(() => {
-      this.db
-        .transaction(() => {
-          this.registerAsset(id, digest, raster, saved);
-        })
-        .immediate();
-    });
+    const hasRegistered = this.db.transaction(this.registerAsset.bind(this));
+    const outcome = attempt(hasRegistered.immediate.bind(hasRegistered), id, digest, raster);
+    const removed = outcome.ok && outcome.value ? ok(undefined) : attempt(unlinkSync, target);
 
-    if (!saved.used) {
-      unlinkSync(target);
-    }
-
-    if (!outcome.ok) {
-      throw outcome.error;
-    }
+    valueAfterCleanup(outcome, removed);
 
     return this.status();
   }
@@ -211,29 +221,7 @@ Remove a managed image and clear its selection inside the catalog transaction.
 */
   delete(id: string) {
     spinnerId.parse(id);
-    this.db
-      .transaction(() => {
-        const asset = this.db.prepare("SELECT id FROM spinner_assets WHERE id=?").get(id);
-
-        if (!asset) {
-          throw new Error("Saved spinner not found. Use spinner_status for managed IDs.");
-        }
-
-        this.db.prepare("UPDATE spinner_preference SET activeId=NULL WHERE singleton=1 AND activeId=?").run(id);
-
-        const removed = attempt(unlinkSync, path.join(this.assets, id));
-
-        if (!removed.ok) {
-          const error = removed.error;
-
-          if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
-            throw new Error("Could not delete the managed spinner copy. Try again.", { cause: error });
-          }
-        }
-
-        this.db.prepare("DELETE FROM spinner_assets WHERE id=?").run(id);
-      })
-      .immediate();
+    this.db.transaction(this.deleteAsset.bind(this)).immediate(id);
 
     return { deletedId: id, ...this.status() };
   }

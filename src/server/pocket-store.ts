@@ -1,12 +1,13 @@
-import { chmodSync, mkdirSync } from "node:fs";
-import Database from "better-sqlite3";
+import { requireRemovablePocket } from "../state/pockets";
+import { mkdirSync } from "node:fs";
+import type Database from "better-sqlite3";
+import { privateDatabase } from "./private-database";
 import { localDirectory } from "./local-state";
 import path from "node:path";
 import { pocketSchema } from "../lib/pockets";
 import { z } from "zod";
 
 const DIRECTORY_MODE = 0o700;
-const FILE_MODE = 0o600;
 const DATABASE_TIMEOUT_MS = 3000;
 const savedSchema = pocketSchema.extend({ deleted: z.number() });
 
@@ -17,6 +18,7 @@ Persist named main Pockets separately from delegated Side Pockets.
 */
 export class PocketStore {
   private db: Database.Database;
+  readonly remove;
 
   /** Open private durable metadata and preserve deletions across future startup.
   @param directory - Private Pocket state directory.
@@ -25,14 +27,29 @@ export class PocketStore {
     const filename = path.join(directory, "pockets.sqlite");
 
     mkdirSync(directory, { recursive: true, mode: DIRECTORY_MODE });
-    this.db = new Database(filename, { timeout: DATABASE_TIMEOUT_MS });
-    chmodSync(filename, FILE_MODE);
-    this.db.pragma("journal_mode = WAL");
-    this.db.exec(`CREATE TABLE IF NOT EXISTS pockets (
+    this.db = privateDatabase(
+      filename,
+      `CREATE TABLE IF NOT EXISTS pockets (
       id TEXT PRIMARY KEY, name TEXT NOT NULL, threadId TEXT,
       state TEXT NOT NULL, preview TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'Ready',
       deleted INTEGER NOT NULL DEFAULT 0
-    )`);
+    )`,
+      { timeout: DATABASE_TIMEOUT_MS }
+    );
+    const remove = this.db.transaction(this.removeEntry.bind(this));
+
+    this.remove = remove.immediate.bind(remove);
+  }
+
+  /** Hide an idle Pocket while retaining its native history and durable receipts.
+  @param id - Identity whose runtime has been checked for pending work.
+  */
+  private removeEntry(id: string) {
+    const entry = this.get(id);
+
+    requireRemovablePocket(this.list(), entry);
+
+    this.db.prepare("UPDATE pockets SET deleted=1 WHERE id=?").run(id);
   }
 
   /**
@@ -119,23 +136,6 @@ export class PocketStore {
   */
   preview(id: string, preview: string, status: string) {
     this.db.prepare("UPDATE pockets SET preview=?,status=? WHERE id=? AND deleted=0").run(preview, status, id);
-  }
-
-  /** Hide an idle Pocket while retaining its native history and durable receipts.
-  @param id - Identity whose runtime has been checked for pending work.
-  */
-  remove(id: string) {
-    this.db
-      .transaction(() => {
-        const entry = this.get(id);
-
-        if (entry.state === "ready" && this.list().filter((pocket) => pocket.state === "ready").length <= 1) {
-          throw new Error("Create another Pocket before deleting the last one.");
-        }
-
-        this.db.prepare("UPDATE pockets SET deleted=1 WHERE id=?").run(id);
-      })
-      .immediate();
   }
 }
 

@@ -1,12 +1,10 @@
 import { t as captureResult } from "try";
-/* eslint-disable jsdoc/require-param, jsdoc/require-returns -- Operations share one voice connection owner. */
 import { type Data, object, string } from "../lib/protocol";
 import { OpenAIRealtime } from "./openai-realtime";
 import { type VoiceSessionOwner, readVoiceConfiguration } from "./voice-session-owner";
 import { RealtimeTools } from "./realtime-tools";
-import { VoiceHistory } from "./voice-history";
-
-const LIVE_CAPTION_LIMIT = 256;
+import { RealtimeCaptions } from "./realtime-captions";
+import { log } from "./logging";
 
 /**
 Own call controls and history while WebRTC carries audio directly between the browser and OpenAI.
@@ -18,164 +16,36 @@ export class OpenAIVoiceSession extends EventTarget {
   private error?: string;
   private transport?: OpenAIRealtime;
   private tools?: RealtimeTools;
-  private history?: VoiceHistory;
-  private persistence: Promise<void> = Promise.resolve();
-  private anchors = new Map<string, string | null>();
-  private lastCanonical?: string | null;
-  private lastVoice?: string;
-  private partial = new Map<string, string>();
-  private captions = new Map<string, Data>();
+  private readonly captions;
 
   /**
   Bind the main agent used as a tool by the realtime conversational agent.
+  @param owner - Canonical conversation and delegated worker interface.
   */
   constructor(private owner: VoiceSessionOwner) {
     super();
+    this.captions = new RealtimeCaptions(owner, this.publish.bind(this));
   }
 
   /**
   Publish status and transcript events; media never passes through this feed.
+  @param event - Browser control or transcript event.
   */
   private publish(event: Data) {
-    if (event.type === "transcriptDelta" || event.type === "transcriptDone") {
-      this.captions.set(string(event.id), event);
-
-      if (this.captions.size > LIVE_CAPTION_LIMIT) {
-        this.captions.delete(this.captions.keys().next().value ?? "");
-      }
-    }
-
     this.dispatchEvent(new CustomEvent("message", { detail: event }));
   }
 
   /**
-  Restore finalized speech for the selected Pocket.
-  */
-  private savedHistory() {
-    this.history ??= new VoiceHistory(this.owner.threadId());
-
-    return this.history;
-  }
-
-  /**
-  Anchor provider speech immediately, regardless of when transcription completes.
-  */
-  private anchor(itemId: string, sessionId: string, role: "user" | "assistant") {
-    const id = `realtime:${sessionId}:${itemId}:${role}`;
-
-    if (!this.anchors.has(id)) {
-      const canonical = this.owner.lastItemId?.() ?? null;
-      const previous = this.lastCanonical === canonical ? (this.lastVoice ?? canonical) : canonical;
-
-      this.anchors.set(id, previous);
-      this.lastCanonical = canonical;
-      this.lastVoice = id;
-    }
-
-    return this.anchors.get(id) ?? null;
-  }
-
-  /**
-  Save transcripts on their own queue; a slow or failed write cannot gate audio or tool calls.
-  */
-  private finalized(event: Data, sessionId: string, role: "user" | "assistant") {
-    const afterItemId = this.anchor(string(event.item_id), sessionId, role);
-
-    this.partial.delete(string(event.item_id));
-    this.reply(event, sessionId, role, string(event.transcript), true);
-    const history = this.savedHistory();
-
-    this.persistence = this.persist(this.persistence, history, event, sessionId, role, afterItemId);
-  }
-
-  /**
-  Serialize only history writes and surface their failures without disconnecting media.
-  */
-  private async persist(
-    previous: Promise<void>,
-    history: VoiceHistory,
-    event: Data,
-    sessionId: string,
-    role: "user" | "assistant",
-    afterItemId: string | null
-  ) {
-    await previous;
-
-    const completed = await captureResult(history.finalize(event, sessionId, role, afterItemId));
-
-    if (!completed.ok) {
-      this.publish({ type: "warning", error: "Voice history could not be saved. Your live call is still connected." });
-    }
-  }
-
-  /**
-  Publish reply text supplied with the audio without waiting for storage.
-  */
-  private reply(event: Data, sessionId: string, role: "user" | "assistant", text: string, isDone: boolean) {
-    const itemId = string(event.item_id);
-
-    this.publish({
-      type: isDone ? "transcriptDone" : "transcriptDelta",
-      id: `realtime:${sessionId}:${itemId}:${role}`,
-      itemId,
-      nativeSessionId: sessionId,
-      role,
-      text,
-      done: isDone,
-      afterItemId: this.anchor(itemId, sessionId, role),
-    });
-  }
-
-  /**
   Handle control events immediately; audio is played by the browser's WebRTC receiver.
+  @param event - Provider control frame.
+  @param sessionId - Original native call identity.
   */
   private receive(event: Data, sessionId: string) {
     this.tools?.receive(event);
 
+    this.captions.receive(event, sessionId);
+
     switch (event.type) {
-      case "response.output_item.added": {
-        const item = object(event.item);
-
-        if (item.type === "message" && item.role === "assistant") {
-          this.anchor(string(item.id), sessionId, "assistant");
-        }
-
-        break;
-      }
-
-      case "input_audio_buffer.speech_started":
-      case "input_audio_buffer.committed": {
-        this.anchor(string(event.item_id), sessionId, "user");
-        break;
-      }
-
-      case "conversation.item.input_audio_transcription.completed": {
-        this.finalized(event, sessionId, "user");
-        break;
-      }
-
-      case "conversation.item.input_audio_transcription.failed": {
-        this.publish({ type: "warning", error: "Some captions are unavailable. Your live audio is still connected." });
-        break;
-      }
-
-      case "conversation.item.input_audio_transcription.delta":
-      case "response.output_audio_transcript.delta": {
-        const itemId = string(event.item_id);
-        const text = (this.partial.get(itemId) ?? "") + string(event.delta);
-
-        this.partial.set(itemId, text);
-        const role = event.type === "response.output_audio_transcript.delta" ? "assistant" : "user";
-
-        this.reply(event, sessionId, role, text, false);
-        break;
-      }
-
-      case "response.output_audio_transcript.done": {
-        this.finalized(event, sessionId, "assistant");
-        break;
-      }
-
       case "error": {
         void this.disconnect(string(object(event.error).message) || "OpenAI Realtime failed.");
         break;
@@ -188,8 +58,35 @@ export class OpenAIVoiceSession extends EventTarget {
     }
   }
 
+  /** Reject stale control events from a previous native connection.
+  @param attempt - Native connection generation.
+  @param sessionId - Original native call identity.
+  @param event - Provider control event.
+  */
+  private received(attempt: number, sessionId: string, event: Data) {
+    if (this.attempt === attempt && this.transport) {
+      this.receive(event, sessionId);
+    }
+  }
+
+  /** Surface the original tool-control failure and revoke only its owning call.
+  @param attempt - Native connection generation.
+  @param error - Original transport failure.
+  */
+  private toolFailed(attempt: number, error: unknown) {
+    log().error({ error }, "realtime.tool_delivery_failed");
+
+    if (this.attempt === attempt) {
+      void this.disconnect("Realtime tool results could not be delivered. Start voice again to continue.");
+    }
+  }
+
   /**
   Negotiate one call and attach its tool connection before returning the browser's SDP.
+  @param attempt - Reserved native connection generation.
+  @param sdp - Browser media offer.
+  @param endpoint - Optional provider endpoint override.
+  @returns Browser answer and owned call identity.
   */
   private async connect(attempt: number, sdp: string, endpoint?: string) {
     const settings = await readVoiceConfiguration(this.owner);
@@ -198,36 +95,24 @@ export class OpenAIVoiceSession extends EventTarget {
       throw new Error("Realtime stopped while connecting.");
     }
 
-    const context = this.owner.context?.(await this.savedHistory().read()) ?? "";
+    const context = this.owner.context?.(await this.captions.context()) ?? "";
 
     if (this.attempt !== attempt) {
       throw new Error("Realtime stopped while loading context.");
     }
 
     const sessionId = crypto.randomUUID();
-    const transport = new OpenAIRealtime((event) => {
-      if (this.transport === transport) {
-        this.receive(event, sessionId);
-      }
-    });
+    const transport = new OpenAIRealtime(this.received.bind(this, attempt, sessionId));
 
     this.token = crypto.randomUUID();
     this.transport = transport;
     this.error = undefined;
-    this.anchors.clear();
-    this.partial.clear();
-    this.captions.clear();
-    this.lastCanonical = undefined;
-    this.lastVoice = undefined;
+    this.captions.reset();
     this.tools = new RealtimeTools(
       sessionId,
       this.owner,
-      (event) => {
-        transport.send(event);
-      },
-      () => {
-        void this.disconnect("Realtime tool results could not be delivered. Start voice again to continue.");
-      }
+      transport.send.bind(transport),
+      this.toolFailed.bind(this, attempt)
     );
     const answer = await transport.connect(settings.key, settings.voice, sdp, settings.model, endpoint, context);
 
@@ -242,15 +127,17 @@ export class OpenAIVoiceSession extends EventTarget {
 
   /**
   Read saved speech independently of the live call.
+  @returns Finalized captions after observed durable writes.
   */
   async transcripts() {
-    await this.persistence;
-
-    return this.savedHistory().read();
+    return this.captions.read();
   }
 
   /**
   Return a worker result to the realtime agent's original tool call.
+  @param id - Original worker delivery receipt.
+  @param text - Actual worker answer.
+  @param status - Native turn completion status.
   */
   answer(id: string, text: string, status = "completed") {
     this.tools?.answer(id, text, status);
@@ -258,6 +145,9 @@ export class OpenAIVoiceSession extends EventTarget {
 
   /**
   Reserve one browser owner before asynchronous session negotiation.
+  @param sdp - Browser media offer.
+  @param endpoint - Optional provider endpoint override.
+  @returns Native media answer and owned call identity.
   */
   async start(sdp: string, endpoint?: string) {
     if (this.phase !== "idle") {
@@ -284,6 +174,7 @@ export class OpenAIVoiceSession extends EventTarget {
 
   /**
   Stop media and controls without waiting for transcript completion.
+  @param token - Browser ownership credential.
   */
   async stop(token: string) {
     if (!this.owns(token)) {
@@ -303,6 +194,8 @@ export class OpenAIVoiceSession extends EventTarget {
 
   /**
   Check the current browser owner for control requests.
+  @param token - Presented ownership credential.
+  @returns Whether this browser owns the current call.
   */
   owns(token: string) {
     return !!this.token && token === this.token;
@@ -310,6 +203,7 @@ export class OpenAIVoiceSession extends EventTarget {
 
   /**
   Expose control state without credentials or raw provider frames.
+  @returns Public call phase and error.
   */
   status() {
     return { type: this.phase, error: this.error };
@@ -317,13 +211,15 @@ export class OpenAIVoiceSession extends EventTarget {
 
   /**
   Replay current caption state when the observer attaches after media has already connected.
+  @returns Bounded live caption frames.
   */
   liveCaptions() {
-    return this.captions.values().toArray();
+    return this.captions.live();
   }
 
   /**
   Revoke stale control and tool callbacks immediately and release the provider call.
+  @param message - Public reason for call termination.
   */
   async disconnect(message: string) {
     this.attempt++;
@@ -337,10 +233,13 @@ export class OpenAIVoiceSession extends EventTarget {
     this.error = message;
     this.publish({ type: "error", error: message });
 
-    const closed = await captureResult(() => transport?.close());
+    const closed = transport ? await captureResult(transport.close.bind(transport)) : undefined;
 
-    if (!closed.ok) {
-      this.publish({ type: "warning", error: "Realtime call closure could not be confirmed." });
+    if (!closed || closed.ok) {
+      return;
     }
+
+    log().error({ error: closed.error }, "realtime.close_failed");
+    this.publish({ type: "warning", error: "Realtime call closure could not be confirmed." });
   }
 }

@@ -1,13 +1,13 @@
-import Database from "better-sqlite3";
-import { chmodSync, mkdirSync } from "node:fs";
+import type Database from "better-sqlite3";
+import { privateDatabase } from "./private-database";
+import { valueAfterCleanup } from "../lib/results";
+import { mkdirSync } from "node:fs";
 import { type PersistStorage, type StorageValue } from "zustand/middleware";
 import { type ZodType, z } from "zod";
 import path from "node:path";
 import { t as attempt } from "try";
 
 const DIRECTORY_MODE = 0o700;
-const FILE_MODE = 0o600;
-const DATABASE_TIMEOUT_MS = 3000;
 const rowSchema = z.object({ value: z.string() });
 
 type StorageCommand<T> =
@@ -15,15 +15,11 @@ type StorageCommand<T> =
 
 /** Execute an explicit persistence command on an already owned database handle.
 @param db - Handle owned by the runtime caller.
-@param filename - Private host database location.
 @param schema - Validator for durable data.
 @param command - Read, write or removal request.
 @returns Versioned data for a read, or null after a write/removal.
 */
-function executeCommand<T>(db: Database.Database, filename: string, schema: ZodType<T>, command: StorageCommand<T>) {
-  chmodSync(filename, FILE_MODE);
-  db.pragma("journal_mode = WAL");
-  db.exec("CREATE TABLE IF NOT EXISTS zustand_state (key TEXT PRIMARY KEY, value TEXT NOT NULL)");
+function executeCommand<T>(db: Database.Database, schema: ZodType<T>, command: StorageCommand<T>) {
   const envelope = z.object({ state: schema, version: z.number().optional() });
 
   switch (command.kind) {
@@ -57,16 +53,13 @@ function executeCommand<T>(db: Database.Database, filename: string, schema: ZodT
 */
 function databaseCommand<T>(filename: string, schema: ZodType<T>, command: StorageCommand<T>) {
   mkdirSync(path.dirname(filename), { recursive: true, mode: DIRECTORY_MODE });
-  const db = new Database(filename, { timeout: DATABASE_TIMEOUT_MS });
-  const outcome = attempt(executeCommand<T>, db, filename, schema, command);
+  const db = privateDatabase(
+    filename,
+    "CREATE TABLE IF NOT EXISTS zustand_state (key TEXT PRIMARY KEY, value TEXT NOT NULL)"
+  );
+  const outcome = attempt(executeCommand<T>, db, schema, command);
 
-  db.close();
-
-  if (!outcome.ok) {
-    throw outcome.error;
-  }
-
-  return outcome.value;
+  return valueAfterCleanup(outcome, attempt(db.close.bind(db)));
 }
 
 /**

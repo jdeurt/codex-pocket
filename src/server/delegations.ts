@@ -34,6 +34,9 @@ export class DelegationStore {
   private db;
 
   private notifications: DelegationNotifications;
+  readonly closeChild;
+
+  readonly create;
 
   readonly mail: DelegationMailbox;
 
@@ -57,6 +60,12 @@ Acquire private persistence, committed-change hints and concrete mailbox and que
 */
   constructor(directory: string) {
     this.db = delegationDatabase(directory);
+    const closeChild = this.db.transaction(this.closeTrackedChild.bind(this));
+
+    this.closeChild = closeChild.immediate.bind(closeChild);
+    const create = this.db.transaction(this.createChild.bind(this));
+
+    this.create = create.immediate.bind(create);
     this.notifications = new DelegationNotifications(directory);
     this.reports = new DelegateReportStore(this.db);
     this.mail = new DelegationMailbox(this.db, this.notifications.changed);
@@ -103,6 +112,61 @@ Insert a new child and its first command only after retry and native-policy chec
       );
     this.queue.send(parentId, id, "initial", value.body, "queue");
     log().info({ parentId, childId: id, input: value }, "side_pocket.created");
+
+    return this.get(parentId, id);
+  }
+
+  /**
+Validate creation input and deduplicate it inside the existing immediate transaction.
+@param parentId - Recorded parent scope.
+@param input - Untrusted creation input with a stable idempotency key.
+@returns Existing identical child or a new child with its initial queued assignment.
+*/
+  private createChild(parentId: string, input: unknown) {
+    const value = delegationInput.parse(input);
+    const parent = this.parent(parentId);
+    const fingerprint = createHash("sha256").update(JSON.stringify(value)).digest("hex");
+    const existing = storedPocketSchema
+      .optional()
+      .parse(
+        this.db
+          .prepare("SELECT * FROM side_pockets WHERE parentId=? AND createKey=?")
+          .get(parentId, value.idempotencyKey)
+      );
+
+    if (existing) {
+      if (existing.fingerprint !== fingerprint) {
+        throw new Error("This creation key already belongs to different work.");
+      }
+
+      return pocket(existing);
+    }
+
+    if (value.harness === "claude") {
+      claudePermissions(parent.policy);
+      requireClaudeBinary();
+    }
+
+    return this.insertChild(parentId, value, parent, fingerprint);
+  }
+
+  /**
+Atomically persist close intent and cancel queued work and pending native requests.
+@param parentId - Recorded parent scope.
+@param id - Managed child to close without deleting its saved identity.
+@returns Updated persisted child including an already closed child.
+*/
+  private closeTrackedChild(parentId: string, id: string) {
+    const child = this.get(parentId, id);
+
+    if (child.status !== "closed") {
+      this.setStatus(parentId, id, "closing");
+    }
+
+    this.db
+      .prepare("UPDATE delegation_commands SET status='cancelled' WHERE childId=? AND status IN ('queued','pending')")
+      .run(id);
+    this.mail.cancelRequests(id);
 
     return this.get(parentId, id);
   }
@@ -155,7 +219,7 @@ Read normalized managed children within the recorded parent scope.
       .array(storedPocketSchema)
       .parse(this.db.prepare("SELECT * FROM side_pockets WHERE parentId=? ORDER BY createdAt,id").all(parentId));
 
-    return rows.map((row) => pocket(row));
+    return Array.from(rows, pocket);
   }
 
   /**
@@ -174,45 +238,6 @@ Require a normalized child belonging to the exact recorded parent.
     }
 
     return pocket(row);
-  }
-
-  /**
-Validate creation input and deduplicate it inside the existing immediate transaction.
-@param parentId - Recorded parent scope.
-@param input - Untrusted creation input with a stable idempotency key.
-@returns Existing identical child or a new child with its initial queued assignment.
-*/
-  create(parentId: string, input: unknown) {
-    const value = delegationInput.parse(input);
-    const parent = this.parent(parentId);
-    const fingerprint = createHash("sha256").update(JSON.stringify(value)).digest("hex");
-
-    return this.db
-      .transaction(() => {
-        const existing = storedPocketSchema
-          .optional()
-          .parse(
-            this.db
-              .prepare("SELECT * FROM side_pockets WHERE parentId=? AND createKey=?")
-              .get(parentId, value.idempotencyKey)
-          );
-
-        if (existing) {
-          if (existing.fingerprint !== fingerprint) {
-            throw new Error("This creation key already belongs to different work.");
-          }
-
-          return pocket(existing);
-        }
-
-        if (value.harness === "claude") {
-          claudePermissions(parent.policy);
-          requireClaudeBinary();
-        }
-
-        return this.insertChild(parentId, value, parent, fingerprint);
-      })
-      .immediate();
   }
 
   /**
@@ -267,33 +292,6 @@ Merge native lifecycle display metadata into the child's private persisted JSON.
     this.db
       .prepare("UPDATE side_pockets SET metadata=json_patch(metadata,?) WHERE parentId=? AND id=?")
       .run(JSON.stringify(data), parentId, id);
-  }
-
-  /**
-Atomically persist close intent and cancel queued work and pending native requests.
-@param parentId - Recorded parent scope.
-@param id - Managed child to close without deleting its saved identity.
-@returns Updated persisted child including an already closed child.
-*/
-  closeChild(parentId: string, id: string) {
-    return this.db
-      .transaction(() => {
-        const child = this.get(parentId, id);
-
-        if (child.status !== "closed") {
-          this.setStatus(parentId, id, "closing");
-        }
-
-        this.db
-          .prepare(
-            "UPDATE delegation_commands SET status='cancelled' WHERE childId=? AND status IN ('queued','pending')"
-          )
-          .run(id);
-        this.mail.cancelRequests(id);
-
-        return this.get(parentId, id);
-      })
-      .immediate();
   }
 
   /**

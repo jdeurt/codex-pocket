@@ -65,7 +65,11 @@ async function inputImage(source: string, cwd: string) {
 Bound the rendered image cache by evicting its oldest entries after insertion.
 */
 function evictImages() {
-  let total = cache.values().reduce((sum, entry) => sum + entry.bytes.length, 0);
+  let total = 0;
+
+  for (const entry of cache.values()) {
+    total += entry.bytes.length;
+  }
 
   while (total > MAX_CACHE_BYTES && cache.size > 0) {
     const first = cache.keys().next().value;

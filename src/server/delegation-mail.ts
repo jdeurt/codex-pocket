@@ -17,6 +17,8 @@ export type DelegationRequest = z.infer<typeof delegationRequestSchema>;
 Own durable parent reports and native requests scoped to managed child identities.
 */
 export class DelegationMailbox {
+  readonly answer;
+
   /**
 Bind the private database and committed-change notifier without dispatching work.
 @param db - Native private delegation database.
@@ -25,7 +27,11 @@ Bind the private database and committed-change notifier without dispatching work
   constructor(
     private db: Database.Database,
     private changed: () => void
-  ) {}
+  ) {
+    const answer = this.db.transaction(this.commitAnswer.bind(this));
+
+    this.answer = answer.immediate.bind(answer);
+  }
 
   /**
 Persist an active child's parent message under its content-derived retry identity.
@@ -69,6 +75,30 @@ Validate and atomically persist an owned pending answer without replacing a diff
     this.changed();
 
     return { id: request.id, answered: true };
+  }
+
+  /**
+Hold an immediate transaction while verifying ownership and persisting a validated native answer.
+@param parentId - Recorded parent permitted to answer.
+@param childId - Managed child owning the request.
+@param id - Persisted request identity returned by the child request boundary.
+@param answer - Untrusted native answer input.
+@returns Persisted answer acknowledgement, including an identical retry.
+*/
+  private commitAnswer(parentId: string, childId: string, id: string, answer: unknown) {
+    const request = delegationRequestSchema
+      .optional()
+      .parse(
+        this.db
+          .prepare("SELECT * FROM delegation_requests WHERE parentId=? AND childId=? AND id=?")
+          .get(parentId, childId, id)
+      );
+
+    if (!request || request.status === "cancelled") {
+      throw new Error("This request is no longer waiting. Send a follow-up to the saved Side Pocket session.");
+    }
+
+    return this.answerRequest(request, answer);
   }
 
   /**
@@ -236,34 +266,6 @@ Read native child requests within their recorded parent and optional pending fil
           )
           .all(parentId, childId, Number(isPendingOnly))
       );
-  }
-
-  /**
-Hold an immediate transaction while verifying ownership and persisting a validated native answer.
-@param parentId - Recorded parent permitted to answer.
-@param childId - Managed child owning the request.
-@param id - Persisted request identity returned by the child request boundary.
-@param answer - Untrusted native answer input.
-@returns Persisted answer acknowledgement, including an identical retry.
-*/
-  answer(parentId: string, childId: string, id: string, answer: unknown) {
-    return this.db
-      .transaction(() => {
-        const request = delegationRequestSchema
-          .optional()
-          .parse(
-            this.db
-              .prepare("SELECT * FROM delegation_requests WHERE parentId=? AND childId=? AND id=?")
-              .get(parentId, childId, id)
-          );
-
-        if (!request || request.status === "cancelled") {
-          throw new Error("This request is no longer waiting. Send a follow-up to the saved Side Pocket session.");
-        }
-
-        return this.answerRequest(request, answer);
-      })
-      .immediate();
   }
 
   /**

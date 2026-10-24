@@ -7,6 +7,19 @@ const MISSING_SEPARATOR = -1;
 
 export const thinkingLevelSchema = z.enum(["off", "minimal", "low", "medium", "high", "xhigh"]);
 
+/** Project public catalog fields without exposing model authentication.
+@param model - Explicit native catalog entry.
+@returns Stable public model identity and capabilities.
+*/
+function modelSummary(model: ReturnType<ModelRuntime["getModels"]>[number]) {
+  return {
+    id: `${model.provider}/${model.id}`,
+    name: model.name,
+    reasoning: model.reasoning,
+    contextWindow: model.contextWindow,
+  };
+}
+
 /** Resolve an explicit provider/model identity against Pi's catalog, never an invented model name.
 @param runtime - Pi's configured catalog and authentication runtime.
 @param selection - Qualified provider/model ID; a bare ID selects the OpenAI provider.
@@ -41,16 +54,7 @@ export function piModelCatalog(runtime: ModelRuntime | undefined, params: Data =
     return queryModelCatalog(runtime.getModels(), runtime.getProviders(), query);
   }
 
-  if (!runtime) {
-    return [];
-  }
-
-  return runtime.getModels().map((model) => ({
-    id: `${model.provider}/${model.id}`,
-    name: model.name,
-    reasoning: model.reasoning,
-    contextWindow: model.contextWindow,
-  }));
+  return runtime ? Array.from(runtime.getModels(), modelSummary) : [];
 }
 
 /** Validate staged next-turn settings without invoking a model or creating a tool trace.

@@ -1,4 +1,3 @@
-/* eslint-disable jsdoc/require-param, jsdoc/require-returns -- History operations are bound to the constructor's thread identity. */
 import { findById } from "../lib/identity";
 import { finalizedCaptions } from "../state/saved-voice";
 import { type VoiceSegment } from "../lib/voice-history";
@@ -35,6 +34,11 @@ export class VoiceHistory {
 
   /**
   Persist an immutable final caption independently of live audio and the UI.
+  @param event - Finalized native caption.
+  @param sessionId - Native call identity.
+  @param role - Speaker.
+  @param afterItemId - Original canonical insertion anchor.
+  @returns Saved caption, or undefined for a missing native identity.
   */
   async finalize(event: Data, sessionId: string, role: "user" | "assistant", afterItemId: string | null) {
     const itemId = string(event.item_id);
@@ -64,6 +68,7 @@ export class VoiceHistory {
 
   /**
   Persist the complete finalized transcript on the independent history queue.
+  @param entry - Validated finalized caption.
   */
   async save(entry: VoiceSegment) {
     const entries = await this.read();

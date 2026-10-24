@@ -54,3 +54,34 @@ export function homeDestination(entries: readonly Pocket[]) {
 
   return destination;
 }
+
+/** Require another ready conversation before deleting the last usable Pocket.
+@param entries - Current durable catalog.
+@param selected - Entry whose native work has already been checked.
+*/
+export function requireRemovablePocket(entries: readonly Pocket[], selected: Pocket) {
+  if (selected.state !== "ready") {
+    return;
+  }
+
+  for (const entry of entries) {
+    if (entry.id !== selected.id && entry.state === "ready") {
+      return;
+    }
+  }
+
+  throw new Error("Create another Pocket before deleting the last one.");
+}
+
+/** Resolve the catalog entry belonging to an explicit native owner.
+@param entries - Saved named Pockets.
+@param threadId - Verified native owner identity.
+@returns Matching catalog entry, if it exists.
+*/
+export function pocketForThread(entries: readonly Pocket[], threadId: string) {
+  for (const entry of entries) {
+    if (entry.threadId === threadId) {
+      return entry;
+    }
+  }
+}

@@ -1,3 +1,5 @@
+import { valueAfterCleanup } from "../lib/results";
+import { activeNativeTurn } from "../state/harness-result";
 import { t as captureResult } from "try";
 import { type Config, configSchema } from "./config";
 import { type Thread, object, string } from "../lib/protocol";
@@ -73,12 +75,11 @@ export async function sessionClient(config: Config, filename?: string) {
 
   const connected = await captureResult(connectSession, rpc, config, filename);
 
-  if (connected.ok) {
-    return rpc;
+  if (!connected.ok) {
+    valueAfterCleanup(connected, await captureResult(rpc.shutdown.bind(rpc)));
   }
 
-  await rpc.shutdown();
-  throw connected.error;
+  return rpc;
 }
 
 /**
@@ -111,7 +112,7 @@ Reject active saved copies and retain the exact native identity and working fold
 @returns Metadata needed for durable adoption.
 */
 function inspectedSession(thread: Thread, isLive: boolean): AdoptedSession {
-  const active = thread.turns.findLast((turn) => turn.status === "inProgress");
+  const active = activeNativeTurn(thread.turns, new Map());
   const cwd = string(thread.cwd);
 
   if (!cwd.startsWith("/")) {
@@ -122,7 +123,7 @@ function inspectedSession(thread: Thread, isLive: boolean): AdoptedSession {
     throw new Error("This session may still be running. Supply its owning app-server socketPath to attach live.");
   }
 
-  return { threadId: thread.id, cwd, ...(active && { turnId: active.id }) };
+  return { threadId: thread.id, cwd, ...(active && { turnId: active }) };
 }
 
 /**
@@ -169,13 +170,7 @@ async function adoptionQuery<Input extends { socketPath?: string }, Output>(
   const rpc = await sessionClient(config, input.socketPath);
   const completed = await captureResult(query, rpc, input);
 
-  await rpc.shutdown();
-
-  if (!completed.ok) {
-    throw completed.error;
-  }
-
-  return completed.value;
+  return valueAfterCleanup(completed, await captureResult(rpc.shutdown.bind(rpc)));
 }
 
 /**
@@ -186,6 +181,14 @@ Inspect a session before adding tracking, without sending input or resuming a sa
 */
 export async function inspectAdoption(config: Config, input: AdoptionInput) {
   return adoptionQuery(config, input, inspectSession);
+}
+
+/** Expose only native session summary fields.
+@param thread - Native session metadata.
+@returns Original public summary fields.
+*/
+function sessionSummary(thread: Thread) {
+  return { id: thread.id, name: thread.name, preview: thread.preview, cwd: thread.cwd, status: thread.status };
 }
 
 /**
@@ -205,13 +208,7 @@ async function savedSessions(rpc: CodexRpc, input: z.infer<typeof sessionListInp
 
   return {
     ...page,
-    data: page.data.map((thread) => ({
-      id: thread.id,
-      name: thread.name,
-      preview: thread.preview,
-      cwd: thread.cwd,
-      status: thread.status,
-    })),
+    data: Array.from(page.data, sessionSummary),
   };
 }
 

@@ -8,6 +8,8 @@ import { z } from "zod";
 Own active-message delivery transitions in the existing durable command ledger.
 */
 export class CommandSteering {
+  readonly cancel;
+
   /**
 Bind native persistence and committed-change notifications shared with the assignment queue.
 @param db - Existing delegation database, never a second queue.
@@ -16,7 +18,11 @@ Bind native persistence and committed-change notifications shared with the assig
   constructor(
     private db: Database.Database,
     private notifications: DelegationNotifications
-  ) {}
+  ) {
+    const cancel = this.db.transaction(this.cancelCommands.bind(this));
+
+    this.cancel = cancel.immediate.bind(cancel);
+  }
 
   /**
 Cancel only selected unsent assignments and retain their reason in the audit ledger.
@@ -26,39 +32,39 @@ Cancel only selected unsent assignments and retain their reason in the audit led
 @param reason - Parent's explicit cancellation or superseding explanation.
 @returns The cancelled assignment identities, including identical retries.
 */
-  cancel(parentId: string, childId: string, ids: string[], reason: string) {
-    return this.db
-      .transaction(() => {
-        const commands = ids.map((id) =>
-          delegationCommandSchema.parse(
-            this.db
-              .prepare("SELECT * FROM delegation_commands WHERE parentId=? AND childId=? AND id=?")
-              .get(parentId, childId, id)
-          )
+  private cancelCommands(parentId: string, childId: string, ids: string[], reason: string) {
+    const commands: DelegationCommand[] = [];
+
+    for (const id of ids) {
+      const command = delegationCommandSchema.parse(
+        this.db
+          .prepare("SELECT * FROM delegation_commands WHERE parentId=? AND childId=? AND id=?")
+          .get(parentId, childId, id)
+      );
+
+      if (command.mode !== "queue" || !["queued", "cancelled"].includes(command.status)) {
+        throw new Error(
+          "Only unsent queued assignments can be cancelled or superseded. Inspect attempted delivery outcomes first."
         );
+      }
 
-        if (commands.some((command) => command.mode !== "queue" || !["queued", "cancelled"].includes(command.status))) {
-          throw new Error(
-            "Only unsent queued assignments can be cancelled or superseded. Inspect attempted delivery outcomes first."
-          );
-        }
+      commands.push(command);
+    }
 
-        for (const command of commands) {
-          this.db
-            .prepare("UPDATE delegation_commands SET status='cancelled',result=? WHERE id=? AND status='queued'")
-            .run(reason, command.id);
-          this.db
-            .prepare("UPDATE delegation_commands SET status='cancelled',result=? WHERE targetId=? AND status='pending'")
-            .run(`Target assignment cancelled: ${reason}`, command.id);
-        }
+    for (const command of commands) {
+      this.db
+        .prepare("UPDATE delegation_commands SET status='cancelled',result=? WHERE id=? AND status='queued'")
+        .run(reason, command.id);
+      this.db
+        .prepare("UPDATE delegation_commands SET status='cancelled',result=? WHERE targetId=? AND status='pending'")
+        .run(`Target assignment cancelled: ${reason}`, command.id);
+    }
 
-        if (commands.length > 0) {
-          this.notifications.changed();
-        }
+    if (commands.length > 0) {
+      this.notifications.changed();
+    }
 
-        return ids;
-      })
-      .immediate();
+    return ids;
   }
 
   /**

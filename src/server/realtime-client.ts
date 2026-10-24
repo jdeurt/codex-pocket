@@ -1,10 +1,11 @@
-/* eslint-disable jsdoc/require-param, jsdoc/require-returns -- Main-only agent control validates environment before network access. */
 import { dataSchema } from "../lib/protocol";
 
 const CONTROL_TIMEOUT_MS = 15_000;
 
 /**
 Call this main Pocket's control endpoint without opening another native client.
+@param change - Optional next-session voice or model preference.
+@returns Authorized control result.
 */
 export async function callRealtime(change?: { voice?: string; model?: string | null }) {
   const origin = process.env.POCKET_SERVER_ORIGIN;

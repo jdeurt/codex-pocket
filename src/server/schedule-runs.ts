@@ -7,11 +7,15 @@ import { z } from "zod";
 Own durable schedule occurrences and their guarded delivery state transitions.
 */
 export class ScheduleRuns {
+  readonly claim;
+
   /**
 Bind the concrete native database shared with schedule definitions.
 @param db - Private native SQLite connection owning definition and occurrence transactions.
 */
-  constructor(private db: Database.Database) {}
+  constructor(private db: Database.Database) {
+    this.claim = this.db.transaction(this.claimOccurrence.bind(this));
+  }
 
   /**
 Allocate an occurrence identity only after its definition update successfully claims the due boundary.
@@ -46,34 +50,24 @@ Atomically advance a matching active definition and record its due occurrence on
 @param now - Current collection epoch retained in the definition update.
 @returns New pending occurrence, or undefined when another collector already claimed the revision.
 */
-  claim(schedule: Schedule, nextRun: number | null, now: number) {
+  private claimOccurrence(schedule: Schedule, nextRun: number | null, now: number) {
     const scheduledAt = schedule.nextRun;
 
     if (scheduledAt === null) {
       throw new Error("A schedule without a next occurrence cannot be claimed.");
     }
 
-    return this.db.transaction(() => {
-      const updated = this.db
-        .prepare(
-          "UPDATE schedules SET nextRun=?, active=?, revision=revision+1, updatedAt=? WHERE id=? AND threadId=? AND revision=? AND active=1 AND nextRun=?"
-        )
-        .run(
-          nextRun,
-          Number(nextRun !== null),
-          now,
-          schedule.id,
-          schedule.threadId,
-          schedule.revision,
-          schedule.nextRun
-        );
+    const updated = this.db
+      .prepare(
+        "UPDATE schedules SET nextRun=?, active=?, revision=revision+1, updatedAt=? WHERE id=? AND threadId=? AND revision=? AND active=1 AND nextRun=?"
+      )
+      .run(nextRun, Number(nextRun !== null), now, schedule.id, schedule.threadId, schedule.revision, schedule.nextRun);
 
-      if (!updated.changes) {
-        return;
-      }
+    if (!updated.changes) {
+      return;
+    }
 
-      return this.recordRun(schedule, scheduledAt);
-    })();
+    return this.recordRun(schedule, scheduledAt);
   }
 
   /**

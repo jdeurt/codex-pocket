@@ -15,6 +15,7 @@ Own parent-scoped schedule definitions and their concrete persisted occurrence r
 */
 export class ScheduleStore {
   private db: Database.Database;
+  readonly delete;
 
   readonly occurrences: ScheduleRuns;
 
@@ -24,6 +25,7 @@ Acquire private schedule persistence and bind its occurrence owner without start
 */
   constructor(directory: string) {
     this.db = scheduleDatabase(directory);
+    this.delete = this.db.transaction(this.deleteSchedule.bind(this));
     this.occurrences = new ScheduleRuns(this.db);
   }
 
@@ -149,6 +151,25 @@ Acknowledge deletion only after the native transaction cancels its still-pending
   }
 
   /**
+Atomically remove an owned definition and cancel only its still-pending occurrences.
+@param threadId - Owning parent identity.
+@param id - Owned schedule identity.
+@returns Deletion acknowledgement retaining historical and already accepted delivery records.
+*/
+  private deleteSchedule(threadId: string, id: string) {
+    this.get(threadId, id);
+    this.db.prepare("DELETE FROM schedules WHERE threadId=? AND id=?").run(threadId, id);
+
+    return this.deletionReceipt(
+      threadId,
+      id,
+      this.db
+        .prepare("UPDATE scheduled_runs SET status='cancelled' WHERE threadId=? AND scheduleId=? AND status='pending'")
+        .run(threadId, id)
+    );
+  }
+
+  /**
 Read normalized schedule definitions belonging to one parent conversation.
 @param threadId - Owning parent conversation identity.
 @returns Validated schedules in deterministic creation order.
@@ -212,29 +233,6 @@ Validate parent ownership and the expected revision before asynchronous recurren
     }
 
     return this.applyPatch(previous, patch, now);
-  }
-
-  /**
-Atomically remove an owned definition and cancel only its still-pending occurrences.
-@param threadId - Owning parent identity.
-@param id - Owned schedule identity.
-@returns Deletion acknowledgement retaining historical and already accepted delivery records.
-*/
-  delete(threadId: string, id: string) {
-    return this.db.transaction(() => {
-      this.get(threadId, id);
-      this.db.prepare("DELETE FROM schedules WHERE threadId=? AND id=?").run(threadId, id);
-
-      return this.deletionReceipt(
-        threadId,
-        id,
-        this.db
-          .prepare(
-            "UPDATE scheduled_runs SET status='cancelled' WHERE threadId=? AND scheduleId=? AND status='pending'"
-          )
-          .run(threadId, id)
-      );
-    })();
   }
 
   /**

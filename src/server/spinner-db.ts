@@ -1,11 +1,11 @@
+export { PRIVATE_FILE_MODE } from "./private-database";
+import { privateDatabase } from "./private-database";
 import { chmodSync, mkdirSync } from "node:fs";
 import { savedSpinnerSchema, spinnerToneSchema } from "../lib/spinner";
-import Database from "better-sqlite3";
 import path from "node:path";
 import { z } from "zod";
 
 const PRIVATE_DIRECTORY_MODE = 0o700;
-export const PRIVATE_FILE_MODE = 0o600;
 export const storedSpinnerSchema = savedSpinnerSchema.omit({ tone: true }).extend({
   tone: z
     .string()
@@ -22,11 +22,9 @@ Open the private spinner catalog and migrate its optional tone column.
 @returns The initialized native database.
 */
 function spinnerDatabase(filename: string) {
-  const db = new Database(filename, { timeout: 3000 });
-
-  chmodSync(filename, PRIVATE_FILE_MODE);
-  db.pragma("journal_mode = WAL");
-  db.exec(`
+  return privateDatabase(
+    filename,
+    `
       CREATE TABLE IF NOT EXISTS spinner_assets (
         id TEXT PRIMARY KEY, digest TEXT NOT NULL UNIQUE, mime TEXT NOT NULL,
         width INTEGER NOT NULL, height INTEGER NOT NULL, frames INTEGER NOT NULL,
@@ -34,18 +32,9 @@ function spinnerDatabase(filename: string) {
       );
       CREATE TABLE IF NOT EXISTS spinner_preference (singleton INTEGER PRIMARY KEY CHECK(singleton=1), activeId TEXT);
       INSERT OR IGNORE INTO spinner_preference VALUES (1,NULL);
-    `);
-  db.transaction(() => {
-    const columns = z
-      .array(z.object({ name: z.string() }))
-      .parse(db.prepare("PRAGMA table_info(spinner_assets)").all());
-
-    if (columns.every((column) => column.name !== "tone")) {
-      db.exec("ALTER TABLE spinner_assets ADD COLUMN tone TEXT");
-    }
-  }).immediate();
-
-  return db;
+    `,
+    { migration: { table: "spinner_assets", column: "tone", sql: "ALTER TABLE spinner_assets ADD COLUMN tone TEXT" } }
+  );
 }
 
 /**
