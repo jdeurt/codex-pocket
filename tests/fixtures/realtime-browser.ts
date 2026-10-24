@@ -1,4 +1,4 @@
-import { type Page, expect } from "@playwright/test";
+import { type Page, type Response, expect } from "@playwright/test";
 import { readFile, writeFile } from "node:fs/promises";
 import { type Data, dataSchema } from "../../src/lib/protocol";
 import path from "node:path";
@@ -164,11 +164,35 @@ export async function openVoice(page: Page) {
   await expect(page.getByRole("button", { name: /Send message; hold and swipe up/ })).toBeEnabled();
 }
 
+/** Identify the actual start response independently of native RTP readiness.
+@param response - Native browser HTTP response.
+@returns Whether this response negotiates the requested call.
+*/
+function isVoiceNegotiated(response: Response) {
+  return (
+    response.url().endsWith("/api/realtime") &&
+    response.request().method() === "POST" &&
+    dataSchema.parse(response.request().postDataJSON()).action === "start"
+  );
+}
+
+/** Negotiate a native call before exercising independent captions or cleanup controls.
+@param page - Loaded application with native peer fixtures installed.
+*/
+export async function negotiateVoice(page: Page) {
+  const negotiated = page.waitForResponse(isVoiceNegotiated.bind(undefined));
+
+  await page.getByRole("button", { name: "Start realtime voice" }).focus();
+  await page.keyboard.press("Enter");
+  const response = await negotiated;
+
+  expect(response.ok()).toBe(true);
+}
+
 /** Activate voice with a real gesture and wait for the media connection.
 @param page - Loaded application.
 */
 export async function startVoice(page: Page) {
-  await page.getByRole("button", { name: "Start realtime voice" }).focus();
-  await page.keyboard.press("Enter");
+  await negotiateVoice(page);
   await expect(page.getByRole("status", { name: "Realtime voice active" })).toBeVisible();
 }

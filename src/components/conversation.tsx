@@ -69,19 +69,6 @@ function ConversationEmpty({
   ) : null;
 }
 
-/**
-Describe the existing queue state while leaving sent-message omission to its owner.
-@param status - Normalized delivery state from the shared queue schema.
-@returns The existing uncertain, sending or queued label.
-*/
-function deliveryLabel(status: QueuedMessage["status"]) {
-  if (status === "unknown") {
-    return "Delivery uncertain. Check on your computer.";
-  }
-
-  return status === "sending" ? "Sending…" : "Queued";
-}
-
 /** Render a queued delivery with its persisted status.
 @param item - Canonical delivery record.
 @returns Stable queued-message row.
@@ -91,15 +78,19 @@ function queuedMessage(item: QueuedMessage) {
     <MessageScrollerItem messageId={`queue-${item.id}`} key={item.id}>
       <Message align="end">
         <MessageContent>
-          <Bubble variant="secondary" align="end" data-message-id={item.id} data-delivery={item.status}>
+          <Bubble
+            variant="secondary"
+            align="end"
+            data-message-id={item.id}
+            data-delivery={item.status}
+            aria-busy={item.status === "sending" || item.status === "queued"}
+          >
             <BubbleContent>
               {item.attachments && <FileAttachments files={item.attachments} />}
               {!!item.text.trim() && <p className="whitespace-pre-wrap">{item.text}</p>}
             </BubbleContent>
           </Bubble>
-          {item.status !== "sent" && (item.source?.type !== "realtime" || item.status === "unknown") && (
-            <p className="delivery-status">{deliveryLabel(item.status)}</p>
-          )}
+          {item.status === "unknown" && <p className="delivery-status">Delivery uncertain. Check on your computer.</p>}
         </MessageContent>
       </Message>
     </MessageScrollerItem>

@@ -6,6 +6,7 @@ import {
   openVoice,
   providerAction,
   startVoice,
+  negotiateVoice,
 } from "../../fixtures/realtime-browser";
 
 import { expectAnchor, scrollToFraction, settledAnchor, viewport } from "../virtualization-measure";
@@ -66,7 +67,7 @@ test("streaming replies follow the end and preserve a reader who scrolls up", as
   await configureVoice({ transcript: "Start the investigation.", replyText: first });
   await installRealtimePeer(page);
   await openVoice(page);
-  await startVoice(page);
+  await negotiateVoice(page);
   await providerAction("speech");
   await expect(page.getByText(first, { exact: true })).toHaveCount(1);
   await expect.poll(distanceFromEnd.bind(undefined, page)).toBeLessThanOrEqual(END_TOLERANCE);

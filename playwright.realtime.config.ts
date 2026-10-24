@@ -27,7 +27,7 @@ const config: PlaywrightTestConfig = {
     {
       name: "realtime-webkit",
       metadata: { fixture: "realtime" },
-      testIgnore: [MEDIA_API, "**/voice-interruption.spec.ts"],
+      testIgnore: MEDIA_API,
       use: { ...devices["iPhone 13"], browserName: "webkit", permissions: ["microphone"] },
     },
   ],

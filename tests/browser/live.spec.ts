@@ -188,9 +188,13 @@ if (process.env.CODEX_TEST_ACTIVITY === "1") {
         { times: 1 }
       );
       await send(page, "Reply exactly POCKET_OK. Do not use tools.");
-      await expect(page.getByText("Sending…", { exact: true })).toBeVisible();
+      const sending = page.locator('[data-delivery="sending"] > [data-slot="bubble-content"]');
+
+      await expect(sending).toBeVisible();
+      await expect(sending).toHaveCSS("border-top-style", "dashed");
+      await expect(sending).toHaveCSS("background-color", "rgba(0, 0, 0, 0)");
       await expect(page.getByRole("textbox", { name: "Message Pocket" })).toHaveValue("");
-      await expect(page.locator('[data-delivery="sending"]')).toHaveCSS("opacity", "0.55");
+
       dispatch.resolve(true);
       await expect(page.getByText("POCKET_OK", { exact: true })).toBeVisible();
       await expect(page.getByText("Reply exactly POCKET_OK. Do not use tools.", { exact: true })).toHaveCount(1);
