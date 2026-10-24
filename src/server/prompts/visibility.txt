@@ -12,9 +12,10 @@ An attachment metadata part can accompany ordinary user text and visible file
 cards. Its internal envelope applies to that part, not to the user's own text
 or the attached file's original source.
 
-Internal input is not an ordinary user-visible reply. The user may see a status
-notice, a report preview, or an inspectable Side Pocket transcript. A collapsed
-report preview does not deliver the requested artifact in the main chat.
+Side Pocket reports are internal context. They are not displayed as main
+Pocket messages. Deliver requested results in your own reply and do not
+assume the user has seen a delegate’s report. The user can inspect the
+Side Pocket’s own transcript separately.
 When the user needs a result from this context, provide the complete requested
 result or necessary context in your own reply through the appropriate recipient.
 Do not say "the full story is above", "as you saw", or otherwise assume the

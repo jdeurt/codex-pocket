@@ -1,6 +1,5 @@
 import { t } from "try";
 import type { Bridge } from "./bridge-session";
-import { delegations } from "./delegations";
 import { log } from "./logging";
 import { noStore } from "./http";
 import { visibleSnapshot } from "../state/visible-snapshot";
@@ -15,17 +14,13 @@ Own a browser snapshot subscription while TextStream owns transport and cancella
 export class SnapshotStream {
   private readonly connectionId = crypto.randomUUID();
   private text?: TextStream;
-  private unsubscribeReports?: () => void;
 
   /**
   Read and project canonical state only while the subscriber remains active.
   */
   private readonly changed = () => {
     const state = this.bridge.snapshot;
-    const visible = visibleSnapshot(state, {
-      tools: true,
-      reports: state.threadId ? delegations().reports.list(state.threadId) : [],
-    });
+    const visible = visibleSnapshot(state, { tools: true });
 
     this.text?.send(`data: ${JSON.stringify(visible)}\n\n`);
   };
@@ -34,8 +29,6 @@ export class SnapshotStream {
   Release only this browser's native subscriptions.
   */
   private readonly disconnect = () => {
-    this.unsubscribeReports?.();
-    this.unsubscribeReports = undefined;
     this.bridge.snapshots.removeEventListener("snapshot", this.changed);
     this.text = undefined;
     log().info({ connectionId: this.connectionId }, "sse.closed");
@@ -48,10 +41,10 @@ export class SnapshotStream {
   private readonly connect = (stream: TextStream) => {
     this.text = stream;
     this.bridge.snapshots.addEventListener("snapshot", this.changed);
-    const subscribed = t(this.subscribe.bind(this));
+    const published = t(this.changed);
 
-    if (!subscribed.ok) {
-      valueAfterCleanup(subscribed, t(this.disconnect));
+    if (!published.ok) {
+      valueAfterCleanup(published, t(this.disconnect));
     }
 
     void this.connectAndPublish();
@@ -67,14 +60,6 @@ export class SnapshotStream {
     private request: Request,
     private bridge: Bridge
   ) {}
-
-  /**
-  Subscribe to durable reports and publish the initial canonical projection.
-  */
-  private subscribe() {
-    this.unsubscribeReports = delegations().subscribe(this.changed);
-    this.changed();
-  }
 
   /**
   Observe hydration failure and publish the resulting connection state.

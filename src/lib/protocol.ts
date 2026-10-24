@@ -1,6 +1,5 @@
 import { type ActivityState } from "../state/activity";
 import { type ContextUsage, contextUsageSchema } from "./usage";
-import { type DelegateReport, delegateReportSchema } from "./delegate-reports";
 import { type FileAttachment, fileAttachmentSchema } from "./attachments";
 import { z } from "zod";
 
@@ -11,7 +10,6 @@ export type Data = Record<string, unknown>;
 export type Item = Data & {
   id: string;
   type: string;
-  delegateReport?: DelegateReport;
   attachments?: FileAttachment[];
   images?: { source: string; alt?: string }[];
 };
@@ -128,7 +126,6 @@ const scheduledTurnSchema = z.object({ title: z.string(), scheduledAt: z.number(
 export const itemSchema: z.ZodType<Item> = z.looseObject({
   id: z.string(),
   type: z.string(),
-  delegateReport: delegateReportSchema.optional(),
   attachments: z.array(fileAttachmentSchema).optional(),
   images: z.array(itemImageSchema).optional(),
 });

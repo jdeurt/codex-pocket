@@ -4,7 +4,6 @@ import { Message, MessageContent } from "@/components/ui/message";
 import { hasMessageText, messageText } from "@/lib/turn-messages";
 import { AttachmentGroup } from "@/components/ui/attachment";
 import { ChatImage } from "./chat-image";
-import { DelegateReport } from "./delegate-report";
 import { FileAttachments } from "./file-attachments";
 import { Markdown } from "./markdown";
 import { SystemEvent } from "./system-event";
@@ -92,10 +91,6 @@ export function ChatMessage({ item }: { item: Item }) {
     const segment = voiceSegmentSchema.parse(item.voice);
 
     return <VoiceMessage segment={segment} />;
-  }
-
-  if (item.type === "delegateReport" && item.delegateReport) {
-    return <DelegateReport report={item.delegateReport} />;
   }
 
   if (item.type === "pocketRestart") {

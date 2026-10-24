@@ -16,7 +16,7 @@ A pending send appears immediately and becomes confirmed when Codex acknowledges
 
 When an uninterrupted turn finishes, progress messages collapse under **Show activity** while the final reply stays visible. Tap to expand them. Messages before a steering correction remain visible, and interrupted turns keep their updates.
 
-The status row at the bottom of the transcript holds the thinking indicator, status text, and clickable agent count. It reserves the same space when those items disappear. Incoming delegate reports start as one-line previews; expand one to read the original report or open its Side Pocket.
+The status row at the bottom of the transcript holds the thinking indicator, status text, and clickable agent count. It reserves the same space when those items disappear. Side Pocket reports are internal context for the main Pocket’s reply. Open an agent from the agent count to inspect its own transcript.
 
 ## Files, images, and documents
 
