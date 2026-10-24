@@ -199,7 +199,7 @@ function MeasuredTranscript({
   const trackScroll = useBoundCallback(trackTranscriptScroll, followStore);
   const preserveOffset = useBoundCallback(preserveTranscriptOffset, virtualizer, viewport, savedOffset, suspended);
 
-  useLayoutEffect(maintainEnd, [maintainEnd, layout.size, layout.height, follow.isFollowing]);
+  useLayoutEffect(maintainEnd, [maintainEnd, layout.size, layout.height, follow.isFollowing, follow.interacting]);
   useEffect(connectBookmark, [connectBookmark]);
   useLayoutEffect(preserveOffset, [preserveOffset]);
 
@@ -220,6 +220,9 @@ function MeasuredTranscript({
             onKeyDown={beginGesture}
             onScroll={trackScroll}
             onScrollEnd={endGesture}
+            onPointerUp={endGesture}
+            onTouchEnd={endGesture}
+            onKeyUp={endGesture}
           >
             <div className="transcript" style={{ paddingBlock: 0, minHeight: "100%", justifyContent: "flex-end" }}>
               <div style={{ height: layout.size, position: "relative", flexShrink: 0 }}>

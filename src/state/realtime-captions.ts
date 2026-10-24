@@ -22,6 +22,7 @@ interface CaptionGroup {
   afterItemId: string | null;
 }
 export interface LiveCaptionState {
+  boundary?: string;
   groups: ReadonlyMap<Role, CaptionGroup>;
   captions: ReadonlyMap<string, VoiceSegment>;
 }
@@ -36,6 +37,24 @@ export interface CaptionTransition {
 */
 export function liveCaptionState(): LiveCaptionState {
   return { groups: new Map(), captions: new Map() };
+}
+
+/** Reserve a canonical boundary before restart persistence can yield to later fragments.
+@param state - Observed fragment ledger.
+@param id - Explicit new canonical notice identity.
+@returns State that starts subsequent speech groups after that notice.
+*/
+export function openedCaptionBoundary(state: LiveCaptionState, id: string): LiveCaptionState {
+  return { ...state, groups: new Map(), boundary: id };
+}
+
+/** Release an override after canonical state has accepted its notice, retaining split groups.
+@param state - Observed fragments and temporary boundary.
+@param id - Completed boundary operation.
+@returns State without that operation's temporary override.
+*/
+export function closedCaptionBoundary(state: LiveCaptionState, id: string): LiveCaptionState {
+  return state.boundary === id ? { ...state, boundary: undefined } : state;
 }
 
 /** Select the speaker from an already validated native transcript event.

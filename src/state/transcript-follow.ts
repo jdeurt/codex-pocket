@@ -20,6 +20,15 @@ export function scrolledTranscript(state: TranscriptFollow, isAtEnd: boolean): T
   return state.interacting ? { ...state, isFollowing: isAtEnd } : state;
 }
 
+/** Finish a user gesture from actual viewport geometry, including momentum scrolling.
+@param state - Current follow preference and gesture ownership.
+@param isAtEnd - Whether the viewport has reached the latest message.
+@returns Preference after user input, preserving automatic following for unrelated layout events.
+*/
+export function finishedTranscriptGesture(state: TranscriptFollow, isAtEnd: boolean): TranscriptFollow {
+  return { isFollowing: state.interacting || !state.isFollowing ? isAtEnd : state.isFollowing, interacting: false };
+}
+
 /** Select native anchoring from the transcript's single follow preference.
 @param shouldOwnFollow - Whether this runtime coordinates outer-transcript following.
 @param state - Current reader preference.
@@ -31,5 +40,5 @@ export function transcriptAnchor(
   state: TranscriptFollow,
   anchor: "start" | "end" | undefined
 ) {
-  return shouldOwnFollow && !state.isFollowing ? "start" : anchor;
+  return shouldOwnFollow && (state.interacting || !state.isFollowing) ? "start" : anchor;
 }

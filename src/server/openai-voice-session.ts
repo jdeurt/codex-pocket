@@ -295,6 +295,21 @@ export class OpenAIVoiceSession extends EventTarget {
     return this.captions.live();
   }
 
+  /** Capture live speech before a canonical restart, independently of pending disk writes.
+  @param id - Explicit new restart identity.
+  @returns Observed fragments at this synchronous boundary.
+  */
+  beginTimelineBoundary(id: string) {
+    return this.captions.boundary(id);
+  }
+
+  /** Release the temporary anchor after the canonical restart operation finishes.
+  @param id - Completed restart identity.
+  */
+  commitTimelineBoundary(id: string) {
+    this.captions.commitBoundary(id);
+  }
+
   /**
   Revoke stale control and tool callbacks immediately and release the provider call.
   @param message - Public reason for call termination.

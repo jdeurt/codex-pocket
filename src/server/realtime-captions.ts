@@ -3,6 +3,8 @@ import { t } from "try";
 import { SerialQueue } from "../runtime/serial-queue";
 import {
   captionFrame,
+  openedCaptionBoundary,
+  closedCaptionBoundary,
   liveCaptionState,
   receivedCaption,
   shouldAnchorCaption,
@@ -67,7 +69,8 @@ export class RealtimeCaptions {
   */
   receive(event: Data, sessionId: string) {
     const state = this.store.getState();
-    const canonical = shouldAnchorCaption(state, event, sessionId) ? (this.owner.lastItemId?.() ?? null) : null;
+    const canonical =
+      state.boundary ?? (shouldAnchorCaption(state, event, sessionId) ? (this.owner.lastItemId?.() ?? null) : null);
     const received = receivedCaption(state, event, sessionId, canonical);
 
     this.store.setState(received.state, true);
@@ -109,6 +112,25 @@ export class RealtimeCaptions {
   */
   segments() {
     return this.store.getState().captions.values().toArray();
+  }
+
+  /** Capture observed speech and split subsequent groups before restart storage yields.
+  @param id - New canonical notice identity.
+  @returns Immutable fragments observed before that boundary.
+  */
+  boundary(id: string) {
+    const previous = this.store.getState();
+
+    this.store.setState(openedCaptionBoundary(previous, id), true);
+
+    return previous.captions.values().toArray();
+  }
+
+  /** Release the temporary anchor once the canonical notice operation finishes.
+  @param id - Completed canonical notice identity.
+  */
+  commitBoundary(id: string) {
+    this.store.setState(closedCaptionBoundary(this.store.getState(), id), true);
   }
 
   /**
