@@ -1,21 +1,10 @@
 import { type Item, type Snapshot, type Turn, string, isTextContent } from "../lib/protocol";
 import { itemImageSources, itemImageUrl } from "../lib/images";
 import { currentActivity } from "./native-activity";
-import { delegationMessagePrefix } from "./delegation-queue";
-import { isRecoveryMessageId } from "./recovery";
+import { isInternalMessageId } from "./internal-messages";
 import { projectRestarts } from "./restarts";
 import { REALTIME_TOOL_PREFIX } from "./realtime-tools";
 import { toolTrace } from "./tool-trace";
-
-/**
-Recognize reserved recovery and delegation identities without inspecting message text.
-@param id - Untrusted native or receipt message identity.
-@returns Whether this message belongs to internal Pocket work.
-*/
-const isInternal = (id: unknown) =>
-  isRecoveryMessageId(id) ||
-  string(id).startsWith(delegationMessagePrefix) ||
-  string(id).startsWith(REALTIME_TOOL_PREFIX);
 
 /**
 Keep uploaded original-file display text while removing private transport content from the phone snapshot.
@@ -65,7 +54,7 @@ function visibleImage(itemId: string, source: string, index: number) {
 @returns Whether this delivery belongs in the public transcript.
 */
 function isVisibleQueuedMessage(scheduled: ReadonlySet<string>, message: Snapshot["queue"][number]) {
-  return !scheduled.has(message.id) && !isInternal(message.id);
+  return !scheduled.has(message.id) && !isInternalMessageId(message.id);
 }
 
 /**
@@ -108,7 +97,7 @@ function displayItem(item: Item, scheduled: ReadonlySet<string>, hasTools: boole
 
   if (
     item.type === "userMessage" &&
-    (scheduled.has(string(item.clientId)) || isInternal(item.clientId) || isInternal(item.id))
+    (scheduled.has(string(item.clientId)) || isInternalMessageId(item.clientId) || isInternalMessageId(item.id))
   ) {
     return [];
   }
@@ -135,7 +124,7 @@ export function visibleTurn(options: { scheduled?: Set<string>; tools?: boolean 
       isWorker = item.id.startsWith(REALTIME_TOOL_PREFIX) || string(item.clientId).startsWith(REALTIME_TOOL_PREFIX);
     }
 
-    if (isWorker && ["userMessage", "agentMessage"].includes(item.type)) {
+    if (isWorker && ["userMessage", "agentMessage"].includes(item.type) && item.delivery !== "chat") {
       continue;
     }
 

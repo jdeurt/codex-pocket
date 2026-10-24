@@ -18,7 +18,7 @@ The offline Codex protocol/browser fixtures explicitly select their Node replay 
 
 ## Tools, models and native history
 
-Pi exposes its built-in tools, preserves structured phone questions through a native-cancellable `request_user_input` compatibility tool, and connects the same parent-scoped Pocket MCP server for scheduling, Side Pockets, adoption, spinner and session tools. Project instruction and skill discovery remain native Pi behavior. Executable project extensions are not auto-trusted. The effective existing developer instructions are composed with Pocket's main prompt.
+Pi exposes its built-in tools, preserves structured phone questions through a native-cancellable `request_user_input` compatibility tool, delivers readable reports and Markdown links directly through the parent-only `pocket_send_to_chat` tool, and connects the same parent-scoped Pocket MCP server for scheduling, Side Pockets, adoption, spinner and session tools. Project instruction and skill discovery remain native Pi behavior. Executable project extensions are not auto-trusted. The effective existing developer instructions are composed with Pocket's main prompt.
 
 `pocket_session_models` lists Pi catalog selections. Main model settings resolve `provider/model` identities through that catalog; bare IDs select OpenAI. Unsupported names fail explicitly. Settings apply to subsequent turns and persist separately per parent. Native delegates retain the host's native Codex model/effort defaults, with explicit per-child overrides still available. Arbitrary Pi provider/model IDs or thinking levels are not passed into native Codex/Claude configuration. Claude keeps its own model selection and permission checks.
 
@@ -78,7 +78,7 @@ Documentation verification establishes the endpoint and schema. **No authenticat
 
 Voice calls `Bridge.handoff({ id, transcript, source: { type: "realtime", sessionId, itemId } })`. The transcript is delivered exactly, including whitespace. The durable outbox retains source metadata, uses the stable ID across restart, and rejects retries with different content/source. Handoff may deliver while voice is active. `Bridge.send(id, text, attachmentIds?)` stays compatible. The complete OpenAI voice replacement belongs to JUA-69; the old native realtime RPC is explicitly unsupported on Pi.
 
-`DelegateReport.final?: { commandId: string; outcome: "completed" }` identifies one report associated with a persisted successful native command. It selects the last explicit parent report or generated completion fallback. A completed delivery, progress message, interrupted result or later assignment does not prove successful completion. Original report text remains unchanged. Chat UI owns indicator rendering.
+Side Pocket reports retain their original text and ownership in the canonical mailbox and reach the main agent as internal context. They are not rendered as main-Pocket messages. Explicit `pocket_send_to_chat` deliveries use native tool-call identities in canonical Pi history; ordinary worker text remains private to voice. Report receipts can be delivered while voice is active, and the main agent’s later response updates the live conversation without another user request.
 
 ## Verification boundaries
 

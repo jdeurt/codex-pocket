@@ -3,7 +3,6 @@ import { type Data } from "../lib/protocol";
 import { type VoiceSegment } from "../lib/voice-history";
 
 const LIVE_CAPTION_LIMIT = 2048;
-const DISPLAY_GAP_MS = 1500;
 
 type Role = "user" | "assistant";
 export const liveTranscriptSchema = z.object({
@@ -75,11 +74,7 @@ function shouldStartGroup(state: LiveCaptionState, event: Fragment) {
   const group = state.groups.get(role);
   const other = state.groups.get(role === "user" ? "assistant" : "user");
 
-  return (
-    !group ||
-    event.start_ms - group.endMs > DISPLAY_GAP_MS ||
-    (other !== undefined && other.startMs >= group.endMs && event.start_ms >= other.endMs)
-  );
+  return !group || (other !== undefined && other.startMs >= group.startMs && event.start_ms >= other.endMs);
 }
 
 /** Read canonical history only when a new display group needs a predecessor anchor.

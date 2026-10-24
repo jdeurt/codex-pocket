@@ -5,6 +5,7 @@ import { type VoiceSessionOwner, readVoiceConfiguration } from "./voice-session-
 import { RealtimeTools } from "./realtime-tools";
 import { RealtimeCaptions } from "./realtime-captions";
 import { log } from "./logging";
+import { type voiceWorkerResult } from "../state/voice-context";
 
 /**
 Own call controls and history while WebRTC carries audio directly between the browser and OpenAI.
@@ -200,12 +201,10 @@ export class OpenAIVoiceSession extends EventTarget {
 
   /**
   Return a worker result to the realtime agent's original tool call.
-  @param id - Original worker delivery receipt.
-  @param text - Actual worker answer.
-  @param status - Native turn completion status.
+  @param result - Verified canonical main-agent result.
   */
-  answer(id: string, text: string, status = "completed") {
-    this.tools?.answer(id, text, status);
+  protected workerCompleted(result: NonNullable<ReturnType<typeof voiceWorkerResult>>) {
+    this.tools?.completed(result);
   }
 
   /**

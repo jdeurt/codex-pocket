@@ -14,6 +14,7 @@ import { openPiSession } from "./pi-session";
 import { piInput } from "./pi-input";
 import { PiQuestions } from "./pi-questions";
 import { PiActivity } from "./pi-activity";
+import { PiChat } from "./pi-chat";
 
 /**
 Embed Pi behind Pocket's canonical parent lifecycle while keeping native delegates separate.
@@ -93,6 +94,7 @@ export class PiMain {
   private async resume(params: Data) {
     const opened = await this.openSession(this.config, this.native, params, await this.readKey(), [
       this.questions.tool(),
+      new PiChat(this.config.threadId, this.history).tool(),
     ]);
 
     this.history.restore(opened.state);

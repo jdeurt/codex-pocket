@@ -2,6 +2,7 @@ import { type Data, object, string } from "../lib/protocol";
 import { type VoiceSegment } from "../lib/voice-history";
 import { groupedVoiceSegments } from "./voice";
 import { liveContentChunks } from "./live-content";
+import { type voiceWorkerResult } from "./voice-context";
 
 export const REALTIME_TOOL_PREFIX = "realtime-tool:";
 const RESULT_BYTES = 400;
@@ -13,13 +14,52 @@ export interface RealtimeToolState {
   waiting: ReadonlyMap<string, number>;
   pending: ReadonlyMap<string, string>;
   active: boolean;
+  completed: ReadonlySet<string>;
 }
 
 /** Allocate one call's delegation reservations without reading transcripts or dispatching work.
 @returns Independent client-delegation state.
 */
 export function realtimeToolState(): RealtimeToolState {
-  return { seen: new Set(), waiting: new Map(), pending: new Map(), active: true };
+  return { seen: new Set(), waiting: new Map(), pending: new Map(), active: true, completed: new Set() };
+}
+
+/** Route each verified parent completion once without inventing a task association for later reports.
+@param state - Call-owned result destinations and observed completions.
+@param result - Main Pocket's own completed response and exact input identities.
+@returns New call state and verified native context updates for the runtime to send.
+*/
+export function completedTools(state: RealtimeToolState, result: NonNullable<ReturnType<typeof voiceWorkerResult>>) {
+  const updates: { delegationId: string | null; text: string }[] = [];
+
+  if (!state.active || state.completed.has(result.turnId)) {
+    return { state, updates };
+  }
+
+  const pending = new Map(state.pending);
+
+  for (const id of result.ids) {
+    const delegationId = pending.get(id);
+
+    if (!delegationId) {
+      continue;
+    }
+
+    pending.delete(id);
+    updates.push({
+      delegationId,
+      text: `Main Pocket turn outcome: ${result.status}. ${result.text || "This turn ended without a text result; this alone does not establish task completion."}`,
+    });
+  }
+
+  if (updates.length === 0 && result.isContinuation && result.text) {
+    updates.push({
+      delegationId: null,
+      text: `Main Pocket processed a delegate report. Turn outcome: ${result.status}. Verified response: ${result.text}`,
+    });
+  }
+
+  return { state: { ...state, pending, completed: new Set([...state.completed, result.turnId]) }, updates };
 }
 
 /** Reserve each provider delegation before any asynchronous backend operation.
@@ -145,7 +185,7 @@ export function resolvedTool(state: RealtimeToolState, id: string): RealtimeTool
 @param index - Stable sequence number within this result.
 @returns Native GPT-Live context command.
 */
-function liveResultEvent(delegationId: string, prefix: string, content: string, index: number): Data {
+function liveResultEvent(delegationId: string | null, prefix: string, content: string, index: number): Data {
   return {
     type: "session.commentary.append",
     event_id: `${prefix}:${String(index)}`,
@@ -160,6 +200,6 @@ function liveResultEvent(delegationId: string, prefix: string, content: string, 
 @param prefix - Runtime-generated identity prefix for acknowledgment correlation.
 @returns Ordered context appends, each conservatively below the 500-token limit.
 */
-export function liveResultEvents(delegationId: string, text: string, prefix: string): Data[] {
+export function liveResultEvents(delegationId: string | null, text: string, prefix: string): Data[] {
   return Array.from(liveContentChunks(text, RESULT_BYTES), liveResultEvent.bind(undefined, delegationId, prefix));
 }

@@ -9,7 +9,9 @@ import {
   requestedTools,
   resolvedTool,
   liveResultEvents,
+  completedTools,
 } from "../state/realtime-tools";
+import { type voiceWorkerResult } from "../state/voice-context";
 import { log } from "./logging";
 
 export { REALTIME_TOOL_PREFIX } from "../state/realtime-tools";
@@ -39,7 +41,7 @@ export class RealtimeTools {
   @param delegationId - Original provider delegation identity.
   @param text - Actual backend result or confirmed failure description.
   */
-  private result(delegationId: string, text: string) {
+  private result(delegationId: string | null, text: string) {
     if (!this.store.getState().active) {
       return;
     }
@@ -94,24 +96,17 @@ export class RealtimeTools {
     }
   }
 
-  /** Return one native completion only to the call and delegation that requested it.
-  @param id - Durable main-agent receipt identity.
-  @param text - Actual main-agent result.
-  @param status - Native completion status.
+  /** Return each verified parent turn once, including later delegate-report continuations.
+  @param result - Main Pocket's own result and canonical input identities.
   */
-  answer(id: string, text: string, status = "completed") {
-    const current = this.store.getState();
-    const delegationId = current.pending.get(id);
+  completed(result: NonNullable<ReturnType<typeof voiceWorkerResult>>) {
+    const next = completedTools(this.store.getState(), result);
 
-    if (!delegationId) {
-      return;
+    this.store.setState(next.state, true);
+
+    for (const update of next.updates) {
+      this.result(update.delegationId, update.text);
     }
-
-    this.store.setState(resolvedTool(current, id), true);
-    this.result(
-      delegationId,
-      `Backend outcome: ${status}. ${text || "The requested work finished without a text result."}`
-    );
   }
 
   /**
