@@ -91,7 +91,7 @@ async function setup() {
 
   const rpc = new CodexRpc();
 
-  await (async () => configure(rpc))().finally(() => {
+  await configure(rpc).finally(() => {
     rpc.close();
   });
 }

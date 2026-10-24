@@ -90,15 +90,13 @@ Serves GET-only native agent history with distinct access-denied and unavailable
 @returns Non-cacheable catalog, transcript, image or sanitized error response.
 */
 export async function GET(request: Request) {
-  const outcome = await attempt(async () => {
-    await guard(request);
-  });
+  const outcome = await attempt(guard, request);
 
   if (!outcome.ok) {
     return Response.json({ error: "Agent history access denied." }, { status: HTTP_FORBIDDEN, headers: noStore });
   }
 
-  return (async () => agentResponse(request))().catch(() => {
+  return agentResponse(request).catch(() => {
     return errorResponse(new Error("Agent history is unavailable in this parent chat."), HTTP_NOT_FOUND);
   });
 }

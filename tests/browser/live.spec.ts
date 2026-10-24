@@ -226,34 +226,36 @@ if (process.env.CODEX_TEST_ACTIVITY === "1") {
                 reject(new Error("Live response streaming timed out."));
               }, STREAM_TIMEOUT_MS);
 
+              const receive = async (event: MessageEvent<string>) => {
+                const LAST_TURN_INDEX = -1;
+                const data: unknown = JSON.parse(event.data);
+                const state = await globalThis.validateLiveSnapshot(data);
+                const text =
+                  state.turns
+                    .at(LAST_TURN_INDEX)
+                    ?.items.filter((item) => item.type === "agentMessage")
+                    .map((item) => String(item.text))
+                    .findLast((message) => message.includes("STREAM_START")) ?? "";
+
+                if (!text.includes("STREAM_START")) {
+                  return;
+                }
+
+                if (state.activeTurnId) {
+                  prefixes.add(text);
+                }
+
+                if (!text.includes("STREAM_END") || state.activeTurnId) {
+                  return;
+                }
+
+                clearTimeout(timer);
+                source.close();
+                resolve(prefixes.size);
+              };
+
               source.addEventListener("message", (event: MessageEvent<string>) => {
-                void (async () => {
-                  const LAST_TURN_INDEX = -1;
-                  const data: unknown = JSON.parse(event.data);
-                  const state = await globalThis.validateLiveSnapshot(data);
-                  const text =
-                    state.turns
-                      .at(LAST_TURN_INDEX)
-                      ?.items.filter((item) => item.type === "agentMessage")
-                      .map((item) => String(item.text))
-                      .findLast((message) => message.includes("STREAM_START")) ?? "";
-
-                  if (!text.includes("STREAM_START")) {
-                    return;
-                  }
-
-                  if (state.activeTurnId) {
-                    prefixes.add(text);
-                  }
-
-                  if (!text.includes("STREAM_END") || state.activeTurnId) {
-                    return;
-                  }
-
-                  clearTimeout(timer);
-                  source.close();
-                  resolve(prefixes.size);
-                })().catch((error: unknown) => {
+                void receive(event).catch((error: unknown) => {
                   reject(error instanceof Error ? error : new Error("Invalid snapshot.", { cause: error }));
                 });
               });

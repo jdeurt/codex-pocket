@@ -1,3 +1,4 @@
+import { t } from "try";
 import { REALTIME_VOICES } from "./openai-realtime";
 import { type VoiceHandoff, type VoiceSegment } from "../lib/voice-history";
 
@@ -16,13 +17,14 @@ Read provider configuration without allowing a storage error to echo private cre
 @returns Current key and public voice preferences.
 */
 export async function readVoiceConfiguration(owner: VoiceSessionOwner) {
-  const configuration = await (async () => {
-    const [key, preferences] = await Promise.all([owner.readKey(), owner.preferences()]);
+  const configured = await t(() => Promise.all([owner.readKey(), owner.preferences()]));
 
-    return { key, ...preferences };
-  })().catch(() => {
+  if (!configured.ok) {
     throw new Error("Could not load realtime configuration from Settings.");
-  });
+  }
+
+  const [key, preferences] = configured.value;
+  const configuration = { key, ...preferences };
 
   if (!configuration.key) {
     throw new Error("Add an OpenAI API key in Settings to enable realtime voice.");

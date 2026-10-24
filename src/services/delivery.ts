@@ -1,3 +1,4 @@
+import { t } from "try";
 import { type ThreadStore, stageMessage, updateDelivery } from "../state/thread";
 import { type VoiceStore } from "../state/voice";
 import { createOperationStore } from "../state/resource";
@@ -63,22 +64,20 @@ export function createDeliveryController(
       messageId = null;
     };
 
-    return (async () => {
-      await submit();
+    const delivered = await t(submit);
 
-      return true;
-    })()
-      .catch((error: unknown) => {
-        reportClient("message.failed", { id, ...clientError(error) }, "error");
-        updateDelivery(thread, id, "unknown");
-        draft.setText(text);
-        store.setState({ error: error instanceof Error ? error.message : "Couldn't send. Try again when connected." });
+    store.setState({ busy: false });
 
-        return false;
-      })
-      .finally(() => {
-        store.setState({ busy: false });
-      });
+    if (!delivered.ok) {
+      const error = delivered.error;
+
+      reportClient("message.failed", { id, ...clientError(error) }, "error");
+      updateDelivery(thread, id, "unknown");
+      draft.setText(text);
+      store.setState({ error: error instanceof Error ? error.message : "Couldn't send. Try again when connected." });
+    }
+
+    return delivered.ok;
   };
 
   return {

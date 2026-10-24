@@ -43,10 +43,10 @@ Close the file before cancelling its reader on success or failure.
 @returns The consumed byte count.
 */
 async function ownedUploadBody(file: FileHandle, reader: ReadableStreamDefaultReader<Uint8Array>, hash: Hash) {
-  return (async () => copyUploadBody(file, reader, hash))().finally(async () => {
+  return copyUploadBody(file, reader, hash).finally(async () => {
     await file.close();
 
-    await (async () => reader.cancel())().catch(() => {
+    await reader.cancel().catch(() => {
       // A disconnected request has already closed its body.
     });
   });

@@ -93,7 +93,7 @@ Cancels the actual response and releases its reader even when cancellation rejec
 @returns Completion of cancellation and reader release.
 */
 async function closeReader(reader: ReadableStreamDefaultReader<Uint8Array>) {
-  await (async () => reader.cancel())().finally(() => {
+  await reader.cancel().finally(() => {
     reader.releaseLock();
   });
 }
@@ -106,7 +106,7 @@ Reads the first complete data event, including frames split across network chunk
 export async function readSnapshot(body: ReadableStream<Uint8Array>): Promise<unknown> {
   const reader = body.getReader();
 
-  return (async () => readData(reader))().finally(async () => {
+  return readData(reader).finally(async () => {
     await closeReader(reader);
   });
 }

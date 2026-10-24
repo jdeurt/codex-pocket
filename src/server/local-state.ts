@@ -53,7 +53,7 @@ Read private JSON, using the fallback only when the file is absent.
 @returns Untrusted decoded JSON for the owning persistence schema.
 */
 export async function readLocal(name: string, fallback: unknown): Promise<unknown> {
-  return (async () => readJSONFile(name))().catch((error: unknown) => {
+  return readJSONFile(name).catch((error: unknown) => {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") {
       return fallback;
     }

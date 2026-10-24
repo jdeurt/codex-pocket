@@ -83,13 +83,11 @@ Load complete native history, falling back only when the paginated method is uns
 @returns All hydrated turns, preserving native ordering.
 */
 export async function loadHistory(rpc: CodexRpc, thread: Thread): Promise<Turn[]> {
-  return (async () => Array.fromAsync(readHistoryTurns(rpc, thread.id, "asc", HISTORY_PAGE_SIZE)))().catch(
-    (error: unknown) => {
-      if (!(error instanceof RpcError) || error.code !== METHOD_NOT_FOUND) {
-        throw error;
-      }
-
-      return legacyHistory(rpc, thread);
+  return Array.fromAsync(readHistoryTurns(rpc, thread.id, "asc", HISTORY_PAGE_SIZE)).catch((error: unknown) => {
+    if (!(error instanceof RpcError) || error.code !== METHOD_NOT_FOUND) {
+      throw error;
     }
-  );
+
+    return legacyHistory(rpc, thread);
+  });
 }

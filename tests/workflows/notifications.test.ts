@@ -72,32 +72,30 @@ async function replayDelivery(context: TestContext, sent: { endpoint: string; bo
     }
   );
 
-  await (async () => {
-    const turn: Turn = {
-      id: "turn",
-      status: "completed",
-      items: [{ id: "reply", type: "agentMessage", text: "Done" }],
-    };
+  context.after(disconnect);
 
-    await saveSubscription(phone);
-    await saveSubscription(tablet);
+  const turn: Turn = {
+    id: "turn",
+    status: "completed",
+    items: [{ id: "reply", type: "agentMessage", text: "Done" }],
+  };
 
-    await replaySilentTurns(sent);
-    await notifyTurnComplete("thread", turn);
-    await notifyTurnComplete("thread", turn);
-    assert.deepEqual(sent, [{ endpoint: tablet.endpoint, body: "Done" }]);
-    disconnect();
-    await notifyTurnComplete("thread", { ...turn, id: "background" });
-    assert.deepEqual(
-      sent
-        .slice(1)
-        .map((entry) => entry.endpoint)
-        .toSorted((a, b) => a.localeCompare(b)),
-      [phone.endpoint, tablet.endpoint].toSorted((a, b) => a.localeCompare(b))
-    );
-  })().finally(() => {
-    disconnect();
-  });
+  await saveSubscription(phone);
+  await saveSubscription(tablet);
+
+  await replaySilentTurns(sent);
+  await notifyTurnComplete("thread", turn);
+  await notifyTurnComplete("thread", turn);
+  assert.deepEqual(sent, [{ endpoint: tablet.endpoint, body: "Done" }]);
+  disconnect();
+  await notifyTurnComplete("thread", { ...turn, id: "background" });
+  assert.deepEqual(
+    sent
+      .slice(1)
+      .map((entry) => entry.endpoint)
+      .toSorted((a, b) => a.localeCompare(b)),
+    [phone.endpoint, tablet.endpoint].toSorted((a, b) => a.localeCompare(b))
+  );
 }
 
 await test("delivery skips only the acknowledged foreground device, keeps background delivery and deduplicates", async (t) => {
@@ -111,7 +109,7 @@ await test("delivery skips only the acknowledged foreground device, keeps backgr
   process.env.CODEX_THREAD_ID = "push-test";
   process.env.CODEX_ALLOWED_ORIGINS = "https://pocket.example";
 
-  await (async () => replayDelivery(t, sent))().finally(async () => {
+  await replayDelivery(t, sent).finally(async () => {
     const previousEnvironment = {
       CODEX_POCKET_STATE_DIR: previousState,
       CODEX_THREAD_ID: previousThread,

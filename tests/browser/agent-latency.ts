@@ -22,8 +22,8 @@ export async function checkHeldTranscript(page: Page, request: APIRequestContext
   await page.keyboard.press("Escape");
   await control("history-held");
 
-  await (async () => {
-    const started = await test.step("Wait until the native history read is blocked", async () => {
+  await test
+    .step("Wait until the native history read is blocked", async () => {
       await expect
         .poll(async () => {
           const response = await request.get("/api/agents?agent=codex:native-codex", { timeout: OPEN_TIMEOUT_MS });
@@ -47,21 +47,22 @@ export async function checkHeldTranscript(page: Page, request: APIRequestContext
         .toBe(true);
 
       return Date.now();
+    })
+    .then(async (started) => {
+      await row.click();
+      await expect(dialog.getByText("Saved native-codex result", { exact: true })).toBeVisible({
+        timeout: OPEN_TIMEOUT_MS,
+      });
+      await expect(dialog.getByText("Loading conversation…", { exact: true })).toHaveCount(0);
+      await expect(dialog.getByRole("status", { name: "Loading latest history", exact: true })).toHaveCount(0);
+      await test.info().attach("held-native-history-open", {
+        body: JSON.stringify({ elapsedMs: Date.now() - started, nativeHistoryHeld: true }),
+        contentType: "application/json",
+      });
+    })
+    .finally(async () => {
+      await control("updated");
     });
-
-    await row.click();
-    await expect(dialog.getByText("Saved native-codex result", { exact: true })).toBeVisible({
-      timeout: OPEN_TIMEOUT_MS,
-    });
-    await expect(dialog.getByText("Loading conversation…", { exact: true })).toHaveCount(0);
-    await expect(dialog.getByRole("status", { name: "Loading latest history", exact: true })).toHaveCount(0);
-    await test.info().attach("held-native-history-open", {
-      body: JSON.stringify({ elapsedMs: Date.now() - started, nativeHistoryHeld: true }),
-      contentType: "application/json",
-    });
-  })().finally(async () => {
-    await control("updated");
-  });
 
   await expect(dialog.locator(".agent-chat").getByText("LIVE_REPLAY_UPDATE", { exact: true })).toBeVisible();
   await expect(dialog.getByRole("status", { name: "Loading latest history", exact: true })).toHaveCount(0);

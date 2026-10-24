@@ -156,16 +156,16 @@ function rotatingLogStream(directory: string, maxBytes: number, maxFiles: number
       }
 
       file.end(() => {
-        const outcome1 = attempt(() => {
+        const rotated = attempt(() => {
           file = open();
           write();
         });
 
-        if (outcome1.ok) {
+        if (rotated.ok) {
           return;
         }
 
-        const error = outcome1.error;
+        const error = rotated.error;
 
         callback(error instanceof Error ? error : new Error("Could not rotate the log.", { cause: error }));
       });

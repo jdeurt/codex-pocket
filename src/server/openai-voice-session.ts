@@ -100,7 +100,7 @@ export class OpenAIVoiceSession extends EventTarget {
   ) {
     await previous;
 
-    await (async () => history.finalize(event, sessionId, role, afterItemId))().catch(() => {
+    await history.finalize(event, sessionId, role, afterItemId).catch(() => {
       this.publish({ type: "warning", error: "Voice history could not be saved. Your live call is still connected." });
     });
   }
@@ -264,7 +264,7 @@ export class OpenAIVoiceSession extends EventTarget {
     this.phase = "connecting";
     const attempt = ++this.attempt;
 
-    return (async () => this.connect(attempt, sdp, endpoint))().catch((error: unknown) => {
+    return this.connect(attempt, sdp, endpoint).catch((error: unknown) => {
       if (this.attempt === attempt) {
         this.disconnect(error instanceof Error ? error.message : "OpenAI Realtime could not start.");
       }

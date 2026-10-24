@@ -19,56 +19,50 @@ const command = z.discriminatedUnion("action", [
 Read OpenAI voices, central next-session preferences and finalized speech.
 */
 export async function GET(request: Request) {
-  return (async () => {
-    await guard(request);
-
-    const bridge = await requestBridge(request);
-    const info = await bridge.realtime.info();
-
-    return Response.json(info, { headers: noStore });
-  })().catch((error: unknown) => {
-    return errorResponse(error);
-  });
+  return guard(request)
+    .then(() => requestBridge(request))
+    .then((bridge) => bridge.realtime.info())
+    .then((info) => Response.json(info, { headers: noStore }))
+    .catch(errorResponse);
 }
 
 /**
 Dispatch one scoped control through the selected Pocket's OpenAI voice session.
 */
-export async function POST(request: Request) {
-  return (async () => {
-    await guard(request, true);
-    const input = command.parse(await readBody(request));
-    const { realtime } = await requestBridge(request);
+async function applyCommand(request: Request) {
+  const input = command.parse(await readBody(request));
+  const { realtime } = await requestBridge(request);
 
-    let result: unknown;
+  switch (input.action) {
+    case "start": {
+      const started = await realtime.start(input.sdp);
 
-    switch (input.action) {
-      case "start": {
-        const started = await realtime.start(input.sdp);
-
-        if (request.signal.aborted) {
-          await realtime.stop(started.token);
-          throw new Error("Realtime setup was cancelled.");
-        }
-
-        result = started;
-        break;
+      if (request.signal.aborted) {
+        await realtime.stop(started.token);
+        throw new Error("Realtime setup was cancelled.");
       }
 
-      case "stop": {
-        await realtime.stop(input.token);
-        result = { stopped: true };
-        break;
-      }
-
-      case "settings": {
-        result = await realtime.update({ voice: input.voice, model: input.model });
-        break;
-      }
+      return started;
     }
 
-    return Response.json(result, { headers: noStore });
-  })().catch((error: unknown) => {
-    return errorResponse(error);
-  });
+    case "stop": {
+      await realtime.stop(input.token);
+
+      return { stopped: true };
+    }
+
+    case "settings": {
+      return realtime.update({ voice: input.voice, model: input.model });
+    }
+  }
+}
+
+/**
+Authorize and encode a realtime control without coupling media to the HTTP error boundary.
+*/
+export async function POST(request: Request) {
+  return guard(request, true)
+    .then(() => applyCommand(request))
+    .then((result) => Response.json(result, { headers: noStore }))
+    .catch(errorResponse);
 }

@@ -21,14 +21,21 @@ function sendError(error: unknown) {
 @param message - One operation from the owning host/MCP process.
 */
 async function execute(message: unknown) {
-  await (async () => {
-    const request = taskIndexRequest.parse(message);
-    const page = await runTaskIndex(request.owner, request.query, request.offset, request.isKeywordOnly);
+  const request = taskIndexRequest.safeParse(message);
 
-    send({ ok: true, page });
-  })().catch((error: unknown) => {
-    sendError(error);
-  });
+  if (!request.success) {
+    sendError(request.error);
+
+    return;
+  }
+
+  const { owner, query, offset, isKeywordOnly } = request.data;
+
+  await runTaskIndex(owner, query, offset, isKeywordOnly)
+    .then((page) => {
+      send({ ok: true, page });
+    })
+    .catch(sendError);
 }
 
 // This process handles one parent's operation and never receives provider credentials as tool input.

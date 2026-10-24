@@ -1,3 +1,4 @@
+import { t } from "try";
 import { createOperationStore } from "../state/resource";
 
 /** Own a single mutation's lock and result without coupling it to a mounted form.
@@ -15,21 +16,17 @@ export function createOperation() {
 
       store.setState({ busy: true, error: "", status: "" });
 
-      return (async () => {
-        const value = await job();
+      const result = await t(job);
 
-        store.setState({ status });
+      const error = result.error instanceof Error ? result.error.message : fallback;
 
-        return { ok: true as const, value };
-      })()
-        .catch((error: unknown) => {
-          store.setState({ error: error instanceof Error ? error.message : fallback });
+      store.setState({
+        busy: false,
+        status: result.ok ? status : "",
+        error: result.ok ? "" : error,
+      });
 
-          return { ok: false as const };
-        })
-        .finally(() => {
-          store.setState({ busy: false });
-        });
+      return result.ok ? { ok: true as const, value: result.value } : { ok: false as const };
     },
   };
 }

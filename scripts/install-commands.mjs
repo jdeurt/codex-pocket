@@ -55,7 +55,7 @@ export async function selectRelease(home, release) {
 @returns {Promise<string | undefined>} Previous release target, absent only on first installation.
 */
 export async function currentRelease(home) {
-  return (async () => readlink(path.join(home, "current")))().catch((/** @type {unknown} */ error) => {
+  return readlink(path.join(home, "current")).catch((/** @type {unknown} */ error) => {
     if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
       throw error;
     }

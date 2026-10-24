@@ -48,14 +48,12 @@ Serve local metadata or native file bytes only after the existing host/origin bo
 @returns Shared Markdown source, sandboxed native content, or an attachment download.
 */
 export async function GET(request: Request) {
-  return (async () => {
-    await guard(request);
+  return guard(request)
+    .then(() => {
+      authorizeSite(request);
 
-    authorizeSite(request);
-    await requestConfig(request);
-
-    return await fileResponse(new URL(request.url));
-  })().catch((error: unknown) => {
-    return errorResponse(error);
-  });
+      return requestConfig(request);
+    })
+    .then(() => fileResponse(new URL(request.url)))
+    .catch(errorResponse);
 }

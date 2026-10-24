@@ -161,7 +161,7 @@ async function checkScheduleTools(client: Client) {
   assert.deepEqual(await call(client, "schedule_list", {}), []);
 }
 
-await test("the bundled MCP process validates input and performs schedule CRUD over real stdio", async () => {
+await test("the bundled MCP process validates input and performs schedule CRUD over real stdio", async (t) => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "pocket-mcp-"));
   const client = new Client({ name: "pocket-check", version: "1.0.0" });
   const transport = new StdioClientTransport({
@@ -179,11 +179,11 @@ await test("the bundled MCP process validates input and performs schedule CRUD o
     stderr: "pipe",
   });
 
-  await (async () => {
-    await client.connect(transport);
-    await checkScheduleTools(client);
-  })().finally(async () => {
+  t.after(async () => {
     await client.close();
     await rm(directory, { recursive: true, force: true });
   });
+
+  await client.connect(transport);
+  await checkScheduleTools(client);
 });

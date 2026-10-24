@@ -15,17 +15,6 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
-Loads the native parent only after request authorization and same-site checks.
-@param request - Authorized request carrying a saved Pocket identity.
-@returns Configured parent identity and working directory.
-*/
-async function requireParent(request: Request) {
-  const config = await requestConfig(request);
-
-  return config;
-}
-
-/**
 Authorizes native attachment access before loading parent configuration.
 @param request - Incoming attachment request.
 @param isMutation - Whether the original byte upload requires mutation protection.
@@ -38,7 +27,7 @@ async function parent(request: Request, isMutation = false) {
     throw new Error("Files are available only inside Pocket.");
   }
 
-  return requireParent(request);
+  return requestConfig(request);
 }
 
 /**
@@ -59,9 +48,7 @@ Accepts an original attachment upload and converts native failures to the existi
 @returns Saved-file receipt or logged failure.
 */
 export async function PUT(request: Request) {
-  return (async () => uploadResponse(request))().catch((error: unknown) => {
-    return errorResponse(error);
-  });
+  return uploadResponse(request).catch(errorResponse);
 }
 
 /**
@@ -138,7 +125,5 @@ Serves a stored attachment while retaining the existing logged error response.
 @returns Private attachment bytes or JSON failure.
 */
 export async function GET(request: Request) {
-  return (async () => downloadResponse(request))().catch((error: unknown) => {
-    return errorResponse(error);
-  });
+  return downloadResponse(request).catch(errorResponse);
 }

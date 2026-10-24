@@ -20,14 +20,12 @@ export function unexpectedRequest(method: string | undefined): never {
 @param directory - Private state shared with the owned native replay processes.
 */
 export async function assertExpectedRequests(directory: string) {
-  let journal = "";
-
-  await (async () => {
-    journal = await readFile(path.join(directory, JOURNAL), "utf8");
-  })().catch((error: unknown) => {
+  const journal = await readFile(path.join(directory, JOURNAL), "utf8").catch((error: unknown) => {
     if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
       throw error;
     }
+
+    return "";
   });
 
   assert.equal(journal, "", `Unmatched native requests:\n${journal}`);

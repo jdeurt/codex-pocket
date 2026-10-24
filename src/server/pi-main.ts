@@ -56,15 +56,8 @@ export class PiMain {
   */
   private persist() {
     const state = structuredClone(this.state);
-    const previous = this.writes;
 
-    this.writes = (async () => {
-      await previous;
-
-      if (state) {
-        await savePiState(this.config.threadId, state);
-      }
-    })();
+    this.writes = this.writes.then(() => state && savePiState(this.config.threadId, state));
 
     return this.writes;
   }
@@ -234,16 +227,14 @@ export class PiMain {
       },
     });
 
-    void (async () => {
-      await (async () => {
-        await run;
-        await this.finish();
-      })().catch(async (error: unknown) => {
+    void run
+      .then(() => this.finish())
+      .catch(async (error: unknown) => {
         accepted.reject(error);
         this.onError(error);
         await this.finish(error);
-      });
-    })().catch(this.onError);
+      })
+      .catch(this.onError);
     await accepted.promise;
 
     return { turn: this.active ?? this.state.turns.at(LAST_TURN) };

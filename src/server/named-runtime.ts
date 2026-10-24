@@ -133,7 +133,7 @@ export class NamedRuntime {
   async connect() {
     this.connecting ??= this.open();
 
-    await (async () => this.connecting)().finally(() => {
+    await this.connecting.finally(() => {
       this.connecting = undefined;
     });
   }

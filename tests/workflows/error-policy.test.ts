@@ -5,9 +5,11 @@ import { runInNewContext } from "node:vm";
 import { ESLint } from "eslint";
 import { createConfig } from "../../eslint.config";
 import { t as attempt } from "try";
+import { toolResult } from "../../src/server/mcp-result";
+import { workspace } from "../fixtures/workflow";
 import { createOperation } from "../../src/services/operation";
 
-await test("error policy bans try statements in JavaScript and TypeScript while permitting Promise chains", async () => {
+await test("error policy bans try statements and async IIFEs while permitting Promise chains", async () => {
   const lint = new ESLint({ overrideConfigFile: true, overrideConfig: createConfig() });
 
   for (const extension of ["ts", "js"]) {
@@ -19,6 +21,20 @@ await test("error policy bans try statements in JavaScript and TypeScript while 
       blocked.messages.some((message) => message.ruleId === "no-restricted-syntax"),
       true
     );
+
+    for (const source of [
+      "await (async () => 1)();",
+      "void (async function () { return 1; })();",
+      "async function task() { return (async () => 1)(); }",
+    ]) {
+      const [wrapped] = await lint.lintText(source, { filePath: `src/error-policy-example.${extension}` });
+
+      assert.equal(
+        wrapped.messages.some((message) => message.ruleId === "no-restricted-syntax"),
+        true
+      );
+    }
+
     const [allowed] = await lint.lintText(
       'Promise.resolve("ok").then(console.info).catch(console.error).finally(async () => { await Promise.resolve(); });',
       { filePath: `src/error-policy-example.${extension}` }
@@ -89,4 +105,31 @@ await test("service worker keeps visible notification fallbacks when push JSON f
   });
   await Promise.all(pending);
   assert.deepEqual(new Set(shown), new Set(["Pocket", "Work completed"]));
+});
+
+await test("MCP results await asynchronous tools and report invocation and serialization failures", async (t) => {
+  await workspace(t);
+  const value = { accepted: true };
+
+  for (const operation of [() => value, () => Promise.resolve(value)]) {
+    assert.deepEqual(await toolResult(operation), { content: [{ type: "text", text: JSON.stringify(value) }] });
+  }
+
+  const failure = new Error("Tool failed");
+  const circular: Record<string, unknown> = {};
+
+  circular.self = circular;
+
+  for (const operation of [
+    () => {
+      throw failure;
+    },
+    () => Promise.reject(failure),
+    () => circular,
+  ]) {
+    const result = await toolResult(operation);
+
+    assert.equal("isError" in result && result.isError, true);
+    assert.match(result.content[0].text, /Tool failed|circular/i);
+  }
 });

@@ -136,13 +136,11 @@ Open the requested image without following links or blocking on special files.
 @returns A file handle that the caller must close.
 */
 async function openRasterFile(filename: string) {
-  return (async () => open(filename, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK))().catch(
-    (error: unknown) => {
-      throw new Error("Cannot read this local file. Choose an existing regular image file, not a symlink.", {
-        cause: error,
-      });
-    }
-  );
+  return open(filename, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK).catch((error: unknown) => {
+    throw new Error("Cannot read this local file. Choose an existing regular image file, not a symlink.", {
+      cause: error,
+    });
+  });
 }
 
 /**
@@ -151,7 +149,7 @@ Close the image handle after its bounded read succeeds or fails.
 @returns The bounded original image bytes.
 */
 async function ownedRasterBytes(file: FileHandle) {
-  return (async () => boundedRaster(file))().finally(async () => {
+  return boundedRaster(file).finally(async () => {
     await file.close();
   });
 }
@@ -165,7 +163,7 @@ async function readRasterFile(filename: string) {
   const file = await openRasterFile(filename);
   const input = await ownedRasterBytes(file);
 
-  return (async () => validatedRaster(input))().catch(() => {
+  return validatedRaster(input).catch(() => {
     throw new Error(
       "Use a valid GIF, PNG, JPEG or WebP: at most 2048 px per side, 300 frames and 32 million total frame pixels. APNG is unsupported."
     );

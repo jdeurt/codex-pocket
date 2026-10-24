@@ -48,11 +48,11 @@ Restores canonical upload turns from this private replay's saved native history.
 @returns Validated history, or the original empty replay when reading or validation fails.
 */
 async function readHistory(file: string) {
-  return (async () => {
-    return uploadHistorySchema.parse(JSON.parse(await readFile(file, "utf8")));
-  })().catch(() => {
-    return uploadHistorySchema.parse({ id: "upload-replay-parent", name: "Upload replay", turns: [] });
-  });
+  return readFile(file, "utf8")
+    .then((text) => uploadHistorySchema.parse(JSON.parse(text)))
+    .catch(() => {
+      return uploadHistorySchema.parse({ id: "upload-replay-parent", name: "Upload replay", turns: [] });
+    });
 }
 
 /**
@@ -60,11 +60,11 @@ Reads the fake host's current control command without consulting live state.
 @returns Validated control record, or an empty record before a command exists.
 */
 async function readControl() {
-  return (async () => {
-    return controlSchema.parse(JSON.parse(await readFile(controlFile, "utf8")));
-  })().catch(() => {
-    return controlSchema.parse({});
-  });
+  return readFile(controlFile, "utf8")
+    .then((text) => controlSchema.parse(JSON.parse(text)))
+    .catch(() => {
+      return controlSchema.parse({});
+    });
 }
 
 let initialControl = await readControl();

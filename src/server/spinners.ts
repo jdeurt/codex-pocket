@@ -134,7 +134,7 @@ Keep the managed file open until its read and any tone migration finish.
   private async readManagedAsset(id: string, asset: z.infer<typeof assetInfoSchema>) {
     const file = openSync(path.join(this.assets, id), constants.O_RDONLY | constants.O_NOFOLLOW);
 
-    return (async () => this.assetBytes(file, id, asset))().finally(() => {
+    return this.assetBytes(file, id, asset).finally(() => {
       closeSync(file);
     });
   }
@@ -215,12 +215,10 @@ Remove a managed image and clear its selection inside the catalog transaction.
 
         this.db.prepare("UPDATE spinner_preference SET activeId=NULL WHERE singleton=1 AND activeId=?").run(id);
 
-        const outcome1 = attempt(() => {
-          unlinkSync(path.join(this.assets, id));
-        });
+        const removed = attempt(unlinkSync, path.join(this.assets, id));
 
-        if (!outcome1.ok) {
-          const error = outcome1.error;
+        if (!removed.ok) {
+          const error = removed.error;
 
           if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
             throw new Error("Could not delete the managed spinner copy. Try again.", { cause: error });

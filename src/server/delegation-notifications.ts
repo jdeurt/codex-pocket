@@ -75,7 +75,7 @@ Acquire a native directory watcher while at least one change subscriber exists.
     this.listeners.add(listener);
 
     if (!this.watcher) {
-      const outcome1 = attempt(() => {
+      const watched = attempt(() => {
         this.watcher = watch(this.directory, { persistent: false }, (_event, filename) => {
           if (!filename || filename === SIGNAL_FILE) {
             this.emit();
@@ -88,8 +88,8 @@ Acquire a native directory watcher while at least one change subscriber exists.
         });
       });
 
-      if (!outcome1.ok) {
-        const error = outcome1.error;
+      if (!watched.ok) {
+        const error = watched.error;
 
         log().warn({ error }, "side_pocket.notification_watch_failed");
       }

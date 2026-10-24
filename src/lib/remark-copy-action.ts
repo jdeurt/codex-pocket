@@ -17,15 +17,12 @@ function annotateCopyFence(node: Code, raw: string) {
     return;
   }
 
-  const outcome = attempt(() => {
+  // Partial or malformed payloads remain ordinary code blocks.
+  void attempt(() => {
     const text = copyTextSchema.parse(JSON.parse(marker[1]));
 
     node.data = { ...node.data, hProperties: { "data-pocket-copy-text": text } };
   });
-
-  if (!outcome.ok) {
-    // Partial or malformed payloads remain ordinary code blocks.
-  }
 }
 
 /**

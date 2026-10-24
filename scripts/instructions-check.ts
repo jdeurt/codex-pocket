@@ -237,7 +237,7 @@ class InstructionCheck {
   @returns Completion of native archival and transport shutdown.
   */
   private async cleanup() {
-    await (async () => this.archiveIfCreated())().finally(async () => {
+    await this.archiveIfCreated().finally(async () => {
       await this.rpc.shutdown();
     });
   }
@@ -247,12 +247,12 @@ class InstructionCheck {
   @returns Completion of all audit stages and native cleanup; failures propagate.
   */
   async run() {
-    await (async () => {
-      await this.rpc.connect(this.config);
-      await this.createThread();
-    })().finally(async () => {
-      await this.cleanup();
-    });
+    await this.rpc
+      .connect(this.config)
+      .then(() => this.createThread())
+      .finally(async () => {
+        await this.cleanup();
+      });
   }
 }
 

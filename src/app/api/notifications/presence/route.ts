@@ -94,17 +94,9 @@ Opens a foreground-presence stream only after native host and origin authorizati
 @returns Private challenge stream or the existing authorization/device error.
 */
 export async function GET(request: Request) {
-  const outcome = await attempt(async () => {
-    await guard(request);
-  });
+  const outcome = await attempt(guard, request);
 
-  if (!outcome.ok) {
-    const error = outcome.error;
-
-    return errorResponse(error, HTTP_FORBIDDEN);
-  }
-
-  return presenceResponse(request);
+  return outcome.ok ? presenceResponse(request) : errorResponse(outcome.error, HTTP_FORBIDDEN);
 }
 
 /**
@@ -113,24 +105,20 @@ Acknowledges a device challenge after same-origin mutation authorization.
 @returns Whether the still-pending challenge belonged to that device.
 */
 export async function POST(request: Request) {
-  const outcome1 = await attempt(async () => {
-    await guard(request, true);
-  });
+  const authorized = await attempt(guard, request, true);
 
-  if (!outcome1.ok) {
-    const error = outcome1.error;
-
-    return errorResponse(error, HTTP_FORBIDDEN);
+  if (!authorized.ok) {
+    return errorResponse(authorized.error, HTTP_FORBIDDEN);
   }
 
-  return (async () => {
-    const { deviceId, challengeId } = acknowledgementSchema.parse(await readBody(request));
+  return readBody(request)
+    .then((body) => {
+      const { deviceId, challengeId } = acknowledgementSchema.parse(body);
 
-    return Response.json(
-      { acknowledged: notificationPresence.acknowledge(deviceId, challengeId) },
-      { headers: noStore }
-    );
-  })().catch((error: unknown) => {
-    return errorResponse(error);
-  });
+      return Response.json(
+        { acknowledged: notificationPresence.acknowledge(deviceId, challengeId) },
+        { headers: noStore }
+      );
+    })
+    .catch(errorResponse);
 }

@@ -54,8 +54,8 @@ async function retrieve(store: QMDStore, query: string, retrieval: RetrievalMode
     const queries = [{ type: "lex" as const, query }];
     const expanded = retrieval.mode === "hybrid" ? [...queries, { type: "vec" as const, query }] : queries;
 
-    const outcome = await attempt(async () => {
-      const result = await store.search({
+    const outcome = await attempt(() =>
+      store.search({
         queries: expanded,
         collections: ["tasks"],
         rerank: retrieval.reranked,
@@ -63,20 +63,18 @@ async function retrieve(store: QMDStore, query: string, retrieval: RetrievalMode
         limit: CANDIDATE_LIMIT,
         candidateLimit: CANDIDATE_LIMIT,
         minScore: 0,
-      });
+      })
+    );
 
-      reportRetrievalEvidence(result, retrieval);
+    if (outcome.ok) {
+      reportRetrievalEvidence(outcome.value, retrieval);
 
-      return result.map((hit) => ({
+      return outcome.value.map((hit) => ({
         file: hit.file,
         score: hit.score,
         chunkPos: hit.bestChunkPos,
         explain: hit.explain,
       }));
-    });
-
-    if (outcome.ok) {
-      return outcome.value;
     }
 
     const error = outcome.error;

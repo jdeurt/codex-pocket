@@ -79,7 +79,7 @@ async function verifyServiceSetup(directory: string) {
 await test("setup from a running service retains the saved chat and native settings without sending a turn", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "pocket-service-setup-"));
 
-  await (async () => verifyServiceSetup(directory))().finally(async () => {
+  await verifyServiceSetup(directory).finally(async () => {
     await rm(directory, { recursive: true, force: true });
   });
 });

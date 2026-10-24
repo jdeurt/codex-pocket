@@ -1,3 +1,4 @@
+import { t } from "try";
 import { HTTP_FORBIDDEN } from "../lib/constants";
 import { type ZodType } from "zod";
 import { type StoreApi } from "zustand/vanilla";
@@ -54,14 +55,6 @@ export function subscribeResource<T>(url: string, schema: ZodType<T>, store: Sto
   let timer: ReturnType<typeof setTimeout> | undefined;
   let controller: AbortController | undefined;
 
-  async function readAndPublish(active: AbortController) {
-    const data = await readAgentResponse(url, schema, active.signal);
-
-    if (!isStopped && controller === active) {
-      store.setState({ data, error: undefined, isLoading: false });
-    }
-  }
-
   async function read() {
     const active = new AbortController();
     const timeout = setTimeout(() => {
@@ -71,22 +64,20 @@ export function subscribeResource<T>(url: string, schema: ZodType<T>, store: Sto
     controller = active;
     store.setState({ isLoading: true });
 
-    await readAndPublish(active)
-      .catch((error: unknown) => {
-        if (!isStopped && controller === active) {
-          store.setState({
-            error: agentReadError(error),
-            isLoading: false,
-          });
-        }
-      })
-      .finally(() => {
-        clearTimeout(timeout);
+    const result = await t(readAgentResponse<T>, url, schema, active.signal);
 
-        if (!isStopped && controller === active) {
-          timer = setTimeout(() => void read(), POLL_MS);
-        }
-      });
+    clearTimeout(timeout);
+
+    if (isStopped || controller !== active) {
+      return;
+    }
+
+    store.setState(
+      result.ok
+        ? { data: result.value, error: undefined, isLoading: false }
+        : { error: agentReadError(result.error), isLoading: false }
+    );
+    timer = setTimeout(() => void read(), POLL_MS);
   }
 
   function wake() {

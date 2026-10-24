@@ -1,3 +1,4 @@
+import { t as attempt } from "try";
 import { type TestContext } from "node:test";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { type Data, type Turn } from "../../src/lib/protocol";
@@ -61,9 +62,11 @@ export async function workspace(t: TestContext) {
     const failures: unknown[] = [];
 
     for (const close of resources.toReversed()) {
-      await (async () => await close())().catch((error: unknown) => {
-        failures.push(error);
-      });
+      const result = await Promise.resolve(attempt(close));
+
+      if (!result.ok) {
+        failures.push(result.error);
+      }
     }
 
     globalThis.codexPocketSchedules?.close();

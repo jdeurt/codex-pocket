@@ -66,37 +66,37 @@ await test(
   {
     skip: process.platform !== "darwin",
   },
-  async () => {
+  async (t) => {
     const home = await mkdtemp(path.join(tmpdir(), "pocket-bootstrap-"));
 
-    await (async () => {
-      const { remote, bin } = await bootstrapFixture(home);
-      const run = () =>
-        execFileSync("/bin/bash", [installer, "--yes"], {
-          cwd: tmpdir(),
-          stdio: ["ignore", "pipe", "pipe"],
-          env: {
-            ...process.env,
-            HOME: home,
-            PATH: `${bin}:/usr/bin:/bin`,
-            POCKET_TEST_REMOTE: remote,
-            GIT_CONFIG_GLOBAL: "/dev/null",
-          },
-        });
-
-      run();
-      assert.equal(await readFile(path.join(home, "launched-revision"), "utf8"), "first");
-      await writeFile(path.join(remote, "revision"), "second");
-      git(remote, ["add", "."]);
-      git(remote, ["commit", "-m", "second"]);
-      run();
-      assert.equal(await readFile(path.join(home, "launched-revision"), "utf8"), "second");
-      await writeFile(path.join(home, ".pocket/source/revision"), "local edit");
-      assert.throws(run, /local changes/);
-      assert.equal(await readFile(path.join(home, ".pocket/source/revision"), "utf8"), "local edit");
-      await assert.rejects(readFile(path.join(home, ".pocket/bootstrap.lock")), { code: "ENOENT" });
-    })().finally(async () => {
+    t.after(async () => {
       await rm(home, { recursive: true, force: true });
     });
+
+    const { remote, bin } = await bootstrapFixture(home);
+    const run = () =>
+      execFileSync("/bin/bash", [installer, "--yes"], {
+        cwd: tmpdir(),
+        stdio: ["ignore", "pipe", "pipe"],
+        env: {
+          ...process.env,
+          HOME: home,
+          PATH: `${bin}:/usr/bin:/bin`,
+          POCKET_TEST_REMOTE: remote,
+          GIT_CONFIG_GLOBAL: "/dev/null",
+        },
+      });
+
+    run();
+    assert.equal(await readFile(path.join(home, "launched-revision"), "utf8"), "first");
+    await writeFile(path.join(remote, "revision"), "second");
+    git(remote, ["add", "."]);
+    git(remote, ["commit", "-m", "second"]);
+    run();
+    assert.equal(await readFile(path.join(home, "launched-revision"), "utf8"), "second");
+    await writeFile(path.join(home, ".pocket/source/revision"), "local edit");
+    assert.throws(run, /local changes/);
+    assert.equal(await readFile(path.join(home, ".pocket/source/revision"), "utf8"), "local edit");
+    await assert.rejects(readFile(path.join(home, ".pocket/bootstrap.lock")), { code: "ENOENT" });
   }
 );

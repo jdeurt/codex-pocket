@@ -1,3 +1,4 @@
+import { t } from "try";
 import type { DelegationCommand, DelegationStore, SidePocket } from "./delegations";
 import type { HarnessAdapter, HarnessResult } from "./harness/types";
 import { log } from "./logging";
@@ -129,16 +130,16 @@ export class DelegationRun {
 
     this.ready.resolve(true);
 
-    await (async () => {
-      const outcome = await result;
-
-      this.settled = true;
-      await Promise.all(this.deliveries.values());
-      this.complete(outcome);
-    })().finally(() => {
-      this.settled = true;
-      this.ready.resolve(false);
-    });
+    await result
+      .then(async (outcome) => {
+        this.settled = true;
+        await Promise.all(this.deliveries.values());
+        this.complete(outcome);
+      })
+      .finally(() => {
+        this.settled = true;
+        this.ready.resolve(false);
+      });
   }
 
   /**
@@ -146,14 +147,16 @@ export class DelegationRun {
   @returns Completion of native cleanup and its durable outcome.
   */
   private async close() {
-    await (async () => {
-      await this.adapter.close();
-      this.exitStatus = "confirmed";
-    })().catch((error: unknown) => {
-      this.store.setStatus(this.child.parentId, this.child.id, "unknown");
-      log().error({ error, childId: this.child.id }, "side_pocket.cleanup_failed");
-      this.exitStatus = "uncertain";
-    });
+    const closed = await t(() => this.adapter.close());
+
+    this.exitStatus = closed.ok ? "confirmed" : "uncertain";
+
+    if (closed.ok) {
+      return;
+    }
+
+    this.store.setStatus(this.child.parentId, this.child.id, "unknown");
+    log().error({ error: closed.error, childId: this.child.id }, "side_pocket.cleanup_failed");
   }
 
   /**

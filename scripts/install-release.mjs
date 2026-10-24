@@ -38,27 +38,25 @@ async function activate(root, release, service) {
   await rm(path.join(release, ".env.local"));
   await symlink(file, path.join(release, ".env.local"));
 
-  await (async () => {
-    await service.stop();
-    await replaceFile(file, candidate);
-    await service.start(release);
-    await selectRelease(root, release);
-  })().catch(async (/** @type {unknown} */ error) => {
-    await (async () => {
-      await service.stop();
-      await replaceFile(file, previous);
-      await selectRelease(root, priorRelease);
-      await service.restore();
-    })().catch((/** @type {unknown} */ recoveryError) => {
-      throw new AggregateError(
-        [error, recoveryError],
-        "Pocket activation and recovery failed; saved releases are retained.",
-        { cause: recoveryError }
-      );
-    });
+  await Promise.try(() => service.stop())
+    .then(() => replaceFile(file, candidate))
+    .then(() => service.start(release))
+    .then(() => selectRelease(root, release))
+    .catch(async (/** @type {unknown} */ error) => {
+      await Promise.try(() => service.stop())
+        .then(() => replaceFile(file, previous))
+        .then(() => selectRelease(root, priorRelease))
+        .then(() => service.restore())
+        .catch((/** @type {unknown} */ recoveryError) => {
+          throw new AggregateError(
+            [error, recoveryError],
+            "Pocket activation and recovery failed; saved releases are retained.",
+            { cause: recoveryError }
+          );
+        });
 
-    throw error;
-  });
+      throw error;
+    });
 }
 
 /** Allocate a private candidate after creating its parent directory.
@@ -94,23 +92,19 @@ export async function installRelease(source, root, build, service) {
   const release = await createRelease(path.join(root, "releases"));
   const saved = await optionalFile(path.join(root, ".env.local"));
 
-  return (async () => {
-    await copySources(source, release);
-    await replaceFile(path.join(release, ".env.local"), saved);
-    await build(release);
+  return copySources(source, release)
+    .then(() => replaceFile(path.join(release, ".env.local"), saved))
+    .then(() => build(release))
+    .then(() => requireBuild(release))
+    .then(() => activate(root, release, service))
+    .then(() => release)
+    .catch(async (/** @type {unknown} */ error) => {
+      if (!(error instanceof AggregateError)) {
+        await rm(release, { recursive: true, force: true });
+      }
 
-    await requireBuild(release);
-
-    await activate(root, release, service);
-
-    return release;
-  })().catch(async (/** @type {unknown} */ error) => {
-    if (!(error instanceof AggregateError)) {
-      await rm(release, { recursive: true, force: true });
-    }
-
-    throw error;
-  });
+      throw error;
+    });
 }
 
 /** Prevent concurrent installers from promoting different builds over the same service.
@@ -123,7 +117,7 @@ export async function withInstallLock(root, operation) {
 
   await mkdir(path.dirname(lock), { recursive: true });
 
-  await (async () => mkdir(lock))().catch((/** @type {unknown} */ error) => {
+  await mkdir(lock).catch((/** @type {unknown} */ error) => {
     if (error instanceof Error && "code" in error && error.code === "EEXIST") {
       throw new Error(
         "Another installer is active. If it was interrupted, remove ~/.pocket/install.lock before retrying.",
@@ -134,7 +128,7 @@ export async function withInstallLock(root, operation) {
     throw error;
   });
 
-  await (async () => operation())().finally(async () => {
+  await Promise.try(operation).finally(async () => {
     await rm(lock, { recursive: true, force: true });
   });
 }

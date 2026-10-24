@@ -61,7 +61,7 @@ async function settingsFlow(directory: string) {
   const bridge = new Bridge();
   const resumed = new Bridge();
 
-  await (async () => exerciseSettings(bridge, resumed, directory))().finally(() => {
+  await exerciseSettings(bridge, resumed, directory).finally(() => {
     bridge.close();
     resumed.close();
   });
@@ -85,7 +85,7 @@ await test("parent controls reuse the live transport, retain active work and per
 
   Object.assign(process.env, environment);
 
-  await (async () => settingsFlow(directory))().finally(async () => {
+  await settingsFlow(directory).finally(async () => {
     delegations().close();
 
     for (const [key, value] of Object.entries(previous)) {

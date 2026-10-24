@@ -138,7 +138,7 @@ async function verifyWrites(root: string) {
   };
   const adapter = new ClaudeAdapter(options);
 
-  await (async () => verifyReload(root, store, adapter, options, sessionId))().finally(async () => {
+  await verifyReload(root, store, adapter, options, sessionId).finally(async () => {
     await adapter.close();
     store.close();
   });
@@ -147,7 +147,7 @@ async function verifyWrites(root: string) {
 await test(
   "Claude write provenance survives real SDK streaming and saved-history reload",
   { timeout: TIMEOUT_MS },
-  async () => {
+  async (t) => {
     const root = await mkdtemp(path.join(os.tmpdir(), "pocket-claude-writes-"));
     const environment = {
       CODEX_POCKET_STATE_DIR: root,
@@ -163,14 +163,7 @@ await test(
 
     Object.assign(process.env, environment);
 
-    await (async () => {
-      await writeFile(
-        environment.POCKET_CLAUDE_BINARY,
-        '#!/bin/sh\nexec "$POCKET_SIMULATOR_NODE" --import "$POCKET_SIMULATOR_LOADER" "$POCKET_SIMULATOR_CLI" "$@"\n',
-        { mode: 0o700 }
-      );
-      await verifyWrites(root);
-    })().finally(async () => {
+    t.after(async () => {
       for (const [key, value] of Object.entries(previous)) {
         if (value === undefined) {
           Reflect.deleteProperty(process.env, key);
@@ -181,5 +174,12 @@ await test(
 
       await rm(root, { recursive: true, force: true });
     });
+
+    await writeFile(
+      environment.POCKET_CLAUDE_BINARY,
+      '#!/bin/sh\nexec "$POCKET_SIMULATOR_NODE" --import "$POCKET_SIMULATOR_LOADER" "$POCKET_SIMULATOR_CLI" "$@"\n',
+      { mode: 0o700 }
+    );
+    await verifyWrites(root);
   }
 );

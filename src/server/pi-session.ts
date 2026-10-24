@@ -29,11 +29,9 @@ import { t as attempt } from "try";
 */
 async function sessionManager(config: Config, saved: PiState | null, directory: string) {
   if (saved) {
-    const outcome = await attempt(async () => {
-      await readFile(saved.sessionFile, "utf8");
-
-      return SessionManager.open(saved.sessionFile);
-    });
+    const outcome = await attempt(() =>
+      readFile(saved.sessionFile, "utf8").then(() => SessionManager.open(saved.sessionFile))
+    );
 
     if (outcome.ok) {
       return outcome.value;

@@ -31,15 +31,12 @@ const queue: { records: ClientRecord[]; loaded: boolean; sending: boolean; timer
 Save the bounded diagnostics queue without letting storage failures interrupt chat.
 */
 function persist() {
-  const outcome = attempt(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(queue.records));
-  });
-
-  if (!outcome.ok) {
-    /*
+  /*
     Diagnostics must not block chat.
     */
-  }
+  void attempt(() => {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(queue.records));
+  });
 }
 
 /**
@@ -85,34 +82,15 @@ export async function flushClientLogs() {
     return;
   }
 
-  /**
-Own the in-flight flag and retry timer for one selected diagnostics batch.
-*/
-  async function flushClientBatch() {
-    let isDelivered = false;
+  queue.sending = true;
+  const sent = await attempt(transmitClientBatch, batch);
 
-    queue.sending = true;
+  queue.sending = false;
 
-    await (async () => {
-      const response = await transmitClientBatch(batch);
-
-      isDelivered = response.ok;
-    })()
-      .catch(() => {
-        /*
-    Retain diagnostics while Pocket is restarting or unreachable.
-    */
-      })
-      .finally(() => {
-        queue.sending = false;
-
-        if (isDelivered && queue.records.length > 0) {
-          queue.timer = setTimeout(() => void flushClientLogs(), FLUSH_DELAY_MS);
-        }
-      });
+  // Failed batches stay queued while Pocket restarts or is unreachable.
+  if (sent.ok && sent.value.ok && queue.records.length > 0) {
+    queue.timer = setTimeout(() => void flushClientLogs(), FLUSH_DELAY_MS);
   }
-
-  await flushClientBatch();
 }
 
 /**
@@ -149,15 +127,12 @@ export function reportClient(
   if (!queue.loaded) {
     queue.loaded = true;
 
-    const outcome1 = attempt(() => {
-      queue.records = storedClientRecords();
-    });
-
-    if (!outcome1.ok) {
-      /*
+    /*
       An invalid diagnostics cache can be discarded.
       */
-    }
+    void attempt(() => {
+      queue.records = storedClientRecords();
+    });
   }
 
   queue.records = [

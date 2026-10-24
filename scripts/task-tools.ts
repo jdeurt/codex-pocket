@@ -1,5 +1,5 @@
 import { type McpServer } from "@modelcontextprotocol/server";
-import { toolResult } from "../src/server/mcp-result";
+import { toolError } from "../src/server/mcp-result";
 import { searchTaskArchivePage } from "../src/server/task-search";
 import { z } from "zod";
 
@@ -12,21 +12,15 @@ const MAX_QUERY_LENGTH = 2000;
 @returns MCP content and structured retrieval evidence, or the standard tool error.
 */
 async function search(owner: string, query: string, offset: number) {
-  return (async () => {
-    const page = await searchTaskArchivePage(owner, query, offset);
-
-    return {
+  return searchTaskArchivePage(owner, query, offset)
+    .then((page) => ({
       content: [
         { type: "text" as const, text: JSON.stringify(page.results) },
         { type: "text" as const, text: JSON.stringify({ retrieval: page.retrieval, pagination: page.pagination }) },
       ],
       structuredContent: page,
-    };
-  })().catch((error: unknown) => {
-    return toolResult(() => {
-      throw error;
-    });
-  });
+    }))
+    .catch(toolError);
 }
 
 /** Register earlier-task retrieval at the existing model-facing MCP entry point.

@@ -55,22 +55,22 @@ async function receive(message: Data) {
     return;
   }
 
-  await (async () => {
-    const result = await dispatch(string(message.method), object(message.params));
+  await dispatch(string(message.method), object(message.params))
+    .then((result) => {
+      write({ id: message.id, result });
+    })
+    .catch((error: unknown) => {
+      const detail = error instanceof Error ? error.message : "Pi request failed.";
 
-    write({ id: message.id, result });
-  })().catch((error: unknown) => {
-    const detail = error instanceof Error ? error.message : "Pi request failed.";
-
-    write({ id: message.id, error: { code: -32_600, message: detail } });
-  });
+      write({ id: message.id, error: { code: -32_600, message: detail } });
+    });
 }
 
 /**
 Stop the owned Pi and native reader processes after host disconnect or termination.
 */
 async function close() {
-  await (async () => main.close())().finally(async () => {
+  await main.close().finally(async () => {
     await native.shutdown();
     process.stdin.destroy();
   });

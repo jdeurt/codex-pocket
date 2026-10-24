@@ -198,7 +198,7 @@ Hold the SDK input stream open until query consumption and process cleanup finis
 
     this.current = run;
 
-    return (async () => this.consume(run))().finally(async () => {
+    return this.consume(run).finally(async () => {
       finished.resolve(undefined);
       run.close();
       await waitForProcessExit(this.process);

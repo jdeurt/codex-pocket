@@ -106,7 +106,7 @@ Normalize native decoder failures into the existing user-facing upload error.
 @param pending - Pending directory containing the original image.
 */
 async function normalizeImage(pending: string) {
-  await (async () => normalizedRaster(pending))().catch(() => {
+  await normalizedRaster(pending).catch(() => {
     throw new Error("This image couldn't be read. Try a PNG, JPEG, WebP, GIF, or AVIF image, or choose another file.");
   });
 }
@@ -131,7 +131,7 @@ Atomically publish complete bytes and metadata, accepting an identical concurren
 async function commitUpload(parent: string, pending: string, file: StoredUpload) {
   await writeLocal(path.join(pending, "metadata.json"), file);
 
-  await (async () => rename(pending, directory(parent, file.id)))().catch(async () => {
+  await rename(pending, directory(parent, file.id)).catch(async () => {
     sameUpload(file, await getUpload(parent, file.id));
   });
 }
@@ -232,7 +232,7 @@ export async function saveUpload(parent: string, id: string, request: Request) {
     .parse(requestedType?.length ? requestedType : "application/octet-stream");
   const pending = `${directory(parent, id)}.${crypto.randomUUID()}.tmp`;
 
-  return (async () => persistUpload(parent, pending, id, request, name, mediaType))().finally(async () => {
+  return persistUpload(parent, pending, id, request, name, mediaType).finally(async () => {
     await rm(pending, { recursive: true, force: true });
   });
 }

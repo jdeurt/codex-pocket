@@ -66,19 +66,24 @@ test("messages and independent Pocket drafts survive switching, rename and reloa
   await expect(page.getByRole("link").filter({ has: page.getByText("Writing notes", { exact: true }) })).toHaveCount(0);
 });
 
-test("settings keep write-only keys private and synchronize tool visibility between tabs", async ({
-  page,
-  context,
-  request,
-}) => {
-  const headers = { Origin: POCKETS_ORIGIN };
-  const other = await context.newPage();
-  const key = "sk-synthetic-browser-workflow";
+test.describe("central settings", () => {
   const reset = { showToolCalls: false, openaiApiKey: null, realtimeVoice: null, realtimeModel: null };
 
-  await request.post("/api/settings", { headers, data: reset });
+  test.afterEach(async ({ request }) => {
+    await request.post("/api/settings", { headers: { Origin: POCKETS_ORIGIN }, data: reset });
+  });
 
-  await (async () => {
+  test("settings keep write-only keys private and synchronize tool visibility between tabs", async ({
+    page,
+    context,
+    request,
+  }) => {
+    const headers = { Origin: POCKETS_ORIGIN };
+    const other = await context.newPage();
+    const key = "sk-synthetic-browser-workflow";
+
+    await request.post("/api/settings", { headers, data: reset });
+
     await page.goto("/");
     await settings(page);
     await page.getByRole("checkbox", { name: "Show tool calls" }).check();
@@ -104,9 +109,6 @@ test("settings keep write-only keys private and synchronize tool visibility betw
     await expect(page.getByRole("checkbox", { name: "Show tool calls" })).not.toBeChecked();
     await page.getByRole("button", { name: "Remove saved key", exact: true }).click();
     await expect(other.getByText("No API key configured.", { exact: true })).toBeVisible();
-  })().finally(async () => {
-    await other.close();
-    await request.post("/api/settings", { headers, data: reset });
   });
 });
 

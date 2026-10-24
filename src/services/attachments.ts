@@ -80,7 +80,7 @@ export function createAttachmentController() {
     store.setState({ draft: value });
   }
 
-  function persist(value: SavedDraft) {
+  async function persist(value: SavedDraft) {
     const owner = scope;
     const pending = owner
       ? persistDraftAfter(writes, owner, value)
@@ -125,7 +125,11 @@ export function createAttachmentController() {
     );
   }
 
-  async function performUpload(entry: DraftAttachment) {
+  async function upload(entry: DraftAttachment) {
+    if (uploads.has(entry.id)) {
+      return;
+    }
+
     const controller = new AbortController();
     const owner = scope;
 
@@ -144,18 +148,17 @@ export function createAttachmentController() {
 
     patch({ progress: 0, error: undefined });
 
-    await (async () => {
-      const uploaded = await uploadFile(
-        entry,
-        (progress) => {
-          patch({ progress });
-        },
-        controller.signal
-      );
-
-      patch({ uploaded, progress: PERCENT });
-      await persist(store.getState().draft);
-    })()
+    await uploadFile(
+      entry,
+      (progress) => {
+        patch({ progress });
+      },
+      controller.signal
+    )
+      .then(async (uploaded) => {
+        patch({ uploaded, progress: PERCENT });
+        await persist(store.getState().draft);
+      })
       .catch(async (error_: unknown) => {
         if (controller.signal.aborted) {
           return;
@@ -166,21 +169,13 @@ export function createAttachmentController() {
           error: error_ instanceof Error ? error_.message : "Upload failed. Retry to continue.",
         });
 
-        await (async () => persist(store.getState().draft))().catch((error__: unknown) => {
+        await persist(store.getState().draft).catch((error__: unknown) => {
           setError(error__ instanceof Error ? error__.message : "Could not save attachments.");
         });
       })
       .finally(() => {
         uploads.delete(entry.id);
       });
-  }
-
-  async function upload(entry: DraftAttachment) {
-    if (uploads.has(entry.id)) {
-      return;
-    }
-
-    await performUpload(entry);
   }
 
   async function appendSelectedFiles(files: File[]) {
@@ -190,14 +185,13 @@ export function createAttachmentController() {
 
     update(value);
 
-    await (async () => {
-      // Persist file bytes before starting the request, so interruption never loses the selection.
-      await persist(value);
-      await Promise.all(added.map((entry) => upload(entry)));
-    })().catch((error_: unknown) => {
-      update({ files: store.getState().draft.files.filter((file) => added.every((entry) => entry.id !== file.id)) });
-      setError(error_ instanceof Error ? error_.message : "Couldn't save these files. Try again.");
-    });
+    // Persist original bytes before starting uploads so interruption retains the selection.
+    await persist(value)
+      .then(() => Promise.all(added.map((entry) => upload(entry))))
+      .catch((error_: unknown) => {
+        update({ files: store.getState().draft.files.filter((file) => added.every((entry) => entry.id !== file.id)) });
+        setError(error_ instanceof Error ? error_.message : "Couldn't save these files. Try again.");
+      });
   }
 
   async function add(files: File[]) {
@@ -241,7 +235,7 @@ export function createAttachmentController() {
 
     update(value);
 
-    await (async () => persist(value))().catch((error_: unknown) => {
+    await persist(value).catch((error_: unknown) => {
       setError(error_ instanceof Error ? error_.message : "Could not save attachments.");
     });
   }

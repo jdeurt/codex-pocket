@@ -57,7 +57,7 @@ Treat a restart or offline response as temporary unavailability, preserving the 
 @returns Confirmed build version when the server is available.
 */
 async function fetchVersion(signal: AbortSignal) {
-  return (async () => readVersion(signal))().catch(() => {
+  return readVersion(signal).catch(() => {
     return;
   });
 }

@@ -170,6 +170,12 @@ export function createConfig(options: { typed?: boolean; tsconfigRootDir?: strin
         "no-restricted-syntax": [
           "error",
           { selector: "TryStatement", message: "Use the try package or Promise .then/.catch/.finally chains." },
+          {
+            selector:
+              "CallExpression[callee.async=true]:matches([callee.type='ArrowFunctionExpression'], [callee.type='FunctionExpression'])",
+            message:
+              "Do not invoke async function expressions immediately. Refactor the operation and use direct calls, Results or Promise chains.",
+          },
         ],
         "unicorn/no-array-reduce": "off",
         // User-authorized policy: allow null values while retaining TypeScript null-safety checks.
@@ -193,6 +199,12 @@ export function createConfig(options: { typed?: boolean; tsconfigRootDir?: strin
         "no-restricted-syntax": [
           "error",
           { selector: "TryStatement", message: "Use the try package or Promise .then/.catch/.finally chains." },
+          {
+            selector:
+              "CallExpression[callee.async=true]:matches([callee.type='ArrowFunctionExpression'], [callee.type='FunctionExpression'])",
+            message:
+              "Do not invoke async function expressions immediately. Refactor the operation and use direct calls, Results or Promise chains.",
+          },
           {
             selector: CHAINED_TYPE_ASSERTION_SELECTOR,
             message: CHAINED_TYPE_ASSERTION_MESSAGE,

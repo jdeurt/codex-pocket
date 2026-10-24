@@ -11,9 +11,7 @@ Decode each event once using the shared snapshot schema and retain distinct fail
 @returns A normalized snapshot, or undefined after a JSON or schema failure is reported.
 */
 function eventSnapshot(text: string) {
-  const outcome = attempt(() => {
-    return snapshotSchema.parse(JSON.parse(text));
-  });
+  const outcome = attempt(() => snapshotSchema.parse(JSON.parse(text)));
 
   if (outcome.ok) {
     return outcome.value;

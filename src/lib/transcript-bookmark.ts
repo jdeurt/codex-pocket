@@ -36,15 +36,7 @@ export function readTranscriptBookmark(key?: string) {
     return;
   }
 
-  const outcome = attempt(() => {
-    return parseBookmark(sessionStorage.getItem(`pocket-scroll:${key}`));
-  });
-
-  if (outcome.ok) {
-    return outcome.value;
-  }
-
-  return;
+  return attempt(parseBookmark, sessionStorage.getItem(`pocket-scroll:${key}`)).value;
 }
 
 /** Save documented TanStack measurements and offset without inventing scroll adjustments.
@@ -63,15 +55,12 @@ function saveTranscriptBookmark(
 ) {
   const bookmark = { measurements, offset, atEnd: isAtEnd, expanded: [...expanded] };
 
-  const outcome1 = attempt(() => {
-    sessionStorage.setItem(`pocket-scroll:${key}`, JSON.stringify(bookmark));
-  });
-
-  if (!outcome1.ok) {
-    /*
+  /*
     Storage is optional; native anchoring still owns the current view.
     */
-  }
+  void attempt(() => {
+    sessionStorage.setItem(`pocket-scroll:${key}`, JSON.stringify(bookmark));
+  });
 }
 
 /** Capture the documented native bookmark when this tab navigates away.

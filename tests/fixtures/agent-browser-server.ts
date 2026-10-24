@@ -146,18 +146,14 @@ function savePrivateChild() {
 Build the saved child hierarchy and retain identifiers used by browser assertions.
 */
 async function seedPockets() {
-  await (async () => {
-    store.saveParent(replayParent, { cwd: process.cwd(), policy });
-    seedCodex();
-    pocket("Closed Side Pocket", "closed-session", "closed");
-    pocket("Empty Side Pocket", undefined, "idle");
-    pocket("Unavailable history", "missing-session", "closed");
-    await seedClaude();
-    savePrivateChild();
-    await writeFile(path.join(directory, "ids.json"), JSON.stringify(ids));
-  })().finally(() => {
-    store.close();
-  });
+  store.saveParent(replayParent, { cwd: process.cwd(), policy });
+  seedCodex();
+  pocket("Closed Side Pocket", "closed-session", "closed");
+  pocket("Empty Side Pocket", undefined, "idle");
+  pocket("Unavailable history", "missing-session", "closed");
+  await seedClaude();
+  savePrivateChild();
+  await writeFile(path.join(directory, "ids.json"), JSON.stringify(ids));
 }
 
 /**
@@ -225,7 +221,9 @@ function messages(agentId = "claude-main", parentAgent = "") {
   }));
 }
 
-await seedPockets();
+await seedPockets().finally(() => {
+  store.close();
+});
 await mkdir(path.join(project, claudeSession, "subagents"), { recursive: true });
 await writeFile(
   path.join(project, `${claudeSession}.jsonl`),

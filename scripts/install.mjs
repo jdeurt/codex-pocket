@@ -18,15 +18,15 @@ Reads private saved configuration, treating only a missing dotenv file as empty.
 @returns {Promise<NodeJS.ProcessEnv>} Parsed literal settings; other filesystem errors reject.
 */
 async function savedEnvironment() {
-  return (async () => {
-    return parseEnv(await readFile(path.join(home, ".env.local"), "utf8"));
-  })().catch((/** @type {unknown} */ error) => {
-    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
-      throw error;
-    }
+  return readFile(path.join(home, ".env.local"), "utf8")
+    .then(parseEnv)
+    .catch((/** @type {unknown} */ error) => {
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+        throw error;
+      }
 
-    return {};
-  });
+      return {};
+    });
 }
 
 /**
@@ -190,7 +190,7 @@ async function install(userId, isInteractive, prompt) {
     service
   );
 
-  await (async () => installPath())().catch((/** @type {unknown} */ error) => {
+  await installPath().catch((/** @type {unknown} */ error) => {
     console.error(
       `Pocket is running, but PATH setup failed: ${error instanceof Error ? error.message : String(error)}`
     );

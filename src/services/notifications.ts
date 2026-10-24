@@ -1,3 +1,4 @@
+import { t } from "try";
 import { createNotificationStore, type NotificationStatus } from "../state/notifications";
 import { clientError, reportClient } from "../lib/client-logging";
 import { get, post } from "../lib/client-api";
@@ -23,6 +24,16 @@ export function createNotificationController() {
   let publicKey: Uint8Array<ArrayBuffer> | null = null;
   let stopPresence: (() => void) | undefined;
 
+  async function recordSubscription(subscription: PushSubscription | null, signal?: AbortSignal) {
+    if (subscription) {
+      await post("/api/notifications", subscription.toJSON());
+    }
+
+    signal?.throwIfAborted();
+    setEndpoint(subscription?.endpoint ?? "");
+    setStatus(subscription ? "enabled" : "ready");
+  }
+
   const connect = () => {
     const controller = new AbortController();
     const unsubscribe = store.subscribe((state, previous) => {
@@ -33,18 +44,6 @@ export function createNotificationController() {
       stopPresence?.();
       stopPresence = state.endpoint ? subscribeNotificationPresence(state.endpoint) : undefined;
     });
-
-    async function restoreSubscription(nativeRegistration: ServiceWorkerRegistration, key: Uint8Array<ArrayBuffer>) {
-      const subscription = await matchingSubscription(nativeRegistration, key);
-
-      if (subscription) {
-        await post("/api/notifications", subscription.toJSON());
-      }
-
-      controller.signal.throwIfAborted();
-      setEndpoint(subscription?.endpoint ?? "");
-      setStatus(subscription ? "enabled" : "ready");
-    }
 
     async function prepare() {
       const config = await get("/api/notifications", controller.signal);
@@ -66,7 +65,7 @@ export function createNotificationController() {
       registration = await prepareRegistration();
 
       publicKey = notificationPublicKey(config.publicKey);
-      await restoreSubscription(registration, publicKey);
+      await recordSubscription(await matchingSubscription(registration, publicKey), controller.signal);
     }
 
     void prepare().catch((error_: unknown) => {
@@ -88,28 +87,28 @@ export function createNotificationController() {
   };
 
   async function enable() {
-    if (!registration || !publicKey) {
+    const current = registration;
+    const key = publicKey;
+
+    if (!current || !key) {
       return;
     }
 
     setStatus("subscribing");
     setError("");
+    // Invoke on the tap, before awaiting, so Safari retains user activation.
+    const subscribed = await t(() =>
+      current.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key })
+    );
+    const saved = subscribed.ok ? await t(recordSubscription, subscribed.value) : subscribed;
 
-    await (async () => {
-      // Subscribe directly in the tap handler so Safari can present its permission dialog.
-      const subscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: publicKey,
-      });
+    if (saved.ok) {
+      return;
+    }
 
-      await post("/api/notifications", subscription.toJSON());
-      setEndpoint(subscription.endpoint);
-      setStatus("enabled");
-    })().catch((error_: unknown) => {
-      reportClient("notifications.subscribe_failed", clientError(error_), "error");
-      setStatus(Notification.permission === "denied" ? "blocked" : "ready");
-      setError("Couldn't enable notifications. Try again from the installed Pocket app.");
-    });
+    reportClient("notifications.subscribe_failed", clientError(saved.error), "error");
+    setStatus(Notification.permission === "denied" ? "blocked" : "ready");
+    setError("Couldn't enable notifications. Try again from the installed Pocket app.");
   }
 
   return {

@@ -46,13 +46,9 @@ Inspect this Pocket's connected session without exposing arbitrary native RPC.
 @returns Effective parent settings and native usage availability.
 */
 export async function GET(request: Request) {
-  return (async () => {
-    await guard(request);
-
-    return await sessionInfo(request);
-  })().catch((error: unknown) => {
-    return errorResponse(error);
-  });
+  return guard(request)
+    .then(() => sessionInfo(request))
+    .catch(errorResponse);
 }
 
 /**
@@ -61,11 +57,7 @@ Change only this Pocket's next-turn model or effort over its existing connection
 @returns Native readback and persistence timing, or an explicit failure without retry.
 */
 export async function POST(request: Request) {
-  return (async () => {
-    await guard(request, true);
-
-    return await updateSettings(request);
-  })().catch((error: unknown) => {
-    return errorResponse(error);
-  });
+  return guard(request, true)
+    .then(() => updateSettings(request))
+    .catch(errorResponse);
 }

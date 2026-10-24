@@ -71,17 +71,13 @@ export async function readTaskArchive(file: string) {
   const rawFile = file.replace(/\.md$/u, ".json");
   const markdown = await readFile(file, "utf8");
 
-  const outcome = await attempt(async () => {
-    const rawContent = await readFile(rawFile, "utf8");
+  const source = await attempt(() => readFile(rawFile, "utf8"));
 
-    return { entries: coherentEntries(markdown, rawContent), rawFile };
-  });
-
-  if (outcome.ok) {
-    return outcome.value;
+  if (source.ok) {
+    return { entries: coherentEntries(markdown, source.value), rawFile };
   }
 
-  const error = outcome.error;
+  const error = source.error;
 
   if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
     throw error;

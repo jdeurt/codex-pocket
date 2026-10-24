@@ -70,14 +70,12 @@ Connect to saved history or to the explicitly selected owning server.
 export async function sessionClient(config: Config, filename?: string) {
   const rpc = new CodexRpc();
 
-  return (async () => {
-    await connectSession(rpc, config, filename);
-
-    return rpc;
-  })().catch(async (error: unknown) => {
-    await rpc.shutdown();
-    throw error;
-  });
+  return connectSession(rpc, config, filename)
+    .then(() => rpc)
+    .catch(async (error: unknown) => {
+      await rpc.shutdown();
+      throw error;
+    });
 }
 
 /**
@@ -163,7 +161,7 @@ Inspect a session before adding tracking, without sending input or resuming a sa
 export async function inspectAdoption(config: Config, input: AdoptionInput) {
   const rpc = await sessionClient(config, input.socketPath);
 
-  return (async () => inspectSession(rpc, input))().finally(async () => {
+  return inspectSession(rpc, input).finally(async () => {
     await rpc.shutdown();
   });
 }
@@ -216,7 +214,7 @@ Discover saved sessions with previews, or only sessions loaded by a selected ser
 export async function listAdoptableSessions(config: Config, input: z.infer<typeof sessionListInput>) {
   const rpc = await sessionClient(config, input.socketPath);
 
-  return (async () => sessionPage(rpc, input))().finally(async () => {
+  return sessionPage(rpc, input).finally(async () => {
     await rpc.shutdown();
   });
 }

@@ -58,12 +58,10 @@ export async function drainReceipts(
     receipt.status = "sending";
     await persist();
 
-    const outcome1 = await captureResult(async () => {
-      await dispatchReceipt(rpc, config, state, receipt, persist);
-    });
+    const dispatched = await captureResult(dispatchReceipt, rpc, config, state, receipt, persist);
 
-    if (!outcome1.ok) {
-      const error = outcome1.error;
+    if (!dispatched.ok) {
+      const error = dispatched.error;
 
       receipt.status = "unknown";
       await persist();

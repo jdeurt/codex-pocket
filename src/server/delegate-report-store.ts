@@ -16,9 +16,7 @@ function hasSuccessfulResult(result: string | null) {
     return false;
   }
 
-  const outcome = attempt(() => {
-    return completedResultSchema.safeParse(JSON.parse(result)).success;
-  });
+  const outcome = attempt(() => completedResultSchema.safeParse(JSON.parse(result)).success);
 
   return outcome.ok && outcome.value;
 }

@@ -218,12 +218,12 @@ class RecoveryCheck {
   private async archive() {
     const cleanup = new CodexRpc();
 
-    await (async () => {
-      await cleanup.connect(this.config);
-      await cleanup.request("thread/archive", { threadId: this.threadId });
-    })().finally(() => {
-      cleanup.close();
-    });
+    await cleanup
+      .connect(this.config)
+      .then(() => cleanup.request("thread/archive", { threadId: this.threadId }))
+      .finally(() => {
+        cleanup.close();
+      });
   }
 
   /**
@@ -231,7 +231,7 @@ class RecoveryCheck {
   @returns Completion of the live scenarios and native archival.
   */
   async run() {
-    await (async () => this.scenarios())().finally(async () => {
+    await this.scenarios().finally(async () => {
       this.bridge.close();
       await this.archive();
     });
@@ -265,13 +265,12 @@ Owns the bootstrap transport until the real test thread is created and named.
 async function startThread(config: Config) {
   const rpc = new CodexRpc();
 
-  return (async () => {
-    await rpc.connect(config);
-
-    return await createThread(rpc, config);
-  })().finally(() => {
-    rpc.close();
-  });
+  return rpc
+    .connect(config)
+    .then(() => createThread(rpc, config))
+    .finally(() => {
+      rpc.close();
+    });
 }
 
 /**

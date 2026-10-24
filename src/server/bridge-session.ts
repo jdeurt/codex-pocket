@@ -51,7 +51,7 @@ export class Bridge {
   Publish connection failures after releasing hydration state and closing the child.
   */
   private async connect() {
-    await (async () => this.openConnection())().catch((error: unknown) => {
+    await this.openConnection().catch((error: unknown) => {
       this.hydration = undefined;
       this.rpc?.close();
       this.snapshot.connection = "disconnected";
@@ -212,14 +212,11 @@ export class Bridge {
   @returns This operation's result without swallowing its failure.
   */
   exclusive<T>(fn: () => Promise<T>): Promise<T> {
-    const previous = this.serial;
-    const result = (async () => {
-      await (async () => previous)().catch(() => {
+    const result = this.serial
+      .catch(() => {
         // A failed operation must not block the next one.
-      });
-
-      return fn();
-    })();
+      })
+      .then(fn);
 
     this.serial = result;
 
@@ -251,7 +248,7 @@ export class Bridge {
 
     this.connecting = this.connect();
 
-    await (async () => this.connecting)().finally(() => {
+    await this.connecting.finally(() => {
       this.connecting = undefined;
     });
   }

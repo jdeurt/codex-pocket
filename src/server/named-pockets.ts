@@ -93,10 +93,9 @@ async function materialize(rpc: CodexRpc, config: Config, id: string, name: stri
 async function createNative(config: Config, id: string, name: string) {
   const rpc = new CodexRpc();
 
-  await (async () => {
-    await rpc.connect(config, "bare");
-    await materialize(rpc, config, id, name);
-  })()
+  await rpc
+    .connect(config, "bare")
+    .then(() => materialize(rpc, config, id, name))
     .catch((error: unknown) => {
       pocketStore().finish(id, false);
       throw error;

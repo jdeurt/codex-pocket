@@ -30,15 +30,7 @@ export function localFileLink(href: string, base?: string) {
     return;
   }
 
-  const outcome = attempt(() => {
-    return resolvedFileLink(href, base);
-  });
-
-  if (outcome.ok) {
-    return outcome.value;
-  }
-
-  return;
+  return attempt(resolvedFileLink, href, base).value;
 }
 
 /**

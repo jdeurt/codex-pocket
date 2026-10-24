@@ -44,41 +44,44 @@ async function claudeContract() {
   return { package: JSON.parse(packageText) as unknown, files };
 }
 
+/** Generate and write the native protocol, SDK contracts and provenance together.
+@param temporary - Isolated output directory for the native generator.
+@param binary - Selected native executable.
+*/
+async function writeContracts(temporary: string, binary: string) {
+  const version = execFileSync(binary, ["--version"], { encoding: "utf8" }).trim();
+
+  execFileSync(binary, ["app-server", "generate-json-schema", "--experimental", "--out", temporary]);
+  await writeFile(
+    new URL("codex.json", destination),
+    await readFile(path.join(temporary, "codex_app_server_protocol.schemas.json"))
+  );
+  await writeFile(new URL("claude.json", destination), JSON.stringify(await claudeContract(), null, 2) + "\n");
+  await writeFile(
+    new URL("provenance.json", destination),
+    JSON.stringify(
+      {
+        codex: version,
+        experimental: true,
+        codexCommand: "codex app-server generate-json-schema --experimental",
+        claudeSource: "@anthropic-ai/claude-agent-sdk package exports and all local .d.ts files",
+        docs: ["https://learn.chatgpt.com/docs/app-server", "https://platform.claude.com/docs/en/agent-sdk/typescript"],
+      },
+      null,
+      2
+    ) + "\n"
+  );
+}
+
 /**
-Export the native generator's complete experimental protocol and installed SDK contracts.
+Own and remove the native generator's temporary output on every outcome.
 */
 async function extract() {
   const temporary = await mkdtemp(path.join(os.tmpdir(), "pocket-contracts-"));
-  const binary = process.env.CODEX_BINARY ?? "codex";
-  const version = execFileSync(binary, ["--version"], { encoding: "utf8" }).trim();
 
-  await (async () => {
-    execFileSync(binary, ["app-server", "generate-json-schema", "--experimental", "--out", temporary]);
-    await writeFile(
-      new URL("codex.json", destination),
-      await readFile(path.join(temporary, "codex_app_server_protocol.schemas.json"))
-    );
-    await writeFile(new URL("claude.json", destination), JSON.stringify(await claudeContract(), null, 2) + "\n");
-    await writeFile(
-      new URL("provenance.json", destination),
-      JSON.stringify(
-        {
-          codex: version,
-          experimental: true,
-          codexCommand: "codex app-server generate-json-schema --experimental",
-          claudeSource: "@anthropic-ai/claude-agent-sdk package exports and all local .d.ts files",
-          docs: [
-            "https://learn.chatgpt.com/docs/app-server",
-            "https://platform.claude.com/docs/en/agent-sdk/typescript",
-          ],
-        },
-        null,
-        2
-      ) + "\n"
-    );
-  })().finally(async () => {
-    await rm(temporary, { recursive: true, force: true });
-  });
+  await writeContracts(temporary, process.env.CODEX_BINARY ?? "codex").finally(() =>
+    rm(temporary, { recursive: true, force: true })
+  );
 }
 
 await extract();

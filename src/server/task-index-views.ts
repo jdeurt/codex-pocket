@@ -1,3 +1,4 @@
+import { t } from "try";
 import { createHash } from "node:crypto";
 import { lstat, mkdir, readFile, readdir, realpath, rm, stat } from "node:fs/promises";
 import path from "node:path";
@@ -27,9 +28,9 @@ export interface TaskIndexDocument {
 @returns The read value, or null if the file is unavailable.
 */
 export async function optionalTaskFile<T>(read: () => Promise<T>): Promise<T | null> {
-  return (async () => read())().catch(() => {
-    return null;
-  });
+  const result = await t(read);
+
+  return result.ok ? result.value : null;
 }
 
 /** Hash the current reading view to reject stale search evidence after concurrent archive changes.
@@ -112,11 +113,7 @@ async function writeChanged(directory: string, name: string, body: string) {
     return;
   }
 
-  let previous: string | undefined;
-
-  await (async () => {
-    previous = await readFile(file, "utf8");
-  })().catch((error: unknown) => {
+  const previous = await readFile(file, "utf8").catch((error: unknown) => {
     if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
       throw error;
     }

@@ -30,14 +30,16 @@ async function respond(line: string, execute: FixtureExecutor) {
     return;
   }
 
-  await (async () => {
-    writeFixtureRecord({ id: request.id, result: await execute(request.method, request.params) });
-  })().catch((error: unknown) => {
-    writeFixtureRecord({
-      id: request.id,
-      error: { code: -32_000, message: error instanceof Error ? error.message : String(error) },
+  await execute(request.method, request.params)
+    .then((result) => {
+      writeFixtureRecord({ id: request.id, result });
+    })
+    .catch((error: unknown) => {
+      writeFixtureRecord({
+        id: request.id,
+        error: { code: -32_000, message: error instanceof Error ? error.message : String(error) },
+      });
     });
-  });
 }
 
 /**

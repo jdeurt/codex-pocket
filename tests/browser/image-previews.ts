@@ -117,7 +117,7 @@ async function swipeDown(page: Page) {
   const x = box.x + box.width / 2;
   const startY = box.y + box.height / START_FRACTION;
 
-  await (async () => releasePreviewDrag(client, popup, x, startY))().finally(async () => {
+  await releasePreviewDrag(client, popup, x, startY).finally(async () => {
     await client.detach();
   });
 }
@@ -247,15 +247,16 @@ export async function checkImagePreviews(page: Page, browserName: string) {
   const portrait = path.join(directory, "portrait.png");
   const landscape = path.join(directory, "landscape.png");
 
-  await (async () => {
-    await sharp({ create: { width: PORTRAIT_WIDTH, height: LONG_EDGE, channels: 3, background: "#7d9990" } })
+  await Promise.try(() =>
+    sharp({ create: { width: PORTRAIT_WIDTH, height: LONG_EDGE, channels: 3, background: "#7d9990" } })
       .png()
-      .toFile(portrait);
-    await sharp({ create: { width: LONG_EDGE, height: PORTRAIT_WIDTH, channels: 3, background: "#998b7d" } })
-      .png()
-      .toFile(landscape);
-    await checkImagePage(page, browserName, portrait, landscape);
-  })().finally(async () => {
-    await rm(directory, { recursive: true, force: true });
-  });
+      .toFile(portrait)
+  )
+    .then(() =>
+      sharp({ create: { width: LONG_EDGE, height: PORTRAIT_WIDTH, channels: 3, background: "#998b7d" } })
+        .png()
+        .toFile(landscape)
+    )
+    .then(() => checkImagePage(page, browserName, portrait, landscape))
+    .finally(() => rm(directory, { recursive: true, force: true }));
 }

@@ -1,3 +1,4 @@
+import { t } from "try";
 import { type PendingRequest, type RpcEvent } from "../lib/protocol";
 import { type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
@@ -57,11 +58,16 @@ export class PiQuestions {
     this.pending.set(id, { request, resolve: waiting.resolve });
     signal?.addEventListener("abort", abort, { once: true });
 
-    return (async () => {
+    const sent = t(() => {
       this.emit(request);
+    });
+    const response = sent.ok
+      ? waiting.promise
+      : Promise.reject(
+          sent.error instanceof Error ? sent.error : new Error("Question delivery failed.", { cause: sent.error })
+        );
 
-      return await waiting.promise;
-    })().finally(() => {
+    return response.finally(() => {
       signal?.removeEventListener("abort", abort);
       this.pending.delete(id);
       this.emit({ method: "serverRequest/resolved", params: { threadId: this.owner, requestId: id } });

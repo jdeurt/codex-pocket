@@ -19,17 +19,17 @@ Reads normalized native upload receipts from this replay's append-only request l
 @returns Captured deliveries, or an empty list before a readable log exists.
 */
 export async function requests() {
-  return (async () => {
-    const text = await readFile(path.join(directory, "requests.jsonl"), "utf8");
-
-    return text
-      .trim()
-      .split("\n")
-      .filter(Boolean)
-      .map((line) => uploadRequestSchema.parse(JSON.parse(line)));
-  })().catch(() => {
-    return [];
-  });
+  return readFile(path.join(directory, "requests.jsonl"), "utf8")
+    .then((text) => {
+      return text
+        .trim()
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => uploadRequestSchema.parse(JSON.parse(line)));
+    })
+    .catch(() => {
+      return [];
+    });
 }
 
 /**

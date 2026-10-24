@@ -313,7 +313,7 @@ Accept real newline-delimited protocol records, preserving IDs, errors, and even
       return;
     }
 
-    await (async () => this.dispatch(message, method, params))().catch((error: unknown) => {
+    await this.dispatch(message, method, params).catch((error: unknown) => {
       const detail = error instanceof Error ? error.message : String(error);
 
       this.emit({

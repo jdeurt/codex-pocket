@@ -11,13 +11,10 @@ Exposes the configured push public key only to an authorized host and origin.
 @returns Non-cacheable key response or authorization failure.
 */
 export async function GET(request: Request) {
-  return (async () => {
-    await guard(request);
-
-    return Response.json({ publicKey: await pushPublicKey() }, { headers: noStore });
-  })().catch((error: unknown) => {
-    return errorResponse(error, HTTP_FORBIDDEN);
-  });
+  return guard(request)
+    .then(pushPublicKey)
+    .then((publicKey) => Response.json({ publicKey }, { headers: noStore }))
+    .catch((error: unknown) => errorResponse(error, HTTP_FORBIDDEN));
 }
 
 /**
@@ -26,21 +23,12 @@ Stores a validated receiving-device subscription after mutation authorization.
 @returns Non-cacheable subscription receipt or existing validation failure.
 */
 export async function POST(request: Request) {
-  const outcome = await attempt(async () => {
-    await guard(request, true);
-  });
+  const outcome = await attempt(guard, request, true);
 
-  if (!outcome.ok) {
-    const error = outcome.error;
-
-    return errorResponse(error, HTTP_FORBIDDEN);
-  }
-
-  return (async () => {
-    await saveSubscription(await readBody(request));
-
-    return Response.json({ subscribed: true }, { headers: noStore });
-  })().catch((error: unknown) => {
-    return errorResponse(error);
-  });
+  return outcome.ok
+    ? readBody(request)
+        .then(saveSubscription)
+        .then(() => Response.json({ subscribed: true }, { headers: noStore }))
+        .catch(errorResponse)
+    : errorResponse(outcome.error, HTTP_FORBIDDEN);
 }

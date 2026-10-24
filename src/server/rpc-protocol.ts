@@ -57,9 +57,7 @@ Decode one native JSON line and keep malformed output in host diagnostics.
 @returns A decoded object, or undefined when JSON parsing fails.
 */
 export function decodeRpcLine(line: string): Data | undefined {
-  const outcome = attempt(() => {
-    return object(JSON.parse(line));
-  });
+  const outcome = attempt(object, JSON.parse(line));
 
   if (outcome.ok) {
     return outcome.value;

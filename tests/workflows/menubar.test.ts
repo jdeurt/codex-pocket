@@ -82,7 +82,7 @@ await test(
   async () => {
     const home = await mkdtemp(path.join(tmpdir(), "pocket-menubar-window-"));
 
-    await (async () => checkWindowFlow(home))().finally(async () => {
+    await checkWindowFlow(home).finally(async () => {
       await rm(home, { recursive: true, force: true });
     });
   }
@@ -195,7 +195,7 @@ await test(
       assert.equal(await readFile(config, "utf8"), "POCKET_PORT=43877\n");
     }
 
-    await (async () => flow())().finally(async () => {
+    await flow().finally(async () => {
       command("remove");
       await rm(home, { recursive: true, force: true });
     });

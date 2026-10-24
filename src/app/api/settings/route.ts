@@ -10,13 +10,10 @@ export const dynamic = "force-dynamic";
 @returns Non-cacheable public settings without credential values.
 */
 export async function GET(request: Request) {
-  return (async () => {
-    await guard(request);
-
-    return Response.json(await readPocketSettings(), { headers: noStore });
-  })().catch(() => {
-    return errorResponse(new Error("Could not load Pocket settings."));
-  });
+  return guard(request)
+    .then(readPocketSettings)
+    .then((settings) => Response.json(settings, { headers: noStore }))
+    .catch(() => errorResponse(new Error("Could not load Pocket settings.")));
 }
 
 /** Validate a partial update and keep credential-bearing failures out of diagnostics.
@@ -24,14 +21,9 @@ export async function GET(request: Request) {
 @returns Public settings after persistence, or a generic recoverable error.
 */
 export async function POST(request: Request) {
-  return (async () => {
-    await guard(request, true);
-
-    const input = pocketSettingsMutationSchema.parse(await readBody(request));
-    const settings = await updatePocketSettings(input);
-
-    return Response.json(settings, { headers: noStore });
-  })().catch(() => {
-    return errorResponse(new Error("Could not save Pocket settings. Check your input and try again."));
-  });
+  return guard(request, true)
+    .then(() => readBody(request))
+    .then((body) => updatePocketSettings(pocketSettingsMutationSchema.parse(body)))
+    .then((settings) => Response.json(settings, { headers: noStore }))
+    .catch(() => errorResponse(new Error("Could not save Pocket settings. Check your input and try again.")));
 }

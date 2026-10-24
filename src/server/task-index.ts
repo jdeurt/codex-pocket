@@ -67,14 +67,15 @@ function reportEmbeddingErrors(errors: number, retrieval: RetrievalMode) {
 @param retrieval - Capability state to downgrade if indexing failed.
 */
 async function embedLocal(store: Awaited<ReturnType<typeof createStore>>, model: string, retrieval: RetrievalMode) {
-  await (async () => {
-    const result = await store.embed({ model, collection: "tasks" });
-
-    reportEmbeddingErrors(result.errors, retrieval);
-  })().catch((error: unknown) => {
-    retrieval.mode = "keyword";
-    retrieval.reasons.push(`Local embeddings unavailable: ${error instanceof Error ? error.message : String(error)}`);
-  });
+  await store
+    .embed({ model, collection: "tasks" })
+    .then((result) => {
+      reportEmbeddingErrors(result.errors, retrieval);
+    })
+    .catch((error: unknown) => {
+      retrieval.mode = "keyword";
+      retrieval.reasons.push(`Local embeddings unavailable: ${error instanceof Error ? error.message : String(error)}`);
+    });
 }
 
 /** Take the optional inference slot without delaying keyword retrieval behind a local model job.
@@ -83,15 +84,13 @@ async function embedLocal(store: Awaited<ReturnType<typeof createStore>>, model:
 @returns A release callback, or null when inference is busy/unavailable.
 */
 async function inferenceSlot(owner: string, retrieval: RetrievalMode) {
-  return (async () => lock(path.join(taskDirectory(owner), "qmd", "inference"), { realpath: false }))().catch(
-    (error: unknown) => {
-      retrieval.mode = "keyword";
-      retrieval.reranked = false;
-      retrieval.reasons.push(`Local inference busy or unavailable; using keyword retrieval: ${String(error)}`);
+  return lock(path.join(taskDirectory(owner), "qmd", "inference"), { realpath: false }).catch((error: unknown) => {
+    retrieval.mode = "keyword";
+    retrieval.reranked = false;
+    retrieval.reasons.push(`Local inference busy or unavailable; using keyword retrieval: ${String(error)}`);
 
-      return null;
-    }
-  );
+    return null;
+  });
 }
 
 /** Run only model work for which this process owns the optional inference slot.
@@ -155,7 +154,7 @@ async function refreshStore(
     return searchTaskIndex(store, owner, documents, query ?? "", offset, retrieval);
   }
 
-  return (async () => modelSearch(store, owner, documents, embed, query, offset, retrieval))().finally(async () => {
+  return modelSearch(store, owner, documents, embed, query, offset, retrieval).finally(async () => {
     await release();
   });
 }
@@ -194,11 +193,9 @@ async function updateAndSearch(
     },
   });
 
-  return (async () => refreshStore(store, owner, documents, embed, query, offset, retrieval, releaseIndex))().finally(
-    async () => {
-      await store.close();
-    }
-  );
+  return refreshStore(store, owner, documents, embed, query, offset, retrieval, releaseIndex).finally(async () => {
+    await store.close();
+  });
 }
 
 /** Reconcile and query one private QMD store in a dedicated host subprocess.
@@ -225,7 +222,7 @@ export async function runTaskIndex(owner: string, query?: string, offset = 0, is
     await unlock();
   };
 
-  return (async () => updateAndSearch(owner, query, offset, isKeywordOnly, release))().finally(async () => {
+  return updateAndSearch(owner, query, offset, isKeywordOnly, release).finally(async () => {
     await release();
   });
 }

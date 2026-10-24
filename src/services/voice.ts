@@ -135,7 +135,7 @@ export function createVoiceController(store: VoiceStore, url: string, eventsUrl:
       });
     };
 
-    await (async () => connect())().catch((error_: unknown) => {
+    await connect().catch((error_: unknown) => {
       fail(error_ instanceof Error ? error_.message : "Realtime could not start.");
     });
   };

@@ -113,7 +113,7 @@ export async function runNextFixture(
   process.once("SIGTERM", stop);
   process.once("SIGINT", stop);
 
-  await (async () => once(host, "exit"))().finally(async () => {
+  await once(host, "exit").finally(async () => {
     clearTimeout(resources.shutdown);
     process.removeListener("SIGTERM", stop);
     process.removeListener("SIGINT", stop);

@@ -11,7 +11,7 @@ Owns the private fake bridge process for all restart scenarios and joins it on f
 async function check(directory: string) {
   const host = new RestartHost(directory);
 
-  await (async () => restartScenarios(host, directory))().finally(async () => {
+  await restartScenarios(host, directory).finally(async () => {
     if (host.isRunning) {
       await host.stop();
     }

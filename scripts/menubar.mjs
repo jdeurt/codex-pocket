@@ -41,71 +41,88 @@ function propertyList(definition) {
   return result.stdout;
 }
 
-/** Build the native companion before replacing its files or login job.
-@returns {Promise<void>} Completion of installation and login registration.
+/** Compile and sign the staged app without changing the installed login job.
+@param {string} stage - Temporary app bundle directory.
+@param {string} url - Configured loopback Pocket URL.
+@returns {Promise<void>} Completion of the signed bundle.
 */
-async function setup() {
-  const contentsFile = await optionalFile(path.join(home, ".env.local"));
-  const saved = parseEnv(contentsFile?.toString() ?? "");
-  const url = `http://127.0.0.1:${String(configuredPort(saved))}`;
-  const stage = await mkdtemp(path.join(directory, "build-"));
+async function buildCompanion(stage, url) {
   const bundle = path.join(stage, "Pocket.app");
   const contents = path.join(bundle, "Contents");
   const executable = path.join(contents, "MacOS/PocketMenuBar");
-  const logs = path.join(home, "logs");
   const compilationTarget = `${process.arch === "arm64" ? "arm64" : "x86_64"}-apple-macos13.0`;
 
-  await (async () => {
-    await mkdir(path.dirname(executable), { recursive: true });
-    run("/usr/bin/xcrun", [
-      "swiftc",
-      "-parse-as-library",
-      "-target",
-      compilationTarget,
-      "-O",
-      path.join(root, "scripts/menubar.swift"),
-      "-o",
-      executable,
-    ]);
-    await writeFile(
-      path.join(contents, "Info.plist"),
-      propertyList({
-        CFBundleIdentifier: LABEL,
-        CFBundleName: "Pocket Menu Bar",
-        CFBundleExecutable: "PocketMenuBar",
-        CFBundlePackageType: "APPL",
-        CFBundleVersion: "1",
-        LSUIElement: true,
-        LSMinimumSystemVersion: "13.0",
-        PocketURL: url,
-        NSAppTransportSecurity: { NSAllowsLocalNetworking: true },
-        NSMicrophoneUsageDescription: "Pocket uses the microphone when you start a voice conversation.",
-      })
-    );
-    run("/usr/bin/codesign", ["--force", "--sign", "-", bundle]);
-    await mkdir(path.dirname(plist), { recursive: true });
-    await mkdir(logs, { recursive: true, mode: 0o700 });
-    stop();
-    await rm(application, { recursive: true, force: true });
-    await rename(bundle, application);
-    await replaceFile(
-      plist,
-      propertyList({
-        Label: LABEL,
-        ProgramArguments: [path.join(application, "Contents/MacOS/PocketMenuBar")],
-        RunAtLoad: true,
-        KeepAlive: { SuccessfulExit: false },
-        ProcessType: "Interactive",
-        StandardOutPath: path.join(logs, "menubar.log"),
-        StandardErrorPath: path.join(logs, "menubar.err.log"),
-      })
-    );
-    run("/bin/launchctl", ["enable", target]);
-    run("/bin/launchctl", ["bootstrap", domain, plist]);
-    console.info("Pocket Menu Bar is installed and starts at login. Click its icon to show or hide Pocket.");
-  })().finally(async () => {
-    await rm(stage, { recursive: true, force: true });
-  });
+  await mkdir(path.dirname(executable), { recursive: true });
+  run("/usr/bin/xcrun", [
+    "swiftc",
+    "-parse-as-library",
+    "-target",
+    compilationTarget,
+    "-O",
+    path.join(root, "scripts/menubar.swift"),
+    "-o",
+    executable,
+  ]);
+  await writeFile(
+    path.join(contents, "Info.plist"),
+    propertyList({
+      CFBundleIdentifier: LABEL,
+      CFBundleName: "Pocket Menu Bar",
+      CFBundleExecutable: "PocketMenuBar",
+      CFBundlePackageType: "APPL",
+      CFBundleVersion: "1",
+      LSUIElement: true,
+      LSMinimumSystemVersion: "13.0",
+      PocketURL: url,
+      NSAppTransportSecurity: { NSAllowsLocalNetworking: true },
+      NSMicrophoneUsageDescription: "Pocket uses the microphone when you start a voice conversation.",
+    })
+  );
+  run("/usr/bin/codesign", ["--force", "--sign", "-", bundle]);
+}
+
+/** Promote the signed app, then install and start its login job.
+@param {string} stage - Validated candidate bundle directory.
+@returns {Promise<void>} Completion of login registration.
+*/
+async function installCompanion(stage) {
+  const bundle = path.join(stage, "Pocket.app");
+  const logs = path.join(home, "logs");
+
+  await mkdir(path.dirname(plist), { recursive: true });
+  await mkdir(logs, { recursive: true, mode: 0o700 });
+  stop();
+  await rm(application, { recursive: true, force: true });
+  await rename(bundle, application);
+  await replaceFile(
+    plist,
+    propertyList({
+      Label: LABEL,
+      ProgramArguments: [path.join(application, "Contents/MacOS/PocketMenuBar")],
+      RunAtLoad: true,
+      KeepAlive: { SuccessfulExit: false },
+      ProcessType: "Interactive",
+      StandardOutPath: path.join(logs, "menubar.log"),
+      StandardErrorPath: path.join(logs, "menubar.err.log"),
+    })
+  );
+  run("/bin/launchctl", ["enable", target]);
+  run("/bin/launchctl", ["bootstrap", domain, plist]);
+  console.info("Pocket Menu Bar is installed and starts at login. Click its icon to show or hide Pocket.");
+}
+
+/** Own a staged companion build until it is installed or discarded.
+@returns {Promise<void>} Completion of installation and staging cleanup.
+*/
+async function setup() {
+  const contents = await optionalFile(path.join(home, ".env.local"));
+  const saved = parseEnv(contents?.toString() ?? "");
+  const url = `http://127.0.0.1:${String(configuredPort(saved))}`;
+  const stage = await mkdtemp(path.join(directory, "build-"));
+
+  await buildCompanion(stage, url)
+    .then(() => installCompanion(stage))
+    .finally(() => rm(stage, { recursive: true, force: true }));
 }
 
 /** Apply the requested companion operation without restarting the Pocket web service.
@@ -136,7 +153,7 @@ async function main() {
   });
 }
 
-await (async () => main())().catch((/** @type {unknown} */ error) => {
+await main().catch((/** @type {unknown} */ error) => {
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;
 });

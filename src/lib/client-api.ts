@@ -15,7 +15,7 @@ async function fetchResponse(path: string, options: RequestInit, requestId: stri
 
   headers.set("X-Pocket-Request-Id", requestId);
 
-  return (async () => fetch(pocketUrl(path), { ...options, headers }))().catch((error: unknown) => {
+  return fetch(pocketUrl(path), { ...options, headers }).catch((error: unknown) => {
     reportClient("http.network_error", { path, requestId, ...clientError(error) }, "error");
     throw new Error("Pocket is restarting or unreachable. Your message is saved here.", { cause: error });
   });
@@ -31,9 +31,7 @@ Consume an API response and normalize its unchecked JSON object once.
 async function responseData(response: Response, path: string, requestId: string) {
   const text = await response.text();
 
-  const outcome = attempt(() => {
-    return object(JSON.parse(text));
-  });
+  const outcome = attempt(object, JSON.parse(text));
 
   if (outcome.ok) {
     return outcome.value;

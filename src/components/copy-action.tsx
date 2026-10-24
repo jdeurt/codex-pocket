@@ -1,4 +1,5 @@
 "use client";
+import { t } from "try";
 import { Button } from "@/components/ui/button";
 import { CopyIcon } from "lucide-react";
 import { useState } from "react";
@@ -27,13 +28,10 @@ export function CopyAction({ text }: { text: string }) {
       return;
     }
 
-    await (async () => {
-      // Invoke in the click handler, before any await, to retain user activation.
-      await globalThis.navigator.clipboard.writeText(text);
-      setStatus("copied");
-    })().catch(() => {
-      setStatus("error");
-    });
+    // t invokes immediately, retaining the click's clipboard permission.
+    const copied = await t(() => navigator.clipboard.writeText(text));
+
+    setStatus(copied.ok ? "copied" : "error");
   }
 
   return (

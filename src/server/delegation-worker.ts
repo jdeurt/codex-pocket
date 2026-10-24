@@ -106,7 +106,7 @@ export class DelegationWorker {
     // Reserve the active slot before even a synchronous adapter can finish.
     await Promise.resolve();
 
-    await (async () => run.execute())().finally(() => {
+    await run.execute().finally(() => {
       this.finishRun(child, run);
     });
   }
@@ -150,9 +150,13 @@ export class DelegationWorker {
   @returns Confirmed close and execution completion; adapter failures reject.
   */
   private async closeActive(running: { run: DelegationRun; done: Promise<void> }) {
-    await (async () => running.run.adapter.interrupt())().finally(async () => {
-      await running.run.adapter.close();
-    });
+    const interrupted = await captureResult(() => running.run.adapter.interrupt());
+
+    await running.run.adapter.close();
+
+    if (!interrupted.ok) {
+      throw interrupted.error;
+    }
 
     await running.done;
   }
@@ -264,7 +268,7 @@ export class DelegationWorker {
   private async drain() {
     await Promise.resolve();
 
-    const outcome1 = captureResult(() => {
+    const flushed = captureResult(() => {
       this.flush();
     });
 
@@ -274,8 +278,8 @@ export class DelegationWorker {
       void this.tick();
     }
 
-    if (!outcome1.ok) {
-      throw outcome1.error;
+    if (!flushed.ok) {
+      throw flushed.error;
     }
   }
 

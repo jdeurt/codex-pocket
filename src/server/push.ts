@@ -1,3 +1,4 @@
+import { t } from "try";
 import { hasMessageText, messageText, turnMessages } from "../lib/turn-messages";
 import { readLocal, writeLocal } from "./local-state";
 import { type NotificationPayload } from "../lib/notification-payload";
@@ -77,7 +78,7 @@ function withState<T>(action: (state: PushState) => T | Promise<T>) {
   const previous = operations.serial;
 
   async function commitQueuedState() {
-    await (async () => previous)().catch(() => {
+    await previous.catch(() => {
       // A failed operation must not block later subscriptions or notifications.
     });
 
@@ -204,15 +205,19 @@ async function sendCompletion(
         return;
       }
 
-      await (async () => {
-        await webpush.sendNotification(subscription, payload, {
+      const sent = await t(() =>
+        webpush.sendNotification(subscription, payload, {
           vapidDetails: { ...delivery.keys, subject },
           TTL: PUSH_TTL_SECONDS,
           timeout: PUSH_TIMEOUT_MS,
           urgency: "normal",
-        });
+        })
+      );
+
+      if (sent.ok) {
         log().info({ threadId, turnId: turn.id, provider: new URL(subscription.endpoint).origin }, "push.delivered");
-      })().catch((error: unknown) => {
+      } else {
+        const error = sent.error;
         const status =
           error instanceof Error && "statusCode" in error && typeof error.statusCode === "number"
             ? error.statusCode
@@ -223,7 +228,7 @@ async function sendCompletion(
         } else {
           log().error({ status, threadId, turnId: turn.id }, "push.failed");
         }
-      });
+      }
     })
   );
 

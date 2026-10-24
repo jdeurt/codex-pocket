@@ -16,15 +16,11 @@ Probe startup without treating refused connections as fixture failures.
 @returns The endpoint JSON when the host can answer.
 */
 async function runningVersion(): Promise<unknown> {
-  return (async () => {
-    const response = await fetch(`${ORIGIN}/api/version`, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
-
-    const value: unknown = await response.json();
-
-    return value;
-  })().catch(() => {
-    return;
-  });
+  return fetch(`${ORIGIN}/api/version`, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) })
+    .then((response): Promise<unknown> => response.json())
+    .catch(() => {
+      // The host may still be starting.
+    });
 }
 
 /**

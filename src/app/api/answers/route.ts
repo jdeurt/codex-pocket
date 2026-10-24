@@ -12,27 +12,22 @@ Submits a validated phone answer only after same-origin mutation authorization.
 @returns Existing acknowledgment or distinct authorization/answer-validation failure.
 */
 export async function POST(request: Request) {
-  const outcome = await attempt(async () => {
-    await guard(request, true);
-  });
+  const outcome = await attempt(guard, request, true);
 
   if (!outcome.ok) {
-    const error = outcome.error;
-
-    return errorResponse(error, HTTP_FORBIDDEN);
+    return errorResponse(outcome.error, HTTP_FORBIDDEN);
   }
 
-  return (async () => {
-    const bridge = await requestBridge(request);
-    const input = z
-      .object({ id: z.union([z.string(), z.number()]), result: z.unknown() })
-      .strict()
-      .parse(await readBody(request));
+  return requestBridge(request)
+    .then(async (bridge) => {
+      const input = z
+        .object({ id: z.union([z.string(), z.number()]), result: z.unknown() })
+        .strict()
+        .parse(await readBody(request));
 
-    await bridge.answer(input.id, input.result);
+      await bridge.answer(input.id, input.result);
 
-    return Response.json({ ok: true }, { headers: noStore });
-  })().catch((error: unknown) => {
-    return errorResponse(error);
-  });
+      return Response.json({ ok: true }, { headers: noStore });
+    })
+    .catch(errorResponse);
 }

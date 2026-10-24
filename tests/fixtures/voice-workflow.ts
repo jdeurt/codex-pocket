@@ -1,3 +1,4 @@
+import { readRealtimeOffer, serveRealtimeHttp } from "./realtime-http";
 import { type Data, dataSchema, object } from "../../src/lib/protocol";
 import { type RawData, type WebSocket, WebSocketServer } from "ws";
 import { type TestContext } from "node:test";
@@ -11,7 +12,6 @@ import { once } from "node:events";
 const LAST = -1;
 const HTTP_OK = 200;
 const HTTP_CREATED = 201;
-const HTTP_ERROR = 500;
 export const TEST_SDP = "v=0\r\ns=Pocket test offer\r\n";
 
 /** Decode real control frames exchanged with the loopback provider.
@@ -38,41 +38,24 @@ export async function voiceWorkflow(t: TestContext, scenario?: Data) {
   const peers: WebSocket[] = [];
   const responses: { socket: WebSocket; id: string; request: Data }[] = [];
   const failures: string[] = [];
-  const http = createServer((request, response) => {
-    const chunks: Buffer[] = [];
+  const http = createServer();
 
-    request.on("data", (chunk: Buffer) => {
-      chunks.push(chunk);
-    });
-    request.on("end", () => {
-      void (async () => {
-        assert.equal(request.headers.authorization, "Bearer synthetic-voice-workflow-key");
+  serveRealtimeHttp(http, failures, async (request, response) => {
+    assert.equal(request.headers.authorization, "Bearer synthetic-voice-workflow-key");
 
-        if (request.url?.endsWith("/hangup")) {
-          calls.push({ action: "hangup", url: request.url });
-          response.writeHead(HTTP_OK).end();
+    if (request.url?.endsWith("/hangup")) {
+      calls.push({ action: "hangup", url: request.url });
+      response.writeHead(HTTP_OK).end();
 
-          return;
-        }
+      return;
+    }
 
-        assert.equal(request.url, "/v1/realtime/calls");
-        const body = new Response(Buffer.concat(chunks).toString(), {
-          headers: { "Content-Type": request.headers["content-type"] ?? "" },
-        });
-        const form = await body.formData();
-        const encoded = form.get("session");
+    assert.equal(request.url, "/v1/realtime/calls");
+    const { sdp, session } = await readRealtimeOffer(request);
 
-        assert.ok(typeof encoded === "string");
-        const session = dataSchema.parse(JSON.parse(encoded));
-
-        calls.push({ action: "start", sdp: form.get("sdp"), session });
-        response.writeHead(HTTP_CREATED, { Location: `/v1/realtime/calls/rtc_${crypto.randomUUID()}` });
-        response.end("v=0\r\ns=Pocket test answer\r\n");
-      })().catch((error: unknown) => {
-        failures.push(String(error));
-        response.writeHead(HTTP_ERROR).end();
-      });
-    });
+    calls.push({ action: "start", sdp, session });
+    response.writeHead(HTTP_CREATED, { Location: `/v1/realtime/calls/rtc_${crypto.randomUUID()}` });
+    response.end("v=0\r\ns=Pocket test answer\r\n");
   });
   const server = new WebSocketServer({ server: http });
   const begin = (socket: WebSocket, request: Data = {}) => {

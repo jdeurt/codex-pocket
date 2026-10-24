@@ -13,32 +13,27 @@ Validates a phone message and attachment identities before submitting it to the 
 @returns Canonical send receipt or existing authorization/validation failure.
 */
 export async function POST(request: Request) {
-  const outcome = await attempt(async () => {
-    await guard(request, true);
-  });
+  const outcome = await attempt(guard, request, true);
 
   if (!outcome.ok) {
-    const error = outcome.error;
-
-    return errorResponse(error, HTTP_FORBIDDEN);
+    return errorResponse(outcome.error, HTTP_FORBIDDEN);
   }
 
-  return (async () => {
-    const bridge = await requestBridge(request);
-    const input = z
-      .object({
-        id: z.uuid(),
-        text: z.string().trim().max(MAX_MESSAGE_LENGTH),
-        attachments: z.array(z.uuid()).max(MAX_ATTACHMENTS).default([]),
-      })
-      .strict()
-      .refine((value) => value.text.length > 0 || value.attachments.length > 0, "Write a message or attach a file.")
-      .parse(await readBody(request));
+  return requestBridge(request)
+    .then(async (bridge) => {
+      const input = z
+        .object({
+          id: z.uuid(),
+          text: z.string().trim().max(MAX_MESSAGE_LENGTH),
+          attachments: z.array(z.uuid()).max(MAX_ATTACHMENTS).default([]),
+        })
+        .strict()
+        .refine((value) => value.text.length > 0 || value.attachments.length > 0, "Write a message or attach a file.")
+        .parse(await readBody(request));
 
-    return Response.json(await bridge.send(input.id, input.text, input.attachments), {
-      headers: noStore,
-    });
-  })().catch((error: unknown) => {
-    return errorResponse(error);
-  });
+      return Response.json(await bridge.send(input.id, input.text, input.attachments), {
+        headers: noStore,
+      });
+    })
+    .catch(errorResponse);
 }

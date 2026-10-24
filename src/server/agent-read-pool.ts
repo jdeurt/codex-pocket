@@ -1,3 +1,5 @@
+import { t } from "try";
+
 const MAX_READS = 4;
 const MAX_BACKGROUND_READS = MAX_READS - 1;
 const queue: { key?: string; priority: number; run: () => Promise<void> }[] = [];
@@ -63,11 +65,15 @@ export function agentRead<T>(read: () => Promise<T>, priority = 0, key?: string)
       key,
       priority,
       run: async () => {
-        await (async () => {
-          resolve(await read());
-        })().catch((error: unknown) => {
+        const result = await t(read);
+
+        if (result.ok) {
+          resolve(result.value);
+        } else {
+          const error = result.error;
+
           reject(error instanceof Error ? error : new Error("Agent history read failed.", { cause: error }));
-        });
+        }
       },
     });
     drain();

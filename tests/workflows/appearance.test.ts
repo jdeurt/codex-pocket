@@ -12,69 +12,70 @@ const PRIVATE_FILE_MODE = 0o600;
 const PRIVATE_DIRECTORY_MODE = 0o700;
 const fixture = path.resolve("tests/fixtures/spinners/kirbyjam.gif");
 
-await test("spinner selection survives an MCP restart and deletes only its managed copy", async () => {
+await test("spinner selection survives an MCP restart and deletes only its managed copy", async (t) => {
   const directory = await mkdtemp(path.join(os.tmpdir(), "spinner-persistence-"));
   const uploaded = path.join(directory, "uploads", "original.gif");
   const source = await readFile(fixture);
 
   const store = new DelegationStore(directory);
 
-  let side: Awaited<ReturnType<typeof spinnerClient>> | undefined;
+  let side: Awaited<ReturnType<typeof spinnerClient>> | null = null;
   let main = await spinnerClient(directory);
 
-  await (async () => {
-    await mkdir(path.dirname(uploaded));
-    await copyFile(fixture, uploaded);
-    const selected = await main.call("spinner_set", { path: uploaded });
-    const asset = selected.current;
-
-    assert.ok(asset);
-    assert.equal(asset.frames, ANIMATION_FRAMES);
-    assert.equal(asset.mime, "image/gif");
-    store.saveParent("spinner-fixture", { cwd: directory, policy: { sandbox: "read-only", approval: "never" } });
-    const child = store.create("spinner-fixture", {
-      title: "Child work",
-      body: "Keep the main preference",
-      idempotencyKey: "child",
-    });
-    const command = store.queue.claim("spinner-fixture", child.id);
-
-    assert.ok(command);
-    side = await spinnerClient(directory, { POCKET_CHILD_ID: child.id, POCKET_COMMAND_ID: command.id });
-    const denied = await side.client.callTool({ name: "spinner_reset", arguments: {} });
-
-    assert.equal(denied.isError, true);
-    assert.match(JSON.stringify(denied), /only to the main Pocket/);
-    assert.deepEqual(await main.call("spinner_status"), selected);
-    const managed = path.join(directory, "spinner-assets", asset.id);
-
-    assert.deepEqual(await readFile(managed), source);
-    const assetInfo = await stat(managed);
-    const directoryInfo = await stat(path.dirname(managed));
-    const deduplicated = await main.call("spinner_set", { path: fixture });
-
-    assert.equal(assetInfo.mode & MODE_MASK, PRIVATE_FILE_MODE);
-    assert.equal(directoryInfo.mode & MODE_MASK, PRIVATE_DIRECTORY_MODE);
-    assert.equal(deduplicated.saved.length, 1);
-    await main.client.close();
-    main = await spinnerClient(directory);
-    assert.deepEqual(await main.call("spinner_status"), selected);
-    await writeFile(uploaded, "The source can change after selection.");
-    assert.deepEqual(await readFile(managed), source);
-    const reset = await main.call("spinner_reset");
-
-    assert.equal(reset.current, null);
-    assert.equal(reset.saved.length, 1);
-    await main.call("spinner_delete", { id: asset.id });
-    const empty = await main.call("spinner_status");
-
-    assert.deepEqual(empty.saved, []);
-    await assert.rejects(stat(managed), { code: "ENOENT" });
-    assert.equal(await readFile(uploaded, "utf8"), "The source can change after selection.");
-  })().finally(async () => {
+  t.after(async () => {
     await side?.client.close();
     store.close();
     await main.client.close();
     await rm(directory, { recursive: true, force: true });
   });
+
+  await mkdir(path.dirname(uploaded));
+  await copyFile(fixture, uploaded);
+  const selected = await main.call("spinner_set", { path: uploaded });
+  const asset = selected.current;
+
+  assert.ok(asset);
+  assert.equal(asset.frames, ANIMATION_FRAMES);
+  assert.equal(asset.mime, "image/gif");
+  store.saveParent("spinner-fixture", { cwd: directory, policy: { sandbox: "read-only", approval: "never" } });
+  const child = store.create("spinner-fixture", {
+    title: "Child work",
+    body: "Keep the main preference",
+    idempotencyKey: "child",
+  });
+  const command = store.queue.claim("spinner-fixture", child.id);
+
+  assert.ok(command);
+  side = await spinnerClient(directory, { POCKET_CHILD_ID: child.id, POCKET_COMMAND_ID: command.id });
+
+  const denied = await side.client.callTool({ name: "spinner_reset", arguments: {} });
+
+  assert.equal(denied.isError, true);
+  assert.match(JSON.stringify(denied), /only to the main Pocket/);
+  assert.deepEqual(await main.call("spinner_status"), selected);
+  const managed = path.join(directory, "spinner-assets", asset.id);
+
+  assert.deepEqual(await readFile(managed), source);
+  const assetInfo = await stat(managed);
+  const directoryInfo = await stat(path.dirname(managed));
+  const deduplicated = await main.call("spinner_set", { path: fixture });
+
+  assert.equal(assetInfo.mode & MODE_MASK, PRIVATE_FILE_MODE);
+  assert.equal(directoryInfo.mode & MODE_MASK, PRIVATE_DIRECTORY_MODE);
+  assert.equal(deduplicated.saved.length, 1);
+  await main.client.close();
+  main = await spinnerClient(directory);
+  assert.deepEqual(await main.call("spinner_status"), selected);
+  await writeFile(uploaded, "The source can change after selection.");
+  assert.deepEqual(await readFile(managed), source);
+  const reset = await main.call("spinner_reset");
+
+  assert.equal(reset.current, null);
+  assert.equal(reset.saved.length, 1);
+  await main.call("spinner_delete", { id: asset.id });
+  const empty = await main.call("spinner_status");
+
+  assert.deepEqual(empty.saved, []);
+  await assert.rejects(stat(managed), { code: "ENOENT" });
+  assert.equal(await readFile(uploaded, "utf8"), "The source can change after selection.");
 });

@@ -25,7 +25,7 @@ Serves the current spinner preference without exposing native storage failures.
 @returns Current selection or the existing sanitized failure response.
 */
 export async function GET(request: Request) {
-  return (async () => spinnerStatus(request))().catch(() => {
+  return spinnerStatus(request).catch(() => {
     return errorResponse(new Error("Spinner preference unavailable."));
   });
 }

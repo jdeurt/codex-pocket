@@ -1,5 +1,7 @@
 ## Error handling
 
+- Do not use async IIFEs, including `await (async () => ...)()`, `return (async () => ...)()` or fire-and-forget variants. ESLint enforces this. Refactor function boundaries instead of hiding a block inside an immediately invoked callback.
+- Collapse forwarding functions; give separate functions only to meaningful operations or independently owned lifecycles. Prefer direct Results and Promise chains over multi-statement callbacks that recreate a try block. Register test resource cleanup with the test framework when its lifetime is the test.
 - Do not write `try` statements. ESLint bans `TryStatement` in JavaScript and TypeScript, including scripts and tests.
 - Follow the [`try` README](https://github.com/arthurfiorette/try#usage): prefer the `t` export over `Result.try`. A local import alias is fine when `t` conflicts with a test context.
 - Prefer `t(fn, ...args)` for standalone functions: it forwards arguments and retains type inference. Use `t(() => object.method(args))` when the method needs its receiver.

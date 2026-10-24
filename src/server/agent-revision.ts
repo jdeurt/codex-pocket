@@ -36,9 +36,7 @@ async function locateRoot(directory: string, root: string) {
       continue;
     }
 
-    const outcome = await attempt(async () => {
-      return await existingRoot(directory, entry.name, root);
-    });
+    const outcome = await attempt(existingRoot, directory, entry.name, root);
 
     if (outcome.ok) {
       return outcome.value;
@@ -63,20 +61,23 @@ async function cachedClaudeFile(record: AgentRecord, root: string) {
   const key = `${directory}:${root}`;
 
   let pending = roots.get(key);
-  let project: string | undefined;
 
   if (!pending) {
     pending = locateRoot(directory, root);
     roots.set(key, pending);
   }
 
-  await (async () => {
-    project = await pending;
-  })().finally(() => {
-    if (!project) {
-      roots.delete(key);
-    }
-  });
+  const located = await attempt(pending);
+
+  if (!located.ok || !located.value) {
+    roots.delete(key);
+  }
+
+  if (!located.ok) {
+    throw located.error;
+  }
+
+  const project = located.value;
 
   return (
     project &&
@@ -132,13 +133,10 @@ export async function agentRevision(record: AgentRecord) {
   let fileRevision: string | undefined;
 
   if (record.agent.harness === "claude" && record.sessionId) {
-    await (async () => {
-      fileRevision = await claudeRevision(record);
-    })().catch(() => {
-      /*
-      The SDK read supplies the user-facing availability state.
-      */
-    });
+    const revision = await attempt(claudeRevision, record);
+
+    // The SDK read supplies the user-facing availability state.
+    fileRevision = revision.ok ? revision.value : undefined;
   }
 
   record.fileRevision = fileRevision;

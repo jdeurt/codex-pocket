@@ -13,17 +13,6 @@ const mutationSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("delete"), id: z.string() }).strict(),
 ]);
 
-/** Project saved entries with this tab's explicit selection.
-@param request - Authorized browser catalog request.
-@returns Private menu catalog.
-*/
-function catalogResponse(request: Request) {
-  return Response.json(
-    { pockets: pocketStore().list(), selectedId: new URL(request.url).searchParams.get("pocket") ?? "main" },
-    { headers: noStore }
-  );
-}
-
 /** Dispatch an already authorized mutation through its strict command schema.
 @param request - Authorized unread JSON body.
 @returns Updated catalog after durable mutation.
@@ -56,14 +45,15 @@ async function mutate(request: Request) {
 @returns Durable menu entries and this tab's selected identity.
 */
 export async function GET(request: Request) {
-  return (async () => {
-    await guard(request);
-    await pocketHost();
-
-    return catalogResponse(request);
-  })().catch((error: unknown) => {
-    return errorResponse(error);
-  });
+  return guard(request)
+    .then(pocketHost)
+    .then(() =>
+      Response.json(
+        { pockets: pocketStore().list(), selectedId: new URL(request.url).searchParams.get("pocket") ?? "main" },
+        { headers: noStore }
+      )
+    )
+    .catch(errorResponse);
 }
 
 /** Apply an explicit named-Pocket mutation with durable creation receipts.
@@ -71,12 +61,8 @@ export async function GET(request: Request) {
 @returns Updated catalog, or an actionable failure without implicit replay.
 */
 export async function POST(request: Request) {
-  return (async () => {
-    await guard(request, true);
-    await pocketHost();
-
-    return await mutate(request);
-  })().catch((error: unknown) => {
-    return errorResponse(error);
-  });
+  return guard(request, true)
+    .then(pocketHost)
+    .then(() => mutate(request))
+    .catch(errorResponse);
 }

@@ -118,7 +118,7 @@ await test(
     Object.assign(process.env, environment);
     await writeFile(scenarioFile, JSON.stringify(scenario(thread.id)));
 
-    await (async () => verifyRecovery(bridge))().finally(async () => {
+    await verifyRecovery(bridge).finally(async () => {
       bridge.close();
 
       for (const [key, value] of Object.entries(previous)) {

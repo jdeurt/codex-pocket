@@ -75,63 +75,56 @@ async function storedDraft(value: SavedDraft | undefined) {
   return value && { ...value, files: await Promise.all(value.files.map((entry) => storedAttachment(entry))) };
 }
 
-/**
-Validate a transaction result once before reconstructing browser File objects.
-@param stored - Prepared write payload, if this transaction performed a write.
-@param result - Unchecked IndexedDB request result.
-@returns A validated stored draft, with an empty draft for a missing record.
+/** Read or write a prepared draft in one native IndexedDB transaction.
+@param db - Open database owned by the caller.
+@param parent - Conversation namespace.
+@param stored - Serialized draft for writes, or undefined for reads.
+@returns Validated stored bytes after the transaction completes.
 */
-function readStoredDraft(stored: StoredDraft | undefined, result: unknown) {
-  return storedDraftSchema.parse(stored ?? result ?? { files: [] });
+function draftTransaction(db: IDBDatabase, parent: string, stored?: StoredDraft) {
+  return new Promise<StoredDraft>((resolve, reject) => {
+    const transaction = db.transaction("drafts", stored ? "readwrite" : "readonly");
+    const store = transaction.objectStore("drafts");
+    const request = stored ? store.put(stored, parent) : store.get(parent);
+    const failed = () => {
+      reject(new Error("Couldn't save files on this device. Free up browser storage and try again."));
+    };
+
+    transaction.oncomplete = () => {
+      const result = storedDraftSchema.safeParse(stored ?? request.result ?? { files: [] });
+
+      if (result.success) {
+        resolve(result.data);
+      } else {
+        reject(new Error("Saved attachments could not be read.", { cause: result.error }));
+      }
+    };
+    transaction.addEventListener("error", failed);
+    transaction.addEventListener("abort", failed);
+  });
 }
 
-/**
-Read or replace a parent's draft and close the database on success or failure.
-@param parent - Parent conversation identifier used as the storage key.
-@param [value] - Draft to write; omit it to restore the saved draft.
-@returns The stored draft reconstructed with original file bytes and metadata.
+/** Serialize before opening storage, then close the database after the owned transaction.
+@param parent - Conversation namespace.
+@param value - Draft to write, or undefined to restore.
+@returns Draft reconstructed with original file bytes.
 */
 export async function savedDraft(parent: string, value?: SavedDraft): Promise<SavedDraft> {
+  // ArrayBuffers also work in Safari sessions that cannot persist File/Blob objects.
+  const stored = await storedDraft(value);
   const db = await database();
 
-  return (async () => {
-    // ArrayBuffers also work in Safari sessions that cannot persist File/Blob objects.
-    const stored = await storedDraft(value);
-    const result = await new Promise<StoredDraft>((resolve, reject) => {
-      const transaction = db.transaction("drafts", value ? "readwrite" : "readonly");
-      const store = transaction.objectStore("drafts");
-      const request = stored ? store.put(stored, parent) : store.get(parent);
-      const failed = () => {
-        reject(new Error("Couldn't save files on this device. Free up browser storage and try again."));
-      };
-
-      transaction.oncomplete = () => {
-        const outcome = attempt(() => {
-          resolve(readStoredDraft(stored, request.result));
-        });
-
-        if (outcome.ok) {
-          return;
-        }
-
-        const error = outcome.error;
-
-        reject(new Error("Saved attachments could not be read.", { cause: error }));
-      };
-      transaction.addEventListener("error", failed);
-      transaction.addEventListener("abort", failed);
-    });
-
-    return {
+  return draftTransaction(db, parent, stored)
+    .then((result) => ({
       ...result,
       files: result.files.map((entry) => ({
         ...entry,
         file: new File([entry.file.bytes], entry.file.name, { type: entry.file.type }),
       })),
-    };
-  })().finally(() => {
-    db.close();
-  });
+    }))
+    .finally(() => {
+      db.close();
+    });
 }
 
 /**
@@ -164,17 +157,17 @@ export function uploadFile(entry: DraftAttachment, progress: (value: number) => 
       reject(new Error("Upload interrupted. Retry when connected."));
     });
     xhr.addEventListener("load", () => {
-      const outcome1 = attempt(() => uploadResponseSchema.parse(JSON.parse(xhr.responseText)));
+      const parsed = attempt(() => uploadResponseSchema.parse(JSON.parse(xhr.responseText)));
 
-      if (!outcome1.ok) {
-        const error = outcome1.error;
+      if (!parsed.ok) {
+        const error = parsed.error;
 
         reject(new Error("Upload failed. Retry when connected.", { cause: error }));
 
         return;
       }
 
-      const result = outcome1.value;
+      const result = parsed.value;
 
       if (xhr.status < HTTP_OK || xhr.status >= HTTP_REDIRECT || !result.file) {
         reject(new Error(result.error?.length ? result.error : "Upload failed. Retry or choose another file."));

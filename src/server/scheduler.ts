@@ -32,14 +32,14 @@ Claim due occurrences and disable invalid recurrences before refreshing the pare
 */
   private async collectDue(now: number) {
     for (const schedule of this.store.due(this.threadId, now)) {
-      await (async () => {
-        const next = await nextOccurrence(schedule.calendar, now);
-
-        this.store.occurrences.claim(schedule, next, now);
-      })().catch(async (error: unknown) => {
-        log().error({ id: schedule.id, error }, "schedule.recurrence_failed");
-        await this.store.update(this.threadId, schedule.id, { active: false }, schedule.revision);
-      });
+      await nextOccurrence(schedule.calendar, now)
+        .then((next) => {
+          this.store.occurrences.claim(schedule, next, now);
+        })
+        .catch(async (error: unknown) => {
+          log().error({ id: schedule.id, error }, "schedule.recurrence_failed");
+          await this.store.update(this.threadId, schedule.id, { active: false }, schedule.revision);
+        });
     }
 
     this.bridge.refreshScheduled();
@@ -101,10 +101,8 @@ Run one non-overlapping due-collection and dispatch cycle, retaining diagnostic 
 
     this.running = true;
 
-    await (async () => {
-      await this.collectDue(now);
-      await this.dispatch();
-    })()
+    await this.collectDue(now)
+      .then(() => this.dispatch())
       .catch((error: unknown) => {
         log().error({ error }, "schedule.tick_failed");
       })

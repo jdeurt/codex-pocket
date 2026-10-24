@@ -170,7 +170,7 @@ class HarnessCheck {
   @returns Completion of the check and native cleanup; failures propagate.
   */
   async run() {
-    await (async () => this.execute())().finally(async () => {
+    await this.execute().finally(async () => {
       await this.adapter.close();
     });
   }

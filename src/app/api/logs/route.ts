@@ -37,17 +37,13 @@ Accepts browser diagnostics only after same-origin mutation authorization.
 @returns Accepted batch receipt or distinct authorization/validation error response.
 */
 export async function POST(request: Request) {
-  const outcome = await attempt(async () => {
-    await guard(request, true);
-  });
+  const outcome = await attempt(guard, request, true);
 
   if (!outcome.ok) {
-    const error = outcome.error;
-
-    return errorResponse(error, HTTP_FORBIDDEN);
+    return errorResponse(outcome.error, HTTP_FORBIDDEN);
   }
 
-  return (async () => recordClientEvents(request))().catch((error: unknown) => {
+  return recordClientEvents(request).catch((error: unknown) => {
     return errorResponse(error);
   });
 }

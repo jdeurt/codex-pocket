@@ -34,15 +34,7 @@ export class PiTaskContext {
   @returns Completion of this operation.
   */
   private enqueue(operation: () => Promise<void>) {
-    const previous = this.serial;
-
-    this.serial = (async () => {
-      await (async () => previous)().catch((error: unknown) => {
-        this.onError(error);
-      });
-
-      await operation();
-    })();
+    this.serial = this.serial.catch(this.onError).then(operation);
 
     return this.serial;
   }
@@ -208,7 +200,7 @@ export class PiTaskContext {
   @returns Completion of all currently queued archive operations.
   */
   async flush() {
-    await (async () => this.serial)().catch((error: unknown) => {
+    await this.serial.catch((error: unknown) => {
       if (!(error instanceof Error && error.name === "AbortError")) {
         throw error;
       }

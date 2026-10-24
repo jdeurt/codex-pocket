@@ -35,15 +35,15 @@ export async function seedThread(rpc: CodexRpc, threadId: string, text: string, 
 
   rpc.addEventListener("event", listener);
 
-  await (async () => {
-    await rpc.request("turn/start", {
+  await rpc
+    .request("turn/start", {
       ...settings,
       threadId,
       input: [{ type: "text", text, text_elements: [] }],
+    })
+    .then(() => completion.promise)
+    .finally(() => {
+      clearTimeout(timer);
+      rpc.removeEventListener("event", listener);
     });
-    await completion.promise;
-  })().finally(() => {
-    clearTimeout(timer);
-    rpc.removeEventListener("event", listener);
-  });
 }

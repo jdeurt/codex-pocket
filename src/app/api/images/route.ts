@@ -84,11 +84,7 @@ Serves parent images after host, origin and same-site checks.
 @returns Private rendition or the existing logged error response.
 */
 export async function GET(request: Request) {
-  return (async () => {
-    await authorizeImage(request);
-
-    return await imageResponse(request);
-  })().catch((error: unknown) => {
-    return errorResponse(error);
-  });
+  return authorizeImage(request)
+    .then(() => imageResponse(request))
+    .catch(errorResponse);
 }
