@@ -1,5 +1,5 @@
 "use client";
-import { type VoiceSegment, voiceHistorySchema, voiceSegmentSchema } from "@/lib/voice-history";
+import { type VoiceSegment, voiceHistorySchema } from "@/lib/voice-history";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { dataSchema } from "@/lib/protocol";
 import { pocketUrl } from "@/lib/pockets";
@@ -48,15 +48,6 @@ export function useVoiceTranscripts(threadId?: string) {
   const transcript = useCallback((entry: VoiceSegment) => {
     setSegments((current) => new Map([...current, entry].map((segment) => [segment.id, segment])).values().toArray());
   }, []);
-  const handoff = useCallback((id: string, value: unknown, handoffId?: string) => {
-    const status = voiceSegmentSchema.shape.handoff.safeParse(value);
-
-    if (status.success) {
-      setSegments((current) =>
-        current.map((entry) => (entry.id === id ? { ...entry, handoff: status.data, handoffId } : entry))
-      );
-    }
-  }, []);
 
   useEffect(() => {
     if (!threadId) {
@@ -86,7 +77,6 @@ export function useVoiceTranscripts(threadId?: string) {
     error,
     refresh,
     transcript,
-    handoff,
     dismissError: () => {
       setError("");
     },

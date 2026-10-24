@@ -68,6 +68,9 @@ export async function deliverMessage(rpc: CodexRpc, config: Config, state: Snaps
   const text = parentInput(receipt, state);
   const input = [
     ...(text ? [{ type: "text", text, text_elements: [] }] : []),
+    ...(receipt.voiceContext
+      ? [{ type: "text", text: internalContext("voice_conversation", receipt.voiceContext.text), text_elements: [] }]
+      : []),
     ...attachmentInput(config.threadId, receipt.attachments ?? []).map((part) =>
       typeof part.text === "string" ? { ...part, text: internalContext("attachment_metadata", part.text) } : part
     ),

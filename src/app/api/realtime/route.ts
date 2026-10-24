@@ -5,20 +5,11 @@ import { z } from "zod";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+const MAX_SDP_LENGTH = 100_000;
 
 const command = z.discriminatedUnion("action", [
-  z.object({ action: z.literal("start") }).strict(),
-  z.object({ action: z.literal("retry"), id: z.string().min(1) }).strict(),
-  z
-    .object({
-      action: z.literal("truncate"),
-      token: z.uuid(),
-      itemId: z.string().min(1),
-      audioEndMs: z.number().int().nonnegative(),
-    })
-    .strict(),
+  z.object({ action: z.literal("start"), sdp: z.string().min(1).max(MAX_SDP_LENGTH) }).strict(),
   z.object({ action: z.literal("stop"), token: z.uuid() }).strict(),
-  z.object({ action: z.literal("audio"), token: z.uuid(), audio: z.unknown() }).strict(),
   z
     .object({ action: z.literal("settings"), voice: z.string().optional(), model: z.string().nullable().optional() })
     .strict(),
@@ -53,30 +44,20 @@ export async function POST(request: Request) {
 
     switch (input.action) {
       case "start": {
-        result = await realtime.start();
+        const started = await realtime.start(input.sdp);
+
+        if (request.signal.aborted) {
+          await realtime.stop(started.token);
+          throw new Error("Realtime setup was cancelled.");
+        }
+
+        result = started;
         break;
       }
 
       case "stop": {
         await realtime.stop(input.token);
         result = { stopped: true };
-        break;
-      }
-
-      case "audio": {
-        realtime.append(input.token, input.audio);
-        result = { accepted: true };
-        break;
-      }
-
-      case "truncate": {
-        realtime.truncate(input.token, input.itemId, input.audioEndMs);
-        result = { accepted: true };
-        break;
-      }
-
-      case "retry": {
-        result = await realtime.retry(input.id);
         break;
       }
 

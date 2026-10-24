@@ -6,6 +6,7 @@ import type { Config } from "./config";
 import { drainReceipts } from "./bridge-delivery";
 import { isQueueRecovery } from "./recovery";
 import { log } from "./logging";
+import { mainVoiceContext } from "./voice-main-context";
 import { type MessageSource } from "../lib/protocol";
 
 /**
@@ -43,7 +44,15 @@ export class BridgeOutbox {
     source?: MessageSource
   ) {
     const attachments = await resolveUploads(config.threadId, attachmentIds);
-    const receipt: Receipt = { id, text, source, ...(attachments.length > 0 && { attachments }), status: "queued" };
+    const voiceContext = source ? undefined : await mainVoiceContext(config.threadId, this.entries);
+    const receipt: Receipt = {
+      id,
+      text,
+      source,
+      voiceContext,
+      ...(attachments.length > 0 && { attachments }),
+      status: "queued",
+    };
 
     this.entries.push(receipt);
     await this.persist(config.threadId);

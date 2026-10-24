@@ -1,269 +1,188 @@
-/* eslint-disable jsdoc/require-jsdoc, @typescript-eslint/no-magic-numbers -- Local provider simulator emits complete speech and handoff flows over real WebSockets. */
-import { type Data, object, string } from "../../src/lib/protocol";
-import { appendFileSync, readFileSync } from "node:fs";
-import { type RawData, WebSocketServer } from "ws";
+/* eslint-disable jsdoc/require-jsdoc, @typescript-eslint/no-magic-numbers -- Synthetic provider emits explicit HTTP and WebSocket protocol envelopes. */
+import { type Data, dataSchema, string } from "../../src/lib/protocol";
+import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
+import { createServer } from "node:http";
+import { type RawData, type WebSocket, WebSocketServer } from "ws";
+import { once } from "node:events";
 import path from "node:path";
-import { z } from "zod";
 
 const directory = path.resolve(".local/realtime-fixture");
-const allowedNoops = new Set(["input_audio_buffer.clear", "conversation.item.create", "response.cancel"]);
-const controls = z.object({
-  transcript: z.string().optional(),
-  replyText: z.string().optional(),
-  handoff: z.boolean().optional(),
-  duplicateHandoff: z.boolean().optional(),
-  invalidHandoff: z.boolean().optional(),
-  bargeIn: z.boolean().optional(),
-  backendToolUntilSteer: z.boolean().optional(),
-  disconnectOnAudio: z.boolean().optional(),
-  deferTranscript: z.boolean().optional(),
-  missingFinal: z.boolean().optional(),
-  finalDelayMs: z.number().optional(),
-  burstChunks: z.number().optional(),
-  burstSamples: z.number().optional(),
-});
 
 function control() {
-  const raw = readFileSync(path.join(directory, "control.json"), "utf8");
+  const text = readFileSync(path.join(directory, "control.json"), "utf8");
 
-  return controls.parse(JSON.parse(raw));
+  return dataSchema.parse(JSON.parse(text));
 }
 
 function decode(raw: RawData) {
   const buffer = Array.isArray(raw) ? Buffer.concat(raw) : raw;
   const bytes = buffer instanceof ArrayBuffer ? Buffer.from(buffer) : buffer;
 
-  return object(JSON.parse(bytes.toString("utf8")));
+  return dataSchema.parse(JSON.parse(bytes.toString("utf8")));
 }
 
 function record(event: Data) {
   appendFileSync(path.join(directory, "provider.jsonl"), JSON.stringify(event) + "\n");
 }
 
-function audio(samples: number) {
-  const data = Buffer.alloc(samples * 2);
-
-  for (let index = 0; index < samples; index++) {
-    data.writeInt16LE(Math.round(Math.sin((index * 2 * Math.PI * 420) / 24_000) * 7000), index * 2);
+function emit(peer: WebSocket, event: Data) {
+  if (peer.readyState === peer.OPEN) {
+    peer.send(JSON.stringify(event));
   }
-
-  return data.toString("base64");
 }
 
-function playbackText(response: Data, replyText = "Hello") {
-  if (response.tool_choice !== "none") {
-    return replyText;
-  }
+function reply(peer: WebSocket) {
+  const options = control();
+  const responseId = crypto.randomUUID();
+  const itemId = crypto.randomUUID();
+  const text = string(options.replyText) || "Hello from realtime.";
 
-  const input = response.input;
-  const content = Array.isArray(input) ? object(input[0]).content : [];
-
-  return Array.isArray(content) ? string(object(content[0]).text) : "";
+  emit(peer, { type: "response.created", response: { id: responseId } });
+  emit(peer, { type: "response.output_item.added", item: { id: itemId, type: "message", role: "assistant" } });
+  emit(peer, { type: "response.output_audio_transcript.delta", response_id: responseId, item_id: itemId, delta: text });
+  emit(peer, {
+    type: "response.output_audio_transcript.done",
+    response_id: responseId,
+    item_id: itemId,
+    transcript: text,
+  });
+  emit(peer, { type: "response.done", response: { id: responseId, status: "completed", output: [] } });
 }
 
-function emitAudio(emit: (event: Data) => void, responseId: string, itemId: string, options: z.infer<typeof controls>) {
-  for (let index = 0; index < (options.burstChunks ?? 1); index++) {
-    emit({
-      type: "response.output_audio.delta",
-      response_id: responseId,
-      item_id: itemId,
-      delta: audio(options.burstSamples ?? 2400),
-    });
+function speech(peer: WebSocket) {
+  const options = control();
+  const itemId = crypto.randomUUID();
+  const responseId = crypto.randomUUID();
+
+  emit(peer, { type: "input_audio_buffer.speech_started", item_id: itemId });
+  emit(peer, { type: "input_audio_buffer.speech_stopped", item_id: itemId });
+  emit(peer, { type: "input_audio_buffer.committed", item_id: itemId });
+
+  if (!options.missingFinal) {
+    setTimeout(
+      () => {
+        emit(peer, {
+          type: "conversation.item.input_audio_transcription.completed",
+          item_id: itemId,
+          transcript: string(options.transcript) || "Test voice",
+        });
+      },
+      Number(options.finalDelayMs ?? 0)
+    );
+  }
+
+  if (options.handoff || options.backendToolUntilSteer) {
+    const callId = crypto.randomUUID();
+    const call = {
+      type: "function_call",
+      name: "handoff_to_pocket",
+      call_id: callId,
+      arguments: JSON.stringify({ request: string(options.request) || "Inspect the audio transport." }),
+    };
+
+    emit(peer, { type: "response.created", response: { id: responseId } });
+    emit(peer, { type: "response.done", response: { id: responseId, status: "completed", output: [call] } });
+  } else {
+    reply(peer);
   }
 }
 
 export async function realtimeProvider() {
-  const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
   const failures: string[] = [];
+  const http = createServer();
+  const server = new WebSocketServer({ server: http });
 
-  server.on("connection", (peer, request) => {
-    const sessionId = crypto.randomUUID();
-    const itemId = `${sessionId}-speech`;
-    const emit = (event: Data) => {
-      peer.send(JSON.stringify(event));
-    };
-    const finish = () => {
-      const options = control();
+  http.on("request", (request, response) => {
+    const chunks: Buffer[] = [];
 
-      if (options.missingFinal) {
-        return;
-      }
+    request.on("data", (chunk: Buffer) => {
+      chunks.push(chunk);
+    });
+    request.on("end", () => {
+      void (async () => {
+        if (request.url?.endsWith("/hangup")) {
+          record({ method: "provider/realtime/stop" });
+          response.writeHead(200).end();
 
-      emit({ type: "input_audio_buffer.committed", item_id: itemId });
-      setTimeout(() => {
-        if (peer.readyState === peer.OPEN) {
-          emit({
-            type: "conversation.item.input_audio_transcription.completed",
-            item_id: itemId,
-            transcript: options.transcript ?? "Test voice",
-          });
-        }
-      }, options.finalDelayMs ?? 0);
-    };
-
-    let isReplied = false;
-    let hasInterrupted = false;
-
-    peer.on("message", (raw) => {
-      const event = decode(raw);
-
-      if (allowedNoops.has(string(event.type))) {
-        return;
-      }
-
-      const options = control();
-
-      switch (event.type) {
-        case "session.update": {
-          const output = object(object(object(event.session).audio).output);
-
-          record({
-            method: "provider/realtime/start",
-            sessionId,
-            model: new URL(request.url ?? "/", "http://localhost").searchParams.get("model"),
-            voice: output.voice,
-          });
-          emit({ type: "session.updated", session: { id: sessionId } });
-          break;
+          return;
         }
 
-        case "input_audio_buffer.append": {
-          record({
-            method: "provider/realtime/appendAudio",
-            sessionId,
-            sampleRate: 24_000,
-            samples: Buffer.from(string(event.audio), "base64").byteLength / 2,
-          });
-
-          if (options.disconnectOnAudio) {
-            peer.terminate();
-
-            return;
-          }
-
-          if (!isReplied) {
-            isReplied = true;
-            emit({ type: "input_audio_buffer.speech_started", item_id: itemId });
-
-            if (!options.deferTranscript) {
-              finish();
+        if (request.url === "/test/speech" || request.url === "/test/disconnect") {
+          for (const peer of server.clients) {
+            if (request.url === "/test/disconnect") {
+              peer.terminate();
+            } else {
+              speech(peer);
             }
           }
 
+          response.writeHead(200).end();
+
+          return;
+        }
+
+        if (request.url !== "/v1/realtime/calls") {
+          failures.push(`Unexpected HTTP route ${String(request.url)}`);
+          response.writeHead(404).end();
+
+          return;
+        }
+
+        const body = new Response(Buffer.concat(chunks).toString(), {
+          headers: { "Content-Type": request.headers["content-type"] ?? "" },
+        });
+        const form = await body.formData();
+        const encoded = form.get("session");
+        const session = dataSchema.parse(JSON.parse(typeof encoded === "string" ? encoded : "{}"));
+
+        record({ method: "provider/realtime/start", session });
+        response.writeHead(201, { Location: `/v1/realtime/calls/rtc_${crypto.randomUUID()}` });
+        response.end(string(control().answerSdp) || "v=0\r\ns=API fixture answer\r\n");
+      })().catch((error: unknown) => {
+        failures.push(String(error));
+        response.writeHead(500).end();
+      });
+    });
+  });
+  server.on("connection", (peer) => {
+    peer.on("message", (raw) => {
+      const event = decode(raw);
+
+      record({ method: "provider/realtime/control", ...event });
+
+      switch (event.type) {
+        case "session.update": {
+          emit(peer, { type: "session.updated", session: { id: crypto.randomUUID() } });
           break;
         }
 
-        case "conversation.item.truncate": {
-          record({ method: "provider/realtime/truncate", ...event });
-          break;
-        }
-
-        case "input_audio_buffer.commit": {
-          if (options.deferTranscript) {
-            finish();
-          } else {
-            emit({ type: "error", error: { code: "input_audio_buffer_commit_empty" } });
-          }
-
+        case "conversation.item.create": {
           break;
         }
 
         case "response.create": {
-          const output: Data[] = [];
-          const responseId = crypto.randomUUID();
-          const isPlayback = object(event.response).tool_choice === "none";
-
-          record({ method: "provider/realtime/response", sessionId, response: event.response });
-
-          emit({ type: "response.created", response: { id: responseId, metadata: object(event.response).metadata } });
-
-          if (!hasInterrupted && options.bargeIn) {
-            hasInterrupted = true;
-            emit({
-              type: "response.output_audio.delta",
-              response_id: responseId,
-              item_id: `${sessionId}-reply`,
-              delta: audio(12_000),
-            });
-            setTimeout(() => {
-              emit({ type: "input_audio_buffer.speech_started", item_id: `${itemId}-continued` });
-              emit({
-                type: "response.output_audio.delta",
-                response_id: responseId,
-                item_id: `${sessionId}-reply`,
-                delta: audio(12_000),
-              });
-              emit({ type: "input_audio_buffer.committed", item_id: `${itemId}-continued`, previous_item_id: itemId });
-              emit({
-                type: "conversation.item.input_audio_transcription.completed",
-                item_id: `${itemId}-continued`,
-                transcript: "And preserve my follow-up.",
-              });
-              emit({
-                type: "response.done",
-                response: {
-                  id: responseId,
-                  status: "cancelled",
-                  metadata: object(event.response).metadata,
-                  output: [],
-                },
-              });
-            }, 150);
-            break;
-          }
-
-          if (!isPlayback && [options.handoff, options.backendToolUntilSteer, options.invalidHandoff].some(Boolean)) {
-            const handoff = {
-              type: "response.function_call_arguments.done",
-              name: "handoff_to_pocket",
-              call_id: `${sessionId}-call`,
-              arguments: JSON.stringify(options.invalidHandoff ? { instructions: "unrelated instructions" } : {}),
-            };
-
-            emit(handoff);
-            output.push({ ...handoff, type: "function_call" });
-
-            if (options.duplicateHandoff) {
-              emit({ ...handoff, call_id: `${sessionId}-duplicate` });
-              output.push({ ...handoff, type: "function_call", call_id: `${sessionId}-duplicate` });
-            }
-          } else {
-            emitAudio(emit, responseId, `${sessionId}-reply`, options);
-
-            emit({
-              type: "response.output_audio_transcript.done",
-              response_id: responseId,
-              item_id: `${sessionId}-reply`,
-              transcript: playbackText(object(event.response), options.replyText),
-            });
-          }
-
-          emit({
-            type: "response.done",
-            response: { status: "completed", metadata: object(event.response).metadata, output },
-          });
+          reply(peer);
           break;
         }
 
         default: {
-          const failure = `Unexpected realtime provider call: ${String(event.type)}`;
-
-          failures.push(failure);
-          record({ method: "provider/realtime/unexpected", event });
+          failures.push(`Unexpected control frame ${String(event.type)}`);
           peer.close();
         }
       }
     });
-    peer.on("close", () => {
-      record({ method: "provider/realtime/stop", sessionId });
-    });
   });
-  await new Promise<void>((resolve) => server.once("listening", resolve));
-  const address = server.address();
+  http.listen(0, "127.0.0.1");
+  await once(http, "listening");
+  const address = http.address();
 
   if (!address || typeof address === "string") {
-    throw new Error("Local voice provider did not bind.");
+    throw new Error("Provider did not bind.");
   }
 
-  return { server, failures, url: `ws://127.0.0.1:${String(address.port)}/v1/realtime` };
+  const url = `http://127.0.0.1:${String(address.port)}/v1/realtime`;
+
+  writeFileSync(path.join(directory, "provider-url"), url);
+
+  return { server, http, failures, url };
 }

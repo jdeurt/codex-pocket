@@ -17,6 +17,6 @@ export type VoiceSegment = z.infer<typeof voiceSegmentSchema>;
 
 export interface VoiceHandoff {
   id: string;
-  transcript: string;
+  request: string;
   source: { type: "realtime"; sessionId: string; itemId: string };
 }

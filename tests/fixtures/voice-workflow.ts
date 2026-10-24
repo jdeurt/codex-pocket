@@ -1,6 +1,7 @@
 import { type Data, dataSchema, object } from "../../src/lib/protocol";
 import { type RawData, type WebSocket, WebSocketServer } from "ws";
 import { type TestContext } from "node:test";
+import { createServer } from "node:http";
 import { workflowBridge } from "./workflow-bridge";
 import { nativeWorkspace, eventually } from "./workflow";
 import { updatePocketSettings } from "../../src/server/pocket-settings";
@@ -8,35 +9,84 @@ import assert from "node:assert/strict";
 import { once } from "node:events";
 
 const LAST = -1;
+const HTTP_OK = 200;
+const HTTP_CREATED = 201;
+const HTTP_ERROR = 500;
+export const TEST_SDP = "v=0\r\ns=Pocket test offer\r\n";
 
-/** Decode actual provider wire frames without replacing Pocket's protocol parser.
-@param raw - Frame delivered over the loopback WebSocket.
-@returns Validated provider event record.
+/** Decode real control frames exchanged with the loopback provider.
+@param raw - Received WebSocket frame.
+@returns Parsed provider control event.
 */
 function decode(raw: RawData) {
   const bytes = Array.isArray(raw) ? Buffer.concat(raw) : raw;
-
   const text = Buffer.from(bytes instanceof ArrayBuffer ? new Uint8Array(bytes) : bytes).toString();
 
   return dataSchema.parse(JSON.parse(text));
 }
 
-/** Run voice through Settings, the real bridge, native transport, and persisted transcripts.
-@param t - Context owning every socket, transport and state directory.
-@param scenario - Optional native transport fault scenario.
-@returns Real app session and provider controls with immutable response identities.
+/** Exercise call negotiation, server tools, the actual main bridge and durable history.
+@param t - Test owning all native processes and connections.
+@param scenario - Optional native agent scenario.
+@returns Live application session and a provider that responds without waiting for transcription.
 */
 export async function voiceWorkflow(t: TestContext, scenario?: Data) {
   const fixture = await nativeWorkspace(t, scenario ?? { turn: { chunks: ["Voice repair completed."] } });
-  const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
   const frames: Data[] = [];
   const events: Data[] = [];
-  const responses: { socket: WebSocket; id: string; request: Data }[] = [];
+  const calls: Data[] = [];
   const peers: WebSocket[] = [];
+  const responses: { socket: WebSocket; id: string; request: Data }[] = [];
   const failures: string[] = [];
+  const http = createServer((request, response) => {
+    const chunks: Buffer[] = [];
+
+    request.on("data", (chunk: Buffer) => {
+      chunks.push(chunk);
+    });
+    request.on("end", () => {
+      void (async () => {
+        assert.equal(request.headers.authorization, "Bearer synthetic-voice-workflow-key");
+
+        if (request.url?.endsWith("/hangup")) {
+          calls.push({ action: "hangup", url: request.url });
+          response.writeHead(HTTP_OK).end();
+
+          return;
+        }
+
+        assert.equal(request.url, "/v1/realtime/calls");
+        const body = new Response(Buffer.concat(chunks).toString(), {
+          headers: { "Content-Type": request.headers["content-type"] ?? "" },
+        });
+        const form = await body.formData();
+        const encoded = form.get("session");
+
+        assert.ok(typeof encoded === "string");
+        const session = dataSchema.parse(JSON.parse(encoded));
+
+        calls.push({ action: "start", sdp: form.get("sdp"), session });
+        response.writeHead(HTTP_CREATED, { Location: `/v1/realtime/calls/rtc_${crypto.randomUUID()}` });
+        response.end("v=0\r\ns=Pocket test answer\r\n");
+      })().catch((error: unknown) => {
+        failures.push(String(error));
+        response.writeHead(HTTP_ERROR).end();
+      });
+    });
+  });
+  const server = new WebSocketServer({ server: http });
+  const begin = (socket: WebSocket, request: Data = {}) => {
+    const captured = { socket, id: crypto.randomUUID(), request };
+
+    responses.push(captured);
+    socket.send(JSON.stringify({ type: "response.created", response: { id: captured.id } }));
+
+    return captured;
+  };
 
   server.on("connection", (socket, request) => {
     assert.equal(request.headers.authorization, "Bearer synthetic-voice-workflow-key");
+    assert.ok(new URL(request.url ?? "", "http://localhost").searchParams.get("call_id"));
     peers.push(socket);
     socket.on("message", (raw) => {
       const event = decode(raw);
@@ -50,49 +100,26 @@ export async function voiceWorkflow(t: TestContext, scenario?: Data) {
         }
 
         case "response.create": {
-          const response = { socket, id: crypto.randomUUID(), request: structuredClone(object(event.response)) };
-
-          responses.push(response);
-          socket.send(
-            JSON.stringify({
-              type: "response.created",
-              response: { id: response.id, metadata: response.request.metadata },
-            })
-          );
+          begin(socket, object(event.response));
           break;
         }
 
-        case "input_audio_buffer.commit": {
-          socket.send(JSON.stringify({ type: "input_audio_buffer.committed", item_id: "trailing-speech" }));
-          socket.send(
-            JSON.stringify({
-              type: "conversation.item.input_audio_transcription.completed",
-              item_id: "trailing-speech",
-              transcript: "Final words before text mode.",
-            })
-          );
-          break;
-        }
-
-        case "input_audio_buffer.append":
-        case "input_audio_buffer.clear":
-        case "conversation.item.create":
-        case "conversation.item.truncate":
-        case "response.cancel": {
+        case "conversation.item.create": {
           break;
         }
 
         default: {
-          failures.push(`Unexpected provider call: ${String(event.type)}`);
+          failures.push(`Unexpected provider control: ${String(event.type)}`);
         }
       }
     });
   });
-  await once(server, "listening");
-  const address = server.address();
+  http.listen(0, "127.0.0.1");
+  await once(http, "listening");
+  const address = http.address();
 
   assert.ok(address && typeof address === "object");
-  fixture.environment({ POCKET_REALTIME_TEST_URL: `ws://127.0.0.1:${String(address.port)}/v1/realtime` });
+  fixture.environment({ POCKET_REALTIME_TEST_URL: `http://127.0.0.1:${String(address.port)}/v1/realtime` });
   const bridge = workflowBridge(fixture, fixture.config);
 
   fixture.cleanup(async () => {
@@ -107,6 +134,11 @@ export async function voiceWorkflow(t: TestContext, scenario?: Data) {
         resolve();
       });
     });
+    await new Promise<void>((resolve) =>
+      http.close(() => {
+        resolve();
+      })
+    );
     assert.deepEqual(failures, []);
   });
   bridge.realtime.addEventListener("message", (event) => {
@@ -122,24 +154,32 @@ export async function voiceWorkflow(t: TestContext, scenario?: Data) {
     assert.ok(socket);
     socket.send(JSON.stringify(event));
   };
-  const speech = (id: string, transcript: string, previous?: string) => {
-    emit({ type: "input_audio_buffer.committed", item_id: id, ...(previous && { previous_item_id: previous }) });
-    emit({ type: "conversation.item.input_audio_transcription.completed", item_id: id, transcript });
+  const speech = (id: string, transcript?: string) => {
+    emit({ type: "input_audio_buffer.speech_started", item_id: id });
+    emit({ type: "input_audio_buffer.speech_stopped", item_id: id });
+    emit({ type: "input_audio_buffer.committed", item_id: id });
+    const socket = peers.at(LAST);
+
+    assert.ok(socket);
+    begin(socket);
+
+    if (transcript !== undefined) {
+      emit({ type: "conversation.item.input_audio_transcription.completed", item_id: id, transcript });
+    }
   };
   const response = async (index: number) => {
-    await eventually(() => responses.length > index, `Provider response ${String(index)} must be requested`);
+    await eventually(() => responses.length > index, `Provider response ${String(index)} must exist`);
     const captured = responses[index];
     const send = (event: Data) => {
       captured.socket.send(JSON.stringify({ response_id: captured.id, ...event }));
     };
-    const done = (calls: Data[] = [], status = "completed") => {
+    const done = (functions: Data[] = [], status = "completed") => {
       send({
         type: "response.done",
         response: {
           id: captured.id,
-          metadata: captured.request.metadata,
           status,
-          output: calls.map((call) => ({ type: "function_call", ...call })),
+          output: functions.map((call) => ({ type: "function_call", ...call })),
         },
       });
     };
@@ -147,5 +187,5 @@ export async function voiceWorkflow(t: TestContext, scenario?: Data) {
     return { request: captured.request, send, done };
   };
 
-  return { ...fixture, bridge, voice: bridge.realtime, events, frames, peers, emit, speech, response };
+  return { ...fixture, bridge, voice: bridge.realtime, events, frames, calls, peers, emit, speech, response };
 }

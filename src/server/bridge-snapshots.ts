@@ -1,6 +1,7 @@
 import { type Snapshot, initialSnapshot } from "../lib/protocol";
 import type { Receipt } from "./outbox";
 import { log } from "./logging";
+import { projectVoiceContext } from "./voice-main-context";
 import { projectAttachments } from "./uploads";
 
 const SNAPSHOT_THROTTLE_MS = 40;
@@ -19,6 +20,7 @@ export class BridgeSnapshots extends EventTarget {
   */
   publish(receipts: Receipt[]) {
     projectAttachments(this.state, receipts);
+    projectVoiceContext(this.state, receipts);
 
     if (this.timer) {
       return;

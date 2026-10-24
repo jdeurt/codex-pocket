@@ -1,59 +1,54 @@
-/* eslint-disable jsdoc/require-param, jsdoc/require-returns -- Session operations share one owner and explicit provider identity. */
+/* eslint-disable jsdoc/require-param, jsdoc/require-returns -- Operations share one voice connection owner. */
 import { type Data, object, string } from "../lib/protocol";
 import { OpenAIRealtime } from "./openai-realtime";
 import { type VoiceSessionOwner, readVoiceConfiguration } from "./voice-session-owner";
-import { VoiceTurns } from "./voice-turns";
+import { RealtimeTools } from "./realtime-tools";
 import { VoiceHistory } from "./voice-history";
-import { parseOutputAudio } from "./realtime-schema";
-import { VoiceSessionStop, retryVoice, settleVoice } from "./voice-handoff";
+
+const LIVE_CAPTION_LIMIT = 256;
 
 /**
-Connect OpenAI speech to durable main-session handoffs and their completed answers.
+Own call controls and history while WebRTC carries audio directly between the browser and OpenAI.
 */
 export class OpenAIVoiceSession extends EventTarget {
   private token?: string;
   private attempt = 0;
-  private phase: "idle" | "connecting" | "active" | "stopping" = "idle";
+  private phase: "idle" | "connecting" | "active" = "idle";
   private error?: string;
   private transport?: OpenAIRealtime;
+  private tools?: RealtimeTools;
   private history?: VoiceHistory;
-  private serial: Promise<void> = Promise.resolve();
-  private turns = new VoiceTurns();
-  private stopping = new VoiceSessionStop();
+  private persistence: Promise<void> = Promise.resolve();
+  private anchors = new Map<string, string | null>();
+  private lastCanonical?: string | null;
+  private lastVoice?: string;
+  private partial = new Map<string, string>();
+  private captions = new Map<string, Data>();
 
   /**
-  Bind credentials and durable main-session delivery.
+  Bind the main agent used as a tool by the realtime conversational agent.
   */
   constructor(private owner: VoiceSessionOwner) {
     super();
   }
 
   /**
-  Publish a browser-safe event.
+  Publish status and transcript events; media never passes through this feed.
   */
   private publish(event: Data) {
+    if (event.type === "transcriptDelta" || event.type === "transcriptDone") {
+      this.captions.set(string(event.id), event);
+
+      if (this.captions.size > LIVE_CAPTION_LIMIT) {
+        this.captions.delete(this.captions.keys().next().value ?? "");
+      }
+    }
+
     this.dispatchEvent(new CustomEvent("message", { detail: event }));
   }
 
   /**
-  Handle events in provider order and reject stale session work after any asynchronous wait.
-  */
-  private async enqueue(previous: Promise<void>, action: () => void | Promise<void>, transport: OpenAIRealtime) {
-    await previous;
-
-    if (this.transport !== transport) {
-      return;
-    }
-
-    try {
-      await action();
-    } catch (error) {
-      this.disconnect(error instanceof Error ? error.message : "Realtime processing failed.");
-    }
-  }
-
-  /**
-  Restore the selected conversation's finalized speech.
+  Restore finalized speech for the selected Pocket.
   */
   private savedHistory() {
     this.history ??= new VoiceHistory(this.owner.threadId());
@@ -62,106 +57,121 @@ export class OpenAIVoiceSession extends EventTarget {
   }
 
   /**
-  Start one response only after transcription has finalized, preserving its stable source identity.
+  Anchor provider speech immediately, regardless of when transcription completes.
   */
-  private respond() {
-    this.turns.respond(this.phase === "active" ? this.transport : undefined);
+  private anchor(itemId: string, sessionId: string, role: "user" | "assistant") {
+    const id = `realtime:${sessionId}:${itemId}:${role}`;
+
+    if (!this.anchors.has(id)) {
+      const canonical = this.owner.lastItemId?.() ?? null;
+      const previous = this.lastCanonical === canonical ? (this.lastVoice ?? canonical) : canonical;
+
+      this.anchors.set(id, previous);
+      this.lastCanonical = canonical;
+      this.lastVoice = id;
+    }
+
+    return this.anchors.get(id) ?? null;
   }
 
   /**
-  Save final speech verbatim before displaying it or allowing a tool handoff.
+  Save transcripts on their own queue; a slow or failed write cannot gate audio or tool calls.
   */
-  private async finalized(event: Data, sessionId: string, role: "user" | "assistant") {
-    if (role === "assistant" && this.turns.current?.answer) {
-      return;
-    }
+  private finalized(event: Data, sessionId: string, role: "user" | "assistant") {
+    const afterItemId = this.anchor(string(event.item_id), sessionId, role);
 
+    this.partial.delete(string(event.item_id));
+    this.reply(event, sessionId, role, string(event.transcript), true);
+    const history = this.savedHistory();
+
+    this.persistence = this.persist(this.persistence, history, event, sessionId, role, afterItemId);
+  }
+
+  /**
+  Serialize only history writes and surface their failures without disconnecting media.
+  */
+  private async persist(
+    previous: Promise<void>,
+    history: VoiceHistory,
+    event: Data,
+    sessionId: string,
+    role: "user" | "assistant",
+    afterItemId: string | null
+  ) {
+    await previous;
+
+    try {
+      await history.finalize(event, sessionId, role, afterItemId);
+    } catch {
+      this.publish({ type: "warning", error: "Voice history could not be saved. Your live call is still connected." });
+    }
+  }
+
+  /**
+  Publish reply text supplied with the audio without waiting for storage.
+  */
+  private reply(event: Data, sessionId: string, role: "user" | "assistant", text: string, isDone: boolean) {
     const itemId = string(event.item_id);
-    const afterItemId = this.turns.anchor(itemId, sessionId, role, this.owner.lastItemId?.() ?? null);
-    const entry = await this.savedHistory().finalize(event, sessionId, role, afterItemId);
 
-    if (!entry) {
-      return;
-    }
-
-    this.publish({ type: "transcriptDone", ...entry });
-
-    if (role !== "user") {
-      return;
-    }
-
-    this.turns.observe(event);
-    this.respond();
+    this.publish({
+      type: isDone ? "transcriptDone" : "transcriptDelta",
+      id: `realtime:${sessionId}:${itemId}:${role}`,
+      itemId,
+      nativeSessionId: sessionId,
+      role,
+      text,
+      done: isDone,
+      afterItemId: this.anchor(itemId, sessionId, role),
+    });
   }
 
   /**
-  Translate only the provider events used by Pocket; raw frames stay off browser streams.
+  Handle control events immediately; audio is played by the browser's WebRTC receiver.
   */
-  private async receive(event: Data, sessionId: string) {
-    if (
-      ["response.created", "response.output_audio.delta", "response.output_audio_transcript.done"].includes(
-        string(event.type)
-      ) &&
-      !this.turns.output(event)
-    ) {
-      return;
-    }
+  private receive(event: Data, sessionId: string) {
+    this.tools?.receive(event);
 
     switch (event.type) {
-      case "input_audio_buffer.speech_started": {
-        this.turns.anchor(string(event.item_id), sessionId, "user", this.owner.lastItemId?.() ?? null);
-        this.turns.observe(event);
-        this.publish({ type: "interrupted" });
+      case "response.output_item.added": {
+        const item = object(event.item);
+
+        if (item.type === "message" && item.role === "assistant") {
+          this.anchor(string(item.id), sessionId, "assistant");
+        }
+
         break;
       }
 
-      case "input_audio_buffer.speech_stopped":
+      case "input_audio_buffer.speech_started":
       case "input_audio_buffer.committed": {
-        this.turns.anchor(string(event.item_id), sessionId, "user", this.owner.lastItemId?.() ?? null);
-        this.turns.observe(event);
-        this.respond();
+        this.anchor(string(event.item_id), sessionId, "user");
         break;
       }
 
       case "conversation.item.input_audio_transcription.completed": {
-        await this.finalized(event, sessionId, "user");
+        this.finalized(event, sessionId, "user");
+        break;
+      }
+
+      case "conversation.item.input_audio_transcription.failed": {
+        this.publish({ type: "warning", error: "Some captions are unavailable. Your live audio is still connected." });
+        break;
+      }
+
+      case "conversation.item.input_audio_transcription.delta":
+      case "response.output_audio_transcript.delta": {
+        const itemId = string(event.item_id);
+        const text = (this.partial.get(itemId) ?? "") + string(event.delta);
+
+        this.partial.set(itemId, text);
+        const role = event.type === "response.output_audio_transcript.delta" ? "assistant" : "user";
+
+        this.reply(event, sessionId, role, text, false);
         break;
       }
 
       case "response.output_audio_transcript.done": {
-        await this.finalized(event, sessionId, "assistant");
-        break;
-      }
-
-      case "response.output_audio.delta": {
-        const audio = parseOutputAudio({ data: event.delta, sampleRate: 24_000, numChannels: 1 });
-
-        if (audio && this.phase === "active") {
-          this.publish({ type: "audio", audio, itemId: event.item_id });
-        }
-
-        break;
-      }
-
-      case "response.done": {
-        const transport = this.transport;
-
-        if (
-          await this.turns.complete(event, (call) =>
-            this.turns.handoff(
-              call,
-              this.owner,
-              this.savedHistory(),
-              sessionId,
-              transport,
-              this.publish.bind(this),
-              () => this.transport === transport && this.phase === "active"
-            )
-          )
-        ) {
-          this.respond();
-        }
-
+        this.finalized(event, sessionId, "assistant");
         break;
       }
 
@@ -178,77 +188,86 @@ export class OpenAIVoiceSession extends EventTarget {
   }
 
   /**
-  Connect only while this start attempt still owns the session.
+  Negotiate one call and attach its tool connection before returning the browser's SDP.
   */
-  private async connect(attempt: number, endpoint?: string) {
+  private async connect(attempt: number, sdp: string, endpoint?: string) {
     const settings = await readVoiceConfiguration(this.owner);
 
     if (this.attempt !== attempt) {
       throw new Error("Realtime stopped while connecting.");
     }
 
+    const context = this.owner.context?.(await this.savedHistory().read()) ?? "";
+
+    if (this.attempt !== attempt) {
+      throw new Error("Realtime stopped while loading context.");
+    }
+
     const sessionId = crypto.randomUUID();
     const transport = new OpenAIRealtime((event) => {
-      if (this.transport !== transport) {
-        return;
+      if (this.transport === transport) {
+        this.receive(event, sessionId);
       }
-
-      this.serial = this.enqueue(this.serial, () => this.receive(event, sessionId), transport);
     });
 
     this.token = crypto.randomUUID();
     this.transport = transport;
     this.error = undefined;
-    this.turns = new VoiceTurns();
-
-    await transport.connect(settings.key, settings.voice, settings.model, endpoint);
+    this.anchors.clear();
+    this.partial.clear();
+    this.captions.clear();
+    this.lastCanonical = undefined;
+    this.lastVoice = undefined;
+    this.tools = new RealtimeTools(
+      sessionId,
+      this.owner,
+      (event) => {
+        transport.send(event);
+      },
+      () => {
+        this.disconnect("Realtime tool results could not be delivered. Start voice again to continue.");
+      }
+    );
+    const answer = await transport.connect(settings.key, settings.voice, sdp, settings.model, endpoint, context);
 
     if (this.transport !== transport) {
       throw new Error("Realtime stopped while connecting.");
     }
 
     this.phase = "active";
-    this.publish({ type: "started" });
 
-    return { token: this.token, nativeSessionId: sessionId, phase: this.phase };
+    return { token: this.token, nativeSessionId: sessionId, sdp: answer, phase: this.phase };
   }
 
   /**
-  Return the exact finalized transcript and the explicit handoff receipt status after reload.
+  Read saved speech independently of the live call.
   */
   async transcripts() {
+    await this.persistence;
+
     return this.savedHistory().read();
   }
 
   /**
-  Queue a completed main answer behind this connection's delivery receipt and provider events.
+  Return a worker result to the realtime agent's original tool call.
   */
-  answer(handoffId: string, text: string) {
-    if (this.phase === "active" && this.transport) {
-      this.serial = this.enqueue(
-        this.serial,
-        () => {
-          this.turns.answer(handoffId, text);
-          this.respond();
-        },
-        this.transport
-      );
-    }
+  answer(id: string, text: string, status = "completed") {
+    this.tools?.answer(id, text, status);
   }
 
   /**
-  Reserve this session before asynchronous credential reads can admit a second start.
+  Reserve one browser owner before asynchronous session negotiation.
   */
-  async start(endpoint?: string) {
+  async start(sdp: string, endpoint?: string) {
     if (this.phase !== "idle") {
-      throw new Error("Realtime is already active or stopping for this Pocket.");
+      throw new Error("Realtime is already active for this Pocket.");
     }
 
     this.phase = "connecting";
     const attempt = ++this.attempt;
 
     try {
-      return await this.connect(attempt, endpoint);
+      return await this.connect(attempt, sdp, endpoint);
     } catch (error) {
       if (this.attempt === attempt) {
         this.disconnect(error instanceof Error ? error.message : "OpenAI Realtime could not start.");
@@ -259,92 +278,61 @@ export class OpenAIVoiceSession extends EventTarget {
   }
 
   /**
-  Forward validated audio only for the current browser token.
+  Stop media and controls without waiting for transcript completion.
   */
-  append(token: string, input: unknown) {
-    if (!this.owns(token) || this.phase !== "active") {
-      throw new Error("Realtime has stopped.");
-    }
-
-    this.transport?.append(input);
-  }
-
-  /**
-  Synchronize played audio only for the current browser owner.
-  */
-  truncate(token: string, itemId: string, audioEndMs: number) {
-    if (this.owns(token) && this.phase === "active") {
-      this.transport?.truncate(itemId, audioEndMs);
-    }
-  }
-
-  /**
-  Reject new audio, finalize captured speech, then revoke the stream token.
-  */
-  stop(token: string) {
+  async stop(token: string) {
     if (!this.owns(token)) {
-      return Promise.resolve();
+      return;
     }
 
     const transport = this.transport;
 
-    this.phase = "stopping";
-
-    return this.stopping.run(
-      token,
-      async () => {
-        await transport?.finishInput();
-        await this.serial;
-      },
-      () => {
-        if (this.transport !== transport) {
-          return;
-        }
-
-        this.token = undefined;
-        transport?.close();
-        this.transport = undefined;
-        this.phase = "idle";
-        this.publish({ type: "closed" });
-      }
-    );
+    this.token = undefined;
+    this.transport = undefined;
+    this.tools?.close();
+    this.tools = undefined;
+    this.phase = "idle";
+    this.publish({ type: "closed" });
+    await transport?.close();
   }
 
   /**
-  Send saved speech only on an explicit request, with the original durable receipt.
-  */
-  retry(id: string) {
-    const task = retryVoice(this.serial, this.owner, this.savedHistory(), id, () => this.phase === "idle");
-
-    this.serial = settleVoice(task);
-
-    return task;
-  }
-
-  /**
-  Check the private stream owner on each request.
+  Check the current browser owner for control requests.
   */
   owns(token: string) {
     return !!this.token && token === this.token;
   }
 
   /**
-  Expose lifecycle state without credentials.
+  Expose control state without credentials or raw provider frames.
   */
   status() {
     return { type: this.phase, error: this.error };
   }
 
   /**
-  Fail closed without replaying tool actions or accepting audio for a stale token.
+  Replay current caption state when the observer attaches after media has already connected.
+  */
+  liveCaptions() {
+    return this.captions.values().toArray();
+  }
+
+  /**
+  Revoke stale control and tool callbacks immediately and release the provider call.
   */
   disconnect(message: string) {
     this.attempt++;
+    const transport = this.transport;
+
     this.token = undefined;
-    this.transport?.close();
     this.transport = undefined;
+    this.tools?.close();
+    this.tools = undefined;
     this.phase = "idle";
     this.error = message;
     this.publish({ type: "error", error: message });
+    void transport?.close().catch(() => {
+      this.publish({ type: "warning", error: "Realtime call closure could not be confirmed." });
+    });
   }
 }

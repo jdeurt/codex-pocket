@@ -109,7 +109,7 @@ export function Chat() {
 
   useEffect(() => {
     if (!isConnected && isVoiceActive) {
-      void stopVoice(false);
+      void stopVoice();
     }
   }, [isConnected, isVoiceActive, stopVoice]);
 

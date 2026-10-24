@@ -1,9 +1,10 @@
 import { REALTIME_VOICES } from "./openai-realtime";
-import { type VoiceHandoff } from "../lib/voice-history";
+import { type VoiceHandoff, type VoiceSegment } from "../lib/voice-history";
 
 export interface VoiceSessionOwner {
   threadId: () => string;
   lastItemId?: () => string | null;
+  context?: (history: VoiceSegment[]) => string;
   readKey: () => Promise<string | null>;
   preferences: () => Promise<{ voice: string; model: string }>;
   handoff: (input: VoiceHandoff) => Promise<{ status: string }>;

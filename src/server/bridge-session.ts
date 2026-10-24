@@ -297,20 +297,20 @@ export class Bridge {
         throw new Error("Configure a thread on your computer first.");
       }
 
-      if (!source && this.realtime.status().type !== "idle") {
-        throw new Error("Stop realtime before sending a typed message.");
+      if (!source) {
+        await this.realtime.prepareText();
       }
 
       return this.messages.send(this.config, this.rpc, id, text, attachmentIds, source);
     });
   }
 
-  /** Accept finalized user speech through the existing durable submission path.
-  @param input - Stable finalized transcript and provider provenance.
+  /** Accept the realtime agent's worker request through the durable submission path.
+  @param input - Agent-authored request and provider tool-call provenance.
   @returns Durable delivery receipt, including an existing receipt on an identical retry.
   */
-  handoff(input: { id: string; transcript: string; source: MessageSource }) {
-    return this.send(input.id, input.transcript, [], messageSourceSchema.parse(input.source));
+  handoff(input: { id: string; request: string; source: MessageSource }) {
+    return this.send(input.id, input.request, [], messageSourceSchema.parse(input.source));
   }
 
   /** Serialize a validated answer against a still-pending native prompt.
