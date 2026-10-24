@@ -1,3 +1,5 @@
+import { t as captureResult } from "try";
+
 const ownerBrowsers = new Map<string, AgentBrowser>();
 
 import { type AgentEntry, type AgentTranscript, isActiveAgent } from "../lib/agents";
@@ -94,17 +96,19 @@ Refresh scoped discovery while preserving known saved history through source out
 @param owner - Configured parent whose native descendants may be discovered.
 */
   private async refresh(owner: string) {
-    await this.updateDiscovery(owner)
-      .catch((error: unknown) => {
-        if (this.cached?.owner !== owner) {
-          throw error;
-        }
+    const refreshed = await captureResult(() => this.updateDiscovery(owner));
 
-        log().warn({ err: error, owner }, "agents.discovery_failed");
-      })
-      .finally(() => {
-        this.refreshing = undefined;
-      });
+    this.refreshing = undefined;
+
+    if (refreshed.ok) {
+      return;
+    }
+
+    if (this.cached?.owner !== owner) {
+      throw refreshed.error;
+    }
+
+    log().warn({ err: refreshed.error, owner }, "agents.discovery_failed");
   }
 
   /**

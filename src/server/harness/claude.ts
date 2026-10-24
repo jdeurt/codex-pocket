@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import {
   type AdapterOptions,
   type HarnessAdapter,
@@ -198,12 +199,18 @@ Hold the SDK input stream open until query consumption and process cleanup finis
 
     this.current = run;
 
-    return this.consume(run).finally(async () => {
-      finished.resolve(undefined);
-      run.close();
-      await waitForProcessExit(this.process);
-      this.current = undefined;
-    });
+    const completed = await captureResult(this.consume(run));
+
+    finished.resolve(undefined);
+    run.close();
+    await waitForProcessExit(this.process);
+    this.current = undefined;
+
+    if (!completed.ok) {
+      throw completed.error;
+    }
+
+    return completed.value;
   }
 
   /**

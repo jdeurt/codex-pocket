@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { type Page, expect, test } from "@playwright/test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import path from "node:path";
@@ -125,7 +126,11 @@ test("real Codex shares each requested image once and preserves deliberate repea
   });
   const file = path.join(directory, "logo.png");
 
-  await checkImageDelivery(page, file).finally(async () => {
-    await rm(directory, { recursive: true, force: true });
-  });
+  const completed = await captureResult(checkImageDelivery(page, file));
+
+  await rm(directory, { recursive: true, force: true });
+
+  if (!completed.ok) {
+    throw completed.error;
+  }
 });

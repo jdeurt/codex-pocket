@@ -1,4 +1,4 @@
-import { errorResponse, guard } from "@/server/http";
+import { endpoint, errorResponse, guard } from "@/server/http";
 import { spinners } from "@/server/spinners";
 
 const NOT_FOUND = 404;
@@ -47,10 +47,13 @@ Serves private spinner bytes with the existing sanitized not-found response.
 @param context - Next's asynchronous route parameters.
 @returns Conditional asset response or sanitized native failure.
 */
-export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
-  return authorizeSpinner(request)
-    .then(() => spinnerAsset(request, context.params))
-    .catch(() => {
-      return errorResponse(new Error("Spinner unavailable."), NOT_FOUND);
-    });
-}
+export const GET = endpoint(
+  async (request: Request, context: { params: Promise<{ id: string }> }) => {
+    await authorizeSpinner(request);
+
+    return spinnerAsset(request, context.params);
+  },
+  () => {
+    return errorResponse(new Error("Spinner unavailable."), NOT_FOUND);
+  }
+);

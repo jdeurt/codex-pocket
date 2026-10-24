@@ -113,11 +113,7 @@ async function writeChanged(directory: string, name: string, body: string) {
     return;
   }
 
-  const previous = await readFile(file, "utf8").catch((error: unknown) => {
-    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
-      throw error;
-    }
-  });
+  const previous = await optionalTaskFile(() => readFile(file, "utf8"));
 
   if (previous !== body) {
     await writeTaskFile(directory, name, body);

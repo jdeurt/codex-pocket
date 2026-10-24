@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import type { Bridge } from "./bridge-session";
 import type { Snapshot } from "../lib/protocol";
 import { delegations } from "./delegations";
@@ -100,14 +101,15 @@ export class SnapshotStream {
     this.unsubscribeReports = delegations().subscribe(this.changed);
     this.request.signal.addEventListener("abort", this.abort, { once: true });
     this.send(this.bridge.snapshot);
-    void this.bridge
-      .ensureConnected()
-      .then(() => {
-        this.send(this.bridge.snapshot);
-      })
-      .catch(() => {
-        this.send(this.bridge.snapshot);
-      });
+    void this.connectAndPublish();
+  }
+
+  /**
+  Publish the latest connection state after hydration succeeds or fails.
+  */
+  private async connectAndPublish() {
+    await captureResult(() => this.bridge.ensureConnected());
+    this.send(this.bridge.snapshot);
   }
 
   /**

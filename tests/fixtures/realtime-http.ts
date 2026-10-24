@@ -14,16 +14,18 @@ export function serveRealtimeHttp(
   failures: string[],
   handle: (request: IncomingMessage, response: ServerResponse) => Promise<void>
 ) {
-  server.on("request", (request, response) => {
-    void Promise.resolve(t(handle, request, response)).then((result) => {
-      if (result.ok) {
-        return;
-      }
+  async function respond(request: IncomingMessage, response: ServerResponse) {
+    const result = await t(handle, request, response);
 
-      failures.push(String(result.error));
-      response.writeHead(HTTP_ERROR).end();
-    });
-  });
+    if (result.ok) {
+      return;
+    }
+
+    failures.push(String(result.error));
+    response.writeHead(HTTP_ERROR).end();
+  }
+
+  server.on("request", (request, response) => void respond(request, response));
 }
 
 /** Parse the same multipart offer contract in API and browser realtime fixtures.

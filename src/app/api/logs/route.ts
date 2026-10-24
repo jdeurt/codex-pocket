@@ -1,4 +1,4 @@
-import { errorResponse, guard, noStore, readBody } from "@/server/http";
+import { endpoint, errorResponse, guard, noStore, readBody } from "@/server/http";
 import { HTTP_FORBIDDEN } from "@/lib/constants";
 import { log } from "@/server/logging";
 import { z } from "zod";
@@ -36,14 +36,13 @@ Accepts browser diagnostics only after same-origin mutation authorization.
 @param request - Incoming native JSON request.
 @returns Accepted batch receipt or distinct authorization/validation error response.
 */
-export async function POST(request: Request) {
-  const outcome = await attempt(guard, request, true);
+export const POST = endpoint(
+  async (request: Request) => {
+    const outcome = await attempt(guard, request, true);
 
-  if (!outcome.ok) {
-    return errorResponse(outcome.error, HTTP_FORBIDDEN);
-  }
-
-  return recordClientEvents(request).catch((error: unknown) => {
+    return outcome.ok ? recordClientEvents(request) : errorResponse(outcome.error, HTTP_FORBIDDEN);
+  },
+  (error: unknown) => {
     return errorResponse(error);
-  });
-}
+  }
+);

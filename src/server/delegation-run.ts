@@ -130,16 +130,24 @@ export class DelegationRun {
 
     this.ready.resolve(true);
 
-    await result
-      .then(async (outcome) => {
-        this.settled = true;
-        await Promise.all(this.deliveries.values());
-        this.complete(outcome);
-      })
-      .finally(() => {
-        this.settled = true;
-        this.ready.resolve(false);
-      });
+    const response = await t(result);
+
+    this.settled = true;
+    const finished = response.ok ? await t(() => this.finishDelivery(response.value)) : response;
+
+    this.ready.resolve(false);
+
+    if (!finished.ok) {
+      throw finished.error;
+    }
+  }
+
+  /** Fence native completion against in-flight steering receipts.
+  @param outcome - Completed native assignment.
+  */
+  private async finishDelivery(outcome: HarnessResult) {
+    await Promise.all(this.deliveries.values());
+    this.complete(outcome);
   }
 
   /**
@@ -178,16 +186,21 @@ export class DelegationRun {
   @param command - Correction acquired by this run's worker.
   */
   private async deliver(command: DelegationCommand) {
-    await this.deliverCurrent(command)
-      .catch((error: unknown) => {
-        this.store.queue.steering.finish(command, {
-          status: "unknown",
-          detail: error instanceof Error ? error.message : String(error),
+    const delivered = await t(() => this.deliverCurrent(command));
+    const recorded = delivered.ok
+      ? delivered
+      : t(() => {
+          this.store.queue.steering.finish(command, {
+            status: "unknown",
+            detail: delivered.error instanceof Error ? delivered.error.message : String(delivered.error),
+          });
         });
-      })
-      .finally(() => {
-        this.deliveries.delete(command.id);
-      });
+
+    this.deliveries.delete(command.id);
+
+    if (!recorded.ok) {
+      throw recorded.error;
+    }
   }
 
   /**
@@ -203,15 +216,20 @@ export class DelegationRun {
   @returns Completion of execution and cleanup; persistence failures can reject.
   */
   async execute() {
-    await this.send()
-      .catch((error: unknown) => {
-        this.failed(error);
-      })
-      .finally(async () => {
-        this.settled = true;
-        this.ready.resolve(false);
-        await Promise.all(this.deliveries.values());
-        await this.close();
-      });
+    const sent = await t(() => this.send());
+    const recorded = sent.ok
+      ? sent
+      : t(() => {
+          this.failed(sent.error);
+        });
+
+    this.settled = true;
+    this.ready.resolve(false);
+    await Promise.all(this.deliveries.values());
+    await this.close();
+
+    if (!recorded.ok) {
+      throw recorded.error;
+    }
   }
 }

@@ -1,6 +1,7 @@
+import { t as captureResult } from "try";
 import { type AgentSession, type AgentSessionEvent, type ModelRuntime } from "@earendil-works/pi-coding-agent";
 import { type Data, type RpcEvent, type Turn, string } from "../lib/protocol";
-import { type PiState, savePiState } from "./pi-store";
+import { type PiState, savePiStateAfter } from "./pi-store";
 import { piModel, piModelCatalog, piSettings, thinkingLevelSchema } from "./pi-models";
 import { type Config } from "./config";
 import { type CodexRpc } from "./rpc";
@@ -57,7 +58,7 @@ export class PiMain {
   private persist() {
     const state = structuredClone(this.state);
 
-    this.writes = this.writes.then(() => state && savePiState(this.config.threadId, state));
+    this.writes = savePiStateAfter(this.writes, this.config.threadId, state);
 
     return this.writes;
   }
@@ -79,10 +80,10 @@ export class PiMain {
     await this.tasks.start(opened.manager, opened.session);
     opened.session.subscribe((event) => {
       if (event.type === "message_end" || event.type === "entry_appended") {
-        this.tasks.sync(opened.manager);
+        void this.tasks.sync(opened.manager);
       }
 
-      this.event(event);
+      void this.event(event);
       this.activity.accept(event, this.active?.id);
     });
     await opened.session.bindExtensions({});
@@ -121,7 +122,7 @@ export class PiMain {
   /** Normalize streamed messages and final source entries into existing Bridge notifications.
   @param event - Authoritative Pi lifecycle or message event.
   */
-  private event(event: AgentSessionEvent) {
+  private async event(event: AgentSessionEvent) {
     if (event.type === "compaction_end" && event.result) {
       this.emit({ method: "thread/compacted", params: { threadId: this.config.threadId } });
     }
@@ -139,8 +140,14 @@ export class PiMain {
 
     this.messages.publish(event.message, this.active, this.state?.turns ?? [], this.config.threadId, this.emit);
 
-    if (event.type === "message_end") {
-      void this.persist().catch(this.onError);
+    if (event.type !== "message_end") {
+      return;
+    }
+
+    const saved = await captureResult(() => this.persist());
+
+    if (!saved.ok) {
+      this.onError(saved.error);
     }
   }
 
@@ -227,14 +234,24 @@ export class PiMain {
       },
     });
 
-    void run
-      .then(() => this.finish())
-      .catch(async (error: unknown) => {
-        accepted.reject(error);
-        this.onError(error);
-        await this.finish(error);
-      })
-      .catch(this.onError);
+    async function settleTurn(owner: PiMain) {
+      const prompted = await captureResult(run);
+      const finished = prompted.ok ? await captureResult(() => owner.finish()) : prompted;
+
+      if (finished.ok) {
+        return;
+      }
+
+      accepted.reject(finished.error);
+      owner.onError(finished.error);
+      const recovered = await captureResult(() => owner.finish(finished.error));
+
+      if (!recovered.ok) {
+        owner.onError(recovered.error);
+      }
+    }
+
+    void settleTurn(this);
     await accepted.promise;
 
     return { turn: this.active ?? this.state.turns.at(LAST_TURN) };

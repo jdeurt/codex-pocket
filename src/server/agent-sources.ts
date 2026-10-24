@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { type AgentEntry, type AgentStatus, agentStatusSchema } from "../lib/agents";
 import { type Data, type PendingRequest, type Thread, type Turn, object, string } from "../lib/protocol";
 import { refreshCodexHistory, visiblePreview } from "./agent-history";
@@ -191,12 +192,14 @@ Read live history from the owning socket without resuming or modifying the threa
 async function readAttachedCodex(record: AgentRecord, sessionId: string, socketPath: string) {
   const rpc = new CodexRpc();
 
-  await rpc
-    .connectSocket(socketPath)
-    .then(() => readCodexWithClient(record, sessionId, rpc))
-    .finally(async () => {
-      await rpc.shutdown();
-    });
+  const connected = await captureResult(() => rpc.connectSocket(socketPath));
+  const loaded = connected.ok ? await captureResult(readCodexWithClient, record, sessionId, rpc) : connected;
+
+  await rpc.shutdown();
+
+  if (!loaded.ok) {
+    throw loaded.error;
+  }
 
   if (!["closing", "closed"].includes(record.pocket?.status ?? "")) {
     record.agent.status = nativeStatus(record.thread ?? { id: sessionId, turns: [] }, record.turns ?? []);
@@ -239,11 +242,15 @@ Retain saved data and expose availability failures when native history cannot be
 @param record - Scoped discovery record whose history and availability are updated.
 */
 export async function hydrateAgent(record: AgentRecord) {
-  await hydrateNativeAgent(record).catch(() => {
-    record.historyError = true;
+  const completed = await captureResult(hydrateNativeAgent(record));
 
-    if (!record.pocket || sessionAttachment(record.pocket.metadata)) {
-      record.agent.status = "unknown";
-    }
-  });
+  if (completed.ok) {
+    return;
+  }
+
+  record.historyError = true;
+
+  if (!record.pocket || sessionAttachment(record.pocket.metadata)) {
+    record.agent.status = "unknown";
+  }
 }

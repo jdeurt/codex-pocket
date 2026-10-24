@@ -1,7 +1,9 @@
+import { createSerialQueue } from "../lib/serial-queue";
+import { t as captureResult } from "try";
 import { type Config, readConfig } from "./config";
 import { RpcDiagnosticEvent, RpcDisconnectEvent, RpcNotificationEvent } from "./rpc-events";
 import { type MessageSource, type RpcEvent, type Snapshot, messageSourceSchema, string } from "../lib/protocol";
-import { applyBridgeEvent, refreshSnapshotSchedules } from "./bridge-events";
+import { persistRequests, applyBridgeEvent, refreshSnapshotSchedules } from "./bridge-events";
 import { BridgeOutbox } from "./bridge-outbox";
 import { BridgeSnapshots } from "./bridge-snapshots";
 import { CodexRpc } from "./rpc";
@@ -11,7 +13,7 @@ import { loadHistory } from "./history";
 import { log } from "./logging";
 import { recordRestart } from "./restart-events";
 import { requestFile } from "./request-files";
-import { resolveDesktopReplies } from "./desktop";
+import { pollDesktopReplies } from "./desktop";
 import { resumePocket } from "./pocket-runtime";
 import { validateAnswer } from "./answers";
 import { writeLocal } from "./local-state";
@@ -25,11 +27,11 @@ export class Bridge {
   private rpc?: CodexRpc;
   private config?: Config;
   private connecting?: Promise<void>;
-  private serial: Promise<unknown> = Promise.resolve();
   private messages: BridgeOutbox;
   private timer?: NodeJS.Timeout;
   private hydration?: RpcEvent[];
   private disposed = false;
+  readonly exclusive = createSerialQueue();
   readonly snapshots = new BridgeSnapshots();
   readonly realtime = new RealtimeSession(this);
   readonly session = new SessionControls(
@@ -51,14 +53,20 @@ export class Bridge {
   Publish connection failures after releasing hydration state and closing the child.
   */
   private async connect() {
-    await this.openConnection().catch((error: unknown) => {
-      this.hydration = undefined;
-      this.rpc?.close();
-      this.snapshot.connection = "disconnected";
-      this.realtime.disconnect("Pocket disconnected. Realtime stopped.");
-      this.snapshots.fail(error, this.messages.entries);
-      throw error;
-    });
+    const completed = await captureResult(this.openConnection());
+
+    if (completed.ok) {
+      return;
+    }
+
+    const error = completed.error;
+
+    this.hydration = undefined;
+    this.rpc?.close();
+    this.snapshot.connection = "disconnected";
+    void this.realtime.disconnect("Pocket disconnected. Realtime stopped.");
+    this.snapshots.fail(error, this.messages.entries);
+    throw error;
   }
 
   /**
@@ -114,11 +122,11 @@ export class Bridge {
       }
 
       this.snapshot.connection = "disconnected";
-      this.realtime.disconnect("Pocket disconnected. Realtime stopped.");
+      void this.realtime.disconnect("Pocket disconnected. Realtime stopped.");
       this.snapshot.error = event.error.message;
       this.snapshot.activeTurnId = undefined;
       this.snapshot.requests = [];
-      void writeLocal(requestFile(this.snapshot.threadId), []).catch(console.error);
+      void persistRequests({ ...this.snapshot, requests: [] });
       this.snapshots.publish(this.messages.entries);
     });
     // Diagnostics stay in the host terminal; they can contain local account details.
@@ -173,18 +181,16 @@ export class Bridge {
     if (!this.timer) {
       this.timer = setInterval(
         () =>
-          void resolveDesktopReplies(this.snapshot, this.rpc, () => {
+          void pollDesktopReplies(this.snapshot, this.rpc, () => {
             this.snapshots.publish(this.messages.entries);
-          }).catch(console.error),
+          }),
         DESKTOP_REPLY_INTERVAL_MS
       );
       this.timer.unref();
     }
 
     // Drain after hydration so a saved queued message cannot race turn restoration.
-    void this.exclusive(() => this.messages.drain(this.rpc, this.config)).catch((error: unknown) => {
-      this.snapshots.fail(error, this.messages.entries);
-    });
+    void this.drainMessages();
   }
 
   /** Apply parent-scoped native changes before publishing the canonical snapshot.
@@ -199,28 +205,21 @@ export class Bridge {
 
     if (event.id === undefined && event.method === "turn/completed") {
       this.realtime.completed(event.params.turn);
-      void this.exclusive(() => this.messages.drain(this.rpc, this.config)).catch((error: unknown) => {
-        this.snapshots.fail(error, this.messages.entries);
-      });
+      void this.drainMessages();
     }
 
     this.snapshots.publish(this.messages.entries);
   }
 
-  /** Serialize parent operations while allowing work after an earlier failure.
-  @param fn - Next parent operation in submission order.
-  @returns This operation's result without swallowing its failure.
+  /**
+  Drain queued messages and publish an actionable failure when dispatch fails.
   */
-  exclusive<T>(fn: () => Promise<T>): Promise<T> {
-    const result = this.serial
-      .catch(() => {
-        // A failed operation must not block the next one.
-      })
-      .then(fn);
+  private async drainMessages() {
+    const drained = await captureResult(() => this.exclusive(() => this.messages.drain(this.rpc, this.config)));
 
-    this.serial = result;
-
-    return result;
+    if (!drained.ok) {
+      this.snapshots.fail(drained.error, this.messages.entries);
+    }
   }
 
   /** Expose canonical parent state.
@@ -248,9 +247,13 @@ export class Bridge {
 
     this.connecting = this.connect();
 
-    await this.connecting.finally(() => {
-      this.connecting = undefined;
-    });
+    const completed = await captureResult(this.connecting);
+
+    this.connecting = undefined;
+
+    if (!completed.ok) {
+      throw completed.error;
+    }
   }
 
   /** Expose the connected transport for read-only inspection.
@@ -329,7 +332,7 @@ export class Bridge {
   */
   close() {
     this.disposed = true;
-    this.realtime.disconnect("Pocket stopped. Realtime stopped.");
+    void this.realtime.disconnect("Pocket stopped. Realtime stopped.");
 
     if (this.timer) {
       clearInterval(this.timer);

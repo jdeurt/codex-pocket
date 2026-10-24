@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { type Data, object, string } from "../../src/lib/protocol";
 import { type CodexRpc } from "../../src/server/rpc";
 import { type Query } from "@anthropic-ai/claude-agent-sdk";
@@ -132,10 +133,16 @@ export async function codexConformance(rpc: CodexRpc, cwd: string, model: string
 
   rpc.addEventListener("event", observe);
 
-  return codexSession(rpc, cwd, model, completed.promise, events).finally(() => {
-    clearTimeout(timer);
-    rpc.removeEventListener("event", observe);
-  });
+  const settled = await captureResult(codexSession(rpc, cwd, model, completed.promise, events));
+
+  clearTimeout(timer);
+  rpc.removeEventListener("event", observe);
+
+  if (!settled.ok) {
+    throw settled.error;
+  }
+
+  return settled.value;
 }
 
 /**

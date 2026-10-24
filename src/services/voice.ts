@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { type VoiceResources, listenRealtime, stopRealtime, receiveRealtime } from "../lib/realtime-stream";
 import { createVoiceResources, connectVoice, playRemoteAudio, releaseVoiceResources } from "../lib/realtime-capture";
 import { type VoiceStore, type VoicePhase, mergeCaptions } from "../state/voice";
@@ -27,6 +28,27 @@ export function createVoiceController(store: VoiceStore, url: string, eventsUrl:
   let resources: VoiceResources | null = null;
   let stopTask: Promise<void> | null = null;
 
+  async function refreshHistory() {
+    const refreshed = await captureResult(refresh);
+
+    if (!refreshed.ok) {
+      setError("Voice history could not be refreshed.");
+    }
+  }
+
+  async function finishStop(current: VoiceResources) {
+    const stopped = await captureResult(stopRealtime, current);
+
+    stopTask = null;
+    setState("idle");
+
+    if (!stopped.ok) {
+      setError("Realtime closure could not be confirmed.");
+    }
+
+    void refreshHistory();
+  }
+
   const stop = async () => {
     if (stopTask) {
       return stopTask;
@@ -41,21 +63,7 @@ export function createVoiceController(store: VoiceStore, url: string, eventsUrl:
     resources = null;
     releaseVoiceResources(current);
     setState("stopping");
-    const task = async () => {
-      await stopRealtime(current)
-        .catch(() => {
-          setError("Realtime closure could not be confirmed.");
-        })
-        .finally(() => {
-          stopTask = null;
-          setState("idle");
-          void refresh().catch(() => {
-            setError("Voice history could not be refreshed.");
-          });
-        });
-    };
-
-    stopTask = task();
+    stopTask = finishStop(current);
     await stopTask;
   };
 
@@ -110,34 +118,47 @@ export function createVoiceController(store: VoiceStore, url: string, eventsUrl:
         fail("Realtime audio disconnected. Start voice again to continue.");
       }
     });
-    current.peer.addEventListener("track", (event) => {
-      void playRemoteAudio(current, event).catch(() => {
+
+    async function play(event: RTCTrackEvent) {
+      const played = await captureResult(playRemoteAudio, current, event);
+
+      if (!played.ok) {
         fail("Audio playback could not start. Start voice again to continue.");
-      });
-    });
+      }
+    }
+
+    current.peer.addEventListener("track", (event) => void play(event));
     current.channel.addEventListener("close", () => {
       fail("Realtime disconnected. Start voice again to continue.");
     });
 
+    async function followCaptions(token: string) {
+      const listened = await captureResult(listenRealtime, current, token, (message) => {
+        receiveRealtime(current, message, { stop: () => void stop(), error: setError, transcript });
+      });
+
+      if (!listened.ok && current.active) {
+        setError("Reply text disconnected. Your live audio is still connected.");
+      }
+    }
+
     const connect = async () => {
       await connectVoice(current, fail);
 
-      if (!current.active || !current.token) {
-        return;
+      if (current.active && current.token) {
+        void followCaptions(current.token);
       }
-
-      void listenRealtime(current, current.token, (message) => {
-        receiveRealtime(current, message, { stop: () => void stop(), error: setError, transcript });
-      }).catch(() => {
-        if (current.active) {
-          setError("Reply text disconnected. Your live audio is still connected.");
-        }
-      });
     };
 
-    await connect().catch((error_: unknown) => {
-      fail(error_ instanceof Error ? error_.message : "Realtime could not start.");
-    });
+    const completed = await captureResult(connect());
+
+    if (completed.ok) {
+      return;
+    }
+
+    const error_ = completed.error;
+
+    fail(error_ instanceof Error ? error_.message : "Realtime could not start.");
   };
 
   return {

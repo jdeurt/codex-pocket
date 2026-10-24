@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import {
   type ContextEntry,
   type TaskGroup,
@@ -30,23 +31,27 @@ const LAST_ENTRY = -1;
 @returns Persisted active working set, or a fresh state when absent.
 */
 export async function readTaskState(owner: string): Promise<TaskContextState> {
-  return readFile(path.join(taskDirectory(owner), "active.json"), "utf8")
-    .then((content) => activeStateSchema.parse(JSON.parse(content)))
-    .catch((error: unknown) => {
-      if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-        return {
-          version: 1,
-          revision: 0,
-          lastSeen: -1,
-          sourceCursor: null,
-          compactionPending: false,
-          open: null,
-          messages: [],
-        };
-      }
+  const loaded = await captureResult(() => readFile(path.join(taskDirectory(owner), "active.json"), "utf8"));
 
-      throw error;
-    });
+  if (loaded.ok) {
+    return activeStateSchema.parse(JSON.parse(loaded.value));
+  }
+
+  const error = loaded.error;
+
+  if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+    throw error;
+  }
+
+  return {
+    version: 1,
+    revision: 0,
+    lastSeen: -1,
+    sourceCursor: null,
+    compactionPending: false,
+    open: null,
+    messages: [],
+  };
 }
 
 /** Persist active membership atomically after source ingestion or a successful pass.

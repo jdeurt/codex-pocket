@@ -1,4 +1,6 @@
 "use client";
+import { t as captureResult } from "try";
+
 import { type VoiceResources, realtimeCommand } from "./realtime-stream";
 import { pocketUrl } from "./pockets";
 
@@ -78,9 +80,8 @@ export function releaseVoiceResources(current: VoiceResources) {
     track.stop();
   }
 
-  void current.context.close().catch(() => {
-    // Closing a context that was already released is harmless.
-  });
+  // Closing a context that was already released is harmless.
+  void captureResult(current.context.close());
 }
 
 /** Capture native microphone tracks and negotiate their peer connection.

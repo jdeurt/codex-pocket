@@ -1,5 +1,5 @@
 import { HTTP_FORBIDDEN, HTTP_NOT_FOUND } from "@/lib/constants";
-import { errorResponse, guard, noStore } from "@/server/http";
+import { endpoint, errorResponse, guard, noStore } from "@/server/http";
 import { type Config } from "@/server/config";
 import { agentBrowser } from "@/server/agents";
 import { renderImage } from "@/server/images";
@@ -89,14 +89,15 @@ Serves GET-only native agent history with distinct access-denied and unavailable
 @param request - Incoming native request, authorized before reading configured parent state.
 @returns Non-cacheable catalog, transcript, image or sanitized error response.
 */
-export async function GET(request: Request) {
-  const outcome = await attempt(guard, request);
+export const GET = endpoint(
+  async (request: Request) => {
+    const outcome = await attempt(guard, request);
 
-  if (!outcome.ok) {
-    return Response.json({ error: "Agent history access denied." }, { status: HTTP_FORBIDDEN, headers: noStore });
-  }
-
-  return agentResponse(request).catch(() => {
+    return outcome.ok
+      ? agentResponse(request)
+      : Response.json({ error: "Agent history access denied." }, { status: HTTP_FORBIDDEN, headers: noStore });
+  },
+  () => {
     return errorResponse(new Error("Agent history is unavailable in this parent chat."), HTTP_NOT_FOUND);
-  });
-}
+  }
+);

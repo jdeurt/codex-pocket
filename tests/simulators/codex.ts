@@ -313,16 +313,22 @@ Accept real newline-delimited protocol records, preserving IDs, errors, and even
       return;
     }
 
-    await this.dispatch(message, method, params).catch((error: unknown) => {
-      const detail = error instanceof Error ? error.message : String(error);
+    const completed = await attempt(this.dispatch(message, method, params));
 
-      this.emit({
-        id: message.id,
-        error: {
-          code: detail.startsWith("SIMULATOR_UNIMPLEMENTED") ? SIMULATOR_UNIMPLEMENTED : INVALID_REQUEST,
-          message: detail,
-        },
-      });
+    if (completed.ok) {
+      return;
+    }
+
+    const error = completed.error;
+
+    const detail = error instanceof Error ? error.message : String(error);
+
+    this.emit({
+      id: message.id,
+      error: {
+        code: detail.startsWith("SIMULATOR_UNIMPLEMENTED") ? SIMULATOR_UNIMPLEMENTED : INVALID_REQUEST,
+        message: detail,
+      },
     });
   }
 }

@@ -90,13 +90,19 @@ Reads an existing setup file, treating only a missing file as empty.
 @returns Saved dotenv text; other filesystem failures reject.
 */
 async function readEnvironment(file: string) {
-  return readFile(file, "utf8").catch((error: unknown) => {
-    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
-      throw error;
-    }
+  const completed = await attempt(readFile(file, "utf8"));
 
-    return "";
-  });
+  if (completed.ok) {
+    return completed.value;
+  }
+
+  const error = completed.error;
+
+  if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+    throw error;
+  }
+
+  return "";
 }
 
 /**

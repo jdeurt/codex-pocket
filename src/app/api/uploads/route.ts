@@ -1,5 +1,5 @@
 import { downloadUpload, getUpload, saveUpload, uploadPath } from "@/server/uploads";
-import { errorResponse, guard, noStore } from "@/server/http";
+import { endpoint, guard, noStore } from "@/server/http";
 import { type Config } from "@/server/config";
 import { type FileAttachment } from "@/lib/attachments";
 import { renderImage } from "@/server/images";
@@ -47,9 +47,9 @@ Accepts an original attachment upload and converts native failures to the existi
 @param request - Incoming binary mutation request.
 @returns Saved-file receipt or logged failure.
 */
-export async function PUT(request: Request) {
-  return uploadResponse(request).catch(errorResponse);
-}
+export const PUT = endpoint(async (request: Request) => {
+  return uploadResponse(request);
+});
 
 /**
 Renders an image attachment already verified to belong to the configured parent.
@@ -124,6 +124,6 @@ Serves a stored attachment while retaining the existing logged error response.
 @param request - Incoming original-download or preview request.
 @returns Private attachment bytes or JSON failure.
 */
-export async function GET(request: Request) {
-  return downloadResponse(request).catch(errorResponse);
-}
+export const GET = endpoint(async (request: Request) => {
+  return downloadResponse(request);
+});

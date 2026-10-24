@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { type CodexRpc, RpcError } from "../rpc";
 import { type SteeringResult } from "./types";
 import { steerResponseSchema } from "../rpc-protocol";
@@ -89,7 +90,13 @@ export async function steerCodex(
     return { status: "idle", detail: "The native turn ended before steering was attempted. Nothing was sent." };
   }
 
-  return accepted(rpc, sessionId, expectedTurnId, id, input).catch((error: unknown) => {
-    return rejected(rpc, sessionId, error);
-  });
+  const completed = await captureResult(accepted(rpc, sessionId, expectedTurnId, id, input));
+
+  if (completed.ok) {
+    return completed.value;
+  }
+
+  const error = completed.error;
+
+  return rejected(rpc, sessionId, error);
 }

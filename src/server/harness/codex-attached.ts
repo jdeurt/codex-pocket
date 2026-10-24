@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { type AdapterOptions, type HarnessAdapter, type HarnessResult } from "./types";
 import { RpcDisconnectEvent, RpcNotificationEvent } from "../rpc-events";
 import { type RpcEvent, type Turn, string } from "../../lib/protocol";
@@ -121,13 +122,17 @@ export class AttachedCodexAdapter implements HarnessAdapter {
     const pending = Promise.withResolvers<HarnessResult>();
 
     this.pending = pending;
-    void this.send(id, text).catch((error: unknown) => {
-      pending.reject(error);
-    });
+    void this.send(id, text);
 
-    return pending.promise.finally(() => {
-      this.pending = undefined;
-    });
+    const completed = await captureResult(pending.promise);
+
+    this.pending = undefined;
+
+    if (!completed.ok) {
+      throw completed.error;
+    }
+
+    return completed.value;
   }
 
   /**
@@ -136,11 +141,24 @@ export class AttachedCodexAdapter implements HarnessAdapter {
   @param text - Exact assignment text.
   */
   private async send(id: string, text: string) {
-    const { turn } = await this.rpc.request("turn/start", {
-      threadId: this.options.child.sessionId,
-      clientUserMessageId: id,
-      input: [{ type: "text", text, text_elements: [] }],
-    });
+    const sent = await captureResult(() =>
+      this.rpc.request("turn/start", {
+        threadId: this.options.child.sessionId,
+        clientUserMessageId: id,
+        input: [{ type: "text", text, text_elements: [] }],
+      })
+    );
+
+    if (!sent.ok) {
+      this.pending?.reject(
+        sent.error instanceof Error ? sent.error : new Error("Native send failed.", { cause: sent.error })
+      );
+
+      return;
+    }
+
+    const { turn } = sent.value;
+
     const completed = this.completed.get(turn.id);
 
     if (completed) {

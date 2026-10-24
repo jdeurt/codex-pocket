@@ -1,4 +1,4 @@
-import { errorResponse, guard, noStore } from "@/server/http";
+import { endpoint, errorResponse, guard, noStore } from "@/server/http";
 import { spinners } from "@/server/spinners";
 
 export const runtime = "nodejs";
@@ -24,8 +24,11 @@ Serves the current spinner preference without exposing native storage failures.
 @param request - Incoming preference read.
 @returns Current selection or the existing sanitized failure response.
 */
-export async function GET(request: Request) {
-  return spinnerStatus(request).catch(() => {
+export const GET = endpoint(
+  async (request: Request) => {
+    return spinnerStatus(request);
+  },
+  () => {
     return errorResponse(new Error("Spinner preference unavailable."));
-  });
-}
+  }
+);

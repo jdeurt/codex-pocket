@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 // Isolated process fixture: implements the app-server flow without a model or live session.
 import { type Data, type Turn, dataSchema, turnSchema } from "../../src/lib/protocol";
 import { appendFile, readFile, writeFile } from "node:fs/promises";
@@ -34,15 +35,19 @@ Reads one host-controlled failure marker from this private replay directory.
 @returns Whether the nonempty marker requests a synthetic failure.
 */
 async function isFailing(stage: string) {
-  return readFile(path.join(directory, `fail-${stage}`), "utf8")
-    .then(Boolean)
-    .catch((error: unknown) => {
-      if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-        return false;
-      }
+  const marker = await captureResult(() => readFile(path.join(directory, `fail-${stage}`), "utf8"));
 
-      throw error;
-    });
+  if (marker.ok) {
+    return Boolean(marker.value);
+  }
+
+  const error = marker.error;
+
+  if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+    return false;
+  }
+
+  throw error;
 }
 
 /**

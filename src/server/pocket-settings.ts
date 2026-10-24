@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import {
   openaiApiKeySchema,
   pocketSettingsMutationSchema,
@@ -32,12 +33,15 @@ if (!globalThis.codexPocketSettings) {
 @returns Validated saved settings, using defaults only when the file is absent.
 */
 async function readSavedSettings() {
-  return readLocal("settings.json", {})
-    .then((saved) => savedSettingsSchema.parse(saved))
-    .catch(() => {
-      // JSON parse failures can quote the credential-bearing file contents.
-      throw new Error("Could not read Pocket settings.");
-    });
+  const loaded = await captureResult(readLocal, "settings.json", {});
+  const parsed = loaded.ok ? savedSettingsSchema.safeParse(loaded.value) : null;
+
+  // Never expose parse errors that may quote credential-bearing file contents.
+  if (!parsed?.success) {
+    throw new Error("Could not read Pocket settings.");
+  }
+
+  return parsed.data;
 }
 
 /** Resolve an optional host credential without exposing it through public settings.
@@ -94,9 +98,11 @@ export function updatePocketSettings(input: PocketSettingsMutation) {
   const previous = operations.serial;
 
   async function commit() {
-    await previous.catch(() => {
+    const completed = await captureResult(previous);
+
+    if (!completed.ok) {
       // Later settings changes can recover after a failed write.
-    });
+    }
 
     const saved = await readSavedSettings();
 

@@ -112,10 +112,7 @@ Serialize display data with stable indentation and an empty fallback for missing
 @returns Formatted JSON, or an empty string when serialization produces no text.
 */
 export function pretty(value: unknown): string {
-  return z
-    .string()
-    .catch("")
-    .parse(JSON.stringify(value, null, 2));
+  return string(JSON.stringify(value, null, 2));
 }
 
 export const dataSchema = z.record(z.string(), z.unknown());

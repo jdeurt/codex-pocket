@@ -120,9 +120,14 @@ async function setup() {
   const url = `http://127.0.0.1:${String(configuredPort(saved))}`;
   const stage = await mkdtemp(path.join(directory, "build-"));
 
-  await buildCompanion(stage, url)
-    .then(() => installCompanion(stage))
-    .finally(() => rm(stage, { recursive: true, force: true }));
+  const [built] = await Promise.allSettled([buildCompanion(stage, url)]);
+  const [installed] = built.status === "fulfilled" ? await Promise.allSettled([installCompanion(stage)]) : [built];
+
+  await rm(stage, { recursive: true, force: true });
+
+  if (installed.status === "rejected") {
+    throw installed.reason;
+  }
 }
 
 /** Apply the requested companion operation without restarting the Pocket web service.
@@ -153,7 +158,11 @@ async function main() {
   });
 }
 
-await main().catch((/** @type {unknown} */ error) => {
+const [completed] = await Promise.allSettled([main()]);
+
+if (completed.status !== "fulfilled") {
+  const error = /** @type {unknown} */ (completed.reason);
+
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;
-});
+}

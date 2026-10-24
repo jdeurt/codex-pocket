@@ -221,9 +221,14 @@ function messages(agentId = "claude-main", parentAgent = "") {
   }));
 }
 
-await seedPockets().finally(() => {
-  store.close();
-});
+const settled = await attempt(seedPockets);
+
+store.close();
+
+if (!settled.ok) {
+  throw settled.error;
+}
+
 await mkdir(path.join(project, claudeSession, "subagents"), { recursive: true });
 await writeFile(
   path.join(project, `${claudeSession}.jsonl`),

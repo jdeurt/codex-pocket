@@ -1,5 +1,5 @@
 /* eslint-disable jsdoc/require-param, jsdoc/require-returns -- Route authorization and native dispatch are sequential. */
-import { errorResponse, guard, noStore, readBody } from "@/server/http";
+import { endpoint, guard, noStore, readBody } from "@/server/http";
 import { requestBridge } from "@/server/named-pockets";
 import { z } from "zod";
 
@@ -18,13 +18,15 @@ const command = z.discriminatedUnion("action", [
 /**
 Read OpenAI voices, central next-session preferences and finalized speech.
 */
-export async function GET(request: Request) {
-  return guard(request)
-    .then(() => requestBridge(request))
-    .then((bridge) => bridge.realtime.info())
-    .then((info) => Response.json(info, { headers: noStore }))
-    .catch(errorResponse);
-}
+export const GET = endpoint(async (request: Request) => {
+  await guard(request);
+
+  const bridge = await requestBridge(request);
+
+  const info = await bridge.realtime.info();
+
+  return Response.json(info, { headers: noStore });
+});
 
 /**
 Dispatch one scoped control through the selected Pocket's OpenAI voice session.
@@ -60,9 +62,10 @@ async function applyCommand(request: Request) {
 /**
 Authorize and encode a realtime control without coupling media to the HTTP error boundary.
 */
-export async function POST(request: Request) {
-  return guard(request, true)
-    .then(() => applyCommand(request))
-    .then((result) => Response.json(result, { headers: noStore }))
-    .catch(errorResponse);
-}
+export const POST = endpoint(async (request: Request) => {
+  await guard(request, true);
+
+  const result = await applyCommand(request);
+
+  return Response.json(result, { headers: noStore });
+});

@@ -1,4 +1,6 @@
 "use client";
+import { t as captureResult } from "try";
+
 import "./file-viewer.css";
 import { useEffect, useRef, useState } from "react";
 import { ArrowLeftIcon } from "lucide-react";
@@ -92,19 +94,31 @@ export function FileViewer({ filename, overlay = false }: { filename: string; ov
   useEffect(() => {
     const controller = new AbortController();
 
-    void fetch(`${url}&metadata=1`, { signal: controller.signal })
-      .then(async (response) => {
-        if (!response.ok) {
-          throw new Error("File is unavailable.");
-        }
+    async function readMetadata() {
+      const response = await fetch(`${url}&metadata=1`, { signal: controller.signal });
 
-        setFile(fileSchema.parse(await response.json()));
-      })
-      .catch((error_: unknown) => {
-        if (!controller.signal.aborted) {
-          setError(error_ instanceof Error ? error_.message : "File is unavailable.");
-        }
-      });
+      if (!response.ok) {
+        throw new Error("File is unavailable.");
+      }
+
+      return fileSchema.parse(await response.json());
+    }
+
+    async function load() {
+      const result = await captureResult(readMetadata);
+
+      if (controller.signal.aborted) {
+        return;
+      }
+
+      if (result.ok) {
+        setFile(result.value);
+      } else {
+        setError(result.error instanceof Error ? result.error.message : "File is unavailable.");
+      }
+    }
+
+    void load();
 
     return () => {
       controller.abort();

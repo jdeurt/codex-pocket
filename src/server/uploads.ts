@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { type FileAttachment, MAX_ATTACHMENTS, MAX_ATTACHMENT_BYTES, fileAttachmentSchema } from "../lib/attachments";
 import { localDirectory, readLocal, writeLocal } from "./local-state";
 import { readFile, rename, rm, stat } from "node:fs/promises";
@@ -102,16 +103,6 @@ async function normalizedRaster(pending: string) {
 }
 
 /**
-Normalize native decoder failures into the existing user-facing upload error.
-@param pending - Pending directory containing the original image.
-*/
-async function normalizeImage(pending: string) {
-  await normalizedRaster(pending).catch(() => {
-    throw new Error("This image couldn't be read. Try a PNG, JPEG, WebP, GIF, or AVIF image, or choose another file.");
-  });
-}
-
-/**
 Reject reuse of an upload ID for different bytes or public metadata.
 @param file - Incoming validated upload.
 @param other - Previously committed upload with the same ID.
@@ -131,9 +122,11 @@ Atomically publish complete bytes and metadata, accepting an identical concurren
 async function commitUpload(parent: string, pending: string, file: StoredUpload) {
   await writeLocal(path.join(pending, "metadata.json"), file);
 
-  await rename(pending, directory(parent, file.id)).catch(async () => {
+  const completed = await captureResult(rename(pending, directory(parent, file.id)));
+
+  if (!completed.ok) {
     sameUpload(file, await getUpload(parent, file.id));
-  });
+  }
 }
 
 /**
@@ -201,7 +194,13 @@ async function persistUpload(
   }
 
   if (kind === "image") {
-    await normalizeImage(pending);
+    const normalized = await captureResult(normalizedRaster, pending);
+
+    if (!normalized.ok) {
+      throw new Error(
+        "This image couldn't be read. Try a PNG, JPEG, WebP, GIF, or AVIF image, or choose another file."
+      );
+    }
   }
 
   await commitUpload(parent, pending, file);
@@ -232,9 +231,15 @@ export async function saveUpload(parent: string, id: string, request: Request) {
     .parse(requestedType?.length ? requestedType : "application/octet-stream");
   const pending = `${directory(parent, id)}.${crypto.randomUUID()}.tmp`;
 
-  return persistUpload(parent, pending, id, request, name, mediaType).finally(async () => {
-    await rm(pending, { recursive: true, force: true });
-  });
+  const completed = await captureResult(persistUpload(parent, pending, id, request, name, mediaType));
+
+  await rm(pending, { recursive: true, force: true });
+
+  if (!completed.ok) {
+    throw completed.error;
+  }
+
+  return completed.value;
 }
 
 /**

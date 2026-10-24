@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { mkdtemp, readdir, rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import os from "node:os";
@@ -64,6 +65,12 @@ function completion(): Promise<number> {
   });
 }
 
-process.exitCode = await completion().finally(async () => {
-  await rm(flowHome, { recursive: true, force: true });
-});
+const completed = await captureResult(completion);
+
+await rm(flowHome, { recursive: true, force: true });
+
+if (!completed.ok) {
+  throw completed.error;
+}
+
+process.exitCode = completed.value;

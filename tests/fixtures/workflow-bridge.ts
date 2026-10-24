@@ -55,11 +55,17 @@ class WorkflowBridge extends Bridge {
   @param previous - Inode before the disconnect handler's atomic replacement.
   */
   private async promptCleanup(filename: string, previous: number | undefined) {
-    await eventually(() => isPromptCleared(filename, previous), "Native disconnect must finish prompt cleanup").catch(
-      (error: unknown) => {
-        this.failures.push(error);
-      }
+    const completed = await attempt(
+      eventually(() => isPromptCleared(filename, previous), "Native disconnect must finish prompt cleanup")
     );
+
+    if (completed.ok) {
+      return;
+    }
+
+    const error = completed.error;
+
+    this.failures.push(error);
   }
 
   /**

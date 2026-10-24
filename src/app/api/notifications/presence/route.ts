@@ -1,4 +1,4 @@
-import { errorResponse, guard, noStore, readBody } from "@/server/http";
+import { endpoint, errorResponse, guard, noStore, readBody } from "@/server/http";
 import { HTTP_FORBIDDEN } from "@/lib/constants";
 import { notificationPresence } from "@/server/notification-presence";
 import { z } from "zod";
@@ -104,21 +104,15 @@ Acknowledges a device challenge after same-origin mutation authorization.
 @param request - Native JSON request carrying the receiving device and challenge identities.
 @returns Whether the still-pending challenge belonged to that device.
 */
-export async function POST(request: Request) {
+export const POST = endpoint(async (request: Request) => {
   const authorized = await attempt(guard, request, true);
 
   if (!authorized.ok) {
     return errorResponse(authorized.error, HTTP_FORBIDDEN);
   }
 
-  return readBody(request)
-    .then((body) => {
-      const { deviceId, challengeId } = acknowledgementSchema.parse(body);
+  const body = await readBody(request);
+  const { deviceId, challengeId } = acknowledgementSchema.parse(body);
 
-      return Response.json(
-        { acknowledged: notificationPresence.acknowledge(deviceId, challengeId) },
-        { headers: noStore }
-      );
-    })
-    .catch(errorResponse);
-}
+  return Response.json({ acknowledged: notificationPresence.acknowledge(deviceId, challengeId) }, { headers: noStore });
+});

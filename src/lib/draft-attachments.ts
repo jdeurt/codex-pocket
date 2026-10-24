@@ -114,17 +114,21 @@ export async function savedDraft(parent: string, value?: SavedDraft): Promise<Sa
   const stored = await storedDraft(value);
   const db = await database();
 
-  return draftTransaction(db, parent, stored)
-    .then((result) => ({
-      ...result,
-      files: result.files.map((entry) => ({
-        ...entry,
-        file: new File([entry.file.bytes], entry.file.name, { type: entry.file.type }),
-      })),
-    }))
-    .finally(() => {
-      db.close();
-    });
+  const result = await attempt(draftTransaction, db, parent, stored);
+
+  db.close();
+
+  if (!result.ok) {
+    throw result.error;
+  }
+
+  return {
+    ...result.value,
+    files: result.value.files.map((entry) => ({
+      ...entry,
+      file: new File([entry.file.bytes], entry.file.name, { type: entry.file.type }),
+    })),
+  };
 }
 
 /**

@@ -22,27 +22,29 @@ Enumerate saved local JSONL records without traversing symlinks or assuming clou
 @returns Saved files under this root, or an empty list for a missing optional source.
 */
 async function sessionFiles(directory: string): Promise<string[]> {
-  return readdir(directory, { withFileTypes: true })
-    .then(async (entries) => {
-      const nested = await Promise.all(
-        entries.map((entry) => {
-          const filename = path.join(directory, entry.name);
+  const listed = await attempt(() => readdir(directory, { withFileTypes: true }));
 
-          return entry.isDirectory()
-            ? sessionFiles(filename)
-            : Promise.resolve(entry.isFile() && entry.name.endsWith(".jsonl") ? [filename] : []);
-        })
-      );
+  if (!listed.ok) {
+    const error = listed.error;
 
-      return nested.flat().toSorted((left, right) => left.localeCompare(right));
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return [];
+    }
+
+    throw error;
+  }
+
+  const nested = await Promise.all(
+    listed.value.map((entry) => {
+      const filename = path.join(directory, entry.name);
+
+      return entry.isDirectory()
+        ? sessionFiles(filename)
+        : Promise.resolve(entry.isFile() && entry.name.endsWith(".jsonl") ? [filename] : []);
     })
-    .catch((error: unknown) => {
-      if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-        return [];
-      }
+  );
 
-      throw error;
-    });
+  return nested.flat().toSorted((left, right) => left.localeCompare(right));
 }
 
 /**

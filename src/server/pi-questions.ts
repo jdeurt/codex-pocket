@@ -67,11 +67,17 @@ export class PiQuestions {
           sent.error instanceof Error ? sent.error : new Error("Question delivery failed.", { cause: sent.error })
         );
 
-    return response.finally(() => {
-      signal?.removeEventListener("abort", abort);
-      this.pending.delete(id);
-      this.emit({ method: "serverRequest/resolved", params: { threadId: this.owner, requestId: id } });
-    });
+    const completed = await t(response);
+
+    signal?.removeEventListener("abort", abort);
+    this.pending.delete(id);
+    this.emit({ method: "serverRequest/resolved", params: { threadId: this.owner, requestId: id } });
+
+    if (!completed.ok) {
+      throw completed.error;
+    }
+
+    return completed.value;
   }
 
   /** Expose the existing interactive-question shape to Pi without inventing another phone UI.

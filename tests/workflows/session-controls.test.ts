@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { Bridge } from "../../src/server/bridge-session";
 import assert from "node:assert/strict";
@@ -61,10 +62,14 @@ async function settingsFlow(directory: string) {
   const bridge = new Bridge();
   const resumed = new Bridge();
 
-  await exerciseSettings(bridge, resumed, directory).finally(() => {
-    bridge.close();
-    resumed.close();
-  });
+  const completed = await captureResult(exerciseSettings(bridge, resumed, directory));
+
+  bridge.close();
+  resumed.close();
+
+  if (!completed.ok) {
+    throw completed.error;
+  }
 }
 
 await test("parent controls reuse the live transport, retain active work and persist model/effort across reconnect", async () => {
@@ -85,17 +90,21 @@ await test("parent controls reuse the live transport, retain active work and per
 
   Object.assign(process.env, environment);
 
-  await settingsFlow(directory).finally(async () => {
-    delegations().close();
+  const completed = await captureResult(settingsFlow(directory));
 
-    for (const [key, value] of Object.entries(previous)) {
-      if (value === undefined) {
-        Reflect.deleteProperty(process.env, key);
-      } else {
-        process.env[key] = value;
-      }
+  delegations().close();
+
+  for (const [key, value] of Object.entries(previous)) {
+    if (value === undefined) {
+      Reflect.deleteProperty(process.env, key);
+    } else {
+      process.env[key] = value;
     }
+  }
 
-    await rm(directory, { recursive: true, force: true });
-  });
+  await rm(directory, { recursive: true, force: true });
+
+  if (!completed.ok) {
+    throw completed.error;
+  }
 });

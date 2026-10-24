@@ -1,4 +1,4 @@
-import { errorResponse, guard, noStore } from "@/server/http";
+import { endpoint, guard, noStore } from "@/server/http";
 import { readFile } from "node:fs/promises";
 import { requestConfig } from "@/server/pocket-config";
 import { viewerFile } from "@/server/file-viewer";
@@ -47,13 +47,10 @@ Serve local metadata or native file bytes only after the existing host/origin bo
 @param request - Same-site viewer request identifying a regular local file.
 @returns Shared Markdown source, sandboxed native content, or an attachment download.
 */
-export async function GET(request: Request) {
-  return guard(request)
-    .then(() => {
-      authorizeSite(request);
+export const GET = endpoint(async (request: Request) => {
+  await guard(request);
+  authorizeSite(request);
+  await requestConfig(request);
 
-      return requestConfig(request);
-    })
-    .then(() => fileResponse(new URL(request.url)))
-    .catch(errorResponse);
-}
+  return fileResponse(new URL(request.url));
+});

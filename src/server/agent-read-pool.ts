@@ -2,7 +2,7 @@ import { t } from "try";
 
 const MAX_READS = 4;
 const MAX_BACKGROUND_READS = MAX_READS - 1;
-const queue: { key?: string; priority: number; run: () => Promise<void> }[] = [];
+const queue: { key?: string; priority: number; run: (isBackground: boolean) => Promise<void> }[] = [];
 const state = { active: 0, background: 0 };
 
 /**
@@ -26,15 +26,7 @@ function drain() {
       state.background++;
     }
 
-    void next.run().finally(() => {
-      state.active--;
-
-      if (isBackground) {
-        state.background--;
-      }
-
-      drain();
-    });
+    void next.run(isBackground);
   }
 }
 
@@ -64,7 +56,7 @@ export function agentRead<T>(read: () => Promise<T>, priority = 0, key?: string)
     queue.push({
       key,
       priority,
-      run: async () => {
+      run: async (isBackground) => {
         const result = await t(read);
 
         if (result.ok) {
@@ -74,6 +66,14 @@ export function agentRead<T>(read: () => Promise<T>, priority = 0, key?: string)
 
           reject(error instanceof Error ? error : new Error("Agent history read failed.", { cause: error }));
         }
+
+        state.active--;
+
+        if (isBackground) {
+          state.background--;
+        }
+
+        drain();
       },
     });
     drain();

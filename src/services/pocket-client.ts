@@ -1,3 +1,4 @@
+import { t } from "try";
 import { type ClientBootstrap } from "../state/bootstrap";
 import { createThreadStore } from "../state/thread";
 import { createVoiceStore } from "../state/voice";
@@ -12,6 +13,17 @@ import { createOperation } from "./operation";
 import { post } from "../lib/client-api";
 import { createNotificationController } from "./notifications";
 import { connectThread } from "./thread";
+
+/**
+Register the production worker and report registration failures.
+*/
+async function registerWorker() {
+  const registered = await t(() => navigator.serviceWorker.register("/sw.js"));
+
+  if (!registered.ok) {
+    console.error(registered.error);
+  }
+}
 
 /** Create one request/tab's state owners without opening sockets or accessing browser storage.
 @param initial - Serialized public data loaded by the server for the selected Pocket.
@@ -90,7 +102,7 @@ export function createPocketClient(initial: ClientBootstrap) {
       });
 
       if ("serviceWorker" in navigator && process.env.NODE_ENV === "production") {
-        void navigator.serviceWorker.register("/sw.js").catch(console.error);
+        void registerWorker();
       }
 
       const stopNotifications = notifications.connect();

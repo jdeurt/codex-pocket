@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { type FileHandle, open } from "node:fs/promises";
 import { type SavedSpinner, type SpinnerTone } from "../lib/spinner";
 import sharp, { type Sharp } from "sharp";
@@ -136,10 +137,18 @@ Open the requested image without following links or blocking on special files.
 @returns A file handle that the caller must close.
 */
 async function openRasterFile(filename: string) {
-  return open(filename, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK).catch((error: unknown) => {
-    throw new Error("Cannot read this local file. Choose an existing regular image file, not a symlink.", {
-      cause: error,
-    });
+  const completed = await captureResult(
+    open(filename, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
+  );
+
+  if (completed.ok) {
+    return completed.value;
+  }
+
+  const error = completed.error;
+
+  throw new Error("Cannot read this local file. Choose an existing regular image file, not a symlink.", {
+    cause: error,
   });
 }
 
@@ -149,9 +158,15 @@ Close the image handle after its bounded read succeeds or fails.
 @returns The bounded original image bytes.
 */
 async function ownedRasterBytes(file: FileHandle) {
-  return boundedRaster(file).finally(async () => {
-    await file.close();
-  });
+  const completed = await captureResult(boundedRaster(file));
+
+  await file.close();
+
+  if (!completed.ok) {
+    throw completed.error;
+  }
+
+  return completed.value;
 }
 
 /**
@@ -163,11 +178,15 @@ async function readRasterFile(filename: string) {
   const file = await openRasterFile(filename);
   const input = await ownedRasterBytes(file);
 
-  return validatedRaster(input).catch(() => {
-    throw new Error(
-      "Use a valid GIF, PNG, JPEG or WebP: at most 2048 px per side, 300 frames and 32 million total frame pixels. APNG is unsupported."
-    );
-  });
+  const completed = await captureResult(validatedRaster(input));
+
+  if (completed.ok) {
+    return completed.value;
+  }
+
+  throw new Error(
+    "Use a valid GIF, PNG, JPEG or WebP: at most 2048 px per side, 300 frames and 32 million total frame pixels. APNG is unsupported."
+  );
 }
 
 /**

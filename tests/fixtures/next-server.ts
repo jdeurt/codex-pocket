@@ -113,11 +113,15 @@ export async function runNextFixture(
   process.once("SIGTERM", stop);
   process.once("SIGINT", stop);
 
-  await once(host, "exit").finally(async () => {
-    clearTimeout(resources.shutdown);
-    process.removeListener("SIGTERM", stop);
-    process.removeListener("SIGINT", stop);
-    signalFixture(host, "SIGKILL");
-    await rm(build.POCKET_TEST_TSCONFIG, { force: true });
-  });
+  const completed = await attempt(once(host, "exit"));
+
+  clearTimeout(resources.shutdown);
+  process.removeListener("SIGTERM", stop);
+  process.removeListener("SIGINT", stop);
+  signalFixture(host, "SIGKILL");
+  await rm(build.POCKET_TEST_TSCONFIG, { force: true });
+
+  if (!completed.ok) {
+    throw completed.error;
+  }
 }

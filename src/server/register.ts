@@ -1,10 +1,11 @@
+import { t as captureResult } from "try";
 import { startNamedPockets, stopNamedPockets } from "./named-pockets";
 import { log } from "./logging";
 
 /**
 Register process diagnostics and acquire runtime resources outside production compilation.
 */
-export function registerNode() {
+export async function registerNode() {
   log().info({ node: process.version, cwd: process.cwd() }, "server.started");
   process.on("uncaughtExceptionMonitor", (error) => {
     log().fatal({ error }, "server.uncaught_exception");
@@ -19,7 +20,9 @@ export function registerNode() {
 
   process.once("SIGTERM", () => void stopNamedPockets());
   process.once("SIGINT", () => void stopNamedPockets());
-  void startNamedPockets().catch((error: unknown) => {
-    log().error({ error }, "server.startup_failed");
-  });
+  const started = await captureResult(startNamedPockets);
+
+  if (!started.ok) {
+    log().error({ error: started.error }, "server.startup_failed");
+  }
 }

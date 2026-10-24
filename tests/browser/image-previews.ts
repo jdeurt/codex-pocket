@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { type CDPSession, type Locator, type Page, expect, test } from "@playwright/test";
 import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import path from "node:path";
@@ -117,9 +118,13 @@ async function swipeDown(page: Page) {
   const x = box.x + box.width / 2;
   const startY = box.y + box.height / START_FRACTION;
 
-  await releasePreviewDrag(client, popup, x, startY).finally(async () => {
-    await client.detach();
-  });
+  const completed = await captureResult(releasePreviewDrag(client, popup, x, startY));
+
+  await client.detach();
+
+  if (!completed.ok) {
+    throw completed.error;
+  }
 }
 
 /**
@@ -247,16 +252,27 @@ export async function checkImagePreviews(page: Page, browserName: string) {
   const portrait = path.join(directory, "portrait.png");
   const landscape = path.join(directory, "landscape.png");
 
-  await Promise.try(() =>
-    sharp({ create: { width: PORTRAIT_WIDTH, height: LONG_EDGE, channels: 3, background: "#7d9990" } })
-      .png()
-      .toFile(portrait)
-  )
-    .then(() =>
-      sharp({ create: { width: LONG_EDGE, height: PORTRAIT_WIDTH, channels: 3, background: "#998b7d" } })
+  const started = await captureResult(
+    Promise.try(() =>
+      sharp({ create: { width: PORTRAIT_WIDTH, height: LONG_EDGE, channels: 3, background: "#7d9990" } })
         .png()
-        .toFile(landscape)
+        .toFile(portrait)
     )
-    .then(() => checkImagePage(page, browserName, portrait, landscape))
-    .finally(() => rm(directory, { recursive: true, force: true }));
+  );
+  const executed = started.ok
+    ? await captureResult(() =>
+        sharp({ create: { width: LONG_EDGE, height: PORTRAIT_WIDTH, channels: 3, background: "#998b7d" } })
+          .png()
+          .toFile(landscape)
+      )
+    : started;
+  const finished = executed.ok
+    ? await captureResult(() => checkImagePage(page, browserName, portrait, landscape))
+    : executed;
+
+  await rm(directory, { recursive: true, force: true });
+
+  if (!finished.ok) {
+    throw finished.error;
+  }
 }

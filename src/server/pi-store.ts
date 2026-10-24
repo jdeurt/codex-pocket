@@ -35,3 +35,16 @@ export async function readPiState(owner: string) {
 export function savePiState(owner: string, state: PiState) {
   return writeLocal(piStateFile(owner), state);
 }
+
+/** Serialize captured projections without discarding earlier persistence failures.
+@param previous - Preceding durable write.
+@param owner - Parent identity.
+@param state - Projection captured when the caller queued this write.
+*/
+export async function savePiStateAfter(previous: Promise<void>, owner: string, state: PiState | undefined) {
+  await previous;
+
+  if (state) {
+    await savePiState(owner, state);
+  }
+}

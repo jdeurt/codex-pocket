@@ -18,15 +18,19 @@ Reads private saved configuration, treating only a missing dotenv file as empty.
 @returns {Promise<NodeJS.ProcessEnv>} Parsed literal settings; other filesystem errors reject.
 */
 async function savedEnvironment() {
-  return readFile(path.join(home, ".env.local"), "utf8")
-    .then(parseEnv)
-    .catch((/** @type {unknown} */ error) => {
-      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
-        throw error;
-      }
+  const [read] = await Promise.allSettled([readFile(path.join(home, ".env.local"), "utf8")]);
 
-      return {};
-    });
+  if (read.status === "fulfilled") {
+    return parseEnv(read.value);
+  }
+
+  const error = /** @type {unknown} */ (read.reason);
+
+  if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+    return {};
+  }
+
+  throw error;
 }
 
 /**
@@ -190,11 +194,15 @@ async function install(userId, isInteractive, prompt) {
     service
   );
 
-  await installPath().catch((/** @type {unknown} */ error) => {
+  const [completed] = await Promise.allSettled([installPath()]);
+
+  if (completed.status !== "fulfilled") {
+    const error = /** @type {unknown} */ (completed.reason);
+
     console.error(
       `Pocket is running, but PATH setup failed: ${error instanceof Error ? error.message : String(error)}`
     );
-  });
+  }
 
   console.info("Open a new terminal to use: pocket update, pocket start, pocket stop, pocket restart.");
   console.info(`\nPocket is installed and starts at login. Open ${origin || `http://127.0.0.1:${String(port)}`}`);
@@ -214,17 +222,21 @@ async function guidedInstall(userId) {
   const isInteractive = !options.includes("--yes") && process.stdin.isTTY;
   const prompt = isInteractive ? createInterface({ input: process.stdin, output: process.stdout }) : undefined;
 
-  await withInstallLock(home, () => install(userId, isInteractive, prompt))
-    .catch((/** @type {unknown} */ error) => {
-      console.error(`\nPocket installation stopped: ${error instanceof Error ? error.message : String(error)}`);
-      console.error(
-        "Your saved configuration and conversation state are preserved. Fix the reported problem and rerun ./install.sh."
-      );
-      process.exitCode = 1;
-    })
-    .finally(() => {
-      prompt?.close();
-    });
+  const [installed] = await Promise.allSettled([withInstallLock(home, () => install(userId, isInteractive, prompt))]);
+
+  prompt?.close();
+
+  if (installed.status === "fulfilled") {
+    return;
+  }
+
+  const error = /** @type {unknown} */ (installed.reason);
+
+  console.error(`\nPocket installation stopped: ${error instanceof Error ? error.message : String(error)}`);
+  console.error(
+    "Your saved configuration and conversation state are preserved. Fix the reported problem and rerun ./install.sh."
+  );
+  process.exitCode = 1;
 }
 
 /**

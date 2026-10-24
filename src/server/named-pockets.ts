@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { configForPocket, pocketHost, requestConfig } from "./pocket-config";
 import { CodexRpc } from "./rpc";
 import { type Config } from "./config";
@@ -12,6 +13,19 @@ const runtimes = globalThis.namedPocketRuntimes ?? new Map<string, NamedRuntime>
 
 if (!globalThis.namedPocketRuntimes) {
   Object.defineProperty(globalThis, "namedPocketRuntimes", { value: runtimes, configurable: true });
+}
+
+/** Connect a saved parent in the background and record failures for explicit retries.
+@param runtime - Saved parent's resource owner.
+@param event - Diagnostic name for the initiating action.
+@param id - Named Pocket identity, when available.
+*/
+async function connectInBackground(runtime: NamedRuntime, event: string, id?: string) {
+  const connected = await captureResult(() => runtime.connect());
+
+  if (!connected.ok) {
+    log().error({ error: connected.error, id }, event);
+  }
 }
 
 /** Reuse background resources for the saved parent, independent of menu selection.
@@ -38,9 +52,7 @@ export async function requestBridge(request: Request, isStreaming = false) {
   const runtime = runtimeFor(config.pocketId ?? "main", config);
 
   if (isStreaming) {
-    void runtime.connect().catch((error: unknown) => {
-      log().error({ error }, "pocket.reconnect_failed");
-    });
+    void connectInBackground(runtime, "pocket.reconnect_failed");
   } else {
     await runtime.connect();
   }
@@ -93,16 +105,17 @@ async function materialize(rpc: CodexRpc, config: Config, id: string, name: stri
 async function createNative(config: Config, id: string, name: string) {
   const rpc = new CodexRpc();
 
-  await rpc
-    .connect(config, "bare")
-    .then(() => materialize(rpc, config, id, name))
-    .catch((error: unknown) => {
-      pocketStore().finish(id, false);
-      throw error;
-    })
-    .finally(() => {
-      rpc.close();
-    });
+  const connected = await captureResult(() => rpc.connect(config, "bare"));
+  const created = connected.ok ? await captureResult(materialize, rpc, config, id, name) : connected;
+
+  rpc.close();
+
+  if (created.ok) {
+    return;
+  }
+
+  pocketStore().finish(id, false);
+  throw created.error;
 }
 
 /** Persist a named empty conversation before making it selectable.
@@ -116,11 +129,7 @@ export async function createPocket(id: string, name: string) {
 
   if (store.reserve(id, name)) {
     await createNative(config, id, name);
-    void runtimeFor(id, await configForPocket(id))
-      .connect()
-      .catch((error: unknown) => {
-        log().error({ error, id }, "pocket.start_failed");
-      });
+    void connectInBackground(runtimeFor(id, await configForPocket(id)), "pocket.start_failed", id);
   }
 
   return store.get(id);

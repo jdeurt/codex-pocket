@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { taskIndexRequest } from "../src/server/task-index-protocol";
 import { runTaskIndex } from "../src/server/task-index";
 
@@ -31,11 +32,12 @@ async function execute(message: unknown) {
 
   const { owner, query, offset, isKeywordOnly } = request.data;
 
-  await runTaskIndex(owner, query, offset, isKeywordOnly)
-    .then((page) => {
-      send({ ok: true, page });
-    })
-    .catch(sendError);
+  const indexed = await captureResult(runTaskIndex, owner, query, offset, isKeywordOnly);
+  const sent = indexed.ok ? captureResult(send, { ok: true, page: indexed.value }) : indexed;
+
+  if (!sent.ok) {
+    sendError(sent.error);
+  }
 }
 
 // This process handles one parent's operation and never receives provider credentials as tool input.

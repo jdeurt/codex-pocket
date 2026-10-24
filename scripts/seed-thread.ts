@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { type CodexRpc } from "../src/server/rpc";
 import { type Data } from "../src/lib/protocol";
 import { RpcNotificationEvent } from "../src/server/rpc-events";
@@ -35,15 +36,19 @@ export async function seedThread(rpc: CodexRpc, threadId: string, text: string, 
 
   rpc.addEventListener("event", listener);
 
-  await rpc
-    .request("turn/start", {
+  const started = await captureResult(
+    rpc.request("turn/start", {
       ...settings,
       threadId,
       input: [{ type: "text", text, text_elements: [] }],
     })
-    .then(() => completion.promise)
-    .finally(() => {
-      clearTimeout(timer);
-      rpc.removeEventListener("event", listener);
-    });
+  );
+  const executed = started.ok ? await captureResult(() => completion.promise) : started;
+
+  clearTimeout(timer);
+  rpc.removeEventListener("event", listener);
+
+  if (!executed.ok) {
+    throw executed.error;
+  }
 }

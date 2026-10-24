@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { type CodexRpc, RpcError } from "./rpc";
 import { type Item, type Thread, type Turn, object, string } from "../lib/protocol";
 import { loadHistory, readHistoryTurns } from "./history";
@@ -116,11 +117,17 @@ export async function refreshCodexHistory(rpc: CodexRpc, thread: Thread, previou
     return loadHistory(rpc, thread);
   }
 
-  return loadTail(rpc, thread, previous).catch((error: unknown) => {
-    if (!(error instanceof RpcError) || error.code !== METHOD_NOT_FOUND) {
-      throw error;
-    }
+  const completed = await captureResult(loadTail(rpc, thread, previous));
 
-    return loadHistory(rpc, thread);
-  });
+  if (completed.ok) {
+    return completed.value;
+  }
+
+  const error = completed.error;
+
+  if (!(error instanceof RpcError) || error.code !== METHOD_NOT_FOUND) {
+    throw error;
+  }
+
+  return loadHistory(rpc, thread);
 }

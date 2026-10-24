@@ -55,11 +55,17 @@ export async function selectRelease(home, release) {
 @returns {Promise<string | undefined>} Previous release target, absent only on first installation.
 */
 export async function currentRelease(home) {
-  return readlink(path.join(home, "current")).catch((/** @type {unknown} */ error) => {
-    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
-      throw error;
-    }
-  });
+  const [completed] = await Promise.allSettled([readlink(path.join(home, "current"))]);
+
+  if (completed.status === "fulfilled") {
+    return completed.value;
+  }
+
+  const error = /** @type {unknown} */ (completed.reason);
+
+  if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+    throw error;
+  }
 }
 
 /** Preserve existing shell settings while adding the executable search path once.

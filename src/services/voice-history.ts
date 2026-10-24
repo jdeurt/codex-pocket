@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { dataSchema } from "../lib/protocol";
 import { voiceHistorySchema } from "../lib/voice-history";
 import { mergeCaptions, type VoiceStore } from "../state/voice";
@@ -43,29 +44,30 @@ export function createCaptionHistory(store: VoiceStore, url: string) {
     mergeCaptions(store, voiceHistorySchema.parse(result.history));
     store.setState({ historyError: "" });
   };
-  const reload = () => {
+  const reload = async () => {
     const task = refresh();
     const attempt = generation;
 
-    void task.catch(() => {
-      if (isCurrent(attempt) && !pending?.signal.aborted) {
-        store.setState({ historyError: "Voice history could not load. Reconnect Pocket and try again." });
-      }
-    });
+    const result = await captureResult(task);
+
+    if (!result.ok && isCurrent(attempt) && !pending?.signal.aborted) {
+      store.setState({ historyError: "Voice history could not load. Reconnect Pocket and try again." });
+    }
   };
+  const onHistory = () => void reload();
 
   return {
     refresh,
     connect: () => {
       isActive = true;
-      reload();
-      globalThis.addEventListener("pocket-voice-history", reload);
+      void reload();
+      globalThis.addEventListener("pocket-voice-history", onHistory);
 
       return () => {
         isActive = false;
         generation++;
         pending?.abort();
-        globalThis.removeEventListener("pocket-voice-history", reload);
+        globalThis.removeEventListener("pocket-voice-history", onHistory);
       };
     },
   };

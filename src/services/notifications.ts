@@ -68,16 +68,24 @@ export function createNotificationController() {
       await recordSubscription(await matchingSubscription(registration, publicKey), controller.signal);
     }
 
-    void prepare().catch((error_: unknown) => {
-      reportClient("notifications.prepare_failed", clientError(error_), "error");
+    async function initialize() {
+      const prepared = await t(prepare);
+
+      if (prepared.ok) {
+        return;
+      }
+
+      reportClient("notifications.prepare_failed", clientError(prepared.error), "error");
 
       if (controller.signal.aborted) {
         return;
       }
 
-      setError(error_ instanceof Error ? error_.message : "Couldn't prepare notifications.");
+      setError(prepared.error instanceof Error ? prepared.error.message : "Couldn't prepare notifications.");
       setStatus("unsupported");
-    });
+    }
+
+    void initialize();
 
     return () => {
       controller.abort();

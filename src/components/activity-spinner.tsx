@@ -1,4 +1,6 @@
 "use client";
+import { t as captureResult } from "try";
+
 import "./activity-spinner.css";
 import { type SpinnerPreference, spinnerPreferenceSchema } from "@/lib/spinner";
 import { useEffect, useId, useState, useSyncExternalStore } from "react";
@@ -64,13 +66,9 @@ export function ActivitySpinner() {
 
       isRefreshing = true;
 
-      await readPreference()
-        .catch(() => {
-          // Keep the last preference through a transient disconnect; initial state is the SVG.
-        })
-        .finally(() => {
-          isRefreshing = false;
-        });
+      // Retain the last preference through a transient disconnect.
+      await captureResult(readPreference);
+      isRefreshing = false;
     }
 
     const visible = () => void refresh();

@@ -1,3 +1,4 @@
+import { t } from "try";
 import { clientError, reportClient } from "@/lib/client-logging";
 import { object, string } from "@/lib/protocol";
 import { post } from "@/lib/client-api";
@@ -19,13 +20,17 @@ export function subscribeNotificationPresence(endpoint: string) {
     source = undefined;
   }
 
-  function answerProbe(data: string) {
+  async function answerProbe(data: string) {
     const challengeId = string(object(JSON.parse(data)).challengeId);
 
-    if (challengeId) {
-      void post("/api/notifications/presence", { deviceId, challengeId }).catch((error: unknown) => {
-        reportClient("notifications.presence_failed", clientError(error), "error");
-      });
+    if (!challengeId) {
+      return;
+    }
+
+    const sent = await t(post, "/api/notifications/presence", { deviceId, challengeId });
+
+    if (!sent.ok) {
+      reportClient("notifications.presence_failed", clientError(sent.error), "error");
     }
   }
 
@@ -34,7 +39,7 @@ export function subscribeNotificationPresence(endpoint: string) {
       return;
     }
 
-    answerProbe(event.data);
+    void answerProbe(event.data);
   }
 
   function openPresenceSource() {
@@ -56,10 +61,20 @@ export function subscribeNotificationPresence(endpoint: string) {
     openPresenceSource();
   }
 
-  void crypto.subtle.digest("SHA-256", new TextEncoder().encode(endpoint)).then((digest) => {
-    deviceId = [...new Uint8Array(digest)].map((value) => value.toString(HEX_RADIX).padStart(2, "0")).join("");
+  async function identifyDevice() {
+    const result = await t(() => crypto.subtle.digest("SHA-256", new TextEncoder().encode(endpoint)));
+
+    if (!result.ok) {
+      reportClient("notifications.presence_failed", clientError(result.error), "error");
+
+      return;
+    }
+
+    deviceId = [...new Uint8Array(result.value)].map((value) => value.toString(HEX_RADIX).padStart(2, "0")).join("");
     connect();
-  });
+  }
+
+  void identifyDevice();
   document.addEventListener("visibilitychange", connect);
   globalThis.addEventListener("pageshow", connect);
   globalThis.addEventListener("pagehide", close);

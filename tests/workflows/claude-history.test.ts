@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { type AdapterOptions } from "../../src/server/harness/types";
 import { type AgentRecord } from "../../src/server/agent-sources";
 import { AgentReadCache } from "../../src/server/agent-read-cache";
@@ -138,10 +139,14 @@ async function verifyWrites(root: string) {
   };
   const adapter = new ClaudeAdapter(options);
 
-  await verifyReload(root, store, adapter, options, sessionId).finally(async () => {
-    await adapter.close();
-    store.close();
-  });
+  const completed = await captureResult(verifyReload(root, store, adapter, options, sessionId));
+
+  await adapter.close();
+  store.close();
+
+  if (!completed.ok) {
+    throw completed.error;
+  }
 }
 
 await test(

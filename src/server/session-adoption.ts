@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { type Config, configSchema } from "./config";
 import { type Thread, object, string } from "../lib/protocol";
 import { CodexRpc } from "./rpc";
@@ -70,12 +71,14 @@ Connect to saved history or to the explicitly selected owning server.
 export async function sessionClient(config: Config, filename?: string) {
   const rpc = new CodexRpc();
 
-  return connectSession(rpc, config, filename)
-    .then(() => rpc)
-    .catch(async (error: unknown) => {
-      await rpc.shutdown();
-      throw error;
-    });
+  const connected = await captureResult(connectSession, rpc, config, filename);
+
+  if (connected.ok) {
+    return rpc;
+  }
+
+  await rpc.shutdown();
+  throw connected.error;
 }
 
 /**
@@ -161,9 +164,15 @@ Inspect a session before adding tracking, without sending input or resuming a sa
 export async function inspectAdoption(config: Config, input: AdoptionInput) {
   const rpc = await sessionClient(config, input.socketPath);
 
-  return inspectSession(rpc, input).finally(async () => {
-    await rpc.shutdown();
-  });
+  const completed = await captureResult(inspectSession(rpc, input));
+
+  await rpc.shutdown();
+
+  if (!completed.ok) {
+    throw completed.error;
+  }
+
+  return completed.value;
 }
 
 /**
@@ -214,9 +223,15 @@ Discover saved sessions with previews, or only sessions loaded by a selected ser
 export async function listAdoptableSessions(config: Config, input: z.infer<typeof sessionListInput>) {
   const rpc = await sessionClient(config, input.socketPath);
 
-  return sessionPage(rpc, input).finally(async () => {
-    await rpc.shutdown();
-  });
+  const completed = await captureResult(sessionPage(rpc, input));
+
+  await rpc.shutdown();
+
+  if (!completed.ok) {
+    throw completed.error;
+  }
+
+  return completed.value;
 }
 
 /**

@@ -254,11 +254,19 @@ if (process.env.CODEX_TEST_ACTIVITY === "1") {
                 resolve(prefixes.size);
               };
 
-              source.addEventListener("message", (event: MessageEvent<string>) => {
-                void receive(event).catch((error: unknown) => {
-                  reject(error instanceof Error ? error : new Error("Invalid snapshot.", { cause: error }));
-                });
-              });
+              async function processSnapshot(event: MessageEvent<string>) {
+                const [result] = await Promise.allSettled([receive(event)]);
+
+                if (result.status === "fulfilled") {
+                  return;
+                }
+
+                const error: unknown = result.reason;
+
+                reject(error instanceof Error ? error : new Error("Invalid snapshot.", { cause: error }));
+              }
+
+              source.addEventListener("message", (event: MessageEvent<string>) => void processSnapshot(event));
             })
         ),
       };

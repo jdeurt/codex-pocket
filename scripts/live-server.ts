@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { type Config, configSchema } from "../src/server/config";
 import { CodexRpc } from "../src/server/rpc";
 import { mkdir } from "node:fs/promises";
@@ -53,12 +54,18 @@ async function createSession(project: string) {
   });
   const rpc = new CodexRpc();
 
-  return rpc
-    .connect(config)
-    .then(async () => ({ config, threadId: await startThread(rpc, config) }))
-    .finally(() => {
-      rpc.close();
-    });
+  const started = await captureResult(rpc.connect(config));
+  const executed = started.ok
+    ? await captureResult(async () => ({ config, threadId: await startThread(rpc, config) }))
+    : started;
+
+  rpc.close();
+
+  if (!executed.ok) {
+    throw executed.error;
+  }
+
+  return executed.value;
 }
 
 /**
@@ -92,10 +99,14 @@ async function hostSession(directory: string, config: Config, threadId: string) 
   process.once("SIGTERM", stop);
   process.once("SIGINT", stop);
 
-  await once(host, "exit").finally(() => {
-    process.removeListener("SIGTERM", stop);
-    process.removeListener("SIGINT", stop);
-  });
+  const completed = await captureResult(once(host, "exit"));
+
+  process.removeListener("SIGTERM", stop);
+  process.removeListener("SIGINT", stop);
+
+  if (!completed.ok) {
+    throw completed.error;
+  }
 }
 
 /**
@@ -107,12 +118,14 @@ Archives the live test conversation using a separate bounded native connection.
 async function archiveSession(config: Config, threadId: string) {
   const cleanup = new CodexRpc();
 
-  await cleanup
-    .connect(config)
-    .then(() => cleanup.request("thread/archive", { threadId }))
-    .finally(() => {
-      cleanup.close();
-    });
+  const started = await captureResult(cleanup.connect(config));
+  const executed = started.ok ? await captureResult(() => cleanup.request("thread/archive", { threadId })) : started;
+
+  cleanup.close();
+
+  if (!executed.ok) {
+    throw executed.error;
+  }
 }
 
 /**

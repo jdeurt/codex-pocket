@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { mkdir, writeFile } from "node:fs/promises";
 import { RestartHost } from "../tests/fixtures/restart-host";
 import path from "node:path";
@@ -11,11 +12,15 @@ Owns the private fake bridge process for all restart scenarios and joins it on f
 async function check(directory: string) {
   const host = new RestartHost(directory);
 
-  await restartScenarios(host, directory).finally(async () => {
-    if (host.isRunning) {
-      await host.stop();
-    }
-  });
+  const completed = await captureResult(restartScenarios(host, directory));
+
+  if (host.isRunning) {
+    await host.stop();
+  }
+
+  if (!completed.ok) {
+    throw completed.error;
+  }
 }
 
 /**

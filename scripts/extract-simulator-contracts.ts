@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
@@ -79,9 +80,13 @@ Own and remove the native generator's temporary output on every outcome.
 async function extract() {
   const temporary = await mkdtemp(path.join(os.tmpdir(), "pocket-contracts-"));
 
-  await writeContracts(temporary, process.env.CODEX_BINARY ?? "codex").finally(() =>
-    rm(temporary, { recursive: true, force: true })
-  );
+  const completed = await captureResult(writeContracts(temporary, process.env.CODEX_BINARY ?? "codex"));
+
+  await rm(temporary, { recursive: true, force: true });
+
+  if (!completed.ok) {
+    throw completed.error;
+  }
 }
 
 await extract();

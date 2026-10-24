@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { createStore } from "@tobilu/qmd";
 import { stat } from "node:fs/promises";
 import { lock } from "proper-lockfile";
@@ -67,15 +68,18 @@ function reportEmbeddingErrors(errors: number, retrieval: RetrievalMode) {
 @param retrieval - Capability state to downgrade if indexing failed.
 */
 async function embedLocal(store: Awaited<ReturnType<typeof createStore>>, model: string, retrieval: RetrievalMode) {
-  await store
-    .embed({ model, collection: "tasks" })
-    .then((result) => {
-      reportEmbeddingErrors(result.errors, retrieval);
-    })
-    .catch((error: unknown) => {
-      retrieval.mode = "keyword";
-      retrieval.reasons.push(`Local embeddings unavailable: ${error instanceof Error ? error.message : String(error)}`);
-    });
+  const embedded = await captureResult(() => store.embed({ model, collection: "tasks" }));
+
+  if (embedded.ok) {
+    reportEmbeddingErrors(embedded.value.errors, retrieval);
+
+    return;
+  }
+
+  const error = embedded.error;
+
+  retrieval.mode = "keyword";
+  retrieval.reasons.push(`Local embeddings unavailable: ${error instanceof Error ? error.message : String(error)}`);
 }
 
 /** Take the optional inference slot without delaying keyword retrieval behind a local model job.
@@ -84,13 +88,20 @@ async function embedLocal(store: Awaited<ReturnType<typeof createStore>>, model:
 @returns A release callback, or null when inference is busy/unavailable.
 */
 async function inferenceSlot(owner: string, retrieval: RetrievalMode) {
-  return lock(path.join(taskDirectory(owner), "qmd", "inference"), { realpath: false }).catch((error: unknown) => {
-    retrieval.mode = "keyword";
-    retrieval.reranked = false;
-    retrieval.reasons.push(`Local inference busy or unavailable; using keyword retrieval: ${String(error)}`);
+  const filename = path.join(taskDirectory(owner), "qmd", "inference");
+  const completed = await captureResult(lock, filename, { realpath: false });
 
-    return null;
-  });
+  if (completed.ok) {
+    return completed.value;
+  }
+
+  const error = completed.error;
+
+  retrieval.mode = "keyword";
+  retrieval.reranked = false;
+  retrieval.reasons.push(`Local inference busy or unavailable; using keyword retrieval: ${String(error)}`);
+
+  return null;
 }
 
 /** Run only model work for which this process owns the optional inference slot.
@@ -154,9 +165,15 @@ async function refreshStore(
     return searchTaskIndex(store, owner, documents, query ?? "", offset, retrieval);
   }
 
-  return modelSearch(store, owner, documents, embed, query, offset, retrieval).finally(async () => {
-    await release();
-  });
+  const completed = await captureResult(modelSearch(store, owner, documents, embed, query, offset, retrieval));
+
+  await release();
+
+  if (!completed.ok) {
+    throw completed.error;
+  }
+
+  return completed.value;
 }
 
 /** Own the store lifecycle while holding the cross-process parent lock.
@@ -193,9 +210,17 @@ async function updateAndSearch(
     },
   });
 
-  return refreshStore(store, owner, documents, embed, query, offset, retrieval, releaseIndex).finally(async () => {
-    await store.close();
-  });
+  const completed = await captureResult(
+    refreshStore(store, owner, documents, embed, query, offset, retrieval, releaseIndex)
+  );
+
+  await store.close();
+
+  if (!completed.ok) {
+    throw completed.error;
+  }
+
+  return completed.value;
 }
 
 /** Reconcile and query one private QMD store in a dedicated host subprocess.
@@ -222,7 +247,13 @@ export async function runTaskIndex(owner: string, query?: string, offset = 0, is
     await unlock();
   };
 
-  return updateAndSearch(owner, query, offset, isKeywordOnly, release).finally(async () => {
-    await release();
-  });
+  const completed = await captureResult(updateAndSearch(owner, query, offset, isKeywordOnly, release));
+
+  await release();
+
+  if (!completed.ok) {
+    throw completed.error;
+  }
+
+  return completed.value;
 }

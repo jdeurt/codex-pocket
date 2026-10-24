@@ -17,9 +17,11 @@ Fetch a navigation normally and use only the static offline page on network fail
 @returns {Promise<Response>} Network response or the existing offline fallback.
 */
 async function navigate(request) {
-  return globalThis
-    .fetch(request)
-    .catch(async () => (await globalThis.caches.match("/offline.html")) ?? Response.error());
+  const [completed] = await Promise.allSettled([globalThis.fetch(request)]);
+
+  return completed.status === "fulfilled"
+    ? completed.value
+    : ((await globalThis.caches.match("/offline.html")) ?? Response.error());
 }
 
 /**
@@ -55,15 +57,16 @@ Decode native push JSON without letting an empty or malformed body hide the visi
 @returns {Promise<unknown>} Untrusted JSON value, or undefined when no valid JSON is present.
 */
 async function readPushData(data) {
-  return Promise.resolve(data)
-    .then((input) => {
-      const value = /** @type {unknown} */ (input?.json());
+  const [read] = await Promise.allSettled([
+    Promise.try(() => {
+      const value = /** @type {unknown} */ (data?.json());
 
       return value;
-    })
-    .catch(() => {
-      // Malformed push JSON uses the default visible notification.
-    });
+    }),
+  ]);
+
+  // Malformed push JSON retains the visible default notification.
+  return read.status === "fulfilled" ? read.value : undefined;
 }
 
 /**
@@ -81,6 +84,23 @@ async function notificationPayload(data) {
     tag: notificationText("tag" in fields ? fields.tag : undefined, "pocket-turn-complete"),
     url: "/",
   };
+}
+
+/** Decode and show one push message within the worker event lifetime.
+@param {ServiceWorkerGlobalScope} worker - Receiving worker.
+@param {PushMessageData | null} data - Optional provider payload.
+@returns {Promise<void>} Completion of visible notification delivery.
+*/
+async function showPush(worker, data) {
+  const payload = await notificationPayload(data);
+
+  await worker.registration.showNotification(payload.title, {
+    body: payload.body,
+    icon: "/icon-192.png",
+    badge: "/icon-192.png",
+    tag: payload.tag,
+    data: { url: payload.url },
+  });
 }
 
 /**
@@ -118,17 +138,7 @@ function registerWorker(worker) {
     }
   });
   worker.addEventListener("push", (event) => {
-    event.waitUntil(
-      notificationPayload(event.data).then((payload) =>
-        worker.registration.showNotification(payload.title, {
-          body: payload.body,
-          icon: "/icon-192.png",
-          badge: "/icon-192.png",
-          tag: payload.tag,
-          data: { url: payload.url },
-        })
-      )
-    );
+    event.waitUntil(showPush(worker, event.data));
   });
   worker.addEventListener("notificationclick", (event) => {
     event.notification.close();

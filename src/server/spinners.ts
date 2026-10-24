@@ -134,9 +134,15 @@ Keep the managed file open until its read and any tone migration finish.
   private async readManagedAsset(id: string, asset: z.infer<typeof assetInfoSchema>) {
     const file = openSync(path.join(this.assets, id), constants.O_RDONLY | constants.O_NOFOLLOW);
 
-    return this.assetBytes(file, id, asset).finally(() => {
-      closeSync(file);
-    });
+    const completed = await attempt(this.assetBytes(file, id, asset));
+
+    closeSync(file);
+
+    if (!completed.ok) {
+      throw completed.error;
+    }
+
+    return completed.value;
   }
 
   /**

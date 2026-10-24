@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { type Turn, object } from "../../src/lib/protocol";
 import { notifyTurnComplete, saveSubscription } from "../../src/server/push";
 import { createECDH, randomBytes } from "node:crypto";
@@ -109,21 +110,25 @@ await test("delivery skips only the acknowledged foreground device, keeps backgr
   process.env.CODEX_THREAD_ID = "push-test";
   process.env.CODEX_ALLOWED_ORIGINS = "https://pocket.example";
 
-  await replayDelivery(t, sent).finally(async () => {
-    const previousEnvironment = {
-      CODEX_POCKET_STATE_DIR: previousState,
-      CODEX_THREAD_ID: previousThread,
-      CODEX_ALLOWED_ORIGINS: previousOrigins,
-    };
+  const completed = await captureResult(replayDelivery(t, sent));
 
-    for (const [name, value] of Object.entries(previousEnvironment)) {
-      if (value === undefined) {
-        Reflect.deleteProperty(process.env, name);
-      } else {
-        process.env[name] = value;
-      }
+  const previousEnvironment = {
+    CODEX_POCKET_STATE_DIR: previousState,
+    CODEX_THREAD_ID: previousThread,
+    CODEX_ALLOWED_ORIGINS: previousOrigins,
+  };
+
+  for (const [name, value] of Object.entries(previousEnvironment)) {
+    if (value === undefined) {
+      Reflect.deleteProperty(process.env, name);
+    } else {
+      process.env[name] = value;
     }
+  }
 
-    await rm(directory, { recursive: true, force: true });
-  });
+  await rm(directory, { recursive: true, force: true });
+
+  if (!completed.ok) {
+    throw completed.error;
+  }
 });

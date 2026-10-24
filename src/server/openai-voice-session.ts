@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 /* eslint-disable jsdoc/require-param, jsdoc/require-returns -- Operations share one voice connection owner. */
 import { type Data, object, string } from "../lib/protocol";
 import { OpenAIRealtime } from "./openai-realtime";
@@ -100,9 +101,11 @@ export class OpenAIVoiceSession extends EventTarget {
   ) {
     await previous;
 
-    await history.finalize(event, sessionId, role, afterItemId).catch(() => {
+    const completed = await captureResult(history.finalize(event, sessionId, role, afterItemId));
+
+    if (!completed.ok) {
       this.publish({ type: "warning", error: "Voice history could not be saved. Your live call is still connected." });
-    });
+    }
   }
 
   /**
@@ -174,12 +177,12 @@ export class OpenAIVoiceSession extends EventTarget {
       }
 
       case "error": {
-        this.disconnect(string(object(event.error).message) || "OpenAI Realtime failed.");
+        void this.disconnect(string(object(event.error).message) || "OpenAI Realtime failed.");
         break;
       }
 
       case "closed": {
-        this.disconnect("OpenAI Realtime disconnected. Start voice again to continue.");
+        void this.disconnect("OpenAI Realtime disconnected. Start voice again to continue.");
         break;
       }
     }
@@ -223,7 +226,7 @@ export class OpenAIVoiceSession extends EventTarget {
         transport.send(event);
       },
       () => {
-        this.disconnect("Realtime tool results could not be delivered. Start voice again to continue.");
+        void this.disconnect("Realtime tool results could not be delivered. Start voice again to continue.");
       }
     );
     const answer = await transport.connect(settings.key, settings.voice, sdp, settings.model, endpoint, context);
@@ -264,13 +267,19 @@ export class OpenAIVoiceSession extends EventTarget {
     this.phase = "connecting";
     const attempt = ++this.attempt;
 
-    return this.connect(attempt, sdp, endpoint).catch((error: unknown) => {
-      if (this.attempt === attempt) {
-        this.disconnect(error instanceof Error ? error.message : "OpenAI Realtime could not start.");
-      }
+    const completed = await captureResult(this.connect(attempt, sdp, endpoint));
 
-      throw error;
-    });
+    if (completed.ok) {
+      return completed.value;
+    }
+
+    const error = completed.error;
+
+    if (this.attempt === attempt) {
+      void this.disconnect(error instanceof Error ? error.message : "OpenAI Realtime could not start.");
+    }
+
+    throw error;
   }
 
   /**
@@ -316,7 +325,7 @@ export class OpenAIVoiceSession extends EventTarget {
   /**
   Revoke stale control and tool callbacks immediately and release the provider call.
   */
-  disconnect(message: string) {
+  async disconnect(message: string) {
     this.attempt++;
     const transport = this.transport;
 
@@ -327,8 +336,11 @@ export class OpenAIVoiceSession extends EventTarget {
     this.phase = "idle";
     this.error = message;
     this.publish({ type: "error", error: message });
-    void transport?.close().catch(() => {
+
+    const closed = await captureResult(() => transport?.close());
+
+    if (!closed.ok) {
       this.publish({ type: "warning", error: "Realtime call closure could not be confirmed." });
-    });
+    }
   }
 }

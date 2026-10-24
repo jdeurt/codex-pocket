@@ -106,9 +106,13 @@ export class DelegationWorker {
     // Reserve the active slot before even a synchronous adapter can finish.
     await Promise.resolve();
 
-    await run.execute().finally(() => {
-      this.finishRun(child, run);
-    });
+    const completed = await captureResult(run.execute());
+
+    this.finishRun(child, run);
+
+    if (!completed.ok) {
+      throw completed.error;
+    }
   }
 
   /**
@@ -184,13 +188,13 @@ export class DelegationWorker {
   @returns Completion of this closure attempt.
   */
   private async closeSafely(child: SidePocket) {
-    await this.closeRequested(child)
-      .catch((error: unknown) => {
-        log().error({ error, childId: child.id }, "side_pocket.close_failed");
-      })
-      .finally(() => {
-        this.closing.delete(child.id);
-      });
+    const closed = await captureResult(() => this.closeRequested(child));
+
+    this.closing.delete(child.id);
+
+    if (!closed.ok) {
+      log().error({ error: closed.error, childId: child.id }, "side_pocket.close_failed");
+    }
   }
 
   /**
@@ -255,9 +259,7 @@ export class DelegationWorker {
         continue;
       }
 
-      const error = outcome.error;
-
-      log().error({ error }, "side_pocket.worker_failed");
+      log().error({ error: outcome.error }, "side_pocket.worker_failed");
     }
   }
 

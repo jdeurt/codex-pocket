@@ -1,3 +1,5 @@
+import { t as captureResult } from "try";
+
 const PREPARATION_TIMEOUT_MS = 5000;
 
 /**
@@ -18,16 +20,24 @@ Bound native worker preparation and clear its timeout after either outcome.
 export async function prepareRegistration() {
   let timer: ReturnType<typeof setTimeout> | undefined;
 
-  return Promise.race([
-    readyRegistration(),
-    new Promise<never>((_, reject) => {
-      timer = setTimeout(() => {
-        reject(new Error("Open the installed Pocket app to enable notifications."));
-      }, PREPARATION_TIMEOUT_MS);
-    }),
-  ]).finally(() => {
-    clearTimeout(timer);
-  });
+  const completed = await captureResult(
+    Promise.race([
+      readyRegistration(),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          reject(new Error("Open the installed Pocket app to enable notifications."));
+        }, PREPARATION_TIMEOUT_MS);
+      }),
+    ])
+  );
+
+  clearTimeout(timer);
+
+  if (!completed.ok) {
+    throw completed.error;
+  }
+
+  return completed.value;
 }
 
 /**

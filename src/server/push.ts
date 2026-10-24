@@ -78,9 +78,11 @@ function withState<T>(action: (state: PushState) => T | Promise<T>) {
   const previous = operations.serial;
 
   async function commitQueuedState() {
-    await previous.catch(() => {
+    const completed = await t(previous);
+
+    if (!completed.ok) {
       // A failed operation must not block later subscriptions or notifications.
-    });
+    }
 
     return pushTransaction(action);
   }

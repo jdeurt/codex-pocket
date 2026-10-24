@@ -7,7 +7,7 @@ Registers native host integrations once for each Next Node server instance.
 export async function register() {
   const native = process.env.NEXT_RUNTIME === "nodejs" ? await import("./server/register") : undefined;
 
-  native?.registerNode();
+  void native?.registerNode();
 }
 
 /**

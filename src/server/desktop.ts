@@ -57,10 +57,28 @@ export async function resolveDesktopReplies(snapshot: Snapshot, rpc: CodexRpc | 
       continue;
     }
 
-    await resolveReply(path.resolve(localDirectory(), name), snapshot, rpc, publish).catch((error: unknown) => {
-      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
-        throw error;
-      }
-    });
+    const filename = path.resolve(localDirectory(), name);
+    const completed = await attempt(resolveReply, filename, snapshot, rpc, publish);
+
+    if (completed.ok) {
+      continue;
+    }
+
+    const error = completed.error;
+
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+      throw error;
+    }
+  }
+}
+
+/** Poll desktop input without rejecting the host timer callback.
+@param args - Parent projection, transport and publication callback.
+*/
+export async function pollDesktopReplies(...args: Parameters<typeof resolveDesktopReplies>) {
+  const result = await attempt(resolveDesktopReplies, ...args);
+
+  if (!result.ok) {
+    console.error(result.error);
   }
 }

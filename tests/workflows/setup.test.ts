@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { saveSetupEnvironment } from "../../scripts/setup-env";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { parseEnv, promisify } from "node:util";
@@ -79,7 +80,11 @@ async function verifyServiceSetup(directory: string) {
 await test("setup from a running service retains the saved chat and native settings without sending a turn", async () => {
   const directory = await mkdtemp(path.join(tmpdir(), "pocket-service-setup-"));
 
-  await verifyServiceSetup(directory).finally(async () => {
-    await rm(directory, { recursive: true, force: true });
-  });
+  const completed = await captureResult(verifyServiceSetup(directory));
+
+  await rm(directory, { recursive: true, force: true });
+
+  if (!completed.ok) {
+    throw completed.error;
+  }
 });

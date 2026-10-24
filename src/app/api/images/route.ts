@@ -1,4 +1,4 @@
-import { errorResponse, guard } from "@/server/http";
+import { endpoint, guard } from "@/server/http";
 import { itemImageSources } from "@/lib/images";
 import { renderImage } from "@/server/images";
 import { requestBridge } from "@/server/named-pockets";
@@ -83,8 +83,8 @@ Serves parent images after host, origin and same-site checks.
 @param request - Incoming image request whose state has not been accessed.
 @returns Private rendition or the existing logged error response.
 */
-export async function GET(request: Request) {
-  return authorizeImage(request)
-    .then(() => imageResponse(request))
-    .catch(errorResponse);
-}
+export const GET = endpoint(async (request: Request) => {
+  await authorizeImage(request);
+
+  return imageResponse(request);
+});

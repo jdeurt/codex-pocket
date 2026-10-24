@@ -32,14 +32,15 @@ Claim due occurrences and disable invalid recurrences before refreshing the pare
 */
   private async collectDue(now: number) {
     for (const schedule of this.store.due(this.threadId, now)) {
-      await nextOccurrence(schedule.calendar, now)
-        .then((next) => {
-          this.store.occurrences.claim(schedule, next, now);
-        })
-        .catch(async (error: unknown) => {
-          log().error({ id: schedule.id, error }, "schedule.recurrence_failed");
-          await this.store.update(this.threadId, schedule.id, { active: false }, schedule.revision);
-        });
+      const next = await attempt(nextOccurrence, schedule.calendar, now);
+      const claimed = next.ok ? attempt(() => this.store.occurrences.claim(schedule, next.value, now)) : next;
+
+      if (claimed.ok) {
+        continue;
+      }
+
+      log().error({ id: schedule.id, error: claimed.error }, "schedule.recurrence_failed");
+      await this.store.update(this.threadId, schedule.id, { active: false }, schedule.revision);
     }
 
     this.bridge.refreshScheduled();
@@ -101,14 +102,14 @@ Run one non-overlapping due-collection and dispatch cycle, retaining diagnostic 
 
     this.running = true;
 
-    await this.collectDue(now)
-      .then(() => this.dispatch())
-      .catch((error: unknown) => {
-        log().error({ error }, "schedule.tick_failed");
-      })
-      .finally(() => {
-        this.running = false;
-      });
+    const collected = await attempt(() => this.collectDue(now));
+    const dispatched = collected.ok ? await attempt(() => this.dispatch()) : collected;
+
+    this.running = false;
+
+    if (!dispatched.ok) {
+      log().error({ error: dispatched.error }, "schedule.tick_failed");
+    }
   }
 
   /**

@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { test as base } from "@playwright/test";
 import { type ChildProcess, spawn } from "node:child_process";
 import { createServer } from "node:net";
@@ -46,11 +47,9 @@ async function requireFreePort(origin: string) {
 @returns Whether the application has a successful version response.
 */
 async function isReady(origin: string) {
-  return fetch(`${origin}/api/version`, { signal: AbortSignal.timeout(PROBE_MS) })
-    .then((response) => response.ok)
-    .catch(() => {
-      return false;
-    });
+  const response = await captureResult(fetch, `${origin}/api/version`, { signal: AbortSignal.timeout(PROBE_MS) });
+
+  return response.ok && response.value.ok;
 }
 
 /** Wait for successful application readiness and retain startup diagnostics on failure.
@@ -108,25 +107,32 @@ export const test = base.extend<object, { application: undefined }>({
         output.push(chunk.toString());
       });
 
-      await ready(host, origin, output)
-        .then(() => use(undefined))
-        .finally(async () => {
-          host.kill("SIGTERM");
-          const deadline = setTimeout(() => host.kill("SIGKILL"), SHUTDOWN_MS);
+      const started = await captureResult(ready(host, origin, output));
+      const executed = started.ok ? await captureResult(() => use(undefined)) : started;
 
-          await exited;
-          clearTimeout(deadline);
-          await mkdir(info.project.outputDir, { recursive: true });
-          const logName = `fixture-${info.project.name}-worker-${String(info.workerIndex)}.log`;
+      host.kill("SIGTERM");
+      const deadline = setTimeout(() => host.kill("SIGKILL"), SHUTDOWN_MS);
 
-          await writeFile(path.join(info.project.outputDir, logName), output.join(""));
+      await exited;
+      clearTimeout(deadline);
+      await mkdir(info.project.outputDir, { recursive: true });
+      const logName = `fixture-${info.project.name}-worker-${String(info.workerIndex)}.log`;
 
-          await assertExpectedRequests(path.join(directory, "state")).finally(async () => {
-            await rm(directory, { recursive: true, force: true });
-          });
+      await writeFile(path.join(info.project.outputDir, logName), output.join(""));
 
-          assert.equal(host.exitCode, 0, `Workflow server failed (${String(host.signalCode)}):\n${output.join("")}`);
-        });
+      const completed = await captureResult(assertExpectedRequests(path.join(directory, "state")));
+
+      await rm(directory, { recursive: true, force: true });
+
+      if (!completed.ok) {
+        throw completed.error;
+      }
+
+      assert.equal(host.exitCode, 0, `Workflow server failed (${String(host.signalCode)}):\n${output.join("")}`);
+
+      if (!executed.ok) {
+        throw executed.error;
+      }
     },
     { scope: "worker", auto: true },
   ],

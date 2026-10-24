@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { type AgentSession, type SessionEntry, type SessionManager } from "@earendil-works/pi-coding-agent";
 import { type TaskContextState, groupTaskContext, ingestTaskEntry, readTaskState, saveTaskState } from "./task-context";
 import { isSameTask } from "./task-decisions";
@@ -34,9 +35,23 @@ export class PiTaskContext {
   @returns Completion of this operation.
   */
   private enqueue(operation: () => Promise<void>) {
-    this.serial = this.serial.catch(this.onError).then(operation);
+    this.serial = this.runQueued(this.serial, operation);
 
     return this.serial;
+  }
+
+  /** Wait for the preceding archive write before executing the next mutation.
+  @param previous - Completion reserved by the preceding owner.
+  @param operation - Next private-state mutation.
+  */
+  private async runQueued(previous: Promise<void>, operation: () => Promise<void>) {
+    const prior = await captureResult(previous);
+
+    if (!prior.ok) {
+      this.onError(prior.error);
+    }
+
+    await operation();
   }
 
   /** Group a changed active set while allowing incoming user work to preempt the provider call.
@@ -48,16 +63,20 @@ export class PiTaskContext {
 
     this.passController = controller;
 
-    await this.groupAndCompact(session, key, controller.signal)
-      .catch((error: unknown) => {
-        // Provider/compaction failures retain the checkpoint and must not reject later user submissions.
-        if (!(error instanceof Error && error.name === "AbortError")) {
-          this.onError(error);
-        }
-      })
-      .finally(() => {
-        this.passController = undefined;
-      });
+    const grouped = await captureResult(() => this.groupAndCompact(session, key, controller.signal));
+
+    this.passController = undefined;
+
+    if (grouped.ok) {
+      return;
+    }
+
+    const error = grouped.error;
+
+    // Retain the checkpoint; provider failures must not reject later user submissions.
+    if (!(error instanceof Error && error.name === "AbortError")) {
+      this.onError(error);
+    }
   }
 
   /** Apply checkpointed grouping, then use Pi's native compactor with exact archive references.
@@ -114,36 +133,53 @@ export class PiTaskContext {
     await saveTaskState(this.owner, this.state);
   }
 
+  /** Report an idle timer pass without rejecting the event loop callback.
+  @param session - Session whose idle state controls grouping.
+  */
+  private async passWhenIdle(session: AgentSession) {
+    const passed = await captureResult(() => this.pass(session));
+
+    if (!passed.ok) {
+      this.onError(passed.error);
+    }
+  }
+
   /** Queue a committed source-tail read after the SDK's synchronous message persistence.
   @param manager - Authoritative append-only Pi session source; events can precede its append.
   */
-  sync(manager: SessionManager) {
+  async sync(manager: SessionManager) {
     // enqueue awaits the preceding write before reading. message_end's listener returns
     // to Pi so it can append the native entry before this queued operation observes it.
-    void this.enqueue(async () => {
-      if (!this.state) {
-        throw new Error("Task context has not been initialized.");
-      }
+    const synced = await captureResult(() =>
+      this.enqueue(async () => {
+        if (!this.state) {
+          throw new Error("Task context has not been initialized.");
+        }
 
-      const cursor = this.state.sourceCursor;
+        const cursor = this.state.sourceCursor;
 
-      if (cursor && !manager.getEntry(cursor)) {
-        throw new Error("Task ingestion cursor is missing from the Pi source; inspect before replaying history.");
-      }
+        if (cursor && !manager.getEntry(cursor)) {
+          throw new Error("Task ingestion cursor is missing from the Pi source; inspect before replaying history.");
+        }
 
-      const arrived: SessionEntry[] = [];
+        const arrived: SessionEntry[] = [];
 
-      let tail = cursor ? manager.getChildren(cursor) : manager.getEntries();
+        let tail = cursor ? manager.getChildren(cursor) : manager.getEntries();
 
-      while (tail.length > 0) {
-        arrived.push(...tail);
-        tail = cursor ? manager.getChildren(tail.at(LAST_ENTRY)?.id ?? "") : [];
-      }
+        while (tail.length > 0) {
+          arrived.push(...tail);
+          tail = cursor ? manager.getChildren(tail.at(LAST_ENTRY)?.id ?? "") : [];
+        }
 
-      for (const entry of arrived) {
-        await this.ingest(entry);
-      }
-    }).catch(this.onError);
+        for (const entry of arrived) {
+          await this.ingest(entry);
+        }
+      })
+    );
+
+    if (!synced.ok) {
+      this.onError(synced.error);
+    }
   }
 
   /** Restore direct state and ingest only the unprocessed source tail before accepting work.
@@ -153,13 +189,13 @@ export class PiTaskContext {
   async start(manager: SessionManager, session: AgentSession) {
     this.state = await readTaskState(this.owner);
     scheduleTaskIndex(this.owner);
-    this.sync(manager);
+    void this.sync(manager);
     await this.serial;
     this.timer = setInterval(() => {
       scheduleTaskIndex(this.owner);
 
       if (session.isIdle) {
-        void this.pass(session).catch(this.onError);
+        void this.passWhenIdle(session);
       }
     }, PASS_INTERVAL_MS);
     this.timer.unref();
@@ -200,11 +236,17 @@ export class PiTaskContext {
   @returns Completion of all currently queued archive operations.
   */
   async flush() {
-    await this.serial.catch((error: unknown) => {
-      if (!(error instanceof Error && error.name === "AbortError")) {
-        throw error;
-      }
-    });
+    const completed = await captureResult(this.serial);
+
+    if (completed.ok) {
+      return;
+    }
+
+    const error = completed.error;
+
+    if (!(error instanceof Error && error.name === "AbortError")) {
+      throw error;
+    }
   }
 
   /** Stop background classification and flush queued source writes before shutdown.

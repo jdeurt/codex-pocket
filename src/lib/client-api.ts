@@ -15,10 +15,16 @@ async function fetchResponse(path: string, options: RequestInit, requestId: stri
 
   headers.set("X-Pocket-Request-Id", requestId);
 
-  return fetch(pocketUrl(path), { ...options, headers }).catch((error: unknown) => {
-    reportClient("http.network_error", { path, requestId, ...clientError(error) }, "error");
-    throw new Error("Pocket is restarting or unreachable. Your message is saved here.", { cause: error });
-  });
+  const completed = await attempt(fetch(pocketUrl(path), { ...options, headers }));
+
+  if (completed.ok) {
+    return completed.value;
+  }
+
+  const error = completed.error;
+
+  reportClient("http.network_error", { path, requestId, ...clientError(error) }, "error");
+  throw new Error("Pocket is restarting or unreachable. Your message is saved here.", { cause: error });
 }
 
 /**

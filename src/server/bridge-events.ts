@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { type RpcEvent, type Snapshot } from "../lib/protocol";
 import type { Config } from "./config";
 import { contextUsageSchema } from "../lib/usage";
@@ -6,6 +7,29 @@ import { reduceEvent } from "./reducer";
 import { requestFile } from "./request-files";
 import { schedules } from "./schedules";
 import { writeLocal } from "./local-state";
+
+/** Persist the current request projection without rejecting the synchronous event reducer.
+@param state - Parent snapshot whose pending requests have changed.
+*/
+export async function persistRequests(state: Snapshot) {
+  const saved = await captureResult(writeLocal, requestFile(state.threadId), state.requests);
+
+  if (!saved.ok) {
+    console.error(saved.error);
+  }
+}
+
+/** Deliver a completion notification independently of snapshot publication.
+@param threadId - Owning conversation.
+@param turn - Completed native turn.
+*/
+async function notifyCompletion(threadId: string, turn: Parameters<typeof notifyTurnComplete>[1]) {
+  const sent = await captureResult(notifyTurnComplete, threadId, turn);
+
+  if (!sent.ok) {
+    console.error(sent.error);
+  }
+}
 
 /**
 Apply one parent-scoped native event and retain durable request and completion effects.
@@ -35,12 +59,12 @@ export function applyBridgeEvent(state: Snapshot, config: Config | undefined, ev
 
       case "turn/completed": {
         state.requests = state.requests.filter((r) => r.params.turnId !== event.params.turn?.id);
-        void writeLocal(requestFile(state.threadId), state.requests).catch(console.error);
+        void persistRequests(state);
         break;
       }
 
       case "serverRequest/resolved": {
-        void writeLocal(requestFile(state.threadId), state.requests).catch(console.error);
+        void persistRequests(state);
         break;
       }
     }
@@ -49,11 +73,11 @@ export function applyBridgeEvent(state: Snapshot, config: Config | undefined, ev
       const completed = event.params.turn;
       const turn = state.turns.find((entry) => entry.id === completed.id) ?? completed;
 
-      void notifyTurnComplete(config.threadId, turn).catch(console.error);
+      void notifyCompletion(config.threadId, turn);
     }
   } else {
     state.requests.push({ ...event, id: event.id });
-    void writeLocal(requestFile(state.threadId), state.requests).catch(console.error);
+    void persistRequests(state);
     console.info(`\nCodex needs input on this computer: ${event.method}\nRun: npm run desktop -- requests\n`);
   }
 }

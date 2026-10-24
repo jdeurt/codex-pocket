@@ -1,3 +1,5 @@
+import { restoreCodexThread } from "./codex-session";
+import { t as captureResult } from "try";
 import {
   type AdapterOptions,
   type HarnessAdapter,
@@ -5,12 +7,11 @@ import {
   type HarnessResult,
   type SteeringResult,
 } from "./types";
-import { CodexRpc, RpcError } from "../rpc";
+import { CodexRpc } from "../rpc";
 import { type Item, type PendingRequest, type RpcEvent, string } from "../../lib/protocol";
 import { RpcDiagnosticEvent, RpcDisconnectEvent, RpcNotificationEvent } from "../rpc-events";
 import { harnessMessages, nativeText } from "./transcript";
 import { CodexAgents } from "./codex-agents";
-import { type SessionResponse } from "../rpc-protocol";
 import { codexParentTools } from "./mcp-config";
 import { codexPermissions } from "./permissions";
 import { loadHistory } from "../history";
@@ -18,8 +19,6 @@ import { log } from "../logging";
 import { sidePocketInstructions } from "./instructions";
 import { steerCodex } from "./codex-steering";
 import { validateAnswer } from "../answers";
-
-const INVALID_REQUEST_CODE = -32_600;
 
 /**
 Classify native approval methods without treating unsupported requests as approvals.
@@ -97,9 +96,7 @@ export class CodexAdapter implements HarnessAdapter {
     }
 
     if (event.id !== undefined) {
-      void this.answerRequest({ ...event, id: event.id }).catch((error: unknown) =>
-        this.pending?.reject(error instanceof Error ? error : new Error("Harness request failed.", { cause: error }))
-      );
+      void this.settleRequest(this.answerRequest({ ...event, id: event.id }));
 
       return;
     }
@@ -157,33 +154,6 @@ export class CodexAdapter implements HarnessAdapter {
   }
 
   /**
-  Resume a saved child or replace only a known never-started empty session.
-  @param params - Native session parameters including inherited permissions and instructions.
-  @returns The validated native session response.
-  */
-  private async session(params: Record<string, unknown>): Promise<SessionResponse> {
-    const { child } = this.options;
-
-    if (!child.sessionId) {
-      return this.rpc.request("thread/start", params);
-    }
-
-    return this.rpc.request("thread/resume", { ...params, threadId: child.sessionId }).catch((error: unknown) => {
-      if (
-        !(error instanceof RpcError) ||
-        error.code !== INVALID_REQUEST_CODE ||
-        child.sessionStarted !== false ||
-        !error.message.startsWith("no rollout found for thread id ")
-      ) {
-        throw error;
-      }
-
-      // Codex does not persist an empty thread. Only replace a session known to have received no input.
-      return this.rpc.request("thread/start", params);
-    });
-  }
-
-  /**
   Read effective instructions before creating or resuming the native child.
   @returns The native child session identity.
   */
@@ -193,7 +163,7 @@ export class CodexAdapter implements HarnessAdapter {
       cwd: child.cwd,
       includeLayers: false,
     });
-    const { thread, model, reasoningEffort } = await this.session({
+    const { thread, model, reasoningEffort } = await restoreCodexThread(this.rpc, child, {
       cwd: child.cwd,
       ...codexPermissions(child.policy),
       model: child.model ?? child.policy.model,
@@ -214,6 +184,19 @@ export class CodexAdapter implements HarnessAdapter {
     return thread.id;
   }
 
+  /** Reject the owned turn when a native request fails.
+  @param request - Pending start or question-response operation.
+  */
+  private async settleRequest(request: Promise<unknown>) {
+    const result = await captureResult(request);
+
+    if (!result.ok) {
+      this.pending?.reject(
+        result.error instanceof Error ? result.error : new Error("Harness request failed.", { cause: result.error })
+      );
+    }
+  }
+
   /**
   Hold the pending turn result until completion or transport failure, then release it.
   @param id - Durable delegated command identity.
@@ -228,13 +211,17 @@ export class CodexAdapter implements HarnessAdapter {
     this.options.callbacks.metadata({ sessionStarted: true });
 
     this.started = this.startTurn(id, input);
-    void this.started.catch((error: unknown) =>
-      this.pending?.reject(error instanceof Error ? error : new Error("Harness request failed.", { cause: error }))
-    );
+    void this.settleRequest(this.started);
 
-    return result.finally(() => {
-      this.pending = undefined;
-    });
+    const completed = await captureResult(result);
+
+    this.pending = undefined;
+
+    if (!completed.ok) {
+      throw completed.error;
+    }
+
+    return completed.value;
   }
 
   /**

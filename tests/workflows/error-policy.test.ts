@@ -7,9 +7,10 @@ import { createConfig } from "../../eslint.config";
 import { t as attempt } from "try";
 import { toolResult } from "../../src/server/mcp-result";
 import { workspace } from "../fixtures/workflow";
+import { createSerialQueue } from "../../src/lib/serial-queue";
 import { createOperation } from "../../src/services/operation";
 
-await test("error policy bans try statements and async IIFEs while permitting Promise chains", async () => {
+await test("error policy bans try statements and async IIFEs and Promise handlers while requiring await", async () => {
   const lint = new ESLint({ overrideConfigFile: true, overrideConfig: createConfig() });
 
   for (const extension of ["ts", "js"]) {
@@ -35,16 +36,33 @@ await test("error policy bans try statements and async IIFEs while permitting Pr
       );
     }
 
+    for (const source of [
+      'Promise.resolve("ok").then(console.info);',
+      "Promise.reject(new Error()).catch(console.error);",
+      'promise["then"](receive);',
+      'promise["catch"](fail);',
+      "promise?.then?.(receive);",
+      "const recover = promise.catch;",
+      "promise.finally(cleanup);",
+      'promise["finally"](cleanup);',
+      "promise?.finally?.(cleanup);",
+    ]) {
+      const [chained] = await lint.lintText(source, { filePath: `src/error-policy-example.${extension}` });
+
+      assert.equal(
+        chained.messages.some((message) => message.ruleId === "no-restricted-syntax"),
+        true
+      );
+    }
+
     const [allowed] = await lint.lintText(
-      'Promise.resolve("ok").then(console.info).catch(console.error).finally(async () => { await Promise.resolve(); });',
+      'import { t } from "try"; const result = await t(Promise.resolve("ok")); if (!result.ok) throw result.error;',
       { filePath: `src/error-policy-example.${extension}` }
     );
 
     assert.deepEqual(
       allowed.messages.filter((message) =>
-        ["no-restricted-syntax", "unicorn/prefer-await", "unicorn/no-async-promise-finally"].includes(
-          message.ruleId ?? ""
-        )
+        ["no-restricted-syntax", "unicorn/prefer-await"].includes(message.ruleId ?? "")
       ),
       []
     );
@@ -132,4 +150,30 @@ await test("MCP results await asynchronous tools and report invocation and seria
     assert.equal("isError" in result && result.isError, true);
     assert.match(result.content[0].text, /Tool failed|circular/i);
   }
+});
+
+await test("serialized work waits for its predecessor and recovers after that caller's failure", async () => {
+  const enqueue = createSerialQueue();
+  const started = Promise.withResolvers<undefined>();
+  const release = Promise.withResolvers<undefined>();
+  const events: string[] = [];
+  const first = enqueue(async () => {
+    events.push("first");
+    started.resolve(undefined);
+    await release.promise;
+    throw new Error("first failed");
+  });
+  const failed = assert.rejects(first, /first failed/);
+  const second = enqueue(() => {
+    events.push("second");
+
+    return Promise.resolve("recovered");
+  });
+
+  await started.promise;
+  assert.deepEqual(events, ["first"]);
+  release.resolve(undefined);
+  await failed;
+  assert.equal(await second, "recovered");
+  assert.deepEqual(events, ["first", "second"]);
 });

@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { Bridge, bridge } from "./bridge";
 import { type Config } from "./config";
 import { DelegationWorker } from "./delegation-worker";
@@ -133,9 +134,13 @@ export class NamedRuntime {
   async connect() {
     this.connecting ??= this.open();
 
-    await this.connecting.finally(() => {
-      this.connecting = undefined;
-    });
+    const completed = await captureResult(this.connecting);
+
+    this.connecting = undefined;
+
+    if (!completed.ok) {
+      throw completed.error;
+    }
   }
 
   /**

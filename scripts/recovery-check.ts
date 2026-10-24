@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { type Config, configSchema } from "../src/server/config";
 import { type Snapshot, string } from "../src/lib/protocol";
 import { Bridge } from "../src/server/bridge";
@@ -218,12 +219,16 @@ class RecoveryCheck {
   private async archive() {
     const cleanup = new CodexRpc();
 
-    await cleanup
-      .connect(this.config)
-      .then(() => cleanup.request("thread/archive", { threadId: this.threadId }))
-      .finally(() => {
-        cleanup.close();
-      });
+    const started = await captureResult(cleanup.connect(this.config));
+    const executed = started.ok
+      ? await captureResult(() => cleanup.request("thread/archive", { threadId: this.threadId }))
+      : started;
+
+    cleanup.close();
+
+    if (!executed.ok) {
+      throw executed.error;
+    }
   }
 
   /**
@@ -231,10 +236,14 @@ class RecoveryCheck {
   @returns Completion of the live scenarios and native archival.
   */
   async run() {
-    await this.scenarios().finally(async () => {
-      this.bridge.close();
-      await this.archive();
-    });
+    const completed = await captureResult(this.scenarios());
+
+    this.bridge.close();
+    await this.archive();
+
+    if (!completed.ok) {
+      throw completed.error;
+    }
   }
 }
 
@@ -265,12 +274,16 @@ Owns the bootstrap transport until the real test thread is created and named.
 async function startThread(config: Config) {
   const rpc = new CodexRpc();
 
-  return rpc
-    .connect(config)
-    .then(() => createThread(rpc, config))
-    .finally(() => {
-      rpc.close();
-    });
+  const started = await captureResult(rpc.connect(config));
+  const executed = started.ok ? await captureResult(() => createThread(rpc, config)) : started;
+
+  rpc.close();
+
+  if (!executed.ok) {
+    throw executed.error;
+  }
+
+  return executed.value;
 }
 
 /**

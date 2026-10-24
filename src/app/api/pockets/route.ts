@@ -1,5 +1,5 @@
 import { createPocket, deletePocket } from "@/server/named-pockets";
-import { errorResponse, guard, noStore, readBody } from "@/server/http";
+import { endpoint, guard, noStore, readBody } from "@/server/http";
 import { pocketHost } from "@/server/pocket-config";
 import { pocketNameSchema } from "@/lib/pockets";
 import { pocketStore } from "@/server/pocket-store";
@@ -44,25 +44,23 @@ async function mutate(request: Request) {
 @param request - Authorized browser catalog request.
 @returns Durable menu entries and this tab's selected identity.
 */
-export async function GET(request: Request) {
-  return guard(request)
-    .then(pocketHost)
-    .then(() =>
-      Response.json(
-        { pockets: pocketStore().list(), selectedId: new URL(request.url).searchParams.get("pocket") ?? "main" },
-        { headers: noStore }
-      )
-    )
-    .catch(errorResponse);
-}
+export const GET = endpoint(async (request: Request) => {
+  await guard(request);
+  await pocketHost();
+
+  return Response.json(
+    { pockets: pocketStore().list(), selectedId: new URL(request.url).searchParams.get("pocket") ?? "main" },
+    { headers: noStore }
+  );
+});
 
 /** Apply an explicit named-Pocket mutation with durable creation receipts.
 @param request - Same-origin JSON mutation.
 @returns Updated catalog, or an actionable failure without implicit replay.
 */
-export async function POST(request: Request) {
-  return guard(request, true)
-    .then(pocketHost)
-    .then(() => mutate(request))
-    .catch(errorResponse);
-}
+export const POST = endpoint(async (request: Request) => {
+  await guard(request, true);
+  await pocketHost();
+
+  return mutate(request);
+});

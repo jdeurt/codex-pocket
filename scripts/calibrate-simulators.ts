@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { calibrationReply, claudeConformance, codexConformance } from "../tests/simulators/conformance";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { CodexRpc } from "../src/server/rpc";
@@ -44,8 +45,12 @@ async function calibrate() {
   console.log(JSON.stringify(report));
 }
 
-await calibrate().finally(async () => {
-  await rpc.shutdown();
-  claude.close();
-  await rm(root, { recursive: true, force: true });
-});
+const completed = await captureResult(calibrate);
+
+await rpc.shutdown();
+claude.close();
+await rm(root, { recursive: true, force: true });
+
+if (!completed.ok) {
+  throw completed.error;
+}

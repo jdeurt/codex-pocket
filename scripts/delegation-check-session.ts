@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { type DelegationStore, delegations } from "../src/server/delegations";
 import { access, readFile } from "node:fs/promises";
 import { Bridge } from "../src/server/bridge";
@@ -45,11 +46,9 @@ Checks the actual child-created marker without treating a missing file as ready.
 @returns Whether the file is accessible.
 */
 async function doesFileExist(file: string) {
-  return access(file)
-    .then(() => true)
-    .catch(() => {
-      return false;
-    });
+  const found = await captureResult(access, file);
+
+  return found.ok;
 }
 
 /**
@@ -264,13 +263,17 @@ After both children complete this workflow and are closed, reply exactly DELEGAT
   private async archive() {
     const cleanup = new CodexRpc();
 
-    await cleanup
-      .connect(this.config, "bare")
-      .then(() => cleanup.request("thread/archive", { threadId: this.config.threadId }))
-      .then(() => this.archiveChildren(cleanup))
-      .finally(async () => {
-        await cleanup.shutdown();
-      });
+    const started = await captureResult(cleanup.connect(this.config, "bare"));
+    const executed = started.ok
+      ? await captureResult(() => cleanup.request("thread/archive", { threadId: this.config.threadId }))
+      : started;
+    const finished = executed.ok ? await captureResult(() => this.archiveChildren(cleanup)) : executed;
+
+    await cleanup.shutdown();
+
+    if (!finished.ok) {
+      throw finished.error;
+    }
   }
 
   /**
@@ -278,10 +281,14 @@ After both children complete this workflow and are closed, reply exactly DELEGAT
   @returns Completion of worker, parent and archive connection cleanup.
   */
   private async cleanup() {
-    await this.worker.stop().finally(async () => {
-      this.parent.close();
-      await this.archive();
-    });
+    const completed = await captureResult(this.worker.stop());
+
+    this.parent.close();
+    await this.archive();
+
+    if (!completed.ok) {
+      throw completed.error;
+    }
   }
 
   /**
@@ -289,8 +296,12 @@ After both children complete this workflow and are closed, reply exactly DELEGAT
   @returns Completion of the workflow and native cleanup; failures propagate.
   */
   async run() {
-    await this.workflow().finally(async () => {
-      await this.cleanup();
-    });
+    const completed = await captureResult(this.workflow());
+
+    await this.cleanup();
+
+    if (!completed.ok) {
+      throw completed.error;
+    }
   }
 }

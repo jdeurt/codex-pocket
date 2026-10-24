@@ -1,16 +1,16 @@
 ## Error handling
 
 - Do not use async IIFEs, including `await (async () => ...)()`, `return (async () => ...)()` or fire-and-forget variants. ESLint enforces this. Refactor function boundaries instead of hiding a block inside an immediately invoked callback.
-- Collapse forwarding functions; give separate functions only to meaningful operations or independently owned lifecycles. Prefer direct Results and Promise chains over multi-statement callbacks that recreate a try block. Register test resource cleanup with the test framework when its lifetime is the test.
+- Collapse forwarding functions; give separate functions only to meaningful operations or independently owned lifecycles. Prefer direct Results and await over multi-statement callbacks that recreate a try block. Register test resource cleanup with the test framework when its lifetime is the test.
 - Do not write `try` statements. ESLint bans `TryStatement` in JavaScript and TypeScript, including scripts and tests.
 - Follow the [`try` README](https://github.com/arthurfiorette/try#usage): prefer the `t` export over `Result.try`. A local import alias is fine when `t` conflicts with a test context.
 - Prefer `t(fn, ...args)` for standalone functions: it forwards arguments and retains type inference. Use `t(() => object.method(args))` when the method needs its receiver.
 - For asynchronous work, use `await t(fn, ...args)` or `await t(() => operation())` to capture both synchronous invocation errors and promise rejections. `await t(existingPromise)` handles that promise, but cannot catch an error thrown before the promise is passed in.
 - A single operation may use `[ok, error, value]`. For several operations, keep descriptively named Result objects and inspect `.ok` before `.value` or `.error`; avoid numbered tuple variables.
 - Error handling belongs to the caller. Do not add wrappers that force every callee to return a Result, or invent a `Result.bind` abstraction. The package's `ok(value)` and `error(reason)` helpers are available when an explicit Result is needed.
-- We like Promise `.then()`, `.catch()` and `.finally()` chains. Use them when they make asynchronous recovery or cleanup clear; do not replace them merely to use `await`.
+- Do not use `.then()`, `.catch()` or `.finally()`, including computed-property or optional-chain variants. ESLint bans these members and enables `unicorn/prefer-await`. Use `await` and inspect `try` Results; capture the operation, perform unconditional cleanup, then propagate an unhandled failure. Do not disguise rejection handlers in another chaining helper.
 - Preserve rejection propagation, early returns, cancellation and unconditional cleanup when changing error handling. Do not silently swallow errors unless an explicit fallback is intended.
-- Standalone installer scripts and the unbundled service worker must remain runnable without resolving application dependencies; use Promise chains at those boundaries.
+- Standalone installer scripts, the unbundled service worker and browser-evaluated test fixtures must remain runnable without resolving application dependencies; use native `Promise.allSettled` at those boundaries and inspect its outcome. Application code uses the installed `try` package.
 
 ## Development checks
 

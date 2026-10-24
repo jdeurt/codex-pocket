@@ -1,5 +1,5 @@
 /* eslint-disable jsdoc/require-param, jsdoc/require-returns -- This route exposes only the selected session's status feed. */
-import { errorResponse, guard, noStore } from "@/server/http";
+import { endpoint, errorResponse, guard, noStore } from "@/server/http";
 import { HTTP_FORBIDDEN } from "@/lib/constants";
 import { requestBridge } from "@/server/named-pockets";
 
@@ -78,8 +78,11 @@ async function subscribe(request: Request) {
 /**
 Read the selected call's status stream without taking ownership of its media.
 */
-export async function GET(request: Request) {
-  return subscribe(request).catch((error: unknown) => {
+export const GET = endpoint(
+  async (request: Request) => {
+    return subscribe(request);
+  },
+  (error: unknown) => {
     return errorResponse(error, HTTP_FORBIDDEN);
-  });
-}
+  }
+);

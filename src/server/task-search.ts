@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { fork } from "node:child_process";
 import path from "node:path";
 import { log } from "./logging";
@@ -71,15 +72,21 @@ function indexWorker(request: z.infer<typeof taskIndexRequest>): Promise<z.infer
 export async function searchTaskArchivePage(owner: string, query: string, offset = 0) {
   const request = taskIndexRequest.parse({ owner, query, offset });
 
-  return indexWorker(request).catch(async (error: unknown) => {
-    const page = await indexWorker({ ...request, isKeywordOnly: true });
+  const completed = await captureResult(indexWorker(request));
 
-    page.retrieval.reasons.push(
-      `Recovered using keyword-only QMD: ${error instanceof Error ? error.message : String(error)}`
-    );
+  if (completed.ok) {
+    return completed.value;
+  }
 
-    return page;
-  });
+  const error = completed.error;
+
+  const page = await indexWorker({ ...request, isKeywordOnly: true });
+
+  page.retrieval.reasons.push(
+    `Recovered using keyword-only QMD: ${error instanceof Error ? error.message : String(error)}`
+  );
+
+  return page;
 }
 
 /** Preserve the original array-returning search interface for existing internal callers.
@@ -107,24 +114,26 @@ export function scheduleTaskIndex(owner: string) {
     return;
   }
 
-  state.timer = setTimeout(() => {
+  async function reconcile() {
     state.timer = undefined;
     state.running = true;
     state.dirty = false;
-    void indexWorker({ owner, offset: 0, isKeywordOnly: false })
-      .catch((error: unknown) => {
-        log().warn({ error, owner }, "task.index_failed");
-      })
-      .finally(() => {
-        state.running = false;
+    const indexed = await captureResult(indexWorker, { owner, offset: 0, isKeywordOnly: false });
 
-        if (state.dirty) {
-          scheduleTaskIndex(owner);
-        } else {
-          pending.delete(owner);
-        }
-      });
-  }, COALESCE_MS);
+    state.running = false;
+
+    if (!indexed.ok) {
+      log().warn({ error: indexed.error, owner }, "task.index_failed");
+    }
+
+    if (pending.get(owner)?.dirty) {
+      scheduleTaskIndex(owner);
+    } else {
+      pending.delete(owner);
+    }
+  }
+
+  state.timer = setTimeout(() => void reconcile(), COALESCE_MS);
   state.timer.unref();
 }
 

@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { type AgentRecord, hydrateAgent, nativeStatus, observedMetadata } from "./agent-sources";
 import { type CachedRead, agentReadIdentity, completedRead, isAttached } from "./agent-read-state";
 import { agentRead, promoteAgentRead } from "./agent-read-pool";
@@ -152,11 +153,25 @@ Read a lightweight Codex preview or hydrate Claude's saved history.
       return;
     }
 
-    await refreshPreview(record).catch(() => {
+    const completed = await captureResult(refreshPreview(record));
+
+    if (!completed.ok) {
       record.historyError = true;
-    });
+    }
 
     this.remember(record, revision, false);
+  }
+
+  /** Retain usable cached history while recording a background refresh failure.
+  @param pending - Read already owned by the cache's completion fence.
+  @param agent - Scoped native identity for diagnostics.
+  */
+  private async refreshInBackground(pending: Promise<void>, agent: string) {
+    const refreshed = await captureResult(pending);
+
+    if (!refreshed.ok) {
+      log().warn({ err: refreshed.error, agent }, "agents.refresh_failed");
+    }
   }
 
   /**
@@ -182,11 +197,15 @@ Own a newly started cache read until its exact pending entry settles.
 
     this.pending.set(key, done);
 
-    await done.finally(() => {
-      if (this.pending.get(key) === done) {
-        this.pending.delete(key);
-      }
-    });
+    const completed = await captureResult(done);
+
+    if (this.pending.get(key) === done) {
+      this.pending.delete(key);
+    }
+
+    if (!completed.ok) {
+      throw completed.error;
+    }
   }
 
   /**
@@ -273,9 +292,7 @@ Retain complete native history while protecting the selected chat from eviction.
       }
 
       if (canReuse) {
-        void pending.catch((error: unknown) => {
-          log().warn({ err: error, agent: record.agent.id }, "agents.refresh_failed");
-        });
+        void this.refreshInBackground(pending, record.agent.id);
 
         this.touchTranscript(record);
 

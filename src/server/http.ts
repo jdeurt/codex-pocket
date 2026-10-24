@@ -1,3 +1,4 @@
+import { t } from "try";
 import { HTTP_BAD_REQUEST, MAX_BODY_BYTES } from "../lib/constants";
 import { log } from "./logging";
 import { readConfig } from "./config";
@@ -128,4 +129,20 @@ export function errorResponse(error: unknown, status = HTTP_BAD_REQUEST) {
     { error: error instanceof Error ? error.message : "Request failed." },
     { status, headers: noStore }
   );
+}
+
+/** Bind an HTTP handler to the shared error response boundary.
+@param handler - Authorized route work, including any route-specific guards.
+@param failure - Existing status or sanitized error response policy.
+@returns A route handler that inspects its Result before sending a response.
+*/
+export function endpoint<Args extends unknown[]>(
+  handler: (...args: Args) => Promise<Response>,
+  failure: (error: unknown) => Response = errorResponse
+) {
+  return async (...args: Args) => {
+    const result = await t(handler, ...args);
+
+    return result.ok ? result.value : failure(result.error);
+  };
 }

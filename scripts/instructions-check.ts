@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { type Config, configSchema } from "../src/server/config";
 import { type Thread, initialSnapshot, object } from "../src/lib/protocol";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
@@ -79,13 +80,15 @@ class InstructionCheck {
 
     this.rpc.addEventListener("event", listener);
 
-    await seedThread(
-      this.rpc,
-      this.config.threadId,
-      "Reply with the configured integration marker only. Do not use tools."
-    ).finally(() => {
-      this.rpc.removeEventListener("event", listener);
-    });
+    const settled = await captureResult(
+      seedThread(this.rpc, this.config.threadId, "Reply with the configured integration marker only. Do not use tools.")
+    );
+
+    this.rpc.removeEventListener("event", listener);
+
+    if (!settled.ok) {
+      throw settled.error;
+    }
 
     return replies;
   }
@@ -237,9 +240,13 @@ class InstructionCheck {
   @returns Completion of native archival and transport shutdown.
   */
   private async cleanup() {
-    await this.archiveIfCreated().finally(async () => {
-      await this.rpc.shutdown();
-    });
+    const completed = await captureResult(this.archiveIfCreated());
+
+    await this.rpc.shutdown();
+
+    if (!completed.ok) {
+      throw completed.error;
+    }
   }
 
   /**
@@ -247,12 +254,14 @@ class InstructionCheck {
   @returns Completion of all audit stages and native cleanup; failures propagate.
   */
   async run() {
-    await this.rpc
-      .connect(this.config)
-      .then(() => this.createThread())
-      .finally(async () => {
-        await this.cleanup();
-      });
+    const started = await captureResult(this.rpc.connect(this.config));
+    const executed = started.ok ? await captureResult(() => this.createThread()) : started;
+
+    await this.cleanup();
+
+    if (!executed.ok) {
+      throw executed.error;
+    }
   }
 }
 

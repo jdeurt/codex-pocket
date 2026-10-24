@@ -55,44 +55,58 @@ async function receive(message: Data) {
     return;
   }
 
-  await dispatch(string(message.method), object(message.params))
-    .then((result) => {
-      write({ id: message.id, result });
-    })
-    .catch((error: unknown) => {
-      const detail = error instanceof Error ? error.message : "Pi request failed.";
+  const dispatched = await attempt(dispatch, string(message.method), object(message.params));
+  const written = dispatched.ok ? attempt(write, { id: message.id, result: dispatched.value }) : dispatched;
 
-      write({ id: message.id, error: { code: -32_600, message: detail } });
-    });
+  if (written.ok) {
+    return;
+  }
+
+  const detail = written.error instanceof Error ? written.error.message : "Pi request failed.";
+
+  write({ id: message.id, error: { code: -32_600, message: detail } });
 }
 
 /**
 Stop the owned Pi and native reader processes after host disconnect or termination.
 */
 async function close() {
-  await main.close().finally(async () => {
-    await native.shutdown();
-    process.stdin.destroy();
-  });
+  const completed = await attempt(main.close());
+
+  const closed = await attempt(() => native.shutdown());
+
+  if (!closed.ok) {
+    console.error(closed.error);
+
+    return;
+  }
+
+  process.stdin.destroy();
+
+  if (!completed.ok) {
+    console.error(completed.error);
+  }
 }
 
 process.once("SIGTERM", () => {
-  void close().catch(console.error);
+  void close();
 });
 lines.once("close", () => {
-  void close().catch(console.error);
+  void close();
 });
 
-for await (const line of lines) {
-  const outcome = attempt(() => {
-    void receive(object(JSON.parse(line))).catch(console.error);
-  });
+/** Decode and process one line independently of later stop and steering requests.
+@param line - Host protocol frame.
+*/
+async function receiveLine(line: string) {
+  const decoded = attempt(() => object(JSON.parse(line)));
+  const received = decoded.ok ? await attempt(receive, decoded.value) : decoded;
 
-  if (outcome.ok) {
-    continue;
+  if (!received.ok) {
+    console.error(received.error);
   }
+}
 
-  const error = outcome.error;
-
-  console.error(error);
+for await (const line of lines) {
+  void receiveLine(line);
 }
