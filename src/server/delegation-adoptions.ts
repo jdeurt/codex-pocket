@@ -1,5 +1,6 @@
+import { findById } from "../lib/identity";
 import { type AdoptedSession, type AdoptionInput, adoptionInput, sessionAttachment } from "./session-adoption";
-import { pocket, storedPocketSchema } from "./delegation-data";
+import { pocket, storedPocketSchema } from "../state/delegation-data";
 import type Database from "better-sqlite3";
 import { type DelegationStore } from "./delegations";
 import { createHash } from "node:crypto";
@@ -8,6 +9,9 @@ import { createHash } from "node:crypto";
 Persist adopted identities without copying history or replaying their original assignment.
 */
 export class DelegationAdoptions {
+  readonly reconnect;
+  readonly adopt;
+
   /**
   Bind adoption to the same transactional ownership registry as normal delegates.
   @param db - Shared private database.
@@ -16,7 +20,14 @@ export class DelegationAdoptions {
   constructor(
     private db: Database.Database,
     private store: DelegationStore
-  ) {}
+  ) {
+    const adopt = this.db.transaction(this.adoptSession.bind(this));
+
+    this.adopt = adopt.immediate.bind(adopt);
+    const reconnect = this.db.transaction(this.reconnectSession.bind(this));
+
+    this.reconnect = reconnect.immediate.bind(reconnect);
+  }
 
   /**
   Reject self-adoption, parent cycles and duplicate management of the same session.
@@ -97,6 +108,56 @@ export class DelegationAdoptions {
   }
 
   /**
+  Reconnect tracking after an explicit resume, observing current work without replaying an assignment.
+  @param parentId - Authorized parent.
+  @param id - Existing adopted child.
+  @param session - Fresh inspection of the same owning server.
+  @returns Resumed child with a new watch receipt only when a native turn is active.
+  */
+  private reconnectSession(parentId: string, id: string, session: AdoptedSession) {
+    const child = this.store.get(parentId, id);
+    const attachment = sessionAttachment(child.metadata);
+    const watch = findById(this.store.queue.list(parentId, id), attachment?.watchCommandId);
+
+    if (!attachment || child.sessionId !== session.threadId) {
+      throw new Error("The inspected session does not match this live attachment.");
+    }
+
+    if (["running", "waiting", "closing"].includes(child.status)) {
+      throw new Error("This live attachment is still active or closing. Inspect it before reconnecting.");
+    }
+
+    if (watch?.status === "queued") {
+      return child;
+    }
+
+    this.store.resume(parentId, id);
+
+    if (session.turnId) {
+      this.watchCurrent(parentId, id, attachment.socketPath, session.turnId);
+    }
+
+    return this.store.get(parentId, id);
+  }
+
+  /**
+  Commit adoption under an immediate transaction, rechecking ownership after native inspection.
+  @param parentId - Authorized parent.
+  @param value - Untrusted request revalidated at the storage boundary.
+  @param session - Native inspection result.
+  @returns Existing retry or newly adopted child.
+  */
+  private adoptSession(parentId: string, value: unknown, session: AdoptedSession) {
+    const input = adoptionInput.parse(value);
+
+    if (input.threadId !== session.threadId) {
+      throw new Error("The inspected session does not match the adoption request.");
+    }
+
+    return this.existing(parentId, input) ?? this.insert(parentId, input, session);
+  }
+
+  /**
   Resolve identical retries before contacting a possibly disconnected native owner.
   @param parentId - Authorized parent.
   @param input - Validated adoption identity.
@@ -119,61 +180,5 @@ export class DelegationAdoptions {
     }
 
     return existing ? pocket(existing) : undefined;
-  }
-
-  /**
-  Reconnect tracking after an explicit resume, observing current work without replaying an assignment.
-  @param parentId - Authorized parent.
-  @param id - Existing adopted child.
-  @param session - Fresh inspection of the same owning server.
-  @returns Resumed child with a new watch receipt only when a native turn is active.
-  */
-  reconnect(parentId: string, id: string, session: AdoptedSession) {
-    return this.db
-      .transaction(() => {
-        const child = this.store.get(parentId, id);
-        const attachment = sessionAttachment(child.metadata);
-        const watch = this.store.queue.list(parentId, id).find((command) => command.id === attachment?.watchCommandId);
-
-        if (!attachment || child.sessionId !== session.threadId) {
-          throw new Error("The inspected session does not match this live attachment.");
-        }
-
-        if (["running", "waiting", "closing"].includes(child.status)) {
-          throw new Error("This live attachment is still active or closing. Inspect it before reconnecting.");
-        }
-
-        if (watch?.status === "queued") {
-          return child;
-        }
-
-        this.store.resume(parentId, id);
-
-        if (session.turnId) {
-          this.watchCurrent(parentId, id, attachment.socketPath, session.turnId);
-        }
-
-        return this.store.get(parentId, id);
-      })
-      .immediate();
-  }
-
-  /**
-  Commit adoption under an immediate transaction, rechecking ownership after native inspection.
-  @param parentId - Authorized parent.
-  @param value - Untrusted request revalidated at the storage boundary.
-  @param session - Native inspection result.
-  @returns Existing retry or newly adopted child.
-  */
-  adopt(parentId: string, value: unknown, session: AdoptedSession) {
-    const input = adoptionInput.parse(value);
-
-    if (input.threadId !== session.threadId) {
-      throw new Error("The inspected session does not match the adoption request.");
-    }
-
-    return this.db
-      .transaction(() => this.existing(parentId, input) ?? this.insert(parentId, input, session))
-      .immediate();
   }
 }

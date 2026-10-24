@@ -1,3 +1,4 @@
+import { nativeSlot } from "./native-slot";
 import * as React from "react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { ACTIVITY_TRANSITION } from "@/lib/activity-motion";
@@ -6,21 +7,13 @@ import { cn } from "cn";
 
 /**
 Group related assistant activity lines using the shared trace layout.
-@param props - Native attributes, children and the declared appearance or composition options.
-@returns The composed element with caller props and classes preserved.
 */
-function Trace({ className, ...props }: React.ComponentProps<"div">) {
-  return (
-    <div
-      data-slot="trace"
-      className={cn(
-        "flex w-full min-w-0 flex-col gap-2 *:has-[>[data-slot=trace-line]]:flex *:has-[>[data-slot=trace-line]]:w-fit *:has-[>[data-slot=trace-line]]:max-w-full *:has-[>[data-slot=trace-line]]:min-w-0 *:has-[>[data-slot=trace-line]]:rounded-md *:has-[>[data-slot=trace-line]]:text-left *:has-[>[data-slot=trace-line]]:outline-none *:has-[>[data-slot=trace-line]]:focus-visible:ring-3 *:has-[>[data-slot=trace-line]]:focus-visible:ring-ring/50",
-        className
-      )}
-      {...props}
-    />
-  );
-}
+const Trace = (nativeSlot<"div">).bind(
+  undefined,
+  "div",
+  "trace",
+  "flex w-full min-w-0 flex-col gap-2 *:has-[>[data-slot=trace-line]]:flex *:has-[>[data-slot=trace-line]]:w-fit *:has-[>[data-slot=trace-line]]:max-w-full *:has-[>[data-slot=trace-line]]:min-w-0 *:has-[>[data-slot=trace-line]]:rounded-md *:has-[>[data-slot=trace-line]]:text-left *:has-[>[data-slot=trace-line]]:outline-none *:has-[>[data-slot=trace-line]]:focus-visible:ring-3 *:has-[>[data-slot=trace-line]]:focus-visible:ring-ring/50"
+);
 
 /**
 Present one activity line with its declared status and connector treatment.
@@ -75,14 +68,13 @@ function TraceIcon({ className, ...props }: React.ComponentProps<"span">) {
 
 /**
 Keep an activity title truncated within the available line width.
-@param props - Native attributes, children and the declared appearance or composition options.
-@returns The composed element with caller props and classes preserved.
 */
-function TraceTitle({ className, ...props }: React.ComponentProps<"span">) {
-  return (
-    <span data-slot="trace-title" className={cn("min-w-0 truncate motion-reduce:shimmer-none", className)} {...props} />
-  );
-}
+const TraceTitle = (nativeSlot<"span">).bind(
+  undefined,
+  "span",
+  "trace-title",
+  "min-w-0 truncate motion-reduce:shimmer-none"
+);
 
 /**
 Delegate expandable activity state to the existing disclosure primitive.

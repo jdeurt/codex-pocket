@@ -1,5 +1,5 @@
 import { CAPACITY, assignment, fixture, owner, state, tool } from "./delegation-flow";
-import { type DelegationCommand, type SidePocket, delegationCommandSchema } from "../../src/server/delegation-data";
+import { type DelegationCommand, type SidePocket, delegationCommandSchema } from "../../src/state/delegation-data";
 import { type TestContext } from "node:test";
 import assert from "node:assert/strict";
 import { once } from "node:events";

@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { type Turn, object } from "../../src/lib/protocol";
 import { notifyTurnComplete, saveSubscription } from "../../src/server/push";
 import { createECDH, randomBytes } from "node:crypto";
@@ -72,32 +73,30 @@ async function replayDelivery(context: TestContext, sent: { endpoint: string; bo
     }
   );
 
-  try {
-    const turn: Turn = {
-      id: "turn",
-      status: "completed",
-      items: [{ id: "reply", type: "agentMessage", text: "Done" }],
-    };
+  context.after(disconnect);
 
-    await saveSubscription(phone);
-    await saveSubscription(tablet);
+  const turn: Turn = {
+    id: "turn",
+    status: "completed",
+    items: [{ id: "reply", type: "agentMessage", text: "Done" }],
+  };
 
-    await replaySilentTurns(sent);
-    await notifyTurnComplete("thread", turn);
-    await notifyTurnComplete("thread", turn);
-    assert.deepEqual(sent, [{ endpoint: tablet.endpoint, body: "Done" }]);
-    disconnect();
-    await notifyTurnComplete("thread", { ...turn, id: "background" });
-    assert.deepEqual(
-      sent
-        .slice(1)
-        .map((entry) => entry.endpoint)
-        .toSorted((a, b) => a.localeCompare(b)),
-      [phone.endpoint, tablet.endpoint].toSorted((a, b) => a.localeCompare(b))
-    );
-  } finally {
-    disconnect();
-  }
+  await saveSubscription(phone);
+  await saveSubscription(tablet);
+
+  await replaySilentTurns(sent);
+  await notifyTurnComplete("thread", turn);
+  await notifyTurnComplete("thread", turn);
+  assert.deepEqual(sent, [{ endpoint: tablet.endpoint, body: "Done" }]);
+  disconnect();
+  await notifyTurnComplete("thread", { ...turn, id: "background" });
+  assert.deepEqual(
+    sent
+      .slice(1)
+      .map((entry) => entry.endpoint)
+      .toSorted((a, b) => a.localeCompare(b)),
+    [phone.endpoint, tablet.endpoint].toSorted((a, b) => a.localeCompare(b))
+  );
 }
 
 await test("delivery skips only the acknowledged foreground device, keeps background delivery and deduplicates", async (t) => {
@@ -111,23 +110,25 @@ await test("delivery skips only the acknowledged foreground device, keeps backgr
   process.env.CODEX_THREAD_ID = "push-test";
   process.env.CODEX_ALLOWED_ORIGINS = "https://pocket.example";
 
-  try {
-    await replayDelivery(t, sent);
-  } finally {
-    const previousEnvironment = {
-      CODEX_POCKET_STATE_DIR: previousState,
-      CODEX_THREAD_ID: previousThread,
-      CODEX_ALLOWED_ORIGINS: previousOrigins,
-    };
+  const completed = await captureResult(replayDelivery(t, sent));
 
-    for (const [name, value] of Object.entries(previousEnvironment)) {
-      if (value === undefined) {
-        Reflect.deleteProperty(process.env, name);
-      } else {
-        process.env[name] = value;
-      }
+  const previousEnvironment = {
+    CODEX_POCKET_STATE_DIR: previousState,
+    CODEX_THREAD_ID: previousThread,
+    CODEX_ALLOWED_ORIGINS: previousOrigins,
+  };
+
+  for (const [name, value] of Object.entries(previousEnvironment)) {
+    if (value === undefined) {
+      Reflect.deleteProperty(process.env, name);
+    } else {
+      process.env[name] = value;
     }
+  }
 
-    await rm(directory, { recursive: true, force: true });
+  await rm(directory, { recursive: true, force: true });
+
+  if (!completed.ok) {
+    throw completed.error;
   }
 });

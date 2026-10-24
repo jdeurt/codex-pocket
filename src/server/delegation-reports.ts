@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import type { Config } from "./config";
 import type { DelegationStore } from "./delegations";
 import { log } from "./logging";
@@ -53,11 +54,15 @@ ${mail.payload}`;
   @returns Completion of one delivery attempt.
   */
   private async forwardSafely() {
-    try {
-      await this.forward();
-    } catch (error) {
-      log().error({ error }, "side_pocket.forward_failed");
+    const completed = await captureResult(this.forward());
+
+    if (completed.ok) {
+      return;
     }
+
+    const error = completed.error;
+
+    log().error({ error }, "side_pocket.forward_failed");
   }
 
   /**
@@ -78,14 +83,16 @@ ${mail.payload}`;
   private async drain() {
     await Promise.resolve();
 
-    try {
-      await this.flush();
-    } finally {
-      this.forwarding = undefined;
+    const completed = await captureResult(this.flush());
 
-      if (this.dirty && !this.stopped) {
-        this.queue();
-      }
+    this.forwarding = undefined;
+
+    if (this.dirty && !this.stopped) {
+      this.queue();
+    }
+
+    if (!completed.ok) {
+      throw completed.error;
     }
   }
 

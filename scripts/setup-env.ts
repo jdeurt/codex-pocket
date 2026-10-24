@@ -1,4 +1,5 @@
 import { chmod, readFile, rename, writeFile } from "node:fs/promises";
+import { t as attempt } from "try";
 
 const PRIVATE_FILE_MODE = 0o600;
 
@@ -8,13 +9,13 @@ Validates a nonempty phone URL and returns its origin.
 @returns HTTPS origin without credentials or URL suffixes.
 */
 function httpsOrigin(value: string) {
-  let url: URL;
+  const outcome = attempt(() => new URL(value.trim()));
 
-  try {
-    url = new URL(value.trim());
-  } catch {
+  if (!outcome.ok) {
     throw new Error("Use a complete HTTPS address, or leave the phone address empty for local setup.");
   }
+
+  const url = outcome.value;
 
   if (url.protocol !== "https:" || url.pathname !== "/" || url.search || url.hash || url.username || url.password) {
     throw new Error("Use an HTTPS origin without a path, credentials, query or fragment.");
@@ -89,15 +90,19 @@ Reads an existing setup file, treating only a missing file as empty.
 @returns Saved dotenv text; other filesystem failures reject.
 */
 async function readEnvironment(file: string) {
-  try {
-    return await readFile(file, "utf8");
-  } catch (error) {
-    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
-      throw error;
-    }
+  const completed = await attempt(readFile(file, "utf8"));
 
-    return "";
+  if (completed.ok) {
+    return completed.value;
   }
+
+  const error = completed.error;
+
+  if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+    throw error;
+  }
+
+  return "";
 }
 
 /**

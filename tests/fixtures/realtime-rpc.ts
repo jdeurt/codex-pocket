@@ -6,6 +6,7 @@ import { readPipelinedFixtureRequests, writeFixtureRecord } from "./sequential-r
 import path from "node:path";
 import { z } from "zod";
 import { unexpectedRequest } from "./unexpected-request";
+import { t as attempt } from "try";
 
 const mainThreadId = "realtime-fixture-parent";
 const backendTurnId = "voice-backend-turn";
@@ -35,13 +36,13 @@ const controlSchema = z.object({
 });
 
 function control(): z.infer<typeof controlSchema> {
-  try {
+  const outcome = attempt(() => {
     const raw: unknown = JSON.parse(readFileSync(controlFile, "utf8"));
 
     return controlSchema.parse(raw);
-  } catch {
-    return {};
-  }
+  });
+
+  return outcome.ok ? outcome.value : {};
 }
 
 function event(method: string, params: Data) {

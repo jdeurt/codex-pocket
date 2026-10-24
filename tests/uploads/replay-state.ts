@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { readFile, writeFile } from "node:fs/promises";
 import { type APIResponse } from "@playwright/test";
 import path from "node:path";
@@ -19,17 +20,21 @@ Reads normalized native upload receipts from this replay's append-only request l
 @returns Captured deliveries, or an empty list before a readable log exists.
 */
 export async function requests() {
-  try {
-    const text = await readFile(path.join(directory, "requests.jsonl"), "utf8");
+  const loaded = await captureResult(() => readFile(path.join(directory, "requests.jsonl"), "utf8"));
 
-    return text
+  if (!loaded.ok) {
+    return [];
+  }
+
+  const parsed = captureResult(() =>
+    loaded.value
       .trim()
       .split("\n")
       .filter(Boolean)
-      .map((line) => uploadRequestSchema.parse(JSON.parse(line)));
-  } catch {
-    return [];
-  }
+      .map((line) => uploadRequestSchema.parse(JSON.parse(line)))
+  );
+
+  return parsed.ok ? parsed.value : [];
 }
 
 /**

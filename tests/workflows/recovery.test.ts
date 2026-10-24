@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { type Data, type Turn } from "../../src/lib/protocol";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { Bridge } from "../../src/server/bridge-session";
@@ -118,20 +119,22 @@ await test(
     Object.assign(process.env, environment);
     await writeFile(scenarioFile, JSON.stringify(scenario(thread.id)));
 
-    try {
-      await verifyRecovery(bridge);
-    } finally {
-      bridge.close();
+    const completed = await captureResult(verifyRecovery(bridge));
 
-      for (const [key, value] of Object.entries(previous)) {
-        if (value === undefined) {
-          Reflect.deleteProperty(process.env, key);
-        } else {
-          process.env[key] = value;
-        }
+    bridge.close();
+
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) {
+        Reflect.deleteProperty(process.env, key);
+      } else {
+        process.env[key] = value;
       }
+    }
 
-      await rm(root, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true });
+
+    if (!completed.ok) {
+      throw completed.error;
     }
   }
 );

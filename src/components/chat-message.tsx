@@ -12,6 +12,16 @@ import { ToolMessage } from "./tool-message";
 import { VoiceMessage } from "./voice-message";
 import { voiceSegmentSchema } from "@/lib/voice-history";
 
+/** Render a normalized message image through the shared guarded viewer.
+@param image - Protocol-normalized source and alternative text.
+@returns One stable image attachment.
+*/
+function messageImage(image: NonNullable<Item["images"]>[number]) {
+  return (
+    <ChatImage key={image.source} source={image.source} alt={image.alt?.length ? image.alt : "Image from Pocket"} />
+  );
+}
+
 /**
 Keep durable file metadata ahead of native image-only attachment fallback.
 @param props - Normalized message item with optional files or image sources.
@@ -25,13 +35,7 @@ function MessageAttachments({ item }: { item: Item }) {
       <FileAttachments files={files} />
       {files.length === 0 && item.images && item.images.length > 0 && (
         <AttachmentGroup layout="wrap" className="chat-images">
-          {item.images.map((image) => (
-            <ChatImage
-              key={image.source}
-              source={image.source}
-              alt={image.alt?.length ? image.alt : "Image from Pocket"}
-            />
-          ))}
+          {Array.from(item.images, messageImage)}
         </AttachmentGroup>
       )}
     </>

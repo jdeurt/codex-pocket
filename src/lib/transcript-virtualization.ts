@@ -18,13 +18,19 @@ Flatten canonical turn entries while keeping stable row IDs through delivery rec
 @returns Rows that retain their owning turn and entry.
 */
 export function rowsForTurns(turns: TranscriptTurn[]): TranscriptRow[] {
-  return turns.flatMap((turn) =>
-    turn.entries.map((entry) => ({
-      id: entry.kind === "message" ? `${turn.id}/${string(entry.item.clientId) || entry.item.id}` : entry.id,
-      turnId: turn.id,
-      entry,
-    }))
-  );
+  const rows: TranscriptRow[] = [];
+
+  for (const turn of turns) {
+    for (const entry of turn.entries) {
+      rows.push({
+        id: entry.kind === "message" ? `${turn.id}/${string(entry.item.clientId) || entry.item.id}` : entry.id,
+        turnId: turn.id,
+        entry,
+      });
+    }
+  }
+
+  return rows;
 }
 
 export const INITIAL_MESSAGE_WINDOW = 150;
@@ -43,7 +49,13 @@ export function bufferedMessages(range: Range, backwards = INITIAL_MESSAGE_WINDO
   const ahead = range.count <= INITIAL_MESSAGE_WINDOW ? INITIAL_MESSAGE_WINDOW : FORWARD_MESSAGES;
   const end = Math.min(range.count - 1, range.endIndex + ahead);
 
-  return Array.from({ length: Math.max(end - start + 1, 0) }, (_, index) => start + index);
+  const indices: number[] = [];
+
+  for (let index = start; index <= end; index++) {
+    indices.push(index);
+  }
+
+  return indices;
 }
 
 /**
@@ -57,4 +69,66 @@ export function messageRange(range: Range, backwards: number) {
 
   // Keep interactive pending requests mounted while message rows are recycled.
   return [...bufferedMessages({ ...range, count: footerIndex }, backwards), footerIndex];
+}
+
+/** Retain a smaller outer buffer when nearby expanded activity owns a nested virtualizer.
+@param rows - Canonical outer rows.
+@param expanded - Open activity identities.
+@param range - Native visible range.
+@returns Buffered message indices including the interactive footer.
+*/
+export function transcriptRange(rows: TranscriptRow[], expanded: Set<string>, range: Range) {
+  const nearby = rows.slice(Math.max(range.startIndex - 1, 0), range.endIndex + 1);
+
+  for (const row of nearby) {
+    if (row.entry.kind === "activity" && expanded.has(row.id) && row.entry.items.length > FORWARD_MESSAGES) {
+      return messageRange(range, FORWARD_MESSAGES);
+    }
+  }
+
+  return messageRange(range, INITIAL_MESSAGE_WINDOW);
+}
+
+/** Read a stable native key for a message or the always-mounted footer.
+@param rows - Canonical outer rows.
+@param index - Native requested row index.
+@returns Stable message or footer identity.
+*/
+export function transcriptRowKey(rows: TranscriptRow[], index: number) {
+  return index === rows.length ? "transcript-footer" : rows[index].id;
+}
+
+/** Estimate only message rows before native measurement.
+@param count - Number of message rows preceding the footer.
+@param index - Requested row index.
+@returns Message estimate or zero for the separately measured footer.
+*/
+export function estimatedTranscriptRow(count: number, index: number) {
+  return index === count ? 0 : ESTIMATED_MESSAGE_HEIGHT;
+}
+
+/** Toggle a disclosure without changing the previous expanded set.
+@param previous - Current expanded identities.
+@param id - Explicitly requested disclosure.
+@returns New expansion state.
+*/
+export function toggledTranscriptActivity(previous: Set<string>, id: string) {
+  const next = new Set(previous);
+
+  if (next.has(id)) {
+    next.delete(id);
+  } else {
+    next.add(id);
+  }
+
+  return next;
+}
+
+/** Extend the nested range only while its panel is near the viewport.
+@param isNearby - Whether the outer list considers this panel visible or buffered.
+@param range - Native nested visible range.
+@returns Bounded indices or no mounted inner messages.
+*/
+export function activityRange(isNearby: boolean, range: Range) {
+  return isNearby ? bufferedMessages(range) : [];
 }

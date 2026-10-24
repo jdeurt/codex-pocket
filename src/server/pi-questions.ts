@@ -1,7 +1,9 @@
+import { valueAfterCleanup } from "../lib/results";
+import { t } from "try";
 import { type PendingRequest, type RpcEvent } from "../lib/protocol";
 import { type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
-import { validateAnswer } from "./answers";
+import { validateAnswer } from "../state/answers";
 
 const optionSchema = Type.Object({ label: Type.String(), description: Type.Optional(Type.String()) });
 const questionSchema = Type.Object({
@@ -50,22 +52,34 @@ export class PiQuestions {
       params: { threadId: this.owner, turnId, itemId: callId, questions: input.questions },
     };
     const waiting = Promise.withResolvers<unknown>();
-    const abort = () => {
-      waiting.reject(new DOMException("The Pi question was cancelled.", "AbortError"));
-    };
+    const abort = waiting.reject.bind(undefined, new DOMException("The Pi question was cancelled.", "AbortError"));
 
     this.pending.set(id, { request, resolve: waiting.resolve });
     signal?.addEventListener("abort", abort, { once: true });
 
-    try {
-      this.emit(request);
+    const sent = t(this.emit, request);
+    const completed = sent.ok ? await t(waiting.promise) : sent;
 
-      return await waiting.promise;
-    } finally {
-      signal?.removeEventListener("abort", abort);
-      this.pending.delete(id);
-      this.emit({ method: "serverRequest/resolved", params: { threadId: this.owner, requestId: id } });
-    }
+    signal?.removeEventListener("abort", abort);
+    this.pending.delete(id);
+    const resolved = t(this.emit, {
+      method: "serverRequest/resolved",
+      params: { threadId: this.owner, requestId: id },
+    });
+
+    return valueAfterCleanup(completed, resolved);
+  }
+
+  /** Execute one native question tool using the canonical phone protocol.
+  @param callId - Native invocation identity.
+  @param input - Validated questions.
+  @param signal - Native cancellation signal.
+  @returns Original answer as native tool content.
+  */
+  private async execute(callId: string, input: { questions: unknown[] }, signal?: AbortSignal) {
+    const answer = await this.ask(callId, input, signal);
+
+    return { content: [{ type: "text" as const, text: JSON.stringify(answer) }], details: answer };
   }
 
   /** Expose the existing interactive-question shape to Pi without inventing another phone UI.
@@ -77,11 +91,7 @@ export class PiQuestions {
       label: "Ask the user",
       description: "Ask for necessary missing information using Pocket's phone question controls.",
       parameters,
-      execute: async (callId, input, signal) => {
-        const answer = await this.ask(callId, input, signal);
-
-        return { content: [{ type: "text", text: JSON.stringify(answer) }], details: answer };
-      },
+      execute: this.execute.bind(this),
     };
   }
 

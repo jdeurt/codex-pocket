@@ -1,6 +1,8 @@
-/* eslint-disable jsdoc/require-param, jsdoc/require-returns -- History operations are bound to the constructor's thread identity. */
-import { type VoiceSegment, voiceHistorySchema } from "../lib/voice-history";
-import { readLocal, writeLocal } from "./local-state";
+import { findById } from "../lib/identity";
+import { finalizedCaptions } from "../state/saved-voice";
+import { type VoiceSegment } from "../lib/voice-history";
+import { SavedVoiceRuntime } from "../runtime/saved-voice";
+import { voiceStorage } from "./voice-storage";
 import { type Data, string } from "../lib/protocol";
 import { createHash } from "node:crypto";
 
@@ -8,42 +10,35 @@ import { createHash } from "node:crypto";
 Persist finalized captions and retain legacy handoff status; never store raw microphone audio.
 */
 export class VoiceHistory {
-  private entries?: Promise<VoiceSegment[]>;
-  private filename: string;
+  private persisted: SavedVoiceRuntime;
+  private hydration?: Promise<void>;
 
-  /**
-  Bind the private transcript file to one main conversation.
+  /** Bind a vanilla persisted store to one conversation and this host's storage adapter.
+  @param threadId - Native conversation identity.
   */
   constructor(threadId: string) {
-    this.filename = `voice-history/${createHash("sha256").update(threadId).digest("hex")}.json`;
+    const key = createHash("sha256").update(threadId).digest("hex");
+
+    this.persisted = new SavedVoiceRuntime(key, voiceStorage());
   }
 
-  /**
-  Restore saved speech without replaying any pending or uncertain tool work.
+  /** Restore saved speech once without replaying work or sharing state across conversations.
+  @returns Current validated ledger after explicit hydration.
   */
-  private async restore() {
-    const entries = voiceHistorySchema.parse(await readLocal(this.filename, []));
+  async read() {
+    this.hydration ??= this.persisted.hydrate();
+    await this.hydration;
 
-    for (const entry of entries) {
-      if (entry.handoff === "sending") {
-        entry.handoff = "unknown";
-      }
-    }
-
-    return entries;
-  }
-
-  /**
-  Share hydration with concurrent history readers so they cannot replace an in-flight ledger.
-  */
-  read() {
-    this.entries ??= this.restore();
-
-    return this.entries;
+    return this.persisted.store.getState().segments;
   }
 
   /**
   Persist an immutable final caption independently of live audio and the UI.
+  @param event - Finalized native caption.
+  @param sessionId - Native call identity.
+  @param role - Speaker.
+  @param afterItemId - Original canonical insertion anchor.
+  @returns Saved caption, or undefined for a missing native identity.
   */
   async finalize(event: Data, sessionId: string, role: "user" | "assistant", afterItemId: string | null) {
     const itemId = string(event.item_id);
@@ -54,7 +49,7 @@ export class VoiceHistory {
 
     const id = `realtime:${sessionId}:${itemId}:${role}`;
     const entries = await this.read();
-    const existing = entries.find((entry) => entry.id === id);
+    const existing = findById(entries, id);
     const entry: VoiceSegment = {
       ...existing,
       id,
@@ -73,21 +68,11 @@ export class VoiceHistory {
 
   /**
   Persist the complete finalized transcript on the independent history queue.
+  @param entry - Validated finalized caption.
   */
   async save(entry: VoiceSegment) {
     const entries = await this.read();
-    const existing = entries.find((candidate) => candidate.id === entry.id);
 
-    if (existing && existing.text !== entry.text) {
-      throw new Error("Finalized caption changed for an existing item.");
-    }
-
-    if (existing) {
-      Object.assign(existing, entry);
-    } else {
-      entries.push(entry);
-    }
-
-    await writeLocal(this.filename, entries);
+    this.persisted.store.setState({ segments: finalizedCaptions(entries, entry) });
   }
 }

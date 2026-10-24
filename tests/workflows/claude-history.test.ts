@@ -1,3 +1,5 @@
+import { historyItems } from "../../src/state/agent-history";
+import { t as captureResult } from "try";
 import { type AdapterOptions } from "../../src/server/harness/types";
 import { type AgentRecord } from "../../src/server/agent-sources";
 import { AgentReadCache } from "../../src/server/agent-read-cache";
@@ -5,7 +7,7 @@ import { ClaudeAdapter } from "../../src/server/harness/claude";
 import { DelegationStore } from "../../src/server/delegations";
 import { claudeWriteHistory, claudeWriteMessages } from "../fixtures/claude-writes";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { object } from "../../src/lib/protocol";
+import { type Item, type Turn, object } from "../../src/lib/protocol";
 import { randomUUID } from "node:crypto";
 import { readClaude } from "../../src/server/agent-claude";
 import { simulatorArgs, simulatorConfig } from "../simulators/launch";
@@ -16,6 +18,22 @@ import test from "node:test";
 
 const TIMEOUT_MS = 30_000;
 const PARENT = "write-provenance-parent";
+
+/** Select tool rows from saved native history.
+@param turns - Canonical saved turns.
+@returns Native tool items.
+*/
+function toolItems(turns: Turn[]) {
+  const items: Item[] = [];
+
+  for (const item of historyItems(turns)) {
+    if (item.type === "toolTrace") {
+      items.push(item);
+    }
+  }
+
+  return items;
+}
 
 /** Verify native results, private persistence and both saved transcript readers.
 @param root - Isolated native project directory.
@@ -77,10 +95,14 @@ async function verifyReload(
     pocket: saved,
   };
 
-  await readClaude(record, sessionId);
+  Object.freeze(record.agent);
+  Object.freeze(record);
+  const loaded = await readClaude(record, sessionId);
+
+  assert.equal(record.turns, undefined);
   assert.deepEqual(
-    record.turns
-      ?.flatMap((turn) => turn.items)
+    loaded.turns
+      .flatMap((turn) => turn.items)
       .filter((item) => item.type === "toolTrace")
       .map((item) => item.toolLabels),
     labels
@@ -88,17 +110,15 @@ async function verifyReload(
   await restored.close();
   const cache = new AgentReadCache();
 
-  record.pocket = { ...saved, metadata: "{}" };
-  await cache.full(record, false, 1);
-  const legacyTools = record.turns.flatMap((turn) => turn.items).filter((item) => item.type === "toolTrace");
+  const legacy = await cache.full({ ...record, pocket: { ...saved, metadata: "{}" } }, false, 1);
+  const legacyTools = toolItems(legacy.record.turns ?? []);
 
   assert.deepEqual(
     legacyTools.map((item) => item.toolLabels),
     labels.map(() => [])
   );
-  record.pocket = saved;
-  await cache.full(record, false, 1);
-  const refreshedTools = record.turns.flatMap((turn) => turn.items).filter((item) => item.type === "toolTrace");
+  const refreshed = await cache.full(record, false, 1);
+  const refreshedTools = toolItems(refreshed.record.turns ?? []);
 
   assert.deepEqual(
     refreshedTools.map((item) => item.toolLabels),
@@ -138,18 +158,20 @@ async function verifyWrites(root: string) {
   };
   const adapter = new ClaudeAdapter(options);
 
-  try {
-    await verifyReload(root, store, adapter, options, sessionId);
-  } finally {
-    await adapter.close();
-    store.close();
+  const completed = await captureResult(verifyReload(root, store, adapter, options, sessionId));
+
+  await adapter.close();
+  store.close();
+
+  if (!completed.ok) {
+    throw completed.error;
   }
 }
 
 await test(
   "Claude write provenance survives real SDK streaming and saved-history reload",
   { timeout: TIMEOUT_MS },
-  async () => {
+  async (t) => {
     const root = await mkdtemp(path.join(os.tmpdir(), "pocket-claude-writes-"));
     const environment = {
       CODEX_POCKET_STATE_DIR: root,
@@ -165,14 +187,7 @@ await test(
 
     Object.assign(process.env, environment);
 
-    try {
-      await writeFile(
-        environment.POCKET_CLAUDE_BINARY,
-        '#!/bin/sh\nexec "$POCKET_SIMULATOR_NODE" --import "$POCKET_SIMULATOR_LOADER" "$POCKET_SIMULATOR_CLI" "$@"\n',
-        { mode: 0o700 }
-      );
-      await verifyWrites(root);
-    } finally {
+    t.after(async () => {
       for (const [key, value] of Object.entries(previous)) {
         if (value === undefined) {
           Reflect.deleteProperty(process.env, key);
@@ -182,6 +197,13 @@ await test(
       }
 
       await rm(root, { recursive: true, force: true });
-    }
+    });
+
+    await writeFile(
+      environment.POCKET_CLAUDE_BINARY,
+      '#!/bin/sh\nexec "$POCKET_SIMULATOR_NODE" --import "$POCKET_SIMULATOR_LOADER" "$POCKET_SIMULATOR_CLI" "$@"\n',
+      { mode: 0o700 }
+    );
+    await verifyWrites(root);
   }
 );

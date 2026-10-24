@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import {
   type AdapterOptions,
   type Harness,
@@ -170,10 +171,12 @@ class HarnessCheck {
   @returns Completion of the check and native cleanup; failures propagate.
   */
   async run() {
-    try {
-      await this.execute();
-    } finally {
-      await this.adapter.close();
+    const completed = await captureResult(this.execute());
+
+    await this.adapter.close();
+
+    if (!completed.ok) {
+      throw completed.error;
     }
   }
 }

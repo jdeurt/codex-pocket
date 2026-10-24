@@ -1,5 +1,5 @@
-import { chmodSync, mkdirSync } from "node:fs";
-import Database from "better-sqlite3";
+import { privateDatabase } from "./private-database";
+import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { z } from "zod";
 
@@ -7,7 +7,6 @@ const BUSY_TIMEOUT_MS = 1000;
 const MAX_TITLE_LENGTH = 160;
 const MAX_BODY_LENGTH = 32_768;
 const MAX_CALENDAR_LENGTH = 16_384;
-const PRIVATE_FILE_MODE = 0o600;
 export const scheduleInput = z
   .object({
     title: z.string().trim().min(1).max(MAX_TITLE_LENGTH),
@@ -55,11 +54,9 @@ Acquire the private SQLite file and initialize the existing schedule and occurre
 @returns Native private database handle configured for WAL and bounded busy waiting.
 */
 function openScheduleDatabase(filename: string) {
-  const db = new Database(filename, { timeout: BUSY_TIMEOUT_MS });
-
-  chmodSync(filename, PRIVATE_FILE_MODE);
-  db.pragma("journal_mode = WAL");
-  db.exec(`
+  return privateDatabase(
+    filename,
+    `
       CREATE TABLE IF NOT EXISTS schedules (
         id TEXT PRIMARY KEY, threadId TEXT NOT NULL, title TEXT NOT NULL, body TEXT NOT NULL,
         calendar TEXT NOT NULL, active INTEGER NOT NULL, nextRun INTEGER, revision INTEGER NOT NULL,
@@ -72,9 +69,9 @@ function openScheduleDatabase(filename: string) {
         UNIQUE(scheduleId, scheduledAt)
       );
       CREATE INDEX IF NOT EXISTS scheduled_runs_thread ON scheduled_runs(threadId, status);
-    `);
-
-  return db;
+    `,
+    { timeout: BUSY_TIMEOUT_MS }
+  );
 }
 
 /**

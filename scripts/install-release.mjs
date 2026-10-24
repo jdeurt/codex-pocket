@@ -38,27 +38,37 @@ async function activate(root, release, service) {
   await rm(path.join(release, ".env.local"));
   await symlink(file, path.join(release, ".env.local"));
 
-  try {
+  async function promote() {
     await service.stop();
     await replaceFile(file, candidate);
     await service.start(release);
     await selectRelease(root, release);
-  } catch (error) {
-    try {
-      await service.stop();
-      await replaceFile(file, previous);
-      await selectRelease(root, priorRelease);
-      await service.restore();
-    } catch (recoveryError) {
-      throw new AggregateError(
-        [error, recoveryError],
-        "Pocket activation and recovery failed; saved releases are retained.",
-        { cause: recoveryError }
-      );
-    }
-
-    throw error;
   }
+
+  async function restore() {
+    await service.stop();
+    await replaceFile(file, previous);
+    await selectRelease(root, priorRelease);
+    await service.restore();
+  }
+
+  const [promoted] = await Promise.allSettled([promote()]);
+
+  if (promoted.status === "fulfilled") {
+    return;
+  }
+
+  const [restored] = await Promise.allSettled([restore()]);
+
+  if (restored.status === "rejected") {
+    throw new AggregateError(
+      [promoted.reason, restored.reason],
+      "Pocket activation and recovery failed; saved releases are retained.",
+      { cause: restored.reason }
+    );
+  }
+
+  throw promoted.reason;
 }
 
 /** Allocate a private candidate after creating its parent directory.
@@ -83,6 +93,20 @@ export async function requireBuild(release) {
   }
 }
 
+/** Stage and validate a candidate without touching the running service.
+@param {string} source - Authored checkout.
+@param {string} release - Isolated candidate directory.
+@param {Buffer | undefined} saved - Existing private settings.
+@param {(release: string) => void | Promise<void>} build - Candidate build gates.
+@returns {Promise<void>} Completion of all candidate validation.
+*/
+async function buildCandidate(source, release, saved, build) {
+  await copySources(source, release);
+  await replaceFile(path.join(release, ".env.local"), saved);
+  await build(release);
+  await requireBuild(release);
+}
+
 /** Build in isolation and change the running installation only after every build gate succeeds.
 @param {string} source - Authored source checkout.
 @param {string} root - Private Pocket home.
@@ -94,23 +118,19 @@ export async function installRelease(source, root, build, service) {
   const release = await createRelease(path.join(root, "releases"));
   const saved = await optionalFile(path.join(root, ".env.local"));
 
-  try {
-    await copySources(source, release);
-    await replaceFile(path.join(release, ".env.local"), saved);
-    await build(release);
+  const [built] = await Promise.allSettled([buildCandidate(source, release, saved, build)]);
+  const [activated] =
+    built.status === "fulfilled" ? await Promise.allSettled([activate(root, release, service)]) : [built];
 
-    await requireBuild(release);
-
-    await activate(root, release, service);
-
+  if (activated.status === "fulfilled") {
     return release;
-  } catch (error) {
-    if (!(error instanceof AggregateError)) {
-      await rm(release, { recursive: true, force: true });
-    }
-
-    throw error;
   }
+
+  if (!(activated.reason instanceof AggregateError)) {
+    await rm(release, { recursive: true, force: true });
+  }
+
+  throw activated.reason;
 }
 
 /** Prevent concurrent installers from promoting different builds over the same service.
@@ -123,9 +143,11 @@ export async function withInstallLock(root, operation) {
 
   await mkdir(path.dirname(lock), { recursive: true });
 
-  try {
-    await mkdir(lock);
-  } catch (error) {
+  const [completed] = await Promise.allSettled([mkdir(lock)]);
+
+  if (completed.status !== "fulfilled") {
+    const error = /** @type {unknown} */ (completed.reason);
+
     if (error instanceof Error && "code" in error && error.code === "EEXIST") {
       throw new Error(
         "Another installer is active. If it was interrupted, remove ~/.pocket/install.lock before retrying.",
@@ -136,9 +158,11 @@ export async function withInstallLock(root, operation) {
     throw error;
   }
 
-  try {
-    await operation();
-  } finally {
-    await rm(lock, { recursive: true, force: true });
+  const [settled] = await Promise.allSettled([Promise.try(operation)]);
+
+  await rm(lock, { recursive: true, force: true });
+
+  if (settled.status !== "fulfilled") {
+    throw settled.reason;
   }
 }

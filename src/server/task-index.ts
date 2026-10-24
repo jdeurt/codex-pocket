@@ -1,9 +1,13 @@
+import { optionalFile } from "./optional-file";
+import { t as captureResult } from "try";
 import { createStore } from "@tobilu/qmd";
 import { stat } from "node:fs/promises";
 import { lock } from "proper-lockfile";
 import path from "node:path";
 import { taskDirectory } from "./task-archive";
-import { optionalTaskFile, reconcileTaskViews, taskIndexDirectory } from "./task-index-views";
+import { reconcileTaskViews, taskIndexDirectory } from "./task-index-views";
+import { retrievalCapabilities, keywordRetrieval } from "../state/task-retrieval";
+import { valueAfterCleanup } from "../lib/results";
 import { type RetrievalMode, searchTaskIndex } from "./task-index-search";
 
 const LOCK_RETRIES = 120;
@@ -18,7 +22,7 @@ async function localModel(value: string | undefined) {
     return;
   }
 
-  const info = await optionalTaskFile(() => stat(value));
+  const info = await optionalFile(stat, value);
 
   return info?.isFile() ? value : undefined;
 }
@@ -30,68 +34,64 @@ async function localModel(value: string | undefined) {
 async function localCapabilities(isKeywordOnly: boolean) {
   const embed = isKeywordOnly ? undefined : await localModel(process.env.POCKET_QMD_EMBED_MODEL);
   const rerank = isKeywordOnly ? undefined : await localModel(process.env.POCKET_QMD_RERANK_MODEL);
-  const retrieval: RetrievalMode = {
-    engine: "@tobilu/qmd",
-    mode: embed ? "hybrid" : "keyword",
-    reranked: !!rerank,
-    reasons: [],
-  };
 
-  if (!embed) {
-    retrieval.reasons.push("Local embedding model unavailable; using QMD BM25 keyword retrieval.");
-  }
-
-  if (!rerank) {
-    retrieval.reasons.push("Local reranking model unavailable; model reranking disabled.");
-  }
-
-  return { embed, rerank, retrieval };
+  return { embed, rerank, retrieval: retrievalCapabilities(!!embed, !!rerank) };
 }
 
-/** Downgrade semantic retrieval when QMD reports incomplete embedding work.
-@param errors - QMD's count of failed chunks.
-@param retrieval - Current capability status.
+/** Execute optional native embeddings through an explicit store receiver.
+@param store - Parent index.
+@param model - Verified local model path.
+@returns Native indexing report.
 */
-function reportEmbeddingErrors(errors: number, retrieval: RetrievalMode) {
-  if (!(errors > 0)) {
-    return;
-  }
-
-  retrieval.mode = "keyword";
-  retrieval.reasons.push(`${String(errors)} embedding chunks failed; using QMD keyword retrieval.`);
+function createEmbeddings(store: Awaited<ReturnType<typeof createStore>>, model: string) {
+  return store.embed({ model, collection: "tasks" });
 }
 
 /** Attempt optional local embeddings while retaining QMD keyword functionality on inference failures.
 @param store - Current parent's index.
 @param model - Existing local GGUF file.
-@param retrieval - Capability state to downgrade if indexing failed.
+@param retrieval - Capability state before indexing.
+@returns Updated capabilities, with explicit fallback reasons.
 */
 async function embedLocal(store: Awaited<ReturnType<typeof createStore>>, model: string, retrieval: RetrievalMode) {
-  try {
-    const result = await store.embed({ model, collection: "tasks" });
+  const embedded = await captureResult(createEmbeddings, store, model);
 
-    reportEmbeddingErrors(result.errors, retrieval);
-  } catch (error) {
-    retrieval.mode = "keyword";
-    retrieval.reasons.push(`Local embeddings unavailable: ${error instanceof Error ? error.message : String(error)}`);
+  if (embedded.ok) {
+    return embedded.value.errors > 0
+      ? keywordRetrieval(
+          retrieval,
+          `${String(embedded.value.errors)} embedding chunks failed; using QMD keyword retrieval.`
+        )
+      : retrieval;
   }
+
+  const error = embedded.error;
+
+  return keywordRetrieval(
+    retrieval,
+    `Local embeddings unavailable: ${error instanceof Error ? error.message : String(error)}`
+  );
 }
 
 /** Take the optional inference slot without delaying keyword retrieval behind a local model job.
 @param owner - Private parent namespace.
-@param retrieval - Capability state to downgrade when another worker owns local inference.
-@returns A release callback, or null when inference is busy/unavailable.
+@param retrieval - Current capabilities.
+@returns Lease release and updated capabilities.
 */
 async function inferenceSlot(owner: string, retrieval: RetrievalMode) {
-  try {
-    return await lock(path.join(taskDirectory(owner), "qmd", "inference"), { realpath: false });
-  } catch (error) {
-    retrieval.mode = "keyword";
-    retrieval.reranked = false;
-    retrieval.reasons.push(`Local inference busy or unavailable; using keyword retrieval: ${String(error)}`);
+  const filename = path.join(taskDirectory(owner), "qmd", "inference");
+  const completed = await captureResult(lock, filename, { realpath: false });
 
-    return null;
-  }
+  return completed.ok
+    ? { release: completed.value, retrieval }
+    : {
+        release: null,
+        retrieval: keywordRetrieval(
+          retrieval,
+          `Local inference busy or unavailable; using keyword retrieval: ${String(completed.error)}`,
+          true
+        ),
+      };
 }
 
 /** Run only model work for which this process owns the optional inference slot.
@@ -113,11 +113,9 @@ async function modelSearch(
   offset: number,
   retrieval: RetrievalMode
 ) {
-  if (embed && documents.length > 0) {
-    await embedLocal(store, embed, retrieval);
-  }
+  const mode = embed && documents.length > 0 ? await embedLocal(store, embed, retrieval) : retrieval;
 
-  return searchTaskIndex(store, owner, documents, query ?? "", offset, retrieval);
+  return searchTaskIndex(store, owner, documents, query ?? "", offset, mode);
 }
 
 /** Update the collection and optional vectors before serving a query.
@@ -149,17 +147,24 @@ async function refreshStore(
     return searchTaskIndex(store, owner, documents, query ?? "", offset, retrieval);
   }
 
-  const release = await inferenceSlot(owner, retrieval);
+  const slot = await inferenceSlot(owner, retrieval);
 
-  if (!release) {
-    return searchTaskIndex(store, owner, documents, query ?? "", offset, retrieval);
+  if (!slot.release) {
+    return searchTaskIndex(store, owner, documents, query ?? "", offset, slot.retrieval);
   }
 
-  try {
-    return await modelSearch(store, owner, documents, embed, query, offset, retrieval);
-  } finally {
-    await release();
-  }
+  const completed = await captureResult(modelSearch, store, owner, documents, embed, query, offset, slot.retrieval);
+  const released = await captureResult(slot.release);
+
+  return valueAfterCleanup(completed, released);
+}
+
+/** Close the explicit native index owner.
+@param store - Owned QMD index.
+@returns Native close completion.
+*/
+function closeStore(store: Awaited<ReturnType<typeof createStore>>) {
+  return store.close();
 }
 
 /** Own the store lifecycle while holding the cross-process parent lock.
@@ -196,11 +201,43 @@ async function updateAndSearch(
     },
   });
 
-  try {
-    return await refreshStore(store, owner, documents, embed, query, offset, retrieval, releaseIndex);
-  } finally {
-    await store.close();
-  }
+  const completed = await captureResult(
+    refreshStore,
+    store,
+    owner,
+    documents,
+    embed,
+    query,
+    offset,
+    retrieval,
+    releaseIndex
+  );
+  const closed = await captureResult(closeStore, store);
+
+  return valueAfterCleanup(completed, closed);
+}
+
+/**
+Runtime owner of the index lease's one-time native release.
+*/
+class IndexLease {
+  private isReleased = false;
+  /** Release only the held native lock.
+  @returns Native unlock completion.
+  */
+  release = async () => {
+    if (this.isReleased) {
+      return;
+    }
+
+    this.isReleased = true;
+    await this.unlock();
+  };
+
+  /** Retain an acquired native lock.
+  @param unlock - Native release operation.
+  */
+  constructor(private readonly unlock: () => Promise<void>) {}
 }
 
 /** Reconcile and query one private QMD store in a dedicated host subprocess.
@@ -216,20 +253,9 @@ export async function runTaskIndex(owner: string, query?: string, offset = 0, is
     retries: { retries: LOCK_RETRIES, factor: 1, minTimeout: LOCK_RETRY_MS, maxTimeout: LOCK_RETRY_MS },
   });
 
-  let isReleased = false;
+  const lease = new IndexLease(unlock);
+  const completed = await captureResult(updateAndSearch, owner, query, offset, isKeywordOnly, lease.release);
+  const released = await captureResult(lease.release);
 
-  const release = async () => {
-    if (isReleased) {
-      return;
-    }
-
-    isReleased = true;
-    await unlock();
-  };
-
-  try {
-    return await updateAndSearch(owner, query, offset, isKeywordOnly, release);
-  } finally {
-    await release();
-  }
+  return valueAfterCleanup(completed, released);
 }

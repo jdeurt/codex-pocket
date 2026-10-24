@@ -1,3 +1,5 @@
+import { t as captureResult } from "try";
+
 /**
 Collects data lines from one complete SSE frame while ignoring keepalives.
 @param frame - Complete frame without its terminating blank line.
@@ -93,10 +95,12 @@ Cancels the actual response and releases its reader even when cancellation rejec
 @returns Completion of cancellation and reader release.
 */
 async function closeReader(reader: ReadableStreamDefaultReader<Uint8Array>) {
-  try {
-    await reader.cancel();
-  } finally {
-    reader.releaseLock();
+  const completed = await captureResult(reader.cancel());
+
+  reader.releaseLock();
+
+  if (!completed.ok) {
+    throw completed.error;
   }
 }
 
@@ -108,9 +112,13 @@ Reads the first complete data event, including frames split across network chunk
 export async function readSnapshot(body: ReadableStream<Uint8Array>): Promise<unknown> {
   const reader = body.getReader();
 
-  try {
-    return await readData(reader);
-  } finally {
-    await closeReader(reader);
+  const completed = await captureResult(readData(reader));
+
+  await closeReader(reader);
+
+  if (!completed.ok) {
+    throw completed.error;
   }
+
+  return completed.value;
 }

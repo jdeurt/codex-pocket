@@ -1,7 +1,8 @@
+import { t as captureResult } from "try";
 import { Bridge } from "../../src/server/bridge";
 import { type Snapshot } from "../../src/lib/protocol";
 import { setTimeout as pause } from "node:timers/promises";
-import { visibleSnapshot } from "../../src/server/visible-snapshot";
+import { visibleSnapshot } from "../../src/state/visible-snapshot";
 import { z } from "zod";
 
 const SETTLE_ATTEMPTS = 200;
@@ -63,9 +64,15 @@ Owns this private bridge worker's IPC and native transport until host shutdown.
 function worker() {
   const bridge = new Bridge();
 
-  process.on("message", (input: unknown) => {
-    void respond(bridge, input).catch((error: unknown) => process.send?.({ error: String(error) }));
-  });
+  async function receive(input: unknown) {
+    const result = await captureResult(respond, bridge, input);
+
+    if (!result.ok) {
+      process.send?.({ error: String(result.error) });
+    }
+  }
+
+  process.on("message", (input: unknown) => void receive(input));
   process.once("SIGTERM", () => {
     bridge.close();
     process.disconnect();

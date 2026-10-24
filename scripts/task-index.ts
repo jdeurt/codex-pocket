@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { taskIndexRequest } from "../src/server/task-index-protocol";
 import { runTaskIndex } from "../src/server/task-index";
 
@@ -21,13 +22,21 @@ function sendError(error: unknown) {
 @param message - One operation from the owning host/MCP process.
 */
 async function execute(message: unknown) {
-  try {
-    const request = taskIndexRequest.parse(message);
-    const page = await runTaskIndex(request.owner, request.query, request.offset, request.isKeywordOnly);
+  const request = taskIndexRequest.safeParse(message);
 
-    send({ ok: true, page });
-  } catch (error) {
-    sendError(error);
+  if (!request.success) {
+    sendError(request.error);
+
+    return;
+  }
+
+  const { owner, query, offset, isKeywordOnly } = request.data;
+
+  const indexed = await captureResult(runTaskIndex, owner, query, offset, isKeywordOnly);
+  const sent = indexed.ok ? captureResult(send, { ok: true, page: indexed.value }) : indexed;
+
+  if (!sent.ok) {
+    sendError(sent.error);
   }
 }
 

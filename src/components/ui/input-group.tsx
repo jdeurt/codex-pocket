@@ -1,4 +1,5 @@
 "use client";
+import { focusInputGroup } from "../../runtime/form-events";
 import * as React from "react";
 import { type VariantProps, cva } from "class-variance-authority";
 import { Button } from "@/components/ui/button";
@@ -58,13 +59,7 @@ function InputGroupAddon({
       data-slot="input-group-addon"
       data-align={align}
       className={cn(inputGroupAddonVariants({ align }), className)}
-      onClick={(e) => {
-        if (e.target instanceof Element && e.target.closest("button")) {
-          return;
-        }
-
-        e.currentTarget.parentElement?.querySelector("input")?.focus();
-      }}
+      onClick={focusInputGroup}
       {...props}
     />
   );

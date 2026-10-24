@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import path from "node:path";
@@ -53,13 +54,17 @@ Read private JSON, using the fallback only when the file is absent.
 @returns Untrusted decoded JSON for the owning persistence schema.
 */
 export async function readLocal(name: string, fallback: unknown): Promise<unknown> {
-  try {
-    return await readJSONFile(name);
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-      return fallback;
-    }
+  const completed = await captureResult(readJSONFile(name));
 
-    throw error;
+  if (completed.ok) {
+    return completed.value;
   }
+
+  const error = completed.error;
+
+  if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+    return fallback;
+  }
+
+  throw error;
 }

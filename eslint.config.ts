@@ -17,6 +17,23 @@ const NODE_MODULES = "node_modules/**";
 const MARKETPLACE_BUILD = ".marketplace-build/**";
 const MARKETPLACE_VERIFY = ".marketplace-verify/**";
 
+const errorHandlingSyntax = [
+  { selector: "TryStatement", message: "Use await and the try package to inspect failures as Results." },
+  {
+    selector: "MemberExpression[computed=false][property.name=/^(then|catch|finally)$/]",
+    message: "Use await and try Results instead of Promise then/catch/finally handlers.",
+  },
+  {
+    selector: "MemberExpression[computed=true][property.value=/^(then|catch|finally)$/]",
+    message: "Use await and try Results instead of Promise then/catch/finally handlers.",
+  },
+  {
+    selector:
+      "CallExpression[callee.async=true]:matches([callee.type='ArrowFunctionExpression'], [callee.type='FunctionExpression'])",
+    message: "Do not invoke async function expressions immediately. Refactor the operation and use await with Results.",
+  },
+];
+
 const CHAINED_TYPE_ASSERTION_SELECTOR =
   ":matches(TSAsExpression, TSTypeAssertion) > :matches(TSAsExpression, TSTypeAssertion)";
 const CHAINED_TYPE_ASSERTION_MESSAGE = "Validate the value instead of chaining type assertions.";
@@ -165,7 +182,9 @@ export function createConfig(options: { typed?: boolean; tsconfigRootDir?: strin
         "prefer-const": "warn",
         "sort-imports": "off",
         "unicorn/no-repeated-call-wrappers": "warn",
-        "unicorn/try-complexity": "warn",
+        "unicorn/prefer-await": "error",
+        "unicorn/no-async-promise-finally": "off",
+        "no-restricted-syntax": ["error", ...errorHandlingSyntax],
         "unicorn/no-array-reduce": "off",
         // User-authorized policy: allow null values while retaining TypeScript null-safety checks.
         "unicorn/no-null": "off",
@@ -187,6 +206,7 @@ export function createConfig(options: { typed?: boolean; tsconfigRootDir?: strin
         "@typescript-eslint/no-unused-vars": ["warn", { argsIgnorePattern: "^_.*", varsIgnorePattern: "^_.*" }],
         "no-restricted-syntax": [
           "error",
+          ...errorHandlingSyntax,
           {
             selector: CHAINED_TYPE_ASSERTION_SELECTOR,
             message: CHAINED_TYPE_ASSERTION_MESSAGE,

@@ -46,12 +46,16 @@ async function executable(candidate) {
     : (process.env.PATH ?? "").split(path.delimiter).map((directory) => path.resolve(directory, candidate));
 
   for (const file of paths) {
-    try {
-      await access(file, constants.X_OK);
+    const [accessible] = await Promise.allSettled([access(file, constants.X_OK)]);
 
-      return await realpath(file);
-    } catch {
-      // Try the next installation location.
+    if (accessible.status === "rejected") {
+      continue;
+    }
+
+    const [resolved] = await Promise.allSettled([realpath(file)]);
+
+    if (resolved.status === "fulfilled") {
+      return resolved.value;
     }
   }
 }

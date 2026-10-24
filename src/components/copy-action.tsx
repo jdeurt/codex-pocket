@@ -1,4 +1,5 @@
 "use client";
+import { requestClipboardCopy, type CopyStatus } from "../runtime/clipboard";
 import { Button } from "@/components/ui/button";
 import { CopyIcon } from "lucide-react";
 import { useState } from "react";
@@ -16,25 +17,7 @@ Copy only the exact validated payload from an explicit user gesture.
 @returns The copy button and its accessible pending/success/failure status.
 */
 export function CopyAction({ text }: { text: string }) {
-  const [status, setStatus] = useState<keyof typeof copyLabels>("idle");
-
-  async function copy() {
-    setStatus("copying");
-
-    if (!("clipboard" in navigator)) {
-      setStatus("error");
-
-      return;
-    }
-
-    try {
-      // Invoke in the click handler, before any await, to retain user activation.
-      await globalThis.navigator.clipboard.writeText(text);
-      setStatus("copied");
-    } catch {
-      setStatus("error");
-    }
-  }
+  const [status, setStatus] = useState<CopyStatus>("idle");
 
   return (
     <div className="copy-action">
@@ -43,9 +26,7 @@ export function CopyAction({ text }: { text: string }) {
         variant="outline"
         size="touch"
         disabled={status === "copying"}
-        onClick={() => {
-          void copy();
-        }}
+        onClick={requestClipboardCopy.bind(undefined, text, setStatus)}
       >
         <CopyIcon aria-hidden="true" />
         Copy text

@@ -1,3 +1,4 @@
+import { t as attempt } from "try";
 import type { ScheduleStore, ScheduledRun } from "./schedules";
 import type { Bridge } from "./bridge";
 import { log } from "./logging";
@@ -12,6 +13,13 @@ export class Scheduler {
   private running = false;
 
   private timer?: NodeJS.Timeout;
+
+  /**
+  Enter the guarded scheduler from its native timer.
+  */
+  private wake = () => {
+    void this.tick();
+  };
 
   /**
 Bind the existing schedule store and parent bridge without starting timers or dispatching work.
@@ -31,14 +39,17 @@ Claim due occurrences and disable invalid recurrences before refreshing the pare
 */
   private async collectDue(now: number) {
     for (const schedule of this.store.due(this.threadId, now)) {
-      try {
-        const next = await nextOccurrence(schedule.calendar, now);
+      const next = await attempt(nextOccurrence, schedule.calendar, now);
+      const claimed = next.ok
+        ? attempt(this.store.occurrences.claim.bind(this.store.occurrences), schedule, next.value, now)
+        : next;
 
-        this.store.occurrences.claim(schedule, next, now);
-      } catch (error) {
-        log().error({ id: schedule.id, error }, "schedule.recurrence_failed");
-        await this.store.update(this.threadId, schedule.id, { active: false }, schedule.revision);
+      if (claimed.ok) {
+        continue;
       }
+
+      log().error({ id: schedule.id, error: claimed.error }, "schedule.recurrence_failed");
+      await this.store.update(this.threadId, schedule.id, { active: false }, schedule.revision);
     }
 
     this.bridge.refreshScheduled();
@@ -58,20 +69,37 @@ Dispatch one persisted occurrence and retain the bridge's existing delivery stat
 Dispatch persisted pending occurrences serially through the parent's idempotent receipt boundary.
 */
   private async dispatch() {
-    const pending = this.store.occurrences
-      .list(this.threadId)
-      .filter((entry) => ["pending", "queued"].includes(entry.status));
+    const pending = this.store.occurrences.list(this.threadId);
 
     for (const run of pending) {
+      if (!["pending", "queued"].includes(run.status)) {
+        continue;
+      }
+
       if (run.status === "pending" && !this.store.occurrences.begin(run.id)) {
         continue;
       }
 
-      try {
-        await this.dispatchRun(run);
-      } catch (error) {
+      const delivered = await attempt(this.dispatchRun.bind(this), run);
+
+      if (!delivered.ok) {
+        const error = delivered.error;
+
         // Bridge persists uncertain sends; retrying this same ID only reads that receipt.
-        this.store.occurrences.setStatus(run.id, "pending", error instanceof Error ? error.message : String(error));
+        const recorded = attempt(
+          this.store.occurrences.setStatus.bind(this.store.occurrences),
+          run.id,
+          "pending",
+          error instanceof Error ? error.message : String(error)
+        );
+
+        if (!recorded.ok) {
+          throw new AggregateError(
+            [error, recorded.error],
+            "Scheduled delivery failed and its retry state could not be saved."
+          );
+        }
+
         break;
       }
     }
@@ -82,7 +110,7 @@ Recover interrupted occurrence records and acquire the existing unrefed polling 
 */
   start() {
     this.store.occurrences.recover(this.threadId);
-    this.timer = setInterval(() => void this.tick(), INTERVAL_MS);
+    this.timer = setInterval(this.wake, INTERVAL_MS);
     this.timer.unref();
     void this.tick();
   }
@@ -98,13 +126,13 @@ Run one non-overlapping due-collection and dispatch cycle, retaining diagnostic 
 
     this.running = true;
 
-    try {
-      await this.collectDue(now);
-      await this.dispatch();
-    } catch (error) {
-      log().error({ error }, "schedule.tick_failed");
-    } finally {
-      this.running = false;
+    const collected = await attempt(this.collectDue.bind(this), now);
+    const dispatched = collected.ok ? await attempt(this.dispatch.bind(this)) : collected;
+
+    this.running = false;
+
+    if (!dispatched.ok) {
+      log().error({ error: dispatched.error }, "schedule.tick_failed");
     }
   }
 

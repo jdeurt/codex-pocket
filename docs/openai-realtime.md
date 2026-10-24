@@ -4,7 +4,7 @@ Pocket uses WebRTC to stream microphone audio directly from the browser to OpenA
 
 ## Conversation and tools
 
-Realtime acts and speaks as Pocket. Its dedicated instructions live in `src/server/realtime-configuration.ts`. It keeps internal routing out of ordinary conversation, answers directly only for short replies grounded in context it already has, and delegates everything else to the main Pocket agent. Requests include the last few relevant user and assistant messages, plus needed earlier decisions and constraints. It asks for clarification when intent is unclear and does not claim success before receiving a result.
+Realtime acts and speaks as Pocket. Its dedicated instructions live in `src/state/realtime-configuration.ts`. It keeps internal routing out of ordinary conversation, answers directly only for short replies grounded in context it already has, and delegates everything else to the main Pocket agent. Requests include the last few relevant user and assistant messages, plus needed earlier decisions and constraints. It asks for clarification when intent is unclear and does not claim success before receiving a result.
 
 Realtime has one tool: `handoff_to_pocket({ request: string })`. The main agent retains workspace tools and decides whether to delegate to other agents. A completed realtime tool call enters the existing durable main-agent outbox with a stable receipt identity. Duplicate calls cannot submit duplicate work. Cancelled responses cannot dispatch tools; uncertain delivery is reported without automatic retry.
 
@@ -22,7 +22,7 @@ The independent `/api/realtime/events` feed carries captions and status. Losing 
 
 Input transcription is explicitly enabled in the OpenAI session with `gpt-4o-transcribe`. Those asynchronous events populate user bubbles; the realtime output audio transcript populates assistant bubbles. Neither transcription nor saving captions gates audio, response creation, or tools. Input captions are a transcription of the audio, not the input the realtime model understands. They can arrive late or be imperfect.
 
-Finalized captions are saved separately with role, provider identity, and predecessor anchors. Audio is not persisted or logged. The old transcript-to-agent delivery barrier and **Send saved speech** action are removed. Existing uncertain-delivery records retain their notice.
+Finalized captions are saved separately with role, provider identity, and predecessor anchors in the host’s `voice-history.sqlite` database. A vanilla Zustand store hydrates through the server SQLite adapter; existing JSON ledgers remain readable until the next successful write migrates that thread. See [state management](state-management.md) for storage and hydration boundaries. Audio is not persisted or logged. The old transcript-to-agent delivery barrier and **Send saved speech** action are removed. Existing uncertain-delivery records retain their notice.
 
 At startup, realtime receives bounded recent conversation text, saved voice captions, and main-agent activity/queued work as historical context. No additional summarization model call is made. This is not a copy of the main agent's complete internal or tool history; realtime asks the main agent when that missing context matters.
 

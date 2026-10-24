@@ -1,5 +1,6 @@
 "use client";
 import { type PocketSettings, type PocketSettingsMutation, REALTIME_SETTING_LIMIT } from "@/lib/settings";
+import { submitRealtimeSettings, updateInput } from "../runtime/form-events";
 import { useState } from "react";
 
 /** Edit optional provider identifiers without taking ownership of the voice transport or catalog.
@@ -25,12 +26,7 @@ export function RealtimeSettingsFields({
         Voice and model overrides apply to the next realtime session. Leave a field blank to use the provider default.
         Availability is checked when the session starts.
       </p>
-      <form
-        onSubmit={(event) => {
-          event.preventDefault();
-          void save({ realtimeVoice: voice.trim() || null, realtimeModel: model.trim() || null });
-        }}
-      >
+      <form onSubmit={submitRealtimeSettings.bind(undefined, save, voice, model)}>
         <label htmlFor="realtime-voice">Realtime voice</label>
         <input
           id="realtime-voice"
@@ -42,9 +38,7 @@ export function RealtimeSettingsFields({
           maxLength={REALTIME_SETTING_LIMIT}
           disabled={busy}
           aria-describedby="realtime-settings-help"
-          onChange={(event) => {
-            setVoice(event.target.value);
-          }}
+          onChange={updateInput.bind(undefined, setVoice)}
         />
         <label htmlFor="realtime-model">Realtime model</label>
         <input
@@ -57,9 +51,7 @@ export function RealtimeSettingsFields({
           maxLength={REALTIME_SETTING_LIMIT}
           disabled={busy}
           aria-describedby="realtime-settings-help"
-          onChange={(event) => {
-            setModel(event.target.value);
-          }}
+          onChange={updateInput.bind(undefined, setModel)}
         />
         <div className="pocket-settings-actions">
           <button type="submit" disabled={busy}>

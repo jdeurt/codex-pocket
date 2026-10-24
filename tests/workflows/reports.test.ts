@@ -2,7 +2,7 @@ import { initialSnapshot } from "../../src/lib/protocol";
 import { delegations } from "../../src/server/delegations";
 import { piWorkflow } from "../fixtures/pi-workflow";
 import { checkReportProjection, forwardReport } from "../fixtures/pi-report-checks";
-import { visibleSnapshot } from "../../src/server/visible-snapshot";
+import { visibleSnapshot } from "../../src/state/visible-snapshot";
 import test from "node:test";
 import assert from "node:assert/strict";
 

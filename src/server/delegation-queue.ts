@@ -1,9 +1,10 @@
-import { type DelegationCommand, delegationCommandSchema, pocket, storedPocketSchema } from "./delegation-data";
+import { nextCommand, steeringTarget, selectedCommandIds } from "../state/delegation-queue";
+import { type DelegationCommand, delegationCommandSchema, pocket, storedPocketSchema } from "../state/delegation-data";
 import { CommandSteering } from "./delegation-steering";
 import type Database from "better-sqlite3";
 import { type DelegationNotifications } from "./delegation-notifications";
 import { type DelegationStore } from "./delegations";
-import { commandText } from "./delegation-input";
+import { commandText } from "../state/delegation-input";
 import { sessionAttachment } from "./session-adoption";
 import { z } from "zod";
 
@@ -29,6 +30,83 @@ Bind the native command database and its concrete child and notification owners.
     this.steering = new CommandSteering(db, notifications);
   }
 
+  /** Persist an idempotent send within its immediate transaction.
+  @param parentId - Recorded parent scope.
+  @param childId - Managed child.
+  @param key - Stable retry identity.
+  @param text - Validated command text.
+  @param mode - Delivery mode.
+  @param selected - Canonical superseded identities.
+  @returns Existing or newly accepted receipt.
+  */
+  private sendCommand(
+    parentId: string,
+    childId: string,
+    key: string,
+    text: string,
+    mode: "steer" | "queue",
+    selected: string[]
+  ) {
+    const replacement = JSON.stringify(selected);
+    const child = this.store.get(parentId, childId);
+    const existing = delegationCommandSchema
+      .optional()
+      .parse(this.db.prepare("SELECT * FROM delegation_commands WHERE childId=? AND key=?").get(childId, key));
+
+    if (existing) {
+      if (existing.body !== text || existing.mode !== mode || existing.supersedes !== replacement) {
+        throw new Error("This message key already belongs to different text, delivery mode, or superseding selection.");
+      }
+
+      return existing;
+    }
+
+    if (["closing", "closed", "unknown"].includes(child.status)) {
+      throw new Error("Resume this Side Pocket before sending more work. Inspect unknown outcomes before continuing.");
+    }
+
+    this.steering.cancel(parentId, childId, selected, `Superseded by send key ${key}`);
+
+    return this.insertCommand(parentId, childId, key, text, mode, replacement);
+  }
+
+  /** Claim only when durable readiness and native capacity permit.
+  @param parentId - Recorded parent scope.
+  @param childId - Candidate child.
+  @returns Claimed command when capacity exists.
+  */
+  private claimAvailable(parentId: string, childId: string) {
+    const child = this.store.get(parentId, childId);
+    const { count } = z
+      .object({ count: z.number() })
+      .parse(this.db.prepare("SELECT count(*) AS count FROM delegation_commands WHERE status='running'").get());
+
+    if (child.status !== "idle" || count >= MAX_CONCURRENT_CHILDREN) {
+      return;
+    }
+
+    return this.claimNext(parentId, childId);
+  }
+
+  /** Commit a result and optional parent report in the same transaction.
+  @param command - Persisted native command.
+  @param status - Terminal or uncertain status.
+  @param result - Serialized native outcome.
+  @param report - Optional source-deduplicated report.
+  */
+  private commitResult(
+    command: DelegationCommand,
+    status: DelegationCommand["status"],
+    result: string,
+    report?: { sourceId: string; kind: string; payload: unknown }
+  ) {
+    this.finish(command, status, result);
+
+    if (report) {
+      this.store.mail.record(command.parentId, command.childId, report.sourceId, report.kind, report.payload);
+    }
+  }
+
   /**
 Insert a validated new command only after retry and child-state guards succeed.
 @param parentId - Recorded parent scope.
@@ -51,10 +129,7 @@ Insert a validated new command only after retry and child-state guards succeed.
     const commands = this.list(parentId, childId);
     const child = this.store.get(parentId, childId);
     const watchId = sessionAttachment(child.metadata)?.watchCommandId;
-    const current =
-      commands.find((entry) => entry.status === "running") ??
-      commands.find((entry) => entry.id === watchId && entry.status === "queued") ??
-      (child.sessionId ? undefined : commands.find((entry) => entry.key === "initial" && entry.status === "queued"));
+    const current = steeringTarget(commands, watchId, child.sessionId);
     const target = mode === "steer" ? current : undefined;
 
     this.db
@@ -87,10 +162,9 @@ Claim the oldest queued command while the caller holds the immediate capacity tr
 @returns Claimed command, or undefined when no queued command remains.
 */
   private claimNext(parentId: string, childId: string) {
-    const queued = this.list(parentId, childId).filter((entry) => entry.status === "queued");
+    const commands = this.list(parentId, childId);
     const watchId = sessionAttachment(this.store.get(parentId, childId).metadata)?.watchCommandId;
-    const command =
-      queued.find((entry) => entry.id === watchId) ?? queued.find((entry) => entry.mode === "steer") ?? queued.at(0);
+    const command = nextCommand(commands, watchId);
 
     if (!command) {
       return;
@@ -136,36 +210,10 @@ Persist a scoped follow-up once, retaining retries before closed-child rejection
     supersedes: string[] = []
   ) {
     const text = commandText(key, body);
-    const selected = [...new Set(supersedes)].toSorted((left, right) => left.localeCompare(right));
-    const replacement = JSON.stringify(selected);
+    const replacement = selectedCommandIds(supersedes);
 
     return this.db
-      .transaction(() => {
-        const child = this.store.get(parentId, childId);
-        const existing = delegationCommandSchema
-          .optional()
-          .parse(this.db.prepare("SELECT * FROM delegation_commands WHERE childId=? AND key=?").get(childId, key));
-
-        if (existing) {
-          if (existing.body !== text || existing.mode !== mode || existing.supersedes !== replacement) {
-            throw new Error(
-              "This message key already belongs to different text, delivery mode, or superseding selection."
-            );
-          }
-
-          return existing;
-        }
-
-        if (["closing", "closed", "unknown"].includes(child.status)) {
-          throw new Error(
-            "Resume this Side Pocket before sending more work. Inspect unknown outcomes before continuing."
-          );
-        }
-
-        this.steering.cancel(parentId, childId, selected, `Superseded by send key ${key}`);
-
-        return this.insertCommand(parentId, childId, key, text, mode, replacement);
-      })
+      .transaction(this.sendCommand.bind(this, parentId, childId, key, text, mode, replacement))
       .immediate();
   }
 
@@ -192,20 +240,7 @@ Atomically enforce child readiness and global capacity before claiming its oldes
 @returns Claimed native command, or undefined while no eligible capacity or work exists.
 */
   claim(parentId: string, childId: string) {
-    return this.db
-      .transaction(() => {
-        const child = this.store.get(parentId, childId);
-        const { count } = z
-          .object({ count: z.number() })
-          .parse(this.db.prepare("SELECT count(*) AS count FROM delegation_commands WHERE status='running'").get());
-
-        if (child.status !== "idle" || count >= MAX_CONCURRENT_CHILDREN) {
-          return;
-        }
-
-        return this.claimNext(parentId, childId);
-      })
-      .immediate();
+    return this.db.transaction(this.claimAvailable.bind(this, parentId, childId)).immediate();
   }
 
   /**
@@ -224,7 +259,7 @@ Read idle children in oldest-command order for the scoped worker's dispatch pass
         .all(parentId)
     );
 
-    return rows.map((row) => pocket(row));
+    return Array.from(rows, pocket);
   }
 
   /**
@@ -252,12 +287,6 @@ Atomically persist a command outcome and its optional parent report.
     result: string,
     report?: { sourceId: string; kind: string; payload: unknown }
   ) {
-    this.db.transaction(() => {
-      this.finish(command, status, result);
-
-      if (report) {
-        this.store.mail.record(command.parentId, command.childId, report.sourceId, report.kind, report.payload);
-      }
-    })();
+    this.db.transaction(this.commitResult.bind(this, command, status, result, report))();
   }
 }

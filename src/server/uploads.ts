@@ -1,8 +1,20 @@
-import { type FileAttachment, MAX_ATTACHMENTS, MAX_ATTACHMENT_BYTES, fileAttachmentSchema } from "../lib/attachments";
+import {
+  type StoredUpload,
+  storedUploadSchema,
+  MAX_NAME_LENGTH,
+  MAX_MEDIA_TYPE_LENGTH,
+  publicUpload,
+  sameUpload,
+  isValidName,
+  isImageUpload,
+} from "../state/uploads";
+
+export { publicUpload, assertMessageContent } from "../state/uploads";
+import { valueAfterCleanup } from "../lib/results";
+import { t as captureResult } from "try";
+import { type FileAttachment, MAX_ATTACHMENTS, MAX_ATTACHMENT_BYTES } from "../lib/attachments";
 import { localDirectory, readLocal, writeLocal } from "./local-state";
 import { readFile, rename, rm, stat } from "node:fs/promises";
-import { type Receipt } from "./outbox";
-import { type Snapshot } from "../lib/protocol";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import sharp from "sharp";
@@ -10,26 +22,9 @@ import { writeBytes } from "./upload-body";
 import { z } from "zod";
 
 const uuid = z.uuid();
-const MAX_NAME_LENGTH = 240;
-const MAX_MEDIA_TYPE_LENGTH = 120;
 const MAX_IMAGE_PIXELS = 40_000_000;
 const MAX_IMAGE_EDGE = 2048;
 const rasterFormats = new Set(["png", "jpeg", "webp", "gif", "avif", "heif", "tiff"]);
-const LAST_CONTROL_CHARACTER = 31;
-const DELETE_CHARACTER = 127;
-const rasterTypes = new Set([
-  "image/png",
-  "image/jpeg",
-  "image/webp",
-  "image/gif",
-  "image/avif",
-  "image/heic",
-  "image/heif",
-  "image/tiff",
-]);
-const storedUploadSchema = fileAttachmentSchema.extend({ sha256: z.string() });
-
-type StoredUpload = z.infer<typeof storedUploadSchema>;
 
 /**
 Resolve a validated upload ID inside its parent chat's private namespace.
@@ -72,17 +67,6 @@ export async function getUpload(parent: string, id: string): Promise<StoredUploa
 }
 
 /**
-Project attachment metadata without exposing its private integrity digest.
-@param file - Validated stored attachment.
-@returns The public attachment contract.
-*/
-export function publicUpload(file: FileAttachment): FileAttachment {
-  const { id, name, size, mediaType, kind } = file;
-
-  return { id, name, size, mediaType, kind };
-}
-
-/**
 Decode a supported photo into bounded PNG input for the model.
 @param pending - Pending directory containing immutable original bytes.
 */
@@ -102,29 +86,6 @@ async function normalizedRaster(pending: string) {
 }
 
 /**
-Normalize native decoder failures into the existing user-facing upload error.
-@param pending - Pending directory containing the original image.
-*/
-async function normalizeImage(pending: string) {
-  try {
-    await normalizedRaster(pending);
-  } catch {
-    throw new Error("This image couldn't be read. Try a PNG, JPEG, WebP, GIF, or AVIF image, or choose another file.");
-  }
-}
-
-/**
-Reject reuse of an upload ID for different bytes or public metadata.
-@param file - Incoming validated upload.
-@param other - Previously committed upload with the same ID.
-*/
-function sameUpload(file: StoredUpload, other: StoredUpload) {
-  if (file.sha256 !== other.sha256 || file.name !== other.name || file.mediaType !== other.mediaType) {
-    throw new Error("Upload ID already belongs to another file.");
-  }
-}
-
-/**
 Atomically publish complete bytes and metadata, accepting an identical concurrent commit.
 @param parent - Owning chat identifier.
 @param pending - Completed pending directory.
@@ -133,45 +94,28 @@ Atomically publish complete bytes and metadata, accepting an identical concurren
 async function commitUpload(parent: string, pending: string, file: StoredUpload) {
   await writeLocal(path.join(pending, "metadata.json"), file);
 
-  try {
-    await rename(pending, directory(parent, file.id));
-  } catch {
-    sameUpload(file, await getUpload(parent, file.id));
-  }
-}
+  const completed = await captureResult(rename(pending, directory(parent, file.id)));
 
-/**
-Reject path segments and control characters in attachment display names.
-@param value - Proposed attachment display name.
-@returns Whether the name is safe for the attachment contract.
-*/
-function isValidName(value: string) {
-  if (value === "." || value === "..") {
-    return false;
+  if (completed.ok) {
+    return;
   }
 
-  for (const character of value) {
-    const point = character.codePointAt(0) ?? 0;
+  const error = completed.error;
 
-    if (character === "/" || character === "\\" || point === DELETE_CHARACTER || point <= LAST_CONTROL_CHARACTER) {
-      return false;
-    }
+  if (!(error instanceof Error && "code" in error && ["EEXIST", "ENOTEMPTY"].includes(String(error.code)))) {
+    throw error;
   }
 
-  return true;
-}
+  const existing = await captureResult(getUpload, parent, file.id);
 
-/**
-Recognize supported image MIME types or generic binary image filenames.
-@param name - Validated display name.
-@param mediaType - Validated request media type.
-@returns Whether model input requires a normalized image.
-*/
-function isImageUpload(name: string, mediaType: string) {
-  return (
-    rasterTypes.has(mediaType) ||
-    (mediaType === "application/octet-stream" && /\.(?:png|jpe?g|webp|gif|avif|hei[cf]|tiff?)$/i.test(name))
-  );
+  if (!existing.ok) {
+    throw new AggregateError(
+      [error, existing.error],
+      "Upload could not be committed or verified as an identical retry."
+    );
+  }
+
+  sameUpload(file, existing.value);
 }
 
 /**
@@ -205,7 +149,14 @@ async function persistUpload(
   }
 
   if (kind === "image") {
-    await normalizeImage(pending);
+    const normalized = await captureResult(normalizedRaster, pending);
+
+    if (!normalized.ok) {
+      throw new Error(
+        "This image couldn't be read. Try a PNG, JPEG, WebP, GIF, or AVIF image, or choose another file.",
+        { cause: normalized.error }
+      );
+    }
   }
 
   await commitUpload(parent, pending, file);
@@ -236,11 +187,25 @@ export async function saveUpload(parent: string, id: string, request: Request) {
     .parse(requestedType?.length ? requestedType : "application/octet-stream");
   const pending = `${directory(parent, id)}.${crypto.randomUUID()}.tmp`;
 
-  try {
-    return await persistUpload(parent, pending, id, request, name, mediaType);
-  } finally {
-    await rm(pending, { recursive: true, force: true });
+  const completed = await captureResult(persistUpload, parent, pending, id, request, name, mediaType);
+
+  return valueAfterCleanup(completed, await captureResult(rm, pending, { recursive: true, force: true }));
+}
+
+/** Verify one managed file before accepting it as model input.
+@param parent - Authorized native chat.
+@param id - Managed upload identity.
+@returns Public metadata after native file verification.
+*/
+async function verifiedUpload(parent: string, id: string) {
+  const file = await getUpload(parent, id);
+  const info = await stat(uploadPath(parent, file));
+
+  if (!info.isFile() || info.size !== file.size) {
+    throw new Error(`Choose ${file.name} again; its stored file is unavailable.`);
   }
+
+  return publicUpload(file);
 }
 
 /**
@@ -250,20 +215,15 @@ Verify stored files and the aggregate byte limit before message submission.
 @returns Validated public attachments in request order.
 */
 async function resolvedUploads(parent: string, ids: string[]) {
-  const files = await Promise.all(
-    ids.map(async (id) => {
-      const file = await getUpload(parent, id);
-      const info = await stat(uploadPath(parent, file));
+  const files = await Promise.all(Array.from(ids, verifiedUpload.bind(undefined, parent)));
 
-      if (!info.isFile() || info.size !== file.size) {
-        throw new Error(`Choose ${file.name} again; its stored file is unavailable.`);
-      }
+  let bytes = 0;
 
-      return publicUpload(file);
-    })
-  );
+  for (const file of files) {
+    bytes += file.size;
+  }
 
-  if (files.reduce((total, file) => total + file.size, 0) > MAX_ATTACHMENT_BYTES) {
+  if (bytes > MAX_ATTACHMENT_BYTES) {
     throw new Error("Attachments must total 50 MB or less.");
   }
 
@@ -303,48 +263,19 @@ Build native model input using managed paths while retaining original file infor
 @returns Native image and text input entries in attachment order.
 */
 export function attachmentInput(parent: string, files: FileAttachment[]) {
-  return files.flatMap((file) => [
-    ...(file.kind === "image" ? [{ type: "localImage", path: uploadPath(parent, file, true) }] : []),
-    {
+  const input = [];
+
+  for (const file of files) {
+    if (file.kind === "image") {
+      input.push({ type: "localImage", path: uploadPath(parent, file, true) });
+    }
+
+    input.push({
       type: "text",
       text: `Attached file on this computer (read it using your file tools):\n${JSON.stringify({ name: file.name, mediaType: file.mediaType, size: file.size, path: uploadPath(parent, file) })}`,
       text_elements: [],
-    },
-  ]);
-}
-
-/**
-Restore receipt-backed attachment metadata on canonical user messages.
-@param state - Canonical thread snapshot to update.
-@param receipts - Persisted submissions containing attachment metadata.
-*/
-export function projectAttachments(state: Snapshot, receipts: Receipt[]) {
-  const attached = new Map(receipts.filter((entry) => entry.attachments?.length).map((entry) => [entry.id, entry]));
-
-  for (const turn of state.turns) {
-    for (const item of turn.items) {
-      const receipt = attached.get(String(item.clientId));
-
-      if (!(receipt && item.type === "userMessage")) {
-        continue;
-      }
-
-      item.attachments = receipt.attachments;
-      item.pocketAttachmentText = receipt.text;
-    }
+    });
   }
-}
 
-/**
-Reject reuse of a message ID with different text or attachment order.
-@param receipt - Previously persisted submission.
-@param text - Proposed message text.
-@param ids - Proposed attachment identifiers in order.
-*/
-export function assertMessageContent(receipt: Receipt, text: string, ids: string[]) {
-  const hasSameFiles = JSON.stringify(receipt.attachments?.map((file) => file.id) ?? []) === JSON.stringify(ids);
-
-  if (!hasSameFiles || receipt.text !== text) {
-    throw new Error("Message ID already belongs to different content.");
-  }
+  return input;
 }

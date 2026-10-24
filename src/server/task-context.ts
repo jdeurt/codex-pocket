@@ -1,86 +1,42 @@
+import { archiveTask, taskDirectory, writeTaskFile } from "./task-archive";
 import {
-  type ContextEntry,
-  type TaskGroup,
-  activeMessageSchema,
-  archiveTask,
-  taskDirectory,
-  taskGroupSchema,
-  writeTaskFile,
-} from "./task-archive";
-import { readFile } from "node:fs/promises";
+  type TaskContextState,
+  activeStateSchema,
+  initialTaskContext,
+  taskPass,
+  groupedTask,
+  taskMessageText,
+} from "../state/task-context";
+import { fileText, optionalFile } from "./optional-file";
 import path from "node:path";
-import { z } from "zod";
 
-const activeStateSchema = z.object({
-  version: z.literal(1),
-  revision: z.number().int(),
-  lastSeen: z.number().int(),
-  sourceCursor: z.string().nullable(),
-  compactionPending: z.boolean().default(false),
-  open: taskGroupSchema.nullable(),
-  messages: z.array(activeMessageSchema),
-});
-
-export type TaskContextState = z.infer<typeof activeStateSchema>;
+export { type TaskContextState, ingestTaskEntry } from "../state/task-context";
 const NONMATCH_LIMIT = 5;
-const LAST_ENTRY = -1;
 
-/** Restore only active membership and the ingestion cursor; closed archives are never opened here.
-@param owner - Exact durable parent identity.
-@returns Persisted active working set, or a fresh state when absent.
+/** Restore only active membership and its committed source cursor.
+@param owner - Durable parent identity.
+@returns Validated active state or an initial checkpoint when absent.
 */
 export async function readTaskState(owner: string): Promise<TaskContextState> {
-  try {
-    const file = path.join(taskDirectory(owner), "active.json");
-    const content = await readFile(file, "utf8");
+  const loaded = await optionalFile(fileText, path.join(taskDirectory(owner), "active.json"));
 
-    return activeStateSchema.parse(JSON.parse(content));
-  } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-      return {
-        version: 1,
-        revision: 0,
-        lastSeen: -1,
-        sourceCursor: null,
-        compactionPending: false,
-        open: null,
-        messages: [],
-      };
-    }
-
-    throw error;
-  }
+  return loaded === null ? initialTaskContext() : activeStateSchema.parse(JSON.parse(loaded));
 }
 
-/** Persist active membership atomically after source ingestion or a successful pass.
-@param owner - Owning parent identity.
-@param state - Active state with no closed-group membership.
-@returns Completion after the active state is durable.
+/** Atomically replace the active membership checkpoint.
+@param owner - Durable parent identity.
+@param state - Immutable active checkpoint.
+@returns Completion after the checkpoint is durable.
 */
 export function saveTaskState(owner: string, state: TaskContextState) {
   return writeTaskFile(taskDirectory(owner), "active.json", JSON.stringify(state, null, 2) + "\n");
 }
 
-/** Add one newly finalized source entry without traversing historical task membership.
-@param state - Directly maintained active working set.
-@param entry - Exact native entry in source order.
-*/
-export function ingestTaskEntry(state: TaskContextState, entry: ContextEntry) {
-  if (entry.role === "user") {
-    state.messages.push({ id: entry.id, text: entry.text, entries: [entry] });
-  } else {
-    state.messages.at(LAST_ENTRY)?.entries.push(entry);
-  }
-
-  state.sourceCursor = entry.id;
-  state.revision++;
-}
-
-/** Resume an open anchor, then close tasks only after five consecutive nonmatching user messages.
-@param owner - Owning parent namespace.
-@param state - Snapshot of the directly maintained active set; callers serialize ingestion with this pass.
-@param isSameTask - Classifier comparing a candidate against every currently matched user message.
-@returns Closed task IDs suitable for a later context-compaction boundary.
+/** Classify active membership with durable checkpoints before provider calls.
+@param owner - Durable parent identity.
+@param state - Initial active checkpoint, left unchanged.
+@param isSameTask - Provider classifier comparing original user text.
+@returns New checkpoint and identities archived as closed tasks.
 */
 export async function groupTaskContext(
   owner: string,
@@ -89,38 +45,24 @@ export async function groupTaskContext(
 ) {
   const closed: string[] = [];
 
-  if (state.revision === state.lastSeen) {
-    return closed;
+  let current = state;
+
+  if (current.revision === current.lastSeen) {
+    return { state: current, closed };
   }
 
-  while (state.messages.length > 0) {
-    const anchor = state.open ? state.messages.find((message) => message.id === state.open?.anchor) : state.messages[0];
+  while (current.messages.length > 0) {
+    const pass = taskPass(current, crypto.randomUUID());
+    const matched = [pass.anchor];
 
-    if (!anchor) {
-      throw new Error("Active task anchor is missing; retained state needs inspection.");
-    }
-
-    const id = state.open?.id ?? crypto.randomUUID();
-    const group: TaskGroup = state.open ?? { id, file: `${id}.md`, anchor: anchor.id, matched: [anchor.id] };
-    const matched = [anchor];
-
-    state.open = group;
-    // Checkpoint the stable file identity before a provider failure can interrupt classification.
-    await saveTaskState(owner, state);
-
+    current = { ...current, open: pass.group };
+    await saveTaskState(owner, current);
     let nonmatches = 0;
 
-    const candidates = state.messages.slice(state.messages.indexOf(anchor) + 1);
+    for (let index = 0; index < pass.candidates.length && nonmatches < NONMATCH_LIMIT; index++) {
+      const candidate = pass.candidates[index];
 
-    for (let index = 0; index < candidates.length && nonmatches < NONMATCH_LIMIT; index++) {
-      const candidate = candidates[index];
-
-      if (
-        await isSameTask(
-          candidate.text,
-          matched.map((message) => message.text)
-        )
-      ) {
+      if (await isSameTask(candidate.text, Array.from(matched, taskMessageText))) {
         matched.push(candidate);
         nonmatches = 0;
       } else {
@@ -128,25 +70,22 @@ export async function groupTaskContext(
       }
     }
 
-    group.matched = matched.map((message) => message.id);
-    await archiveTask(owner, group, matched, state.messages, nonmatches === NONMATCH_LIMIT);
+    const isClosed = nonmatches === NONMATCH_LIMIT;
+    const grouped = groupedTask(current, pass.group, matched, isClosed);
 
-    if (nonmatches < NONMATCH_LIMIT) {
-      state.open = group;
+    await archiveTask(owner, grouped.group, matched, current.messages, isClosed);
+    current = grouped.state;
+
+    if (!isClosed) {
       break;
     }
 
-    closed.push(group.id);
-    const membership = new Set(group.matched);
-
-    state.messages = state.messages.filter((message) => !membership.has(message.id));
-    state.open = null;
-    state.compactionPending = true;
-    await saveTaskState(owner, state);
+    closed.push(grouped.group.id);
+    await saveTaskState(owner, current);
   }
 
-  state.lastSeen = state.revision;
-  await saveTaskState(owner, state);
+  current = { ...current, lastSeen: current.revision };
+  await saveTaskState(owner, current);
 
-  return closed;
+  return { state: current, closed };
 }

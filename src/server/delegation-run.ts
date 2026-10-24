@@ -1,3 +1,5 @@
+import { requireResults, valueAfterCleanup } from "../lib/results";
+import { t, type Result, error as failedResult } from "try";
 import type { DelegationCommand, DelegationStore, SidePocket } from "./delegations";
 import type { HarnessAdapter, HarnessResult } from "./harness/types";
 import { log } from "./logging";
@@ -14,7 +16,7 @@ export class DelegationRun {
 
   private settled = false;
 
-  private deliveries = new Map<string, Promise<void>>();
+  private deliveries = new Map<string, Promise<Result<void>>>();
   exitStatus?: "confirmed" | "uncertain";
 
   /**
@@ -129,16 +131,24 @@ export class DelegationRun {
 
     this.ready.resolve(true);
 
-    try {
-      const outcome = await result;
+    const response = await t(result);
 
-      this.settled = true;
-      await Promise.all(this.deliveries.values());
-      this.complete(outcome);
-    } finally {
-      this.settled = true;
-      this.ready.resolve(false);
+    this.settled = true;
+    const finished = response.ok ? await t(this.finishDelivery.bind(this), response.value) : response;
+
+    this.ready.resolve(false);
+
+    if (!finished.ok) {
+      throw finished.error;
     }
+  }
+
+  /** Fence native completion against in-flight steering receipts.
+  @param outcome - Completed native assignment.
+  */
+  private async finishDelivery(outcome: HarnessResult) {
+    await this.settleDeliveries();
+    this.complete(outcome);
   }
 
   /**
@@ -146,14 +156,18 @@ export class DelegationRun {
   @returns Completion of native cleanup and its durable outcome.
   */
   private async close() {
-    try {
-      await this.adapter.close();
-      this.exitStatus = "confirmed";
-    } catch (error) {
-      this.store.setStatus(this.child.parentId, this.child.id, "unknown");
-      log().error({ error, childId: this.child.id }, "side_pocket.cleanup_failed");
-      this.exitStatus = "uncertain";
+    const closed = await t(this.adapter.close.bind(this.adapter));
+
+    this.exitStatus = closed.ok ? "confirmed" : "uncertain";
+
+    if (closed.ok) {
+      return;
     }
+
+    log().error({ error: closed.error, childId: this.child.id }, "side_pocket.cleanup_failed");
+    const recorded = t(this.store.setStatus.bind(this.store), this.child.parentId, this.child.id, "unknown");
+
+    valueAfterCleanup(closed, recorded);
   }
 
   /**
@@ -175,16 +189,32 @@ export class DelegationRun {
   @param command - Correction acquired by this run's worker.
   */
   private async deliver(command: DelegationCommand) {
-    try {
-      await this.deliverCurrent(command);
-    } catch (error) {
-      this.store.queue.steering.finish(command, {
-        status: "unknown",
-        detail: error instanceof Error ? error.message : String(error),
-      });
-    } finally {
-      this.deliveries.delete(command.id);
+    const delivered = await t(this.deliverCurrent.bind(this), command);
+
+    if (delivered.ok) {
+      return;
     }
+
+    const recorded = t(this.store.queue.steering.finish.bind(this.store.queue.steering), command, {
+      status: "unknown",
+      detail: delivered.error instanceof Error ? delivered.error.message : String(delivered.error),
+    });
+
+    if (!recorded.ok) {
+      throw new AggregateError(
+        [delivered.error, recorded.error],
+        "Steering failed and its uncertain status could not be saved."
+      );
+    }
+  }
+
+  /**
+  Join all steering attempts, including already completed persistence failures.
+  */
+  private async settleDeliveries() {
+    const results = await Promise.all(this.deliveries.values());
+
+    requireResults(results, "One or more steering outcomes could not be saved.");
   }
 
   /**
@@ -192,7 +222,7 @@ export class DelegationRun {
   @param command - Correction already marked attempted in the durable ledger.
   */
   steer(command: DelegationCommand) {
-    this.deliveries.set(command.id, this.deliver(command));
+    this.deliveries.set(command.id, t(this.deliver.bind(this), command));
   }
 
   /**
@@ -200,15 +230,20 @@ export class DelegationRun {
   @returns Completion of execution and cleanup; persistence failures can reject.
   */
   async execute() {
-    try {
-      await this.send();
-    } catch (error) {
-      this.failed(error);
-    } finally {
-      this.settled = true;
-      this.ready.resolve(false);
-      await Promise.all(this.deliveries.values());
-      await this.close();
-    }
+    const sent = await t(this.send.bind(this));
+    const recorded = sent.ok ? sent : t(this.failed.bind(this), sent.error);
+    const outcome =
+      sent.ok || recorded.ok
+        ? recorded
+        : failedResult(
+            new AggregateError([sent.error, recorded.error], "Assignment failed and its failure could not be saved.")
+          );
+
+    this.settled = true;
+    this.ready.resolve(false);
+    const deliveries = await t(this.settleDeliveries.bind(this));
+    const closed = await t(this.close.bind(this));
+
+    requireResults([outcome, deliveries, closed], "Assignment execution or cleanup failed.");
   }
 }

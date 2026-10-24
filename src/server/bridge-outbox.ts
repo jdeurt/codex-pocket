@@ -3,8 +3,11 @@ import { assertMessageContent, resolveUploads } from "./uploads";
 import type { BridgeSnapshots } from "./bridge-snapshots";
 import type { CodexRpc } from "./rpc";
 import type { Config } from "./config";
-import { drainReceipts } from "./bridge-delivery";
-import { isQueueRecovery } from "./recovery";
+import { deliverMessage } from "./delivery";
+import { t } from "try";
+import { findById } from "../lib/identity";
+import { queuedReceipts, receiptStatus } from "../state/outbox";
+import { recoveryReceipt } from "../state/recovery";
 import { log } from "./logging";
 import { mainVoiceContext } from "./voice-main-context";
 import { type MessageSource } from "../lib/protocol";
@@ -54,12 +57,29 @@ export class BridgeOutbox {
       status: "queued",
     };
 
-    this.entries.push(receipt);
+    this.entries = [...this.entries, receipt];
     await this.persist(config.threadId);
     await this.drain(rpc, config);
-    log().info({ id, status: receipt.status }, "message.delivery");
+    const status = findById(this.entries, id)?.status ?? "unknown";
 
-    return { id, status: receipt.status };
+    log().info({ id, status }, "message.delivery");
+
+    return { id, status };
+  }
+
+  /** Deliver one accepted receipt and durably acknowledge native completion.
+  @param rpc - Connected native transport.
+  @param config - Current validated configuration.
+  @param receipt - Durable submission to deliver.
+  */
+  private async dispatch(rpc: CodexRpc, config: Config | undefined, receipt: Receipt) {
+    if (!config) {
+      throw new Error("Codex is unconfigured.");
+    }
+
+    await deliverMessage(rpc, config, this.snapshots, receipt);
+    this.entries = receiptStatus(this.entries, receipt.id, "sent");
+    await this.persist(config.threadId);
   }
 
   /**
@@ -72,7 +92,7 @@ export class BridgeOutbox {
     }
 
     this.entries = await persistReceipts(threadId, this.entries, this.pocketId);
-    this.snapshots.state.queue = this.entries.filter((entry) => entry.status !== "sent");
+    this.snapshots.state = { ...this.snapshots.state, queue: queuedReceipts(this.entries) };
     this.snapshots.publish(this.entries);
   }
 
@@ -90,9 +110,15 @@ export class BridgeOutbox {
   @param threadId - Parent conversation owning the recovery receipt.
   */
   async recover(threadId: string) {
-    if (isQueueRecovery(this.snapshots.state, this.entries)) {
-      await this.persist(threadId);
+    const recovery = recoveryReceipt(this.snapshots.state.turns, this.entries, crypto.randomUUID());
+
+    if (!recovery) {
+      return;
     }
+
+    this.entries = [...this.entries, recovery];
+    log().info({ id: recovery.id, threadId }, "recovery.queued");
+    await this.persist(threadId);
   }
 
   /**
@@ -106,7 +132,7 @@ export class BridgeOutbox {
   @returns The existing or newly accepted delivery status.
   */
   async send(config: Config, rpc: CodexRpc, id: string, text: string, attachmentIds: string[], source?: MessageSource) {
-    const existing = this.entries.find((entry) => entry.id === id);
+    const existing = findById(this.entries, id);
 
     if (existing) {
       assertMessageContent(existing, text, attachmentIds);
@@ -131,15 +157,37 @@ export class BridgeOutbox {
       return;
     }
 
-    await drainReceipts(
-      rpc,
-      config,
-      this.snapshots.state,
-      this.entries,
-      () => this.persist(config?.threadId),
-      (error) => {
-        this.snapshots.fail(error, this.entries);
+    for (const receipt of this.entries) {
+      if (receipt.status !== "queued") {
+        continue;
       }
-    );
+
+      if (this.snapshots.state.activeTurnId && config?.activeMessageMode === "queue") {
+        return;
+      }
+
+      this.entries = receiptStatus(this.entries, receipt.id, "sending");
+      await this.persist(config?.threadId);
+      const sent = await t(this.dispatch.bind(this), rpc, config, receipt);
+
+      if (!sent.ok) {
+        this.entries = receiptStatus(this.entries, receipt.id, "unknown");
+        const persisted = await t(this.persist.bind(this), config?.threadId);
+        const error = persisted.ok
+          ? sent.error
+          : new AggregateError(
+              [sent.error, persisted.error],
+              "Delivery failed and its uncertain status could not be saved."
+            );
+
+        this.snapshots.fail(error, this.entries);
+
+        if (!persisted.ok) {
+          throw error;
+        }
+
+        return;
+      }
+    }
   }
 }

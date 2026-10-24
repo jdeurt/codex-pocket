@@ -1,8 +1,12 @@
 "use client";
 import "./pocket-settings.css";
 import { OPENAI_API_KEY_LIMIT, type PocketSettingsMutation } from "@/lib/settings";
-import { savePocketSettings, usePocketSettings } from "@/hooks/use-pocket-settings";
+import { usePocketSettings } from "@/hooks/use-pocket-settings";
 import { RealtimeSettingsFields } from "./realtime-settings-fields";
+import { usePocketClient } from "@/providers/pocket-state";
+import { useStore } from "zustand";
+import { changeToolVisibility, submitKey, removeKey } from "@/runtime/settings-form";
+import { updateInput } from "@/runtime/form-events";
 import { useState } from "react";
 
 /** Keep the visibility control responsive while persisting its global preference.
@@ -20,21 +24,13 @@ function ToolCallSetting({
 }) {
   const [checked, setChecked] = useState(initial);
 
-  async function change(isChecked: boolean) {
-    setChecked(isChecked);
-
-    if (!(await save({ showToolCalls: isChecked }))) {
-      setChecked(!isChecked);
-    }
-  }
-
   return (
     <label className="pocket-settings-toggle">
       <input
         type="checkbox"
         checked={checked}
         disabled={busy}
-        onChange={(event) => void change(event.target.checked)}
+        onChange={changeToolVisibility.bind(undefined, save, setChecked)}
         aria-describedby="tool-calls-help"
       />
       <span>
@@ -48,45 +44,14 @@ function ToolCallSetting({
 }
 
 /** Present global Pocket preferences and a write-only OpenAI credential editor.
-@param props - Shared menu submission lock and lock callback preserving in-flight saves.
 @returns Central settings content, with credential values confined to the password input.
 */
-export function PocketSettingsPanel({
-  busy,
-  onBusyChange,
-}: {
-  busy: boolean;
-  onBusyChange: (isBusy: boolean) => void;
-}) {
+export function PocketSettingsPanel() {
+  const { settings } = usePocketClient();
   const { data, error: readError } = usePocketSettings();
   const [apiKey, setApiKey] = useState("");
-  const [error, setError] = useState("");
-  const [status, setStatus] = useState("");
-
-  async function didSave(change: PocketSettingsMutation) {
-    onBusyChange(true);
-    setError("");
-    setStatus("");
-
-    try {
-      await savePocketSettings(change);
-      setStatus("Settings saved.");
-
-      return true;
-    } catch (error_) {
-      setError(error_ instanceof Error ? error_.message : "Could not save Pocket settings.");
-
-      return false;
-    } finally {
-      onBusyChange(false);
-    }
-  }
-
-  async function saveKey(value: string | null) {
-    if (await didSave({ openaiApiKey: value })) {
-      setApiKey("");
-    }
-  }
+  const { busy, error, status } = useStore(settings.store);
+  const { didSave } = settings;
 
   return (
     <div className="pocket-settings">
@@ -108,12 +73,7 @@ export function PocketSettingsPanel({
               {data.openaiApiKeyConfigured ? "API key configured" : "No API key configured"}
               {data.openaiApiKeySource === "environment" && " through the host environment"}.
             </p>
-            <form
-              onSubmit={(event) => {
-                event.preventDefault();
-                void saveKey(apiKey.trim());
-              }}
-            >
+            <form onSubmit={submitKey.bind(undefined, didSave, setApiKey, apiKey)}>
               <label htmlFor="openai-api-key">OpenAI API key</label>
               <input
                 id="openai-api-key"
@@ -126,16 +86,14 @@ export function PocketSettingsPanel({
                 required
                 disabled={busy}
                 aria-describedby="openai-key-help"
-                onChange={(event) => {
-                  setApiKey(event.target.value);
-                }}
+                onChange={updateInput.bind(undefined, setApiKey)}
               />
               <div className="pocket-settings-actions">
                 <button type="submit" disabled={busy || !apiKey.trim()}>
                   {data.openaiApiKeyConfigured ? "Replace API key" : "Save API key"}
                 </button>
                 {data.openaiApiKeySource === "saved" && (
-                  <button type="button" disabled={busy} onClick={() => void saveKey(null)}>
+                  <button type="button" disabled={busy} onClick={removeKey.bind(undefined, didSave, setApiKey)}>
                     Remove saved key
                   </button>
                 )}

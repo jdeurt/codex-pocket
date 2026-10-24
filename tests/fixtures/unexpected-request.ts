@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { appendFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import assert from "node:assert/strict";
@@ -20,15 +21,17 @@ export function unexpectedRequest(method: string | undefined): never {
 @param directory - Private state shared with the owned native replay processes.
 */
 export async function assertExpectedRequests(directory: string) {
-  let journal = "";
+  const loaded = await captureResult(() => readFile(path.join(directory, JOURNAL), "utf8"));
 
-  try {
-    journal = await readFile(path.join(directory, JOURNAL), "utf8");
-  } catch (error) {
+  if (!loaded.ok) {
+    const error = loaded.error;
+
     if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
       throw error;
     }
   }
+
+  const journal = loaded.value ?? "";
 
   assert.equal(journal, "", `Unmatched native requests:\n${journal}`);
 }

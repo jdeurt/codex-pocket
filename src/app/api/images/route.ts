@@ -1,4 +1,5 @@
-import { errorResponse, guard } from "@/server/http";
+import { endpoint, guard } from "@/server/http";
+import { findItem } from "@/lib/protocol";
 import { itemImageSources } from "@/lib/images";
 import { renderImage } from "@/server/images";
 import { requestBridge } from "@/server/named-pockets";
@@ -17,7 +18,7 @@ Selects only an image belonging to the requested parent item, with the existing 
 async function parentImageSource(request: Request, url: URL, index: number) {
   const itemId = url.searchParams.get("item");
   const bridge = itemId ? await requestBridge(request) : undefined;
-  const item = bridge?.snapshot.turns.flatMap((turn) => turn.items).find((entry) => entry.id === itemId);
+  const item = findItem(bridge?.snapshot.turns ?? [], itemId);
 
   if (itemId) {
     return item ? itemImageSources(item)[index] : undefined;
@@ -83,12 +84,8 @@ Serves parent images after host, origin and same-site checks.
 @param request - Incoming image request whose state has not been accessed.
 @returns Private rendition or the existing logged error response.
 */
-export async function GET(request: Request) {
-  try {
-    await authorizeImage(request);
+export const GET = endpoint(async (request: Request) => {
+  await authorizeImage(request);
 
-    return await imageResponse(request);
-  } catch (error) {
-    return errorResponse(error);
-  }
-}
+  return imageResponse(request);
+});

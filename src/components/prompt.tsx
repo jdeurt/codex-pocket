@@ -5,7 +5,9 @@ import { type PendingRequest, object, pretty, string } from "@/lib/protocol";
 import { type Question, questionsSchema } from "@/lib/questions";
 import { Button } from "@/components/ui/button";
 import { QuestionForm } from "./question-form";
-import { useState } from "react";
+import { usePocketClient } from "@/providers/pocket-state";
+import { requestAnswer } from "@/runtime/question-form";
+import { useStore } from "zustand";
 
 /**
 Display native approval details using the shared code-block presentation.
@@ -58,7 +60,7 @@ function Approval({
         {canDecline && (
           <Button
             disabled={sending}
-            onClick={() => void submit(isPermission ? { allow: false } : { decision: "decline" })}
+            onClick={requestAnswer.bind(undefined, submit, isPermission ? { allow: false } : { decision: "decline" })}
             variant="outline"
           >
             Decline
@@ -67,7 +69,7 @@ function Approval({
         {canAccept && (
           <Button
             disabled={sending}
-            onClick={() => void submit(isPermission ? { allow: true } : { decision: "accept" })}
+            onClick={requestAnswer.bind(undefined, submit, isPermission ? { allow: true } : { decision: "accept" })}
           >
             Approve once
           </Button>
@@ -125,39 +127,23 @@ function PromptForm({
   );
 }
 
+/** Render the text of a read-only native question.
+@param question - Validated question.
+@returns Stable question paragraph.
+*/
+function questionText(question: Question) {
+  return <p key={question.id}>{question.question}</p>;
+}
+
 /**
 Select user-input questions or native approval controls for a pending request.
 @param props - Normalized request and the callback that owns sending its answer.
 @returns The matching existing request form.
 */
-export function Prompt({
-  request,
-  answer,
-  readOnly = false,
-}: {
-  request: PendingRequest;
-  readOnly?: boolean;
-  answer?: (id: string | number, result: unknown) => Promise<void>;
-}) {
-  const [sending, setSending] = useState(false);
-  const [error, setError] = useState("");
-
-  async function submit(result: unknown) {
-    if (readOnly || !answer) {
-      return;
-    }
-
-    setSending(true);
-    setError("");
-
-    try {
-      await answer(request.id, result);
-    } catch (error_) {
-      setError(error_ instanceof Error ? error_.message : "Couldn't send your answer.");
-    } finally {
-      setSending(false);
-    }
-  }
+export function Prompt({ request, readOnly = false }: { request: PendingRequest; readOnly?: boolean }) {
+  const client = usePocketClient();
+  const operation = client.operation(`answer:${String(request.id)}`);
+  const { busy: sending, error } = useStore(operation.store);
 
   const questions = questionsSchema.safeParse(request.params.questions);
 
@@ -168,7 +154,7 @@ export function Prompt({
         <AlertDescription>
           <div className="flex w-full flex-col gap-4">
             {questions.success ? (
-              questions.data.map((question) => <p key={question.id}>{question.question}</p>)
+              Array.from(questions.data, questionText)
             ) : (
               <p>{string(request.params.reason) || "This agent has a pending request."}</p>
             )}
@@ -184,7 +170,7 @@ export function Prompt({
       request={request}
       questions={questions.success ? questions.data : undefined}
       sending={sending}
-      submit={submit}
+      submit={client.answer.bind(undefined, request.id)}
       error={error}
     />
   );

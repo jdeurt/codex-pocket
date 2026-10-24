@@ -19,6 +19,14 @@ export const configSchema = z
 
 export type Config = z.infer<typeof configSchema>;
 
+/** Trim one explicit host origin from environment configuration.
+@param origin - Raw comma-delimited origin.
+@returns Origin without surrounding whitespace.
+*/
+function trimOrigin(origin: string) {
+  return origin.trim();
+}
+
 /**
 Parse the attached process environment with the strict Pocket configuration schema.
 @returns Validated parent identity, native process arguments and allowed origins.
@@ -32,9 +40,10 @@ async function configuredEnvironment(): Promise<Config> {
     codexBinary: process.env.CODEX_BINARY ?? "codex",
     serverArgs,
     activeMessageMode: process.env.CODEX_ACTIVE_MESSAGE_MODE ?? "steer",
-    allowedOrigins: (process.env.CODEX_ALLOWED_ORIGINS ?? "http://localhost:3000,http://127.0.0.1:3000")
-      .split(",")
-      .map((s) => s.trim()),
+    allowedOrigins: Array.from(
+      (process.env.CODEX_ALLOWED_ORIGINS ?? "http://localhost:3000,http://127.0.0.1:3000").split(","),
+      trimOrigin
+    ),
   });
 }
 

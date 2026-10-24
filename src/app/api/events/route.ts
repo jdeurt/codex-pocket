@@ -1,8 +1,9 @@
-import { errorResponse, guard } from "@/server/http";
+import { endpoint, errorResponse, guard } from "@/server/http";
 import { HTTP_FORBIDDEN } from "@/lib/constants";
 import { SnapshotStream } from "@/server/snapshot-stream";
 import { bridge } from "@/server/bridge";
 import { requestBridge } from "@/server/named-pockets";
+import { t as attempt } from "try";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,16 +23,13 @@ Subscribe an authorized browser to the existing parent's visible snapshots.
 @param request - Browser request whose origin and cancellation are enforced.
 @returns Private parent event stream, or the existing authorization error response.
 */
-export async function GET(request: Request) {
-  try {
-    await guard(request);
-  } catch (error) {
-    return errorResponse(error, HTTP_FORBIDDEN);
-  }
+export const GET = endpoint(
+  async (request: Request) => {
+    const outcome = await attempt(guard, request);
 
-  try {
-    return await stream(request);
-  } catch (error) {
+    return outcome.ok ? stream(request) : errorResponse(outcome.error, HTTP_FORBIDDEN);
+  },
+  (error: unknown) => {
     return errorResponse(error);
   }
-}
+);

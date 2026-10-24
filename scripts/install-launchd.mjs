@@ -106,15 +106,10 @@ async function isResponding(port) {
 */
 async function ready(port) {
   for (let attempt = 0; attempt <= RETRIES; attempt += 1) {
-    let isAvailable = false;
+    // Next may briefly refuse connections while loading the completed build.
+    const [response] = await Promise.allSettled([isResponding(port)]);
 
-    try {
-      isAvailable = await isResponding(port);
-    } catch {
-      // Next may briefly refuse connections while loading the completed build.
-    }
-
-    if (isAvailable) {
+    if (response.status === "fulfilled" && response.value) {
       return;
     }
 

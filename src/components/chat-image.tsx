@@ -13,8 +13,9 @@ import { Button } from "@/components/ui/button";
 import Image from "next/image";
 import { Skeleton } from "@/components/ui/skeleton";
 import { XIcon } from "lucide-react";
-import { pocketUrl } from "@/lib/pockets";
-import { reportClient } from "@/lib/client-logging";
+import { scopedPocketUrl } from "../state/pocket";
+import { usePocketId } from "../providers/pocket-navigation-context";
+import { imageFailed } from "../runtime/image-events";
 import { useState } from "react";
 
 const IMAGE_WIDTH = 1200;
@@ -26,6 +27,7 @@ Display a guarded image and its native preview drawer with loading and failure s
 @returns The image attachment and existing preview composition.
 */
 export function ChatImage({ source, alt = "Image from Pocket" }: { source: string; alt?: string }) {
+  const pocketId = usePocketId();
   const [loaded, setLoaded] = useState(false);
   const [failed, setFailed] = useState(false);
   const src = imageUrl(source);
@@ -45,20 +47,15 @@ export function ChatImage({ source, alt = "Image from Pocket" }: { source: strin
             <Image
               unoptimized
               draggable={false}
-              src={src.startsWith("/api/") ? pocketUrl(thumbnailUrl(src)) : thumbnailUrl(src)}
+              src={src.startsWith("/api/") ? scopedPocketUrl(pocketId, thumbnailUrl(src)) : thumbnailUrl(src)}
               alt={alt}
               width={IMAGE_WIDTH}
               height={IMAGE_HEIGHT}
               loading="eager"
               decoding="async"
               referrerPolicy="no-referrer"
-              onLoad={() => {
-                setLoaded(true);
-              }}
-              onError={() => {
-                setFailed(true);
-                reportClient("image.failed", { source: src.startsWith("data:") ? "inline image" : src }, "error");
-              }}
+              onLoad={setLoaded.bind(undefined, true)}
+              onError={imageFailed.bind(undefined, setFailed, src)}
             />
           )}
         </AttachmentMedia>
@@ -77,7 +74,7 @@ export function ChatImage({ source, alt = "Image from Pocket" }: { source: strin
             <Image
               unoptimized
               draggable={false}
-              src={src.startsWith("/api/") ? pocketUrl(src) : src}
+              src={src.startsWith("/api/") ? scopedPocketUrl(pocketId, src) : src}
               alt={alt}
               width={IMAGE_WIDTH}
               height={IMAGE_HEIGHT}

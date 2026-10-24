@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { type Config, readConfig } from "../src/server/config";
 import { CodexRpc } from "../src/server/rpc";
 import { DelegationCheck } from "./delegation-check-session";
@@ -33,13 +34,16 @@ Owns the native bootstrap process until the new parent thread is ready.
 async function bootstrap(base: Config, cwd: string) {
   const setup = new CodexRpc();
 
-  try {
-    await setup.connect({ ...base, cwd }, "bare");
+  const started = await captureResult(setup.connect({ ...base, cwd }, "bare"));
+  const executed = started.ok ? await captureResult(() => createParent(setup, cwd)) : started;
 
-    return await createParent(setup, cwd);
-  } finally {
-    await setup.shutdown();
+  await setup.shutdown();
+
+  if (!executed.ok) {
+    throw executed.error;
   }
+
+  return executed.value;
 }
 
 /**

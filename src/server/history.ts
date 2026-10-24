@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { type CodexRpc, RpcError } from "./rpc";
 import { type Item, type Thread, type Turn } from "../lib/protocol";
 
@@ -25,7 +26,10 @@ export async function loadItems(rpc: CodexRpc, threadId: string, turnId: string)
       sortDirection: "asc",
     });
 
-    items.push(...page.data.map((entry) => entry.item));
+    for (const entry of page.data) {
+      items.push(entry.item);
+    }
+
     cursor = page.nextCursor;
   } while (cursor);
 
@@ -53,11 +57,9 @@ export async function* readHistoryTurns(rpc: CodexRpc, threadId: string, sortDir
     });
 
     for (const turn of page.data) {
-      if (turn.itemsView && turn.itemsView !== "full") {
-        turn.items = await loadItems(rpc, threadId, turn.id);
-      }
-
-      yield turn;
+      yield turn.itemsView && turn.itemsView !== "full"
+        ? { ...turn, items: await loadItems(rpc, threadId, turn.id) }
+        : turn;
     }
 
     cursor = page.nextCursor;
@@ -83,13 +85,17 @@ Load complete native history, falling back only when the paginated method is uns
 @returns All hydrated turns, preserving native ordering.
 */
 export async function loadHistory(rpc: CodexRpc, thread: Thread): Promise<Turn[]> {
-  try {
-    return await Array.fromAsync(readHistoryTurns(rpc, thread.id, "asc", HISTORY_PAGE_SIZE));
-  } catch (error) {
-    if (!(error instanceof RpcError) || error.code !== METHOD_NOT_FOUND) {
-      throw error;
-    }
+  const completed = await captureResult(Array.fromAsync(readHistoryTurns(rpc, thread.id, "asc", HISTORY_PAGE_SIZE)));
 
-    return legacyHistory(rpc, thread);
+  if (completed.ok) {
+    return completed.value;
   }
+
+  const error = completed.error;
+
+  if (!(error instanceof RpcError) || error.code !== METHOD_NOT_FOUND) {
+    throw error;
+  }
+
+  return legacyHistory(rpc, thread);
 }

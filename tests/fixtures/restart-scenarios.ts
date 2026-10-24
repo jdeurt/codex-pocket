@@ -2,12 +2,12 @@ import { type RestartHost, restartFile } from "./restart-host";
 import { type RestartSnapshots, appendRecovery, events } from "./restart-state";
 import { type Snapshot, type Turn, initialSnapshot, object, string } from "../../src/lib/protocol";
 import { readFile, writeFile } from "node:fs/promises";
-import { RECOVERY_PROMPT } from "../../src/server/recovery";
+import { RECOVERY_PROMPT } from "../../src/state/recovery";
 import assert from "node:assert/strict";
 import { failedAndPendingChecks } from "./restart-failures";
 import path from "node:path";
 import { turnMessages } from "../../src/lib/turn-messages";
-import { visibleSnapshot } from "../../src/server/visible-snapshot";
+import { visibleSnapshot } from "../../src/state/visible-snapshot";
 import { readInternalContext } from "./internal-context";
 
 const RECONNECTS = 8;

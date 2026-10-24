@@ -1,38 +1,14 @@
+import { optionalFile, fileText, canonicalPath } from "./optional-file";
 import { createHash } from "node:crypto";
 import { lstat, mkdir, readFile, readdir, realpath, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import { localDirectory } from "./local-state";
 import { readTaskArchive } from "./task-archive-read";
-import { recordView, sourceLink } from "./task-record-view";
 import { contextEntrySchema, type ContextEntry, taskDirectory, writeTaskFile } from "./task-archive";
 
-const PAGE_LENGTH = 6000;
-const PAGE_OVERLAP = 300;
-const PAGE_STRIDE = PAGE_LENGTH - PAGE_OVERLAP;
+import { type TaskIndexDocument, taskPages, markdownNames, documentFilename } from "../state/task-documents";
 
-export interface TaskIndexDocument {
-  file: string;
-  taskFile: string;
-  taskHash: string;
-  sourceFile: string;
-  sourceId: string;
-  sequence: number;
-  timestamp: string | null;
-  body: string;
-  text: string;
-}
-
-/** Read optional filesystem evidence without treating a missing/deleted file as a search result.
-@param read - One filesystem read or stat operation.
-@returns The read value, or null if the file is unavailable.
-*/
-export async function optionalTaskFile<T>(read: () => Promise<T>): Promise<T | null> {
-  try {
-    return await read();
-  } catch {
-    return null;
-  }
-}
+export type { TaskIndexDocument } from "../state/task-documents";
 
 /** Hash the current reading view to reject stale search evidence after concurrent archive changes.
 @param content - Exact view contents.
@@ -54,10 +30,10 @@ export async function isParentTaskFile(owner: string, file: string) {
     return false;
   }
 
-  const stateRoot = await optionalTaskFile(() => realpath(localDirectory()));
+  const stateRoot = await optionalFile(canonicalPath, localDirectory());
   const expected = stateRoot ? path.join(stateRoot, path.relative(localDirectory(), file)) : null;
-  const resolved = await optionalTaskFile(() => realpath(file));
-  const info = await optionalTaskFile(() => stat(file));
+  const resolved = await optionalFile(canonicalPath, file);
+  const info = await optionalFile(stat, file);
 
   return resolved === expected && info?.isFile() === true;
 }
@@ -89,7 +65,7 @@ export async function taskIndexDirectory(owner: string) {
   const index = path.join(root, "qmd");
 
   for (const name of ["index.sqlite", "index.sqlite-wal", "index.sqlite-shm"]) {
-    const info = await optionalTaskFile(() => lstat(path.join(index, name)));
+    const info = await optionalFile(lstat, path.join(index, name));
 
     if (info?.isSymbolicLink()) {
       throw new Error("Task index database redirects outside its parent namespace.");
@@ -106,7 +82,7 @@ export async function taskIndexDirectory(owner: string) {
 */
 async function writeChanged(directory: string, name: string, body: string) {
   const file = path.join(directory, name);
-  const info = await optionalTaskFile(() => lstat(file));
+  const info = await optionalFile(lstat, file);
 
   if (info?.isSymbolicLink()) {
     await writeTaskFile(directory, name, body);
@@ -114,15 +90,7 @@ async function writeChanged(directory: string, name: string, body: string) {
     return;
   }
 
-  let previous: string | undefined;
-
-  try {
-    previous = await readFile(file, "utf8");
-  } catch (error) {
-    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
-      throw error;
-    }
-  }
+  const previous = await optionalFile(fileText, file);
 
   if (previous !== body) {
     await writeTaskFile(directory, name, body);
@@ -142,7 +110,7 @@ async function exactSourceFile(owner: string, entry: ContextEntry, fallback: str
     return fallback;
   }
 
-  const content = await optionalTaskFile(() => readFile(file, "utf8"));
+  const content = await optionalFile(fileText, file);
 
   if (content === null) {
     return fallback;
@@ -166,7 +134,7 @@ async function taskDocuments(owner: string, taskFile: string, directory: string)
 
   const taskHash = taskViewHash(await readFile(taskFile, "utf8"));
   const rawFile = taskFile.replace(/\.md$/u, ".json");
-  const rawExists = await optionalTaskFile(() => stat(rawFile));
+  const rawExists = await optionalFile(stat, rawFile);
 
   if (rawExists && !(await isParentTaskFile(owner, rawFile))) {
     return [];
@@ -182,42 +150,21 @@ async function taskDocuments(owner: string, taskFile: string, directory: string)
   const taskName = path.basename(taskFile, ".md");
 
   for (const entry of archive.entries) {
-    const view = recordView(entry);
-    const text = view.parts
-      .map((part) => `${part.label}${part.callId ? ` · Call ID: ${part.callId}` : ""}\n${part.text}`)
-      .join("\n\n");
     const sourceFile = await exactSourceFile(owner, entry, archive.rawFile);
-    const pageCount = Math.max(1, Math.ceil(text.length / PAGE_STRIDE));
+    const pages = taskPages(taskName, taskFile, sourceFile, entry);
 
-    for (let page = 0; page < pageCount; page++) {
-      const name = `${taskName}-${String(entry.sequence)}-${String(page)}.md`;
-      const body = [
-        `# Task ${taskName} · Source ${String(entry.sequence)} · Page ${String(page + 1)}/${String(pageCount)}`,
-        "",
-        `Source ID: ${JSON.stringify(entry.id)} · Role: ${entry.role} · Timestamp: ${view.timestamp ?? "not recorded"}`,
-        `[Task timeline](${sourceLink(taskFile)}) · [Exact original record](${sourceLink(sourceFile)})`,
-        "",
-        `Text range: ${String(page * PAGE_STRIDE)}–${String(Math.min(text.length, page * PAGE_STRIDE + PAGE_LENGTH))} ` +
-          `of ${String(text.length)} UTF-16 code units. Non-text fields remain in the original record.`,
-        "",
-        ...text
-          .slice(page * PAGE_STRIDE, page * PAGE_STRIDE + PAGE_LENGTH)
-          .split("\n")
-          .map((line) => `    ${line}`),
-        "",
-      ].join("\n");
-
-      await writeChanged(directory, name, body);
+    for (const page of pages) {
+      await writeChanged(directory, page.name, page.body);
       documents.push({
-        file: path.join(directory, name),
+        file: path.join(directory, page.name),
         taskFile,
         taskHash,
         sourceFile,
         sourceId: entry.id,
         sequence: entry.sequence,
-        timestamp: view.timestamp,
-        body,
-        text: text.slice(page * PAGE_STRIDE, page * PAGE_STRIDE + PAGE_LENGTH),
+        timestamp: page.timestamp,
+        body: page.body,
+        text: page.text,
       });
     }
   }
@@ -234,14 +181,14 @@ export async function reconcileTaskViews(owner: string) {
   const index = await taskIndexDirectory(owner);
   const directory = path.join(index, "views");
   const files = await readdir(root);
-  const names = files.filter((name) => name.endsWith(".md")).toSorted((a, b) => a.localeCompare(b));
+  const names = markdownNames(files);
   const documents: TaskIndexDocument[] = [];
 
   for (const name of names) {
     documents.push(...(await taskDocuments(owner, path.join(root, name), directory)));
   }
 
-  const current = new Set(documents.map((document) => path.basename(document.file)));
+  const current = new Set(Array.from(documents, documentFilename));
 
   const indexedNames = await readdir(directory);
 

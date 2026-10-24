@@ -6,6 +6,7 @@ import { statSync } from "node:fs";
 import { requestFile } from "../../src/server/request-files";
 import { eventually, type workspace } from "./workflow";
 import path from "node:path";
+import { t as attempt } from "try";
 
 /** Inspect the final atomic prompt replacement, allowing only a not-yet-created file.
 @param filename - Private pending-prompt file.
@@ -13,11 +14,11 @@ import path from "node:path";
 @returns Whether the replacement contains the expected empty prompt list.
 */
 async function isPromptCleared(filename: string, previous: number | undefined) {
-  let current;
+  const outcome = await attempt(() => stat(filename));
 
-  try {
-    current = await stat(filename);
-  } catch (error) {
+  if (!outcome.ok) {
+    const error = outcome.error;
+
     if (error instanceof Error && "code" in error && error.code === "ENOENT") {
       return false;
     }
@@ -27,7 +28,7 @@ async function isPromptCleared(filename: string, previous: number | undefined) {
 
   const content = await readFile(filename, "utf8");
 
-  return current.ino !== previous && content.trim() === "[]";
+  return outcome.value.ino !== previous && content.trim() === "[]";
 }
 
 /**
@@ -54,11 +55,17 @@ class WorkflowBridge extends Bridge {
   @param previous - Inode before the disconnect handler's atomic replacement.
   */
   private async promptCleanup(filename: string, previous: number | undefined) {
-    try {
-      await eventually(() => isPromptCleared(filename, previous), "Native disconnect must finish prompt cleanup");
-    } catch (error) {
-      this.failures.push(error);
+    const completed = await attempt(
+      eventually(() => isPromptCleared(filename, previous), "Native disconnect must finish prompt cleanup")
+    );
+
+    if (completed.ok) {
+      return;
     }
+
+    const error = completed.error;
+
+    this.failures.push(error);
   }
 
   /**
@@ -80,9 +87,13 @@ class WorkflowBridge extends Bridge {
 
         let previous: number | undefined;
 
-        try {
+        const outcome1 = attempt(() => {
           previous = statSync(filename).ino;
-        } catch (error) {
+        });
+
+        if (!outcome1.ok) {
+          const error = outcome1.error;
+
           if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
             this.failures.push(error);
 

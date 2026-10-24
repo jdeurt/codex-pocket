@@ -1,94 +1,51 @@
-import { fork } from "node:child_process";
-import path from "node:path";
+import { t } from "try";
+import { setTimeout as delay } from "node:timers/promises";
 import { log } from "./logging";
-import { taskIndexReply, taskIndexRequest, type taskSearchPage } from "./task-index-protocol";
-import { type z } from "zod";
+import { taskIndexRequest } from "./task-index-protocol";
+import { indexWorker } from "./task-index-worker";
 
-const INDEX_TIMEOUT_MS = 90_000;
-const SEARCH_TIMEOUT_MS = 25_000;
 const COALESCE_MS = 250;
-const ERROR_LENGTH = 2000;
-const pending = new Map<string, { dirty: boolean; running: boolean; timer?: NodeJS.Timeout }>();
 
-/** Run QMD outside the message-dispatch process so synchronous indexing and native inference cannot block it.
-@param request - Validated parent-scoped index/search operation.
-@returns A validated search page, or an actionable worker failure.
-*/
-function indexWorker(request: z.infer<typeof taskIndexRequest>): Promise<z.infer<typeof taskSearchPage>> {
-  return new Promise((resolve, reject) => {
-    const child = fork(path.join(process.cwd(), "scripts/task-index.ts"), [], {
-      execPath: process.execPath,
-      execArgv: ["--import", path.join(process.cwd(), "node_modules/tsx/dist/loader.mjs")],
-      stdio: ["ignore", "ignore", "pipe", "ipc"],
-    });
-    const timer = setTimeout(
-      () => {
-        child.kill("SIGKILL");
-        reject(new Error("Local QMD operation timed out."));
-      },
-      request.query === undefined ? INDEX_TIMEOUT_MS : SEARCH_TIMEOUT_MS
-    );
-
-    let errorText = "";
-
-    child.stderr?.on("data", (chunk: Buffer) => {
-      errorText = (errorText + chunk.toString()).slice(-ERROR_LENGTH);
-    });
-    child.once("message", (message: unknown) => {
-      clearTimeout(timer);
-      const reply = taskIndexReply.safeParse(message);
-
-      // QMD's tokenizer can own process-global native resources beyond the per-store lifecycle.
-      // The complete result is already received; release this one-operation worker deterministically.
-      child.kill();
-
-      if (!reply.success) {
-        reject(new Error("Invalid local QMD worker response."));
-      } else if (reply.data.ok) {
-        resolve(reply.data.page);
-      } else {
-        reject(new Error(reply.data.error));
-      }
-    });
-    child.once("error", (error) => {
-      clearTimeout(timer);
-      reject(error);
-    });
-    child.once("exit", (code) => {
-      clearTimeout(timer);
-      reject(new Error(`Local QMD worker exited (${String(code)}): ${errorText}`));
-    });
-    child.send(request);
-  });
-}
-
-/** Search with actual mode reporting, retrying through model-free QMD after optional inference crashes.
+/** Search with actual mode reporting and an explicit model-free recovery outcome.
 @param owner - Authorized Pocket parent.
 @param query - Earlier-work query.
 @param offset - Ranked passage offset.
-@returns Search results plus mode and pagination metadata, including when no records match.
+@returns Source-validated results with actual retrieval mode and recovery evidence.
 */
 export async function searchTaskArchivePage(owner: string, query: string, offset = 0) {
   const request = taskIndexRequest.parse({ owner, query, offset });
+  const completed = await t(indexWorker, request);
 
-  try {
-    return await indexWorker(request);
-  } catch (error) {
-    const page = await indexWorker({ ...request, isKeywordOnly: true });
-
-    page.retrieval.reasons.push(
-      `Recovered using keyword-only QMD: ${error instanceof Error ? error.message : String(error)}`
-    );
-
-    return page;
+  if (completed.ok) {
+    return completed.value;
   }
+
+  const error = completed.error;
+  const recovered = await t(indexWorker, { ...request, isKeywordOnly: true });
+
+  if (!recovered.ok) {
+    throw new AggregateError([error, recovered.error], "Task search and keyword recovery both failed.");
+  }
+
+  const page = recovered.value;
+
+  return {
+    ...page,
+    retrieval: {
+      ...page.retrieval,
+      reasons: [
+        ...page.retrieval.reasons,
+        `Recovered using keyword-only QMD: ${error instanceof Error ? error.message : String(error)}`,
+      ],
+    },
+  };
 }
 
-/** Preserve the original array-returning search interface for existing internal callers.
+/** Preserve the array-returning search interface for existing callers.
 @param owner - Authorized Pocket parent.
 @param query - Earlier-work query.
-@param offset - Optional result-page offset.
-@returns QMD-ranked readable paths and source-backed excerpts.
+@param offset - Ranked passage offset.
+@returns Ranked source-backed results.
 */
 export async function searchTaskArchive(owner: string, query: string, offset = 0) {
   const page = await searchTaskArchivePage(owner, query, offset);
@@ -96,47 +53,106 @@ export async function searchTaskArchive(owner: string, query: string, offset = 0
   return page.results;
 }
 
-/** Coalesce task-view changes without putting indexing on the user-message promise chain.
-@param owner - Parent whose private index needs reconciliation.
+/**
+Runtime owner of one parent's coalesced background indexing lifetime.
 */
-export function scheduleTaskIndex(owner: string) {
-  const state = pending.get(owner) ?? { dirty: false, running: false };
+class BackgroundIndex {
+  private isDirty = false;
+  private isRunning = false;
+  private timer?: ReturnType<typeof setTimeout>;
 
-  pending.set(owner, state);
-  state.dirty = true;
+  /**
+  Run the pending index and retain wakeups received during execution.
+  */
+  private reconcile = async () => {
+    this.timer = undefined;
+    this.isRunning = true;
+    this.isDirty = false;
+    const indexed = await t(indexWorker, { owner: this.owner, offset: 0, isKeywordOnly: false });
 
-  if (state.running || state.timer) {
-    return;
-  }
+    if (!indexed.ok) {
+      log().warn({ error: indexed.error, owner: this.owner }, "task.index_failed");
+    }
 
-  state.timer = setTimeout(() => {
-    state.timer = undefined;
-    state.running = true;
-    state.dirty = false;
-    void indexWorker({ owner, offset: 0, isKeywordOnly: false })
-      .catch((error: unknown) => {
-        log().warn({ error, owner }, "task.index_failed");
-      })
-      .finally(() => {
-        state.running = false;
+    this.finish();
+  };
 
-        if (state.dirty) {
-          scheduleTaskIndex(owner);
-        } else {
-          pending.delete(owner);
-        }
-      });
-  }, COALESCE_MS);
-  state.timer.unref();
+  /**
+  Read wakeups received during native work before releasing this job.
+  */
+  private finish = () => {
+    this.isRunning = false;
+
+    if (this.isDirty) {
+      this.schedule();
+    } else {
+      this.finished(this.owner);
+    }
+  };
+
+  /**
+  Enter asynchronous indexing from the native timer.
+  */
+  private start = () => {
+    void this.reconcile();
+  };
+
+  /**
+  Coalesce another archive write into this parent's next native index run.
+  */
+  schedule = () => {
+    this.isDirty = true;
+
+    if (this.isRunning || this.timer) {
+      return;
+    }
+
+    this.timer = setTimeout(this.start, COALESCE_MS);
+    this.timer.unref();
+  };
+
+  /** Retain explicit parent and completion ownership.
+  @param owner - Parent identity.
+  @param finished - Scheduler's removal action.
+  */
+  constructor(
+    private readonly owner: string,
+    private readonly finished: (owner: string) => void
+  ) {}
 }
 
-/** Wait for scheduled background reconciliation during controlled shutdown or workflow verification.
-@param owner - Parent whose outstanding background work must finish.
+/**
+Process runtime owner of background jobs, separate from conversational state.
 */
-export async function settleTaskIndex(owner: string) {
-  while (pending.has(owner)) {
-    await new Promise<void>((resolve) => {
-      setTimeout(resolve, COALESCE_MS);
-    });
-  }
+class TaskIndexScheduler {
+  private readonly pending = new Map<string, BackgroundIndex>();
+  /** Release a completed parent's job.
+  @param owner - Completed parent identity.
+  */
+  private finished = (owner: string) => {
+    this.pending.delete(owner);
+  };
+
+  /** Retain one coalescing owner per active parent.
+  @param owner - Parent whose archive changed.
+  */
+  schedule = (owner: string) => {
+    const job = this.pending.get(owner) ?? new BackgroundIndex(owner, this.finished);
+
+    this.pending.set(owner, job);
+    job.schedule();
+  };
+
+  /** Await background reconciliation during controlled shutdown or verification.
+  @param owner - Parent whose pending work must finish.
+  */
+  settle = async (owner: string) => {
+    while (this.pending.has(owner)) {
+      await delay(COALESCE_MS);
+    }
+  };
 }
+
+const scheduler = new TaskIndexScheduler();
+export const scheduleTaskIndex = scheduler.schedule;
+export const settleTaskIndex = scheduler.settle;

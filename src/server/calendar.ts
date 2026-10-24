@@ -1,5 +1,6 @@
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { t as attempt } from "try";
 
 export { normalizeCalendar } from "./calendar-validation";
 
@@ -22,51 +23,100 @@ function decodedOccurrence(output: string, after: number): number | null {
 }
 
 /**
-Evaluate one normalized recurrence in its bounded native child process.
-@param calendar - Calendar text normalized by the shared validation boundary.
-@param after - Epoch boundary after which an occurrence is requested.
-@returns Next epoch time or null, rejecting native failures and the existing evaluation deadline.
+Own one bounded native recurrence calculation, its streams and completion.
 */
-export async function nextOccurrence(calendar: string, after: number): Promise<number | null> {
-  return new Promise((resolve, reject) => {
-    let output = "";
-    let diagnostic = "";
+class CalendarCalculation {
+  private readonly completion = Promise.withResolvers<number | null>();
+  private readonly child;
+  private readonly timer;
+  private output = "";
+  private diagnostic = "";
 
-    const child = spawn(process.execPath, [path.resolve("scripts/calendar-worker.mjs")], {
+  /** Retain complete stdout until the child closes its stream.
+  @param data - Native stdout chunk.
+  */
+  private stdout = (data: unknown) => {
+    this.output += String(data);
+  };
+
+  /** Retain native diagnostics for a failed calculation.
+  @param data - Native stderr chunk.
+  */
+  private stderr = (data: unknown) => {
+    this.diagnostic += String(data);
+  };
+
+  /** Reject this calculation and stop its owned subprocess.
+  @param error - Original native failure.
+  */
+  private failed = (error: Error) => {
+    clearTimeout(this.timer);
+    this.child.kill("SIGKILL");
+    this.completion.reject(error);
+  };
+
+  /**
+  Stop a calculation that exceeds its resource deadline.
+  */
+  private timeout = () => {
+    this.failed(new Error("Calendar recurrence took too long to evaluate. Simplify the rule."));
+  };
+
+  /** Decode complete output after native streams close.
+  @param code - Native process exit code.
+  */
+  private closed = (code: number | null) => {
+    clearTimeout(this.timer);
+
+    if (code !== 0) {
+      this.completion.reject(new Error(`Invalid calendar recurrence: ${this.diagnostic.trim()}`));
+
+      return;
+    }
+
+    const outcome = attempt(decodedOccurrence, this.output, this.after);
+
+    if (outcome.ok) {
+      this.completion.resolve(outcome.value);
+    } else {
+      this.completion.reject(outcome.error);
+    }
+  };
+
+  /** Launch one isolated recurrence worker.
+  @param calendar - Validated recurrence text.
+  @param after - Explicit lower occurrence boundary.
+  */
+  constructor(
+    calendar: string,
+    private readonly after: number
+  ) {
+    this.child = spawn(process.execPath, [path.resolve("scripts/calendar-worker.mjs")], {
       env: { ...process.env, TZ: "UTC" },
       stdio: ["pipe", "pipe", "pipe"],
     });
+    this.timer = setTimeout(this.timeout, CALCULATION_TIMEOUT_MS);
+    this.child.stdout.on("data", this.stdout);
+    this.child.stderr.on("data", this.stderr);
+    this.child.stdin.once("error", this.failed);
+    this.child.once("error", this.failed);
+    this.child.once("close", this.closed);
+    this.child.stdin.end(JSON.stringify({ calendar, after }));
+  }
 
-    const timer = setTimeout(() => {
-      child.kill("SIGKILL");
-      reject(new Error("Calendar recurrence took too long to evaluate. Simplify the rule."));
-    }, CALCULATION_TIMEOUT_MS);
+  /** Expose this native operation's completion.
+  @returns Validated next occurrence or the original failure.
+  */
+  get result() {
+    return this.completion.promise;
+  }
+}
 
-    child.stdout.on("data", (data) => {
-      output += String(data);
-    });
-    child.stderr.on("data", (data) => {
-      diagnostic += String(data);
-    });
-    child.once("error", (error) => {
-      clearTimeout(timer);
-      reject(error);
-    });
-    child.once("exit", (code) => {
-      clearTimeout(timer);
-
-      if (code !== 0) {
-        reject(new Error(`Invalid calendar recurrence: ${diagnostic.trim()}`));
-
-        return;
-      }
-
-      try {
-        resolve(decodedOccurrence(output, after));
-      } catch (error) {
-        reject(error instanceof Error ? error : new Error("Invalid calendar response.", { cause: error }));
-      }
-    });
-    child.stdin.end(JSON.stringify({ calendar, after }));
-  });
+/** Evaluate a recurrence in a bounded native process.
+@param calendar - Validated recurrence text.
+@param after - Explicit lower occurrence boundary.
+@returns Next occurrence or null when the rule has ended.
+*/
+export function nextOccurrence(calendar: string, after: number): Promise<number | null> {
+  return new CalendarCalculation(calendar, after).result;
 }

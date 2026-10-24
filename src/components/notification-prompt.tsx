@@ -1,184 +1,24 @@
 "use client";
+import { requestNotifications } from "../runtime/notification-actions";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { clientError, reportClient } from "@/lib/client-logging";
-import { get, post } from "@/lib/client-api";
-import { useEffect, useRef, useState } from "react";
-import { Button } from "@/components/ui/button";
+import { Button } from "./ui/button";
 import { XIcon } from "lucide-react";
-import { useNotificationPresence } from "@/hooks/use-notification-presence";
-
-type Status = "loading" | "ready" | "subscribing" | "enabled" | "blocked" | "unsupported" | "dismissed";
-const PREPARATION_TIMEOUT_MS = 5000;
-
-/**
-Register the existing worker and wait until its native registration is active.
-@returns The ready native service-worker registration.
-*/
-async function readyRegistration() {
-  await navigator.serviceWorker.register("/sw.js");
-
-  return navigator.serviceWorker.ready;
-}
-
-/**
-Bound native worker preparation and clear its timeout after either outcome.
-@returns The ready registration before the preparation deadline.
-@throws {Error} When worker preparation fails or exceeds the existing deadline.
-*/
-async function prepareRegistration() {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-
-  try {
-    return await Promise.race([
-      readyRegistration(),
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(() => {
-          reject(new Error("Open the installed Pocket app to enable notifications."));
-        }, PREPARATION_TIMEOUT_MS);
-      }),
-    ]);
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-/**
-Decode the configured VAPID key at the notification boundary.
-@param value - Public key from the server's notification configuration.
-@returns Native key bytes accepted by PushManager.
-@throws {TypeError} When the server has no configured public key.
-*/
-function notificationPublicKey(value: unknown) {
-  if (typeof value !== "string") {
-    throw new TypeError("Notification configuration is unavailable.");
-  }
-
-  return Uint8Array.from(
-    atob(value.replaceAll("-", "+").replaceAll("_", "/")),
-    (character) => character.codePointAt(0) ?? 0
-  );
-}
-
-/**
-Keep an existing native subscription only when it uses the currently configured VAPID key.
-@param registration - Ready native worker registration.
-@param publicKey - Configured VAPID bytes, compared with the browser's actual subscription key.
-@returns The existing matching subscription, or null after removing an obsolete one.
-*/
-async function matchingSubscription(registration: ServiceWorkerRegistration, publicKey: Uint8Array<ArrayBuffer>) {
-  const subscription = await registration.pushManager.getSubscription();
-  const key = subscription?.options.applicationServerKey;
-
-  if (
-    subscription &&
-    (!key ||
-      new Uint8Array(key).some((value, index) => value !== publicKey[index]) ||
-      key.byteLength !== publicKey.byteLength)
-  ) {
-    await subscription.unsubscribe();
-
-    return null;
-  }
-
-  return subscription;
-}
+import { useStore } from "zustand";
+import { usePocketClient } from "../providers/pocket-state";
+import { type NotificationStatus as Status } from "../state/notifications";
 
 const statusMessages: Partial<Record<Status, string>> = {
   unsupported: "Add Pocket to your Home Screen to enable notifications.",
   blocked: "Notifications are blocked. Enable them in your device settings.",
 };
 
-/**
-Present native notification permission and subscription status without automatic permission requests.
-@returns The existing permission prompt and status controls, or no prompt when dismissed.
+/** Render notification state and explicit permission actions.
+@returns Device notification prompt; services own registration and presence.
 */
 export function NotificationPrompt() {
-  const [status, setStatus] = useState<Status>("loading");
-  const [error, setError] = useState("");
-  const [endpoint, setEndpoint] = useState("");
-  const registration = useRef<ServiceWorkerRegistration | null>(null);
-  const publicKey = useRef<Uint8Array<ArrayBuffer> | null>(null);
-
-  useNotificationPresence(endpoint);
-
-  useEffect(() => {
-    const controller = new AbortController();
-
-    async function restoreSubscription(nativeRegistration: ServiceWorkerRegistration, key: Uint8Array<ArrayBuffer>) {
-      const subscription = await matchingSubscription(nativeRegistration, key);
-
-      if (subscription) {
-        await post("/api/notifications", subscription.toJSON());
-      }
-
-      controller.signal.throwIfAborted();
-      setEndpoint(subscription?.endpoint ?? "");
-      setStatus(subscription ? "enabled" : "ready");
-    }
-
-    async function prepare() {
-      const config = await get("/api/notifications", controller.signal);
-
-      controller.signal.throwIfAborted();
-
-      if (!("Notification" in globalThis) || !("PushManager" in globalThis) || !("serviceWorker" in navigator)) {
-        setStatus("unsupported");
-
-        return;
-      }
-
-      if (Notification.permission === "denied") {
-        setStatus("blocked");
-
-        return;
-      }
-
-      registration.current = await prepareRegistration();
-
-      publicKey.current = notificationPublicKey(config.publicKey);
-      await restoreSubscription(registration.current, publicKey.current);
-    }
-
-    void prepare().catch((error_: unknown) => {
-      reportClient("notifications.prepare_failed", clientError(error_), "error");
-
-      if (controller.signal.aborted) {
-        return;
-      }
-
-      setError(error_ instanceof Error ? error_.message : "Couldn't prepare notifications.");
-      setStatus("unsupported");
-    });
-
-    return () => {
-      controller.abort();
-    };
-  }, []);
-
-  async function enable() {
-    if (!registration.current || !publicKey.current) {
-      return;
-    }
-
-    setStatus("subscribing");
-    setError("");
-
-    try {
-      // Subscribe directly in the tap handler so Safari can present its permission dialog.
-      const subscription = await registration.current.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: publicKey.current,
-      });
-
-      await post("/api/notifications", subscription.toJSON());
-      setEndpoint(subscription.endpoint);
-      setStatus("enabled");
-    } catch (error_) {
-      reportClient("notifications.subscribe_failed", clientError(error_), "error");
-      setStatus(Notification.permission === "denied" ? "blocked" : "ready");
-      setError("Couldn't enable notifications. Try again from the installed Pocket app.");
-    }
-  }
+  const { notifications } = usePocketClient();
+  const { status, error } = useStore(notifications.store);
+  const { dismiss } = notifications;
 
   if (["loading", "enabled", "dismissed"].includes(status)) {
     return null;
@@ -192,20 +32,13 @@ export function NotificationPrompt() {
           <Button
             size="touch"
             disabled={status === "subscribing"}
-            onClick={() => void enable()}
+            onClick={requestNotifications.bind(undefined, notifications)}
             aria-label="Enable notifications"
           >
             Enable
           </Button>
         )}
-        <Button
-          variant="ghost"
-          size="icon-xl"
-          aria-label="Dismiss notification prompt"
-          onClick={() => {
-            setStatus("dismissed");
-          }}
-        >
+        <Button variant="ghost" size="icon-xl" aria-label="Dismiss notification prompt" onClick={dismiss}>
           <XIcon />
         </Button>
       </AlertDescription>

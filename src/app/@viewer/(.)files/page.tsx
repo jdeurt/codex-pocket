@@ -8,5 +8,12 @@ Intercept a file link without unmounting its parent chat or losing draft and scr
 export default async function FileOverlay({ searchParams }: PageProps<"/files">) {
   const params = await searchParams;
 
-  return <FileViewer key={String(params.path)} overlay filename={typeof params.path === "string" ? params.path : ""} />;
+  return (
+    <FileViewer
+      key={`${String(params.pocket)}:${String(params.path)}`}
+      pocketId={typeof params.pocket === "string" ? params.pocket : "main"}
+      overlay
+      filename={typeof params.path === "string" ? params.path : ""}
+    />
+  );
 }

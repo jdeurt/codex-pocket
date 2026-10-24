@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { runNextFixture } from "./next-server";
@@ -18,8 +19,8 @@ await writeFile(
 );
 const provider = await realtimeProvider();
 
-try {
-  await runNextFixture("realtime", origin, {
+const completed = await captureResult(
+  runNextFixture("realtime", origin, {
     OPENAI_API_KEY: "",
     POCKET_REALTIME_TEST_URL: provider.url,
     CODEX_THREAD_ID: "realtime-fixture-parent",
@@ -29,14 +30,18 @@ try {
     CODEX_ALLOWED_ORIGINS: origin,
     CODEX_POCKET_STATE_DIR: path.join(directory, "state"),
     CLAUDE_CONFIG_DIR: path.join(directory, "claude"),
-  });
-} finally {
-  for (const client of provider.server.clients) {
-    client.terminate();
-  }
+  })
+);
 
-  provider.server.close();
-  provider.http.close();
+for (const client of provider.server.clients) {
+  client.terminate();
+}
+
+provider.server.close();
+provider.http.close();
+
+if (!completed.ok) {
+  throw completed.error;
 }
 
 if (provider.failures.length > 0) {

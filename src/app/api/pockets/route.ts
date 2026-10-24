@@ -1,5 +1,5 @@
 import { createPocket, deletePocket } from "@/server/named-pockets";
-import { errorResponse, guard, noStore, readBody } from "@/server/http";
+import { endpoint, guard, noStore, readBody } from "@/server/http";
 import { pocketHost } from "@/server/pocket-config";
 import { pocketNameSchema } from "@/lib/pockets";
 import { pocketStore } from "@/server/pocket-store";
@@ -12,17 +12,6 @@ const mutationSchema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("rename"), id: z.string(), name: pocketNameSchema }).strict(),
   z.object({ action: z.literal("delete"), id: z.string() }).strict(),
 ]);
-
-/** Project saved entries with this tab's explicit selection.
-@param request - Authorized browser catalog request.
-@returns Private menu catalog.
-*/
-function catalogResponse(request: Request) {
-  return Response.json(
-    { pockets: pocketStore().list(), selectedId: new URL(request.url).searchParams.get("pocket") ?? "main" },
-    { headers: noStore }
-  );
-}
 
 /** Dispatch an already authorized mutation through its strict command schema.
 @param request - Authorized unread JSON body.
@@ -55,28 +44,23 @@ async function mutate(request: Request) {
 @param request - Authorized browser catalog request.
 @returns Durable menu entries and this tab's selected identity.
 */
-export async function GET(request: Request) {
-  try {
-    await guard(request);
-    await pocketHost();
+export const GET = endpoint(async (request: Request) => {
+  await guard(request);
+  await pocketHost();
 
-    return catalogResponse(request);
-  } catch (error) {
-    return errorResponse(error);
-  }
-}
+  return Response.json(
+    { pockets: pocketStore().list(), selectedId: new URL(request.url).searchParams.get("pocket") ?? "main" },
+    { headers: noStore }
+  );
+});
 
 /** Apply an explicit named-Pocket mutation with durable creation receipts.
 @param request - Same-origin JSON mutation.
 @returns Updated catalog, or an actionable failure without implicit replay.
 */
-export async function POST(request: Request) {
-  try {
-    await guard(request, true);
-    await pocketHost();
+export const POST = endpoint(async (request: Request) => {
+  await guard(request, true);
+  await pocketHost();
 
-    return await mutate(request);
-  } catch (error) {
-    return errorResponse(error);
-  }
-}
+  return mutate(request);
+});

@@ -1,3 +1,4 @@
+import { t } from "try";
 import rrule from "rrule";
 import { z } from "zod";
 
@@ -22,9 +23,11 @@ for await (const chunk of process.stdin) {
   input += String(chunk);
 }
 
-try {
-  process.stdout.write(calendarResult(input));
-} catch (error) {
+const outcome = t(() => process.stdout.write(calendarResult(input)));
+
+if (!outcome.ok) {
+  const error = outcome.error;
+
   process.stderr.write(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;
 }

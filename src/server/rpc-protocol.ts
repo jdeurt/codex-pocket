@@ -1,6 +1,7 @@
 import { type Data, dataSchema, itemSchema, object, threadSchema, turnSchema } from "../lib/protocol";
 import { log } from "./logging";
 import { z } from "zod";
+import { t as attempt } from "try";
 
 export const sessionResponseSchema = z.looseObject({
   thread: threadSchema,
@@ -56,11 +57,15 @@ Decode one native JSON line and keep malformed output in host diagnostics.
 @returns A decoded object, or undefined when JSON parsing fails.
 */
 export function decodeRpcLine(line: string): Data | undefined {
-  try {
-    return object(JSON.parse(line));
-  } catch (error) {
-    log().warn({ error, line }, "codex.stdout.invalid_json");
+  const outcome = attempt(object, JSON.parse(line));
 
-    return undefined;
+  if (outcome.ok) {
+    return outcome.value;
   }
+
+  const error = outcome.error;
+
+  log().warn({ error, line }, "codex.stdout.invalid_json");
+
+  return undefined;
 }

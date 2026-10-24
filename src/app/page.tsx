@@ -1,3 +1,7 @@
+import { homeDestination } from "@/state/pockets";
+import { headers } from "next/headers";
+import { PocketStateProvider } from "@/providers/pocket-state";
+import { readClientBootstrap } from "@/server/client-bootstrap";
 import { Chat } from "@/components/chat";
 import { pocketHost } from "@/server/pocket-config";
 import { pocketHref } from "@/lib/pockets";
@@ -9,10 +13,10 @@ Pick a surviving saved Pocket without changing any other browser tab.
 */
 function selectHome() {
   const entries = pocketStore().list();
-  const next = entries.find((entry) => entry.state === "ready");
+  const next = homeDestination(entries);
 
-  if (next && entries.every((entry) => entry.id !== "main")) {
-    redirect(pocketHref(next.id));
+  if (next) {
+    redirect(pocketHref(next));
   }
 }
 
@@ -35,5 +39,18 @@ export default async function Home({ searchParams }: PageProps<"/">) {
     await restoreHome();
   }
 
-  return <Chat />;
+  const requestHeaders = await headers();
+  const url = new URL("http://localhost/");
+
+  if (typeof params.pocket === "string") {
+    url.searchParams.set("pocket", params.pocket);
+  }
+
+  const initial = await readClientBootstrap(new Request(url, { headers: requestHeaders }));
+
+  return (
+    <PocketStateProvider key={initial.pocketId} initial={initial}>
+      <Chat />
+    </PocketStateProvider>
+  );
 }

@@ -153,12 +153,12 @@ await test("Pi source ingestion archives a continuing task after five unrelated 
       Response.json({ answers: [{ type: "predicate", name: "same_task", probability: expected.continues ? 1 : 0 }] })
     );
   });
-  const closed = await groupTaskContext(flow.parent.id, resumed, (candidate, matched) =>
-    isSameTask("synthetic-classifier-key", candidate, matched)
+  const grouped = await groupTaskContext(flow.parent.id, resumed, (candidate, matched) =>
+    isSameTask("synthetic-classifier-key", undefined, candidate, matched)
   );
 
   assert.equal(exchanges.length, 0, "All required classifier inputs must be consumed");
-  assert.equal(closed.length, 1);
+  assert.equal(grouped.closed.length, 1);
   const restored = await readTaskState(flow.parent.id);
 
   assert.deepEqual(

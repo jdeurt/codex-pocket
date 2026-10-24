@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { saveSetupEnvironment, setupOrigin } from "./setup-env";
 import { CodexRpc } from "../src/server/rpc";
 import { configSchema } from "../src/server/config";
@@ -91,10 +92,12 @@ async function setup() {
 
   const rpc = new CodexRpc();
 
-  try {
-    await configure(rpc);
-  } finally {
-    rpc.close();
+  const completed = await captureResult(configure(rpc));
+
+  rpc.close();
+
+  if (!completed.ok) {
+    throw completed.error;
   }
 }
 

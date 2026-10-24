@@ -1,298 +1,78 @@
-import {
-  type AgentRecord,
-  type CodexThread,
-  codexParent,
-  codexThreads,
-  informationalRequest,
-  observeCodex,
-  observedMetadata,
-} from "./agent-sources";
-import { type AgentStatus, agentStatusSchema, isActiveAgent } from "../lib/agents";
-import { type SidePocket, delegations } from "./delegations";
+import { t } from "try";
+import { type AgentRecord, codexParent, codexThreads, informationalRequest, observeCodex } from "./agent-sources";
+import { delegations } from "./delegations";
 import { claudeChildren, observeClaudeChild } from "./agent-claude";
-import { object, string } from "../lib/protocol";
 import { configForOwner } from "./pocket-config";
+import { attachPocket, attachNativeThread, type DiscoveryTree } from "../state/agent-tree";
+import { catalogAgent, compareCatalogAgents } from "../state/agent-discovery";
+import { log } from "./logging";
 
-/**
-Normalize a persisted Side Pocket into a read-only discovery record.
-@param child - Validated persisted child and parent policy.
-@param id - Catalog identity chosen after native-session deduplication.
-@param parentId - Catalog identity of its owning parent.
-@returns Scoped record with saved metadata and informational pending requests.
+/** Read saved children once for each reachable parent.
+@param tree - Current verified ownership tree.
+@param scanned - Parent identities read in this discovery pass.
+@returns New tree and set of scanned parents.
 */
-function pocketRecord(child: SidePocket, id: string, parentId: string): AgentRecord {
-  const metadata = object(JSON.parse(child.metadata));
-  const lastStatus = delegations().lastCommandStatus(child.parentId, child.id);
+function savedChildren(tree: DiscoveryTree, scanned: Set<string>) {
+  const nextScanned = new Set(scanned);
+  const store = delegations();
 
-  let status: AgentStatus = ["running", "waiting", "idle", "closed"].includes(child.status)
-    ? agentStatusSchema.parse(child.status)
-    : "unknown";
+  let next = tree;
 
-  if (status === "idle" && lastStatus === "failed") {
-    status = "failed";
-  }
-
-  return {
-    agent: {
-      id,
-      parentId: parentId,
-      name: child.title,
-      source: "side-pocket",
-      harness: child.harness,
-      status,
-      preview: "",
-      ...observedMetadata(metadata),
-    },
-    pocket: child,
-    cwd: child.cwd,
-    sessionId: child.sessionId ?? undefined,
-    requests: delegations()
-      .mail.requests(child.parentId, child.id, true)
-      .map((request) => informationalRequest(request)),
-  };
-}
-
-interface DiscoveryTree {
-  owner: string;
-  records: Map<string, AgentRecord>;
-  sessions: Map<string, string>;
-  parents: Set<string>;
-}
-
-/**
-Insert a deduplicated saved child and expose its native and persisted identities for descendant discovery.
-@param tree - Discovery maps receiving this owned child.
-@param child - Validated persisted Side Pocket.
-@param parent - Reachable native or persisted parent identity.
-@param key - Exact native-session identity already checked for duplicate ownership.
-@param existingId - Prior native catalog identity, when one already exists.
-@returns Newly attached normalized discovery record.
-*/
-function insertPocket(
-  tree: DiscoveryTree,
-  child: SidePocket,
-  parent: string,
-  key: string,
-  existingId: string | undefined
-) {
-  const id = existingId && tree.records.has(existingId) ? existingId : `pocket:${child.id}`;
-  const record = pocketRecord(
-    child,
-    id,
-    tree.sessions.get(`codex:${parent}`) ?? tree.sessions.get(`claude:${parent}`) ?? parent
-  );
-
-  tree.records.set(id, record);
-  tree.sessions.set(key, id);
-  tree.sessions.set(`${child.harness}:${child.id}`, id);
-  tree.parents.add(child.id);
-
-  if (child.sessionId) {
-    tree.parents.add(child.sessionId);
-  }
-
-  return record;
-}
-
-/**
-Attach a saved child once while retaining native-session and parent ownership.
-@param tree - Discovery maps and reachable parent identities.
-@param child - Persisted child encountered beneath a reachable parent.
-@param parent - Native or persisted parent identity being scanned.
-@returns Newly attached record, or undefined when its identity is already owned.
-*/
-function attachPocket(tree: DiscoveryTree, child: SidePocket, parent: string) {
-  const key = `${child.harness}:${child.sessionId ?? `pocket:${child.id}`}`;
-  const existingId = tree.sessions.get(key);
-
-  if (existingId === tree.owner) {
-    return;
-  }
-
-  if (existingId && tree.records.get(existingId)?.pocket) {
-    return;
-  }
-
-  return insertPocket(tree, child, parent, key, existingId);
-}
-
-/**
-Attach saved children beneath a snapshot of the currently reachable parents.
-@param tree - Discovery maps whose reachable parent set may expand.
-@param scanned - Parent identities whose persisted children have already been scanned.
-@returns Whether at least one saved child expanded the tree.
-*/
-function didAttachSavedChildren(tree: DiscoveryTree, scanned: Set<string>) {
-  const pendingParents = tree.parents.values().toArray();
-
-  let hasProgress = false;
-
-  for (const parent of pendingParents) {
+  for (const parent of tree.parents) {
     if (scanned.has(parent)) {
       continue;
     }
 
-    scanned.add(parent);
+    nextScanned.add(parent);
 
-    for (const child of delegations().list(parent)) {
-      if (attachPocket(tree, child, parent)) {
-        hasProgress = true;
-      }
+    for (const child of store.list(parent)) {
+      const requests = Array.from(store.mail.requests(child.parentId, child.id, true), informationalRequest);
+
+      next = attachPocket(next, child, parent, store.lastCommandStatus(child.parentId, child.id), requests);
     }
   }
 
-  return hasProgress;
+  return { tree: next, scanned: nextScanned };
 }
 
-/**
-Attach one native Codex descendant after its parent and session ownership have been checked.
-@param tree - Scoped discovery maps receiving the native identity.
-@param thread - Native child thread returned by lightweight discovery.
-@param parentId - Already discovered parent catalog identity.
-@param cwd - Configured parent directory used only when native metadata omits it.
+/** Read Claude ancestry and retain explicit source outages.
+@param tree - Verified saved and Codex ancestry.
+@param previous - Prior records available for ancestry reuse.
+@returns Independent native records and source warnings.
 */
-function attachNativeThread(tree: DiscoveryTree, thread: CodexThread, parentId: string, cwd: string) {
-  const id = `codex:${thread.id}`;
+async function nativeRecords(tree: DiscoveryTree, previous: Map<string, AgentRecord>) {
+  const records = new Map<string, AgentRecord>();
+  const warnings: string[] = [];
 
-  tree.records.set(id, {
-    agent: {
-      id,
-      parentId,
-      name: string(thread.name) || string(thread.agentNickname) || string(thread.agentRole) || "Agent",
-      source: "native",
-      harness: "codex",
-      status: "unknown",
-      preview: "",
-    },
-    cwd: string(thread.cwd) || cwd,
-    sessionId: thread.id,
-    thread,
-    runtimeOwner: tree.records.get(parentId)?.pocket ?? tree.records.get(parentId)?.runtimeOwner,
-  });
-  tree.sessions.set(`codex:${thread.id}`, id);
-  tree.parents.add(thread.id);
-}
+  for (const source of tree.records.values()) {
+    const record = source.agent.harness === "codex" ? observeCodex(source) : source;
 
-/**
-Retain native discovery outages as catalog warnings without revoking saved ownership.
-@param warnings - Catalog warnings receiving a native availability failure.
-@returns Lightweight native child threads, or an empty list while discovery is unavailable.
-@param owner - Verified parent owning the native reader.
-*/
-async function availableCodexThreads(warnings: string[], owner: string) {
-  try {
-    return await codexThreads(owner);
-  } catch {
-    warnings.push("Codex discovery is unavailable. Reconnecting automatically.");
-
-    return [];
-  }
-}
-
-/**
-Attach Claude descendants using SDK ancestry and observed parent-owned metadata.
-@param record - Discovered Claude root whose descendants are scoped to this owner.
-@param previous - Prior records available for saved ancestry reuse.
-@param records - Catalog records receiving normalized native children.
-*/
-async function attachClaudeChildren(
-  record: AgentRecord,
-  previous: Map<string, AgentRecord>,
-  records: Map<string, AgentRecord>
-) {
-  const children = await claudeChildren(record, previous);
-
-  for (const child of children) {
-    observeClaudeChild(record, child);
-    records.set(child.agent.id, child);
-  }
-}
-
-/**
-Observe discovered native roots and read Claude ancestry after saved and Codex discovery settles.
-@param tree - Complete saved and Codex ownership tree.
-@param previous - Prior scoped records available for Claude ancestry reuse.
-@param warnings - Catalog warnings receiving native Claude availability failures.
-*/
-async function discoverClaude(tree: DiscoveryTree, previous: Map<string, AgentRecord>, warnings: string[]) {
-  const roots = tree.records.values().toArray();
-
-  for (const record of roots) {
-    if (record.agent.harness === "codex") {
-      observeCodex(record);
-    }
+    records.set(record.agent.id, { ...record, owner: tree.owner });
 
     if (record.agent.harness !== "claude") {
       continue;
     }
 
-    try {
-      await attachClaudeChildren(record, previous, tree.records);
-    } catch {
+    const children = await t(claudeChildren, record, previous);
+
+    if (!children.ok) {
       warnings.push("Claude Code agent discovery is unavailable.");
+      log().warn({ err: children.error, agent: record.agent.id }, "agents.discovery_failed");
+      continue;
     }
-  }
-}
 
-/**
-Build the configured parent's ownership tree before projecting the lightweight catalog.
-@param owner - Configured parent whose descendants alone are reachable.
-@param cwd - Parent working directory retained when native metadata omits it.
-@param previous - Previous discovery records used only for established ancestry reuse.
-@returns Scoped ownership records and the existing active-first catalog presentation.
-*/
-async function discoverConfigured(owner: string, cwd: string, previous: Map<string, AgentRecord>) {
-  const records = new Map<string, AgentRecord>();
-  const sessions = new Map<string, string>([[`codex:${owner}`, owner]]);
-  const parents = new Set([owner]);
-  const tree = { owner, records, sessions, parents };
-  const scanned = new Set<string>();
-  const warnings: string[] = [];
-  const native = await availableCodexThreads(warnings, owner);
-
-  let hasProgress = true;
-
-  while (hasProgress) {
-    hasProgress = didAttachSavedChildren(tree, scanned);
-
-    for (const thread of native) {
-      const parentId = sessions.get(`codex:${codexParent(thread)}`);
-
-      if (!parentId || sessions.has(`codex:${thread.id}`)) {
-        continue;
-      }
-
-      attachNativeThread(tree, thread, parentId, cwd);
-      hasProgress = true;
+    for (const child of children.value) {
+      records.set(child.agent.id, { ...observeClaudeChild(record, child), owner: tree.owner });
     }
   }
 
-  await discoverClaude(tree, previous, warnings);
-
-  for (const record of records.values()) {
-    record.owner = owner;
-  }
-
-  return {
-    owner,
-    records,
-    catalog: {
-      agents: records
-        .values()
-        .map((record) => record.agent)
-        .toArray()
-        .toSorted((a, b) => Number(isActiveAgent(b)) - Number(isActiveAgent(a)) || a.name.localeCompare(b.name)),
-      warnings: [...new Set(warnings)],
-      updatedAt: Date.now(),
-    },
-  };
+  return { records, warnings };
 }
 
-/**
-Discover only configured-parent descendants and merge native and saved identities.
-@param owner - Configured parent thread owning this read-only catalog.
-@param previous - Previous discovery records available for native child reuse.
-@returns Scoped records and a sorted lightweight catalog with availability warnings.
+/** Discover verified descendants without mutating cached records.
+@param owner - Configured parent whose descendants are visible.
+@param previous - Prior verified discovery records.
+@returns Scoped records and native availability warnings.
 */
 export async function discoverAgents(owner: string, previous = new Map<string, AgentRecord>()) {
   const config = await configForOwner(owner);
@@ -301,5 +81,53 @@ export async function discoverAgents(owner: string, previous = new Map<string, A
     throw new Error("Parent chat is unavailable.");
   }
 
-  return discoverConfigured(owner, config.cwd, previous);
+  const native = await t(codexThreads, owner);
+  const warnings: string[] = [];
+
+  if (!native.ok) {
+    warnings.push("Codex discovery is unavailable. Reconnecting automatically.");
+    log().warn({ err: native.error, owner }, "agents.discovery_failed");
+  }
+
+  const threads = native.ok ? native.value : [];
+
+  let tree: DiscoveryTree = {
+    owner,
+    records: new Map(),
+    sessions: new Map([[`codex:${owner}`, owner]]),
+    parents: new Set([owner]),
+  };
+  let scanned = new Set<string>();
+  let hasProgress = true;
+
+  while (hasProgress) {
+    const saved = savedChildren(tree, scanned);
+
+    hasProgress = saved.tree !== tree;
+    tree = saved.tree;
+    scanned = saved.scanned;
+
+    for (const thread of threads) {
+      const parentId = tree.sessions.get(`codex:${codexParent(thread)}`);
+
+      if (!parentId || tree.sessions.has(`codex:${thread.id}`)) {
+        continue;
+      }
+
+      tree = attachNativeThread(tree, thread, parentId, config.cwd);
+      hasProgress = true;
+    }
+  }
+
+  const discovered = await nativeRecords(tree, previous);
+
+  return {
+    owner,
+    records: discovered.records,
+    catalog: {
+      agents: Array.from(discovered.records.values(), catalogAgent).toSorted(compareCatalogAgents),
+      warnings: [...new Set([...warnings, ...discovered.warnings])],
+      updatedAt: Date.now(),
+    },
+  };
 }

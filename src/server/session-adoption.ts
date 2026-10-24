@@ -1,54 +1,24 @@
+import { type sessionListInput, type AdoptionInput, socketPath, inspectedSession } from "../state/session-adoption";
+
+export {
+  type AdoptionInput,
+  type AdoptedSession,
+  type SessionAttachment,
+  adoptionInput,
+  sessionListInput,
+  sessionAttachment,
+  socketPath,
+  attachmentSchema,
+} from "../state/session-adoption";
+import { valueAfterCleanup } from "../lib/results";
+import { t as captureResult } from "try";
 import { type Config, configSchema } from "./config";
-import { type Thread, object, string } from "../lib/protocol";
+import { type Thread } from "../lib/protocol";
 import { CodexRpc } from "./rpc";
-import { delegationKey } from "./delegation-input";
 import { delegations } from "./delegations";
 import { z } from "zod";
 
 const PAGE_SIZE = 50;
-export const socketPath = z
-  .string()
-  .startsWith("/")
-  .refine((value) => !/[:\r\n\0]/u.test(value), "Invalid socket path");
-export const adoptionInput = z
-  .object({
-    threadId: z.string().min(1),
-    title: delegationKey,
-    idempotencyKey: delegationKey,
-    socketPath: socketPath.optional(),
-  })
-  .strict();
-export const sessionListInput = z
-  .object({
-    cursor: z.string().optional(),
-    archived: z.boolean().default(false),
-    search: z.string().optional(),
-    socketPath: socketPath.optional(),
-  })
-  .strict();
-
-export type AdoptionInput = z.infer<typeof adoptionInput>;
-export interface AdoptedSession {
-  threadId: string;
-  cwd: string;
-  turnId?: string;
-}
-export const attachmentSchema = z.object({
-  socketPath,
-  turnId: z.string().optional(),
-  watchCommandId: z.string().optional(),
-});
-
-export type SessionAttachment = z.infer<typeof attachmentSchema>;
-
-/**
-Read persisted attachment metadata without trusting unchecked JSON fields.
-@param metadata - Persisted child metadata.
-@returns Validated live attachment, or undefined for ordinary saved children.
-*/
-export function sessionAttachment(metadata: string) {
-  return attachmentSchema.optional().parse(object(JSON.parse(metadata)).attachment);
-}
 
 /**
 Choose the explicit transport without falling back from an unavailable owner.
@@ -70,14 +40,13 @@ Connect to saved history or to the explicitly selected owning server.
 export async function sessionClient(config: Config, filename?: string) {
   const rpc = new CodexRpc();
 
-  try {
-    await connectSession(rpc, config, filename);
+  const connected = await captureResult(connectSession, rpc, config, filename);
 
-    return rpc;
-  } catch (error) {
-    await rpc.shutdown();
-    throw error;
+  if (!connected.ok) {
+    valueAfterCleanup(connected, await captureResult(rpc.shutdown.bind(rpc)));
   }
+
+  return rpc;
 }
 
 /**
@@ -101,27 +70,6 @@ export async function requireLoadedSession(rpc: CodexRpc, threadId: string) {
   } while (cursor);
 
   throw new Error("That server does not own a loaded session with this ID. No saved copy was resumed.");
-}
-
-/**
-Reject active saved copies and retain the exact native identity and working folder.
-@param thread - Native persisted or loaded session.
-@param isLive - Whether the caller selected the owning server.
-@returns Metadata needed for durable adoption.
-*/
-function inspectedSession(thread: Thread, isLive: boolean): AdoptedSession {
-  const active = thread.turns.findLast((turn) => turn.status === "inProgress");
-  const cwd = string(thread.cwd);
-
-  if (!cwd.startsWith("/")) {
-    throw new Error("The existing session has no absolute working directory.");
-  }
-
-  if (!isLive && (active || object(thread.status).type === "active")) {
-    throw new Error("This session may still be running. Supply its owning app-server socketPath to attach live.");
-  }
-
-  return { threadId: thread.id, cwd, ...(active && { turnId: active.id }) };
 }
 
 /**
@@ -154,6 +102,23 @@ async function inspectSession(rpc: CodexRpc, input: AdoptionInput) {
   return readAdoption(rpc, input);
 }
 
+/** Own a temporary native client for one explicit query, including failure cleanup.
+@param config - Native account configuration.
+@param input - Query data and optional owning socket.
+@param query - Module-scope query implementation.
+@returns Query result after the client has shut down.
+*/
+async function adoptionQuery<Input extends { socketPath?: string }, Output>(
+  config: Config,
+  input: Input,
+  query: (rpc: CodexRpc, input: Input) => Promise<Output>
+) {
+  const rpc = await sessionClient(config, input.socketPath);
+  const completed = await captureResult(query, rpc, input);
+
+  return valueAfterCleanup(completed, await captureResult(rpc.shutdown.bind(rpc)));
+}
+
 /**
 Inspect a session before adding tracking, without sending input or resuming a saved copy.
 @param config - Native account configuration.
@@ -161,13 +126,15 @@ Inspect a session before adding tracking, without sending input or resuming a sa
 @returns Canonical native adoption metadata.
 */
 export async function inspectAdoption(config: Config, input: AdoptionInput) {
-  const rpc = await sessionClient(config, input.socketPath);
+  return adoptionQuery(config, input, inspectSession);
+}
 
-  try {
-    return await inspectSession(rpc, input);
-  } finally {
-    await rpc.shutdown();
-  }
+/** Expose only native session summary fields.
+@param thread - Native session metadata.
+@returns Original public summary fields.
+*/
+function sessionSummary(thread: Thread) {
+  return { id: thread.id, name: thread.name, preview: thread.preview, cwd: thread.cwd, status: thread.status };
 }
 
 /**
@@ -187,13 +154,7 @@ async function savedSessions(rpc: CodexRpc, input: z.infer<typeof sessionListInp
 
   return {
     ...page,
-    data: page.data.map((thread) => ({
-      id: thread.id,
-      name: thread.name,
-      preview: thread.preview,
-      cwd: thread.cwd,
-      status: thread.status,
-    })),
+    data: Array.from(page.data, sessionSummary),
   };
 }
 
@@ -216,13 +177,7 @@ Discover saved sessions with previews, or only sessions loaded by a selected ser
 @returns One bounded page of native session summaries.
 */
 export async function listAdoptableSessions(config: Config, input: z.infer<typeof sessionListInput>) {
-  const rpc = await sessionClient(config, input.socketPath);
-
-  try {
-    return await sessionPage(rpc, input);
-  } finally {
-    await rpc.shutdown();
-  }
+  return adoptionQuery(config, input, sessionPage);
 }
 
 /**

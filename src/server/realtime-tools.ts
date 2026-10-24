@@ -1,30 +1,31 @@
-import { type Data, object, string } from "../lib/protocol";
-import { type VoiceSessionOwner } from "./voice-session-owner";
-import { z } from "zod";
+import { type Data } from "../lib/protocol";
+import type { VoiceSessionOwner } from "./voice-session-owner";
+import { t } from "try";
+import { createStore } from "zustand/vanilla";
+import {
+  realtimeToolState,
+  completedToolResponse,
+  receivedTools,
+  requestedTool,
+  queuedToolResult,
+  resolvedTool,
+  flushedTools,
+} from "../state/realtime-tools";
+import { log } from "./logging";
 
-const MAX_REQUEST_LENGTH = 32_000;
-const argumentsSchema = z.object({ request: z.string().trim().min(1).max(MAX_REQUEST_LENGTH) }).strict();
-export const REALTIME_TOOL_PREFIX = "realtime-tool:";
+export { REALTIME_TOOL_PREFIX } from "../state/realtime-tools";
 
 /**
-Run worker requests independently of media and transcript storage.
+Execute worker handoffs and provider controls independently of media and transcript storage.
 */
 export class RealtimeTools {
-  private completed = new Set<string>();
-  private finishedResponses = new Set<string>();
-  private responseId?: string;
-  private pending = new Map<string, string>();
-  private results: Data[] = [];
-  private responseActive = false;
-  private speaking = false;
-  private awaitingSpeechResponse = false;
-  private active = true;
+  private readonly store = createStore(realtimeToolState);
 
-  /** Bind a single live conversation's worker and provider controls.
-  @param sessionId - Unique identity for this voice connection.
+  /** Bind one live conversation's worker and provider controls.
+  @param sessionId - Unique voice connection identity.
   @param owner - Main-agent delivery interface.
-  @param send - Server control channel; never carries microphone audio.
-  @param fail - Report control delivery failures to the owning session.
+  @param send - Server control channel, never microphone audio.
+  @param fail - Owning session's control failure handler.
   */
   constructor(
     private sessionId: string,
@@ -34,188 +35,124 @@ export class RealtimeTools {
   ) {}
 
   /**
-  Return completed tools when the user and provider have finished their current speech.
+  Send selected control frames and surface the exact transport failure.
   */
   private flush() {
-    if (
-      !this.active ||
-      this.responseActive ||
-      this.speaking ||
-      this.awaitingSpeechResponse ||
-      this.results.length === 0
-    ) {
-      return;
-    }
+    const flushed = flushedTools(this.store.getState());
 
-    try {
-      this.sendResults();
-    } catch (error) {
-      this.fail(error);
+    this.store.setState(flushed.state, true);
+
+    for (const event of flushed.events) {
+      const sent = t(this.send, event);
+
+      if (!sent.ok) {
+        this.fail(sent.error);
+
+        return;
+      }
     }
   }
 
-  /**
-  Append tool outputs to this conversation and request its next spoken response.
-  */
-  private sendResults() {
-    for (const result of this.results.splice(0)) {
-      this.send(result);
-    }
-
-    this.responseActive = true;
-    this.send({ type: "response.create" });
-  }
-
-  /** Queue an actual tool result in the existing audio conversation.
-  @param callId - Provider function call awaiting this result.
-  @param result - Worker result or explicit dispatch failure.
+  /** Queue an actual outcome in its original live conversation.
+  @param callId - Provider call awaiting the result.
+  @param result - Worker outcome or explicit delivery uncertainty.
   */
   private result(callId: string, result: Data) {
-    if (!this.active) {
-      return;
-    }
-
-    this.results.push({
-      type: "conversation.item.create",
-      item: { type: "function_call_output", call_id: callId, output: JSON.stringify(result) },
-    });
+    this.store.setState(queuedToolResult(this.store.getState(), callId, result), true);
     this.flush();
   }
 
-  /** Dispatch the voice agent's request once, without consulting its transcription.
-  @param call - A completed provider function call.
+  /** Dispatch a deduplicated request without consulting captions or waiting for storage.
+  @param call - Provider's completed native function call.
   */
   private async dispatch(call: Data) {
-    const callId = string(call.call_id);
+    const requested = requestedTool(this.store.getState(), this.sessionId, call);
 
-    if (!callId || this.completed.has(callId)) {
+    this.store.setState(requested.state, true);
+
+    if (!requested.callId) {
       return;
     }
 
-    this.completed.add(callId);
-
-    if (call.name !== "handoff_to_pocket") {
-      this.result(callId, { error: "That tool is unavailable. No work was dispatched." });
-
-      return;
-    }
-
-    let args: unknown;
-
-    try {
-      args = JSON.parse(string(call.arguments));
-    } catch {
-      args = undefined;
-    }
-
-    const input = argumentsSchema.safeParse(args);
-
-    if (!input.success) {
-      this.result(callId, { error: "Supply a nonempty request describing the work to do." });
+    if (!requested.id) {
+      this.result(requested.callId, { error: requested.error });
 
       return;
     }
 
-    const id = `${REALTIME_TOOL_PREFIX}${this.sessionId}:${callId}`;
+    const delivery = await t(this.owner.handoff.bind(this.owner), {
+      id: requested.id,
+      request: requested.request,
+      source: { type: "realtime", sessionId: this.sessionId, itemId: requested.callId },
+    });
+    const current = this.store.getState();
 
-    this.pending.set(id, callId);
-
-    let result;
-
-    try {
-      result = await this.owner.handoff({
-        id,
-        request: input.data.request,
-        source: { type: "realtime", sessionId: this.sessionId, itemId: callId },
+    if (!delivery.ok) {
+      log().error(
+        { error: delivery.error, sessionId: this.sessionId, callId: requested.callId },
+        "realtime.handoff_failed"
+      );
+      this.store.setState(resolvedTool(current, requested.id), true);
+      this.result(requested.callId, {
+        status: "unknown",
+        error: "Work could not be confirmed. Do not automatically retry.",
       });
-    } catch {
-      this.pending.delete(id);
-      this.result(callId, { status: "unknown", error: "Work could not be confirmed. Do not automatically retry." });
 
       return;
     }
 
-    if (!this.pending.has(id) || result.status === "sent" || result.status === "queued") {
+    if (!current.pending.has(requested.id) || delivery.value.status === "sent" || delivery.value.status === "queued") {
       return;
     }
 
-    this.pending.delete(id);
-    this.result(callId, { status: "unknown", error: "Delivery is uncertain. Check the work before retrying." });
+    this.store.setState(resolvedTool(current, requested.id), true);
+    this.result(requested.callId, {
+      status: "unknown",
+      error: "Delivery is uncertain. Check the work before retrying.",
+    });
   }
 
-  /** Track provider activity and accept tools only from completed responses.
-  @param event - Provider control event, processed immediately rather than behind persistence.
+  /** Publish immutable provider state before launching selected worker requests.
+  @param event - Provider control event.
   */
   receive(event: Data) {
-    switch (event.type) {
-      case "input_audio_buffer.speech_started": {
-        this.speaking = true;
-        this.awaitingSpeechResponse = true;
-        break;
-      }
+    const received = receivedTools(this.store.getState(), event);
 
-      case "input_audio_buffer.speech_stopped": {
-        this.speaking = false;
-        break;
-      }
+    this.store.setState(received.state, true);
 
-      case "response.created": {
-        this.responseId = string(object(event.response).id);
-        this.responseActive = true;
-        this.awaitingSpeechResponse = false;
-        break;
-      }
-
-      case "response.done": {
-        const response = object(event.response);
-        const id = string(response.id);
-
-        if (this.finishedResponses.has(id) || (this.responseId && this.responseId !== id)) {
-          return;
-        }
-
-        this.finishedResponses.add(id);
-
-        if (response.status === "completed" && Array.isArray(response.output)) {
-          for (const value of response.output) {
-            const call = object(value);
-
-            if (call.type === "function_call") {
-              void this.dispatch(call);
-            }
-          }
-        }
-
-        this.responseActive = false;
-        this.responseId = undefined;
-        this.flush();
-        break;
-      }
+    for (const call of received.calls) {
+      void this.dispatch(call);
     }
+
+    if (!received.isCompleted) {
+      return;
+    }
+
+    this.store.setState(completedToolResponse(this.store.getState()), true);
+    this.flush();
   }
 
-  /** Resolve worker receipts back to their original provider function call.
-  @param id - Main-agent delivery receipt.
+  /** Resolve a worker receipt back to its original provider call.
+  @param id - Main-agent delivery identity.
   @param text - Actual worker answer.
   @param status - Native turn completion status.
   */
   answer(id: string, text: string, status = "completed") {
-    const callId = this.pending.get(id);
+    const current = this.store.getState();
+    const callId = current.pending.get(id);
 
     if (!callId) {
       return;
     }
 
-    this.pending.delete(id);
+    this.store.setState(resolvedTool(current, id), true);
     this.result(callId, { status, result: text || "The worker finished without a text result." });
   }
 
   /**
-  Detach pending work from this connection; never replay it into a later voice session.
+  Detach pending work without replaying it into a future voice connection.
   */
   close() {
-    this.active = false;
-    this.pending.clear();
-    this.results = [];
+    this.store.setState({ active: false, pending: new Map(), results: [] });
   }
 }

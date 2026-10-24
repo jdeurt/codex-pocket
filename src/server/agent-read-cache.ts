@@ -1,8 +1,17 @@
-import { type AgentRecord, hydrateAgent, nativeStatus, observedMetadata } from "./agent-sources";
-import { type CachedRead, agentReadIdentity, completedRead, isAttached } from "./agent-read-state";
+import { t as captureResult } from "try";
+import { type AgentRecord, hydrateAgent, nativeStatus } from "./agent-sources";
+import {
+  type CachedRead,
+  agentReadIdentity,
+  completedRead,
+  applyRead,
+  isAttached,
+  isFreshRead,
+} from "../state/agent-read";
 import { agentRead, promoteAgentRead } from "./agent-read-pool";
 import { agentRevision } from "./agent-revision";
 import { bridge } from "./bridge";
+import { parentReaders } from "./pocket-readers";
 import { codexPreview } from "./agent-history";
 import { isActiveAgent } from "../lib/agents";
 import { log } from "./logging";
@@ -13,20 +22,24 @@ const MAX_TRANSCRIPTS = 12;
 /**
 Read and project a lightweight native Codex preview without changing parent-owned status.
 @param record - Scoped Codex record whose session has been checked by the caller.
+@returns Updated native preview record.
 */
 async function refreshPreview(record: AgentRecord) {
   const value = await agentRead(
-    () => codexPreview(bridge.agentReader(), record.sessionId ?? ""),
+    codexPreview.bind(
+      undefined,
+      (parentReaders.get(record.owner ?? "") ?? bridge).agentReader(),
+      record.sessionId ?? ""
+    ),
     isActiveAgent(record.agent) ? 1 : 2
   );
 
-  record.agent.preview = value.preview;
+  const status =
+    record.pocket || isActiveAgent(record.agent) || record.observedStatus
+      ? record.agent.status
+      : nativeStatus(record.thread ?? { id: record.sessionId ?? "", turns: [] }, value.turns);
 
-  if (!record.pocket && !isActiveAgent(record.agent) && !record.observedStatus) {
-    record.agent.status = nativeStatus(record.thread ?? { id: record.sessionId ?? "", turns: [] }, value.turns);
-  }
-
-  record.historyError = false;
+  return { ...record, historyError: false, agent: { ...record.agent, preview: value.preview, status } };
 }
 
 /**
@@ -50,50 +63,7 @@ Check whether a native revision and cached read remain reusable.
 @returns Whether revision, error age and activity permit cache reuse.
 */
   private fresh(record: AgentRecord, saved: CachedRead | undefined, revision: string, isImage = false) {
-    return (
-      saved?.identity === agentReadIdentity(record) &&
-      saved.revision === revision &&
-      (!saved.historyError || Date.now() - saved.at < LIVE_REFRESH_MS) &&
-      (isImage ||
-        (record.agent.harness === "claude" && Boolean(record.fileRevision)) ||
-        (!isAttached(record) && ["idle", "completed", "failed", "closed"].includes(record.agent.status)) ||
-        Date.now() - saved.at < LIVE_REFRESH_MS)
-    );
-  }
-
-  /**
-Project validated cached metadata, preview and turns onto a discovery record.
-@param record - Current discovery record authoritative for ownership.
-@param saved - Cached read whose revision has been checked.
-*/
-  private apply(record: AgentRecord, saved: CachedRead) {
-    if (saved.identity !== agentReadIdentity(record)) {
-      return;
-    }
-
-    Object.assign(record.agent, {
-      ...observedMetadata({ model: saved.agent.model, effort: saved.agent.reasoningEffort }),
-      preview: saved.agent.preview,
-      previewState: saved.agent.previewState,
-    });
-
-    if (
-      !record.pocket &&
-      ["idle", "unknown"].includes(record.agent.status) &&
-      ["completed", "failed", "closed"].includes(saved.agent.status)
-    ) {
-      record.agent.status = saved.agent.status;
-    }
-
-    if (isAttached(record) && !["closing", "closed"].includes(record.pocket?.status ?? "")) {
-      record.agent.status = saved.agent.status;
-    }
-
-    if (saved.turns) {
-      record.turns = saved.turns;
-    }
-
-    record.historyError = record.discoveryError === true ? true : saved.historyError;
+    return isFreshRead(record, saved, revision, isImage, Date.now(), LIVE_REFRESH_MS);
   }
 
   /**
@@ -103,7 +73,7 @@ Save a preview and bound transcript retention while protecting the selected chat
 @param isFull - Whether this read included complete transcript turns.
 */
   private remember(record: AgentRecord, revision: string, isFull: boolean) {
-    const value = completedRead(record, revision, isFull);
+    const value = completedRead(record, revision, isFull, Date.now());
 
     this.previews.set(record.agent.id, { ...value, turns: undefined });
 
@@ -114,11 +84,13 @@ Save a preview and bound transcript retention while protecting the selected chat
     this.transcripts.delete(record.agent.id);
     this.transcripts.set(record.agent.id, value);
 
-    while (this.transcripts.size > MAX_TRANSCRIPTS) {
-      const oldest = this.transcripts.keys().find((id) => id !== this.selected);
+    for (const id of this.transcripts.keys()) {
+      if (this.transcripts.size <= MAX_TRANSCRIPTS) {
+        return;
+      }
 
-      if (oldest) {
-        this.transcripts.delete(oldest);
+      if (id !== this.selected) {
+        this.transcripts.delete(id);
       }
     }
   }
@@ -132,12 +104,13 @@ Hydrate complete native history through the shared read pool and cache it.
   private async readFull(record: AgentRecord, revision: string, priority: number) {
     const saved = this.transcripts.get(record.agent.id);
 
-    if (saved) {
-      this.apply(record, saved);
-    }
+    const next = await agentRead(
+      hydrateAgent.bind(undefined, applyRead(record, saved)),
+      priority,
+      agentReadIdentity(record)
+    );
 
-    await agentRead(() => hydrateAgent(record), priority, agentReadIdentity(record));
-    this.remember(record, revision, true);
+    this.remember(next, revision, true);
   }
 
   /**
@@ -152,13 +125,25 @@ Read a lightweight Codex preview or hydrate Claude's saved history.
       return;
     }
 
-    try {
-      await refreshPreview(record);
-    } catch {
-      record.historyError = true;
+    const completed = await captureResult(refreshPreview, record);
+
+    if (!completed.ok) {
+      log().warn({ err: completed.error, agent: record.agent.id }, "agents.preview_failed");
     }
 
-    this.remember(record, revision, false);
+    this.remember(completed.ok ? completed.value : { ...record, historyError: true }, revision, false);
+  }
+
+  /** Retain usable cached history while recording a background refresh failure.
+  @param pending - Read already owned by the cache's completion fence.
+  @param agent - Scoped native identity for diagnostics.
+  */
+  private async refreshInBackground(pending: Promise<void>, agent: string) {
+    const refreshed = await captureResult(pending);
+
+    if (!refreshed.ok) {
+      log().warn({ err: refreshed.error, agent }, "agents.refresh_failed");
+    }
   }
 
   /**
@@ -184,12 +169,14 @@ Own a newly started cache read until its exact pending entry settles.
 
     this.pending.set(key, done);
 
-    try {
-      await done;
-    } finally {
-      if (this.pending.get(key) === done) {
-        this.pending.delete(key);
-      }
+    const completed = await captureResult(done);
+
+    if (this.pending.get(key) === done) {
+      this.pending.delete(key);
+    }
+
+    if (!completed.ok) {
+      throw completed.error;
     }
   }
 
@@ -210,87 +197,85 @@ Mark a selected chat before obtaining its native revision.
   /**
 Apply and mark the completed transcript as most recently used.
 @param record - Scoped agent whose cache refresh has settled.
+@returns Current record with cached native history.
 */
   private touchTranscript(record: AgentRecord) {
     const current = this.transcripts.get(record.agent.id);
 
     if (current?.identity !== agentReadIdentity(record)) {
-      return;
+      return record;
     }
 
-    this.apply(record, current);
     this.transcripts.delete(record.agent.id);
     this.transcripts.set(record.agent.id, current);
+
+    return applyRead(record, current);
   }
 
   /**
 Apply an unchanged preview or mark its retained text loading after a revision change.
-@param record - Discovered agent whose catalog row is being projected.
-@returns Current discovery and native file revision.
+@param source - Discovered agent whose catalog row is being projected.
+@returns New catalog record with the current preview.
 */
-  async project(record: AgentRecord) {
+  async project(source: AgentRecord) {
+    const { record, revision } = await agentRevision(source);
     const saved = this.previews.get(record.agent.id);
-    const revision = await agentRevision(record);
 
-    if (saved?.identity === agentReadIdentity(record) && saved.revision === revision) {
-      this.apply(record, saved);
-    } else {
-      record.agent.preview = saved?.identity === agentReadIdentity(record) ? saved.agent.preview : "";
-      record.agent.previewState = "loading";
-    }
-
-    return revision;
+    return saved?.identity === agentReadIdentity(record) && saved.revision === revision
+      ? applyRead(record, saved)
+      : {
+          ...record,
+          agent: {
+            ...record.agent,
+            preview: saved?.identity === agentReadIdentity(record) ? saved.agent.preview : "",
+            previewState: "loading" as const,
+          },
+        };
   }
 
   /**
 Refresh a stale catalog preview while coalescing reads for the same agent.
-@param record - Scoped agent whose preview is being warmed.
+@param source - Scoped agent whose preview is being warmed.
 */
-  async warm(record: AgentRecord) {
-    const revision = await this.project(record);
+  async warm(source: AgentRecord) {
+    const { record, revision } = await agentRevision(source);
 
     if (this.fresh(record, this.previews.get(record.agent.id), revision)) {
       return;
     }
 
-    await this.coalesce(`preview:${agentReadIdentity(record)}`, () => this.readPreview(record, revision));
+    await this.coalesce(`preview:${agentReadIdentity(record)}`, this.readPreview.bind(this, record, revision));
   }
 
   /**
 Retain complete native history while protecting the selected chat from eviction.
-@param record - Scoped agent whose full history is requested.
+@param source - Scoped agent whose full history is requested.
 @param isImage - Whether the request only needs existing image metadata.
 @param priority - Read-pool priority; zero also selects this transcript.
 @returns Whether saved history was returned while its native refresh is still pending.
 */
-  async full(record: AgentRecord, isImage = false, priority = 0) {
-    const revision = await this.selectRevision(record, priority);
+  async full(source: AgentRecord, isImage = false, priority = 0) {
+    const { record, revision } = await this.selectRevision(source, priority);
     const saved = this.transcripts.get(record.agent.id);
     const key = agentReadIdentity(record);
     const canReuse = priority === 0 && !isImage && saved?.identity === key && saved.turns !== undefined;
 
     if (!this.fresh(record, saved, revision, isImage)) {
-      const pending = this.coalesce(`full:${key}`, () => this.readFull(record, revision, priority));
+      const pending = this.coalesce(`full:${key}`, this.readFull.bind(this, record, revision, priority));
 
       if (priority === 0) {
         promoteAgentRead(key);
       }
 
       if (canReuse) {
-        void pending.catch((error: unknown) => {
-          log().warn({ err: error, agent: record.agent.id }, "agents.refresh_failed");
-        });
+        void this.refreshInBackground(pending, record.agent.id);
 
-        this.touchTranscript(record);
-
-        return true;
+        return { record: this.touchTranscript(record), isHistoryLoading: true };
       }
 
       await pending;
     }
 
-    this.touchTranscript(record);
-
-    return false;
+    return { record: this.touchTranscript(record), isHistoryLoading: false };
   }
 }

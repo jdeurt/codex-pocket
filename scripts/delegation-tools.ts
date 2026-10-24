@@ -5,6 +5,7 @@ import { harnessCapabilities } from "../src/server/harness/types";
 import { resumeSidePocket } from "./adoption-tools";
 import { toolResult } from "../src/server/mcp-result";
 import { z } from "zod";
+import { t as attempt } from "try";
 
 const CLOSE_TIMEOUT_MS = 15_000;
 const idSchema = z.object({ id: z.uuid() }).strict();
@@ -60,13 +61,19 @@ async function closeChild(owner: string, id: string) {
       );
     }, CLOSE_TIMEOUT_MS);
 
-    try {
+    const outcome1 = attempt(() => {
       store.closeChild(owner, id);
       isSatisfied();
-    } catch (error) {
-      cleanup();
-      reject(error instanceof Error ? error : new Error("Operation failed.", { cause: error }));
+    });
+
+    if (outcome1.ok) {
+      return;
     }
+
+    const error = outcome1.error;
+
+    cleanup();
+    reject(error instanceof Error ? error : new Error("Operation failed.", { cause: error }));
   });
 }
 

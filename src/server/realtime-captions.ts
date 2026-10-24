@@ -1,0 +1,105 @@
+import { createStore } from "zustand/vanilla";
+import { t } from "try";
+import { SerialQueue } from "../runtime/serial-queue";
+import { liveCaptionState, receivedCaption, type CaptionTransition } from "../state/realtime-captions";
+import type { Data } from "../lib/protocol";
+import type { VoiceSessionOwner } from "./voice-session-owner";
+import { VoiceHistory } from "./voice-history";
+import { log } from "./logging";
+
+/**
+Own caption publication and serialized durable writes independently of live media.
+*/
+export class RealtimeCaptions {
+  private readonly store = createStore(liveCaptionState);
+  private readonly queue = new SerialQueue();
+  private history?: VoiceHistory;
+  private persistence: Promise<void> = Promise.resolve();
+
+  /** Bind the canonical conversation and UI event sink without starting storage work.
+  @param owner - Selected conversation identity and canonical anchor reader.
+  @param publish - Control event publisher; never an audio transport.
+  */
+  constructor(
+    private owner: VoiceSessionOwner,
+    private publish: (event: Data) => void
+  ) {}
+
+  /** Resolve the durable history owner for the selected conversation.
+  @returns Its lazy persistence adapter.
+  */
+  private savedHistory() {
+    this.history ??= new VoiceHistory(this.owner.threadId());
+
+    return this.history;
+  }
+
+  /** Execute one explicit finalized-caption persistence command.
+  @param final - Provider evidence and original chronological anchor.
+  */
+  private async write(final: NonNullable<CaptionTransition["final"]>) {
+    await this.savedHistory().finalize(final.event, final.sessionId, final.role, final.afterItemId);
+  }
+
+  /** Observe queued persistence without allowing its failure to stop media or later writes.
+  @param operation - Owned caption write outcome.
+  */
+  private async observe(operation: Promise<void>) {
+    const saved = await t(operation);
+
+    if (saved.ok) {
+      return;
+    }
+
+    log().error({ error: saved.error }, "realtime.history_save_failed");
+    this.publish({ type: "warning", error: "Voice history could not be saved. Your live call is still connected." });
+  }
+
+  /** Publish a provider caption immediately and queue only finalized persistence.
+  @param event - Original provider control frame.
+  @param sessionId - Native call identity.
+  */
+  receive(event: Data, sessionId: string) {
+    const received = receivedCaption(this.store.getState(), event, sessionId, this.owner.lastItemId?.() ?? null);
+
+    this.store.setState(received.state, true);
+
+    if (received.frame) {
+      this.publish(received.frame);
+    }
+
+    if (received.final) {
+      this.persistence = this.observe(this.queue.run(this.write.bind(this), received.final));
+    }
+  }
+
+  /** Read already available context without waiting for queued caption writes.
+  @returns Hydrated canonical voice history.
+  */
+  context() {
+    return this.savedHistory().read();
+  }
+
+  /** Read finalized history after already queued writes have been observed.
+  @returns Saved captions for context hydration or typed continuation.
+  */
+  async read() {
+    await this.persistence;
+
+    return this.context();
+  }
+
+  /** Read live caption state for a newly connected UI observer.
+  @returns Bounded session-local caption frames.
+  */
+  live() {
+    return this.store.getState().captions.values().toArray();
+  }
+
+  /**
+  Reset live projection while retaining the independent durable write queue.
+  */
+  reset() {
+    this.store.setState(liveCaptionState(), true);
+  }
+}

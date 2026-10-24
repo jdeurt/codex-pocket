@@ -1,5 +1,7 @@
 "use client";
 import { type AgentEntry, type AgentTranscript, agentTranscriptSchema, isActiveAgent } from "@/lib/agents";
+import { useBoundCallback } from "@/hooks/use-bound-callback";
+import { focusControl } from "@/runtime/form-events";
 import { useEffect, useRef } from "react";
 import { ArrowLeftIcon } from "lucide-react";
 import { Button } from "./ui/button";
@@ -64,9 +66,9 @@ export function AgentChat({ id, agent, back }: { id: string; agent?: AgentEntry;
 
   const current = data?.agent ?? agent;
 
-  useEffect(() => {
-    heading.current?.focus();
-  }, [id]);
+  const focus = useBoundCallback(focusControl, heading);
+
+  useEffect(focus, [focus, id]);
 
   return (
     <div className="agent-chat pb-[max(24px,env(safe-area-inset-bottom))]">

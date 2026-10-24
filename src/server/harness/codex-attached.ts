@@ -1,8 +1,11 @@
+import { findById } from "../../lib/identity";
+import { codexResult, activeNativeTurn } from "../../state/harness-result";
+import { t as captureResult } from "try";
 import { type AdapterOptions, type HarnessAdapter, type HarnessResult } from "./types";
 import { RpcDisconnectEvent, RpcNotificationEvent } from "../rpc-events";
-import { type RpcEvent, type Turn, string } from "../../lib/protocol";
+import { type RpcEvent, type Turn, hasActiveTurn, string } from "../../lib/protocol";
 import { CodexRpc } from "../rpc";
-import { harnessMessages } from "./transcript";
+import { harnessMessages } from "../../state/harness-transcript";
 import { loadHistory } from "../history";
 import { requireLoadedSession } from "../session-adoption";
 import { steerCodex } from "./codex-steering";
@@ -17,38 +20,31 @@ export class AttachedCodexAdapter implements HarnessAdapter {
   private completed = new Map<string, HarnessResult>();
   private output = new Map<string, string>();
 
+  /** Route the owned native event event.
+  @param event - Typed transport notification.
+  */
+  private readonly receivedEvent = (event: Event) => {
+    if (event instanceof RpcNotificationEvent) {
+      this.event(event.notification);
+    }
+  };
+
+  /** Route the owned native disconnect event.
+  @param event - Typed transport notification.
+  */
+  private readonly receivedDisconnect = (event: Event) => {
+    if (event instanceof RpcDisconnectEvent) {
+      this.pending?.reject(event.error);
+    }
+  };
+
   /**
   Subscribe before opening the socket so completion cannot race native subscription.
   @param options - Adopted child identity and durable worker callbacks.
   */
   constructor(private options: AdapterOptions) {
-    this.rpc.addEventListener("event", (event) => {
-      if (event instanceof RpcNotificationEvent) {
-        this.event(event.notification);
-      }
-    });
-    this.rpc.addEventListener("disconnect", (event) => {
-      if (event instanceof RpcDisconnectEvent) {
-        this.pending?.reject(event.error);
-      }
-    });
-  }
-
-  /**
-  Build a completion report from the native turn, preserving its actual status.
-  @param turn - Native completed or interrupted turn.
-  @returns Original assistant output and terminal outcome.
-  */
-  private result(turn: Turn): HarnessResult {
-    const text = turn.items
-      .filter((item) => item.type === "agentMessage")
-      .map((item) => string(item.text))
-      .join("\n\n");
-
-    return {
-      status: turn.status === "completed" || turn.status === "interrupted" ? turn.status : "failed",
-      text: text || this.output.values().toArray().join("\n\n") || (turn.error?.message ?? ""),
-    };
+    this.rpc.addEventListener("event", this.receivedEvent);
+    this.rpc.addEventListener("disconnect", this.receivedDisconnect);
   }
 
   /**
@@ -81,7 +77,7 @@ export class AttachedCodexAdapter implements HarnessAdapter {
   @param turn - Native terminal turn.
   */
   private completeTurn(turn: Turn) {
-    const result = this.result(turn);
+    const result = codexResult(turn, this.output);
 
     this.completed.set(turn.id, result);
 
@@ -105,7 +101,7 @@ export class AttachedCodexAdapter implements HarnessAdapter {
       throw new Error("The owning server returned a different session identity.");
     }
 
-    this.active = thread.turns.findLast((turn) => turn.status === "inProgress" && !this.completed.has(turn.id))?.id;
+    this.active = activeNativeTurn(thread.turns, this.completed);
     this.options.callbacks.metadata({ model, effort: reasoningEffort, sessionStarted: true });
 
     return thread.id;
@@ -121,15 +117,17 @@ export class AttachedCodexAdapter implements HarnessAdapter {
     const pending = Promise.withResolvers<HarnessResult>();
 
     this.pending = pending;
-    void this.send(id, text).catch((error: unknown) => {
-      pending.reject(error);
-    });
+    void this.send(id, text);
 
-    try {
-      return await pending.promise;
-    } finally {
-      this.pending = undefined;
+    const completed = await captureResult(pending.promise);
+
+    this.pending = undefined;
+
+    if (!completed.ok) {
+      throw completed.error;
     }
+
+    return completed.value;
   }
 
   /**
@@ -138,11 +136,24 @@ export class AttachedCodexAdapter implements HarnessAdapter {
   @param text - Exact assignment text.
   */
   private async send(id: string, text: string) {
-    const { turn } = await this.rpc.request("turn/start", {
-      threadId: this.options.child.sessionId,
-      clientUserMessageId: id,
-      input: [{ type: "text", text, text_elements: [] }],
-    });
+    const sent = await captureResult(
+      this.rpc.request("turn/start", {
+        threadId: this.options.child.sessionId,
+        clientUserMessageId: id,
+        input: [{ type: "text", text, text_elements: [] }],
+      })
+    );
+
+    if (!sent.ok) {
+      this.pending?.reject(
+        sent.error instanceof Error ? sent.error : new Error("Native send failed.", { cause: sent.error })
+      );
+
+      return;
+    }
+
+    const { turn } = sent.value;
+
     const completed = this.completed.get(turn.id);
 
     if (completed) {
@@ -180,7 +191,7 @@ export class AttachedCodexAdapter implements HarnessAdapter {
       includeTurns: true,
     });
     const turns = await loadHistory(this.rpc, thread);
-    const turn = turns.find((entry) => entry.id === turnId);
+    const turn = findById(turns, turnId);
     const completed = this.completed.get(turnId);
 
     if (completed) {
@@ -192,14 +203,16 @@ export class AttachedCodexAdapter implements HarnessAdapter {
     }
 
     if (turn.status !== "inProgress") {
-      return this.result(turn);
+      return codexResult(turn, this.output);
     }
 
     this.active = turnId;
 
-    return new Promise<HarnessResult>((resolve, reject) => {
-      this.pending = { resolve, reject };
-    });
+    const pending = Promise.withResolvers<HarnessResult>();
+
+    this.pending = pending;
+
+    return pending.promise;
   }
 
   /**
@@ -214,7 +227,7 @@ export class AttachedCodexAdapter implements HarnessAdapter {
       includeTurns: true,
     });
 
-    if (thread.turns.some((turn) => turn.status === "inProgress")) {
+    if (hasActiveTurn(thread.turns)) {
       throw new Error("The owning window started another turn. Nothing was sent; inspect it before continuing.");
     }
 

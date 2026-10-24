@@ -1,4 +1,5 @@
-import { pocketUrl } from "@/lib/pockets";
+import { scopedPocketUrl } from "../state/pocket";
+import { t as attempt } from "try";
 
 /**
 Resolve an already classified local source relative to the currently viewed file.
@@ -29,16 +30,16 @@ export function localFileLink(href: string, base?: string) {
     return;
   }
 
-  try {
-    return resolvedFileLink(href, base);
-  } catch {
-    return;
-  }
+  const parsed = attempt(resolvedFileLink, href, base);
+
+  return parsed.ok ? parsed.value : undefined;
 }
 
 /**
 Build a same-origin viewer route for a filesystem link.
+@param pocketId - Explicit conversation scope.
 @param filename - Local path to resolve on the configured computer.
 @returns Escaped viewer route without browser navigation to a local filesystem URL.
 */
-export const fileViewerUrl = (filename: string) => pocketUrl(`/files?path=${encodeURIComponent(filename)}`);
+export const fileViewerUrl = (pocketId: string, filename: string) =>
+  scopedPocketUrl(pocketId, `/files?path=${encodeURIComponent(filename)}`);

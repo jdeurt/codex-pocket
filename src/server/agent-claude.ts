@@ -1,10 +1,59 @@
-import { type ClaudeMessage, claudeTranscript } from "./harness/transcript";
-import { type Data, object, string } from "../lib/protocol";
+import { historyItems } from "../state/agent-history";
+import { type ClaudeMessage, claudeTranscript } from "../state/harness-transcript";
+import { type Data, type Item, object, string } from "../lib/protocol";
 import { agentStatusSchema, isActiveAgent } from "../lib/agents";
 import { getSessionInfo, getSessionMessages, getSubagentMessages, listSubagents } from "@anthropic-ai/claude-agent-sdk";
 import { type AgentRecord } from "./agent-sources";
 import { agentRead } from "./agent-read-pool";
-import { applyClaudeWrites } from "./harness/claude-writes";
+import { applyClaudeWrites } from "../state/claude-writes";
+
+/** Find the first explicit native relationship.
+@param messages - Saved SDK messages.
+@param field - Native relationship to inspect.
+@returns The first message carrying that identity.
+*/
+function relatedMessage(messages: ClaudeMessage[], field: "parent_agent_id" | "parent_tool_use_id") {
+  for (const message of messages) {
+    const relationship = message[field];
+
+    if (relationship) {
+      return message;
+    }
+  }
+}
+
+/** Match an explicit native invocation identity.
+@param id - Native invocation identity.
+@param item - Canonical item.
+@returns Whether this item originated from that invocation.
+*/
+function hasNativeIdentity(id: string | null | undefined, item: Item) {
+  return item.nativeId === id;
+}
+
+/** Read one missing native ancestry sample through the shared pool.
+@param cwd - Native session directory.
+@param previous - Prior scoped discovery.
+@param runtime - Persisted ancestry observations.
+@param sessionId - Owning native root.
+@param id - Candidate descendant.
+@returns Explicit native identity and sample.
+*/
+async function readAncestry(
+  cwd: string,
+  previous: Map<string, AgentRecord>,
+  runtime: Data,
+  sessionId: string,
+  id: string
+): Promise<[string, ClaudeMessage[]]> {
+  const saved = previous.get(`claude:${sessionId}:${id}`);
+  const messages =
+    Object.hasOwn(runtime, id) || saved?.ancestryKnown
+      ? []
+      : await agentRead(getSubagentMessages.bind(undefined, sessionId, id, { dir: cwd, limit: 1 }), 1);
+
+  return [id, messages];
+}
 
 const LAST_MESSAGE = -1;
 
@@ -27,25 +76,27 @@ function claudeStopStatus(messages: ClaudeMessage[]): AgentRecord["agent"]["stat
 Retain the latest saved model and apply native terminal status only to native descendants.
 @param record - Scoped Claude record whose persisted Side Pocket status remains authoritative.
 @param messages - Saved SDK messages already converted to canonical turns.
+@returns Updated immutable agent record or metadata.
 */
 function applyClaudeMetadata(record: AgentRecord, messages: ClaudeMessage[]) {
-  const model = messages.map((message) => string(object(message.message).model)).findLast(Boolean);
+  let model = "";
 
-  if (model) {
-    record.agent.model = model;
+  for (const message of messages) {
+    model = string(object(message.message).model) || model;
   }
 
-  if (record.pocket) {
-    return;
-  }
-
-  record.agent.status = record.observedStatus ?? claudeStopStatus(messages);
+  return {
+    ...record.agent,
+    ...(model && { model }),
+    status: record.pocket ? record.agent.status : (record.observedStatus ?? claudeStopStatus(messages)),
+  };
 }
 
 /**
 Read the native saved Claude session or subagent and project it into canonical turns.
 @param record - Scoped Claude record receiving saved history and observed metadata.
 @param sessionId - Native root session identity checked by the hydration owner.
+@returns Updated immutable agent record or metadata.
 */
 export async function readClaude(record: AgentRecord, sessionId: string) {
   const messages = record.claudeAgent
@@ -59,8 +110,11 @@ export async function readClaude(record: AgentRecord, sessionId: string) {
   const owner = record.pocket ?? record.runtimeOwner;
   const writes = object(object(owner ? JSON.parse(owner.metadata) : {}).claudeWrites);
 
-  record.turns = applyClaudeWrites(claudeTranscript(messages), writes, sessionId, record.claudeAgent);
-  applyClaudeMetadata(record, messages);
+  return {
+    ...record,
+    turns: applyClaudeWrites(claudeTranscript(messages), writes, sessionId, record.claudeAgent),
+    agent: applyClaudeMetadata(record, messages),
+  };
 }
 
 /**
@@ -81,7 +135,7 @@ function claudeCandidate(
 ) {
   const observed = object(runtime[id]);
   const saved = previous.get(`claude:${sessionId}:${id}`);
-  const transcriptParent = transcript.find((message) => message.parent_agent_id)?.parent_agent_id;
+  const transcriptParent = relatedMessage(transcript, "parent_agent_id")?.parent_agent_id;
   const ancestor = [transcriptParent, string(observed.parentId), saved?.claudeParent].find(Boolean);
 
   return { id, transcript, observed, saved, ancestor, isObserved: Object.hasOwn(runtime, id) };
@@ -95,28 +149,26 @@ Append a resolved native Claude child after its ancestor is known.
 @param candidate - Normalized ancestry candidate whose ancestor has been resolved.
 @param messages - Native ancestry samples indexed by subagent identity.
 @param known - Resolved SDK-to-catalog identities receiving this child.
-@param result - Ordered normalized descendants receiving the new record.
 @param sessionId - Owning native root session identity.
+@returns Updated immutable agent record or metadata.
 */
 function appendClaudeCandidate(
   parent: AgentRecord,
   candidate: ClaudeCandidate,
   messages: Map<string, ClaudeMessage[]>,
   known: Map<string, string>,
-  result: AgentRecord[],
   sessionId: string
-) {
+): AgentRecord {
   const agentId = `claude:${sessionId}:${candidate.id}`;
 
-  const invocation = candidate.transcript.find((message) => message.parent_tool_use_id)?.parent_tool_use_id;
+  const invocation = relatedMessage(candidate.transcript, "parent_tool_use_id")?.parent_tool_use_id;
   const parentTurns = candidate.ancestor
     ? claudeTranscript(messages.get(candidate.ancestor) ?? [])
     : (parent.turns ?? []);
   // SDK subagent IDs and parent_agent_id establish ancestry, never prompt text.
-  const tool = parentTurns.flatMap((turn) => turn.items).find((item) => item.nativeId === invocation);
+  const tool = historyItems(parentTurns).find(hasNativeIdentity.bind(undefined, invocation));
 
-  known.set(candidate.id, agentId);
-  result.push({
+  return {
     agent: {
       id: agentId,
       parentId: candidate.ancestor ? (known.get(candidate.ancestor) ?? parent.agent.id) : parent.agent.id,
@@ -132,7 +184,7 @@ function appendClaudeCandidate(
     claudeAgent: candidate.id,
     ancestryKnown: candidate.transcript.length > 0 || candidate.isObserved || candidate.saved?.ancestryKnown,
     claudeParent: candidate.ancestor?.length ? candidate.ancestor : null,
-  });
+  };
 }
 
 /**
@@ -166,7 +218,10 @@ function resolveClaudeAncestry(
         continue;
       }
 
-      appendClaudeCandidate(parent, candidate, messages, known, result, sessionId);
+      const child = appendClaudeCandidate(parent, candidate, messages, known, sessionId);
+
+      known.set(candidate.id, child.agent.id);
+      result.push(child);
       isProgress = true;
     }
   }
@@ -188,25 +243,8 @@ async function readClaudeChildren(
 ): Promise<AgentRecord[]> {
   const runtime = object(object(parent.pocket ? JSON.parse(parent.pocket.metadata) : {}).nativeAgents);
   const ids = [...new Set([...(await listSubagents(sessionId, { dir: parent.cwd })), ...Object.keys(runtime)])];
-  const messages = new Map<string, ClaudeMessage[]>();
-
-  await Promise.all(
-    ids.map(async (id) => {
-      const saved = previous.get(`claude:${sessionId}:${id}`);
-
-      if (Object.hasOwn(runtime, id) || saved?.ancestryKnown) {
-        return;
-      }
-
-      messages.set(id, await agentRead(() => getSubagentMessages(sessionId, id, { dir: parent.cwd, limit: 1 }), 1));
-    })
-  );
-
-  for (const id of ids) {
-    if (!messages.has(id)) {
-      messages.set(id, []);
-    }
-  }
+  const reads = Array.from(ids, readAncestry.bind(undefined, parent.cwd, previous, runtime, sessionId));
+  const messages = new Map(await Promise.all(reads));
 
   return resolveClaudeAncestry(parent, previous, runtime, messages, sessionId);
 }
@@ -228,19 +266,15 @@ export async function claudeChildren(
 Apply parent-owned lifecycle observations without showing a child active under an inactive parent.
 @param parent - Scoped Claude root whose native lifecycle metadata owns these observations.
 @param child - Native descendant whose display status may be updated.
+@returns Updated immutable agent record or metadata.
 */
 export function observeClaudeChild(parent: AgentRecord, child: AgentRecord) {
   const runtime = object(object(parent.pocket ? JSON.parse(parent.pocket.metadata) : {}).nativeAgents);
   const status = agentStatusSchema.safeParse(object(runtime[child.claudeAgent ?? ""]).status);
 
-  if (!(
-    status.success &&
+  return status.success &&
     ["running", "waiting", "completed", "failed", "closed"].includes(status.data) &&
     (!isActiveAgent({ ...child.agent, status: status.data }) || isActiveAgent(parent.agent))
-  )) {
-    return;
-  }
-
-  child.agent.status = status.data;
-  child.observedStatus = status.data;
+    ? { ...child, agent: { ...child.agent, status: status.data }, observedStatus: status.data }
+    : child;
 }

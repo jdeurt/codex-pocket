@@ -1,3 +1,4 @@
+import { readRealtimeOffer, serveRealtimeHttp } from "./realtime-http";
 /* eslint-disable jsdoc/require-jsdoc, @typescript-eslint/no-magic-numbers -- Synthetic provider emits explicit HTTP and WebSocket protocol envelopes. */
 import { type Data, dataSchema, string } from "../../src/lib/protocol";
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
@@ -92,57 +93,40 @@ export async function realtimeProvider() {
   const http = createServer();
   const server = new WebSocketServer({ server: http });
 
-  http.on("request", (request, response) => {
-    const chunks: Buffer[] = [];
+  serveRealtimeHttp(http, failures, async (request, response) => {
+    if (request.url?.endsWith("/hangup")) {
+      record({ method: "provider/realtime/stop" });
+      response.writeHead(200).end();
 
-    request.on("data", (chunk: Buffer) => {
-      chunks.push(chunk);
-    });
-    request.on("end", () => {
-      void (async () => {
-        if (request.url?.endsWith("/hangup")) {
-          record({ method: "provider/realtime/stop" });
-          response.writeHead(200).end();
+      return;
+    }
 
-          return;
+    if (request.url === "/test/speech" || request.url === "/test/disconnect") {
+      for (const peer of server.clients) {
+        if (request.url === "/test/disconnect") {
+          peer.terminate();
+        } else {
+          speech(peer);
         }
+      }
 
-        if (request.url === "/test/speech" || request.url === "/test/disconnect") {
-          for (const peer of server.clients) {
-            if (request.url === "/test/disconnect") {
-              peer.terminate();
-            } else {
-              speech(peer);
-            }
-          }
+      response.writeHead(200).end();
 
-          response.writeHead(200).end();
+      return;
+    }
 
-          return;
-        }
+    if (request.url !== "/v1/realtime/calls") {
+      failures.push(`Unexpected HTTP route ${String(request.url)}`);
+      response.writeHead(404).end();
 
-        if (request.url !== "/v1/realtime/calls") {
-          failures.push(`Unexpected HTTP route ${String(request.url)}`);
-          response.writeHead(404).end();
+      return;
+    }
 
-          return;
-        }
+    const { session } = await readRealtimeOffer(request);
 
-        const body = new Response(Buffer.concat(chunks).toString(), {
-          headers: { "Content-Type": request.headers["content-type"] ?? "" },
-        });
-        const form = await body.formData();
-        const encoded = form.get("session");
-        const session = dataSchema.parse(JSON.parse(typeof encoded === "string" ? encoded : "{}"));
-
-        record({ method: "provider/realtime/start", session });
-        response.writeHead(201, { Location: `/v1/realtime/calls/rtc_${crypto.randomUUID()}` });
-        response.end(string(control().answerSdp) || "v=0\r\ns=API fixture answer\r\n");
-      })().catch((error: unknown) => {
-        failures.push(String(error));
-        response.writeHead(500).end();
-      });
-    });
+    record({ method: "provider/realtime/start", session });
+    response.writeHead(201, { Location: `/v1/realtime/calls/rtc_${crypto.randomUUID()}` });
+    response.end(string(control().answerSdp) || "v=0\r\ns=API fixture answer\r\n");
   });
   server.on("connection", (peer) => {
     peer.on("message", (raw) => {

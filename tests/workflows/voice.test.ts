@@ -1,6 +1,6 @@
-import { nativeText } from "../../src/server/harness/transcript";
+import { nativeText } from "../../src/state/harness-transcript";
 import { object, dataSchema } from "../../src/lib/protocol";
-import { visibleSnapshot } from "../../src/server/visible-snapshot";
+import { visibleSnapshot } from "../../src/state/visible-snapshot";
 import { VoiceHistory } from "../../src/server/voice-history";
 import { voiceWorkflow, TEST_SDP } from "../fixtures/voice-workflow";
 import { eventually } from "../fixtures/workflow";
@@ -80,11 +80,15 @@ await test("realtime delegates its own request before captions and returns worke
 });
 
 await test("realtime captions and worker tools continue while transcript persistence is blocked", async (t) => {
+  const blocked = Promise.withResolvers<undefined>();
+
+  t.after(() => {
+    blocked.resolve(undefined);
+  });
   const flow = await voiceWorkflow(t);
   const started = await flow.voice.start(TEST_SDP);
   const storage = new VoiceHistory(flow.bridge.snapshot.threadId ?? "");
   const persist = storage.finalize.bind(storage);
-  const blocked = Promise.withResolvers<undefined>();
 
   t.mock.method(VoiceHistory.prototype, "finalize", async (...args: Parameters<VoiceHistory["finalize"]>) => {
     await blocked.promise;
@@ -92,30 +96,27 @@ await test("realtime captions and worker tools continue while transcript persist
     return persist(...args);
   });
 
-  try {
-    flow.speech("request", "Check the buffer.");
-    const response = await flow.response(0);
+  flow.speech("request", "Check the buffer.");
+  const response = await flow.response(0);
 
-    response.done([handoff]);
-    const continuation = await flow.response(1);
+  response.done([handoff]);
+  const continuation = await flow.response(1);
 
-    continuation.send({
-      type: "response.output_audio_transcript.done",
-      item_id: "reply",
-      transcript: "The worker is done.",
-    });
-    continuation.done();
-    await eventually(
-      () => flow.events.some((event) => event.text === "The worker is done."),
-      "Slow disk writes must not gate worker dispatch or visible speech captions"
-    );
-    assert.equal(flow.voice.status().type, "active");
-    await flow.voice.stop(started.token);
-    assert.equal(flow.voice.status().type, "idle");
-  } finally {
-    blocked.resolve(undefined);
-  }
+  continuation.send({
+    type: "response.output_audio_transcript.done",
+    item_id: "reply",
+    transcript: "The worker is done.",
+  });
+  continuation.done();
+  await eventually(
+    () => flow.events.some((event) => event.text === "The worker is done."),
+    "Slow disk writes must not gate worker dispatch or visible speech captions"
+  );
+  assert.equal(flow.voice.status().type, "active");
+  await flow.voice.stop(started.token);
+  assert.equal(flow.voice.status().type, "idle");
 
+  blocked.resolve(undefined);
   await flow.voice.transcripts();
   const saved = await storage.read();
 

@@ -1,71 +1,18 @@
+import { t as captureResult } from "try";
+
 const ownerBrowsers = new Map<string, AgentBrowser>();
 
-import { type AgentEntry, type AgentTranscript, isActiveAgent } from "../lib/agents";
+import { type AgentTranscript } from "../lib/agents";
 import { agentImageSource, projectAgentTranscript } from "./agent-projection";
 import { AgentReadCache } from "./agent-read-cache";
 import { type AgentRecord } from "./agent-sources";
+import { catalogAgent, compareCatalogAgents, preserveHistory } from "../state/agent-discovery";
+
+type Discovery = Awaited<ReturnType<typeof discoverAgents>>;
 import { discoverAgents } from "./agent-catalog";
 import { log } from "./logging";
 
 const REFRESH_MS = 2000;
-
-type Discovery = Awaited<ReturnType<typeof discoverAgents>>;
-
-/**
-Retain a verified native child through a source outage without advertising stale active work.
-@param next - Current scoped discovery tree receiving the retained child.
-@param id - Existing catalog identity whose ancestry remains verified.
-@param previous - Previously scoped record containing saved native history.
-*/
-function retainUnavailableAgent(next: Discovery, id: string, previous: AgentRecord) {
-  const agent: AgentEntry = {
-    ...previous.agent,
-    status: isActiveAgent(previous.agent) ? "unknown" : previous.agent.status,
-  };
-
-  next.records.set(id, { ...previous, agent, historyError: true, discoveryError: true });
-  next.catalog.agents.push(agent);
-}
-
-/**
-Retain saved transcripts and verified ancestry when native discovery is temporarily unavailable.
-@param next - Fresh scoped discovery result.
-@param saved - Previous discovery result reusable only for the same owner.
-@returns Discovery retaining known readable history without inventing ownership.
-*/
-function preserveHistory(next: Discovery, saved?: Discovery) {
-  if (saved?.owner !== next.owner) {
-    return next;
-  }
-
-  for (const [id, record] of next.records) {
-    const previous = saved.records.get(id);
-
-    if (!(record.historyError && previous?.turns)) {
-      continue;
-    }
-
-    record.turns = previous.turns;
-    record.agent.preview = previous.agent.preview;
-  }
-
-  // Source outages cannot revoke verified ancestry; saved history remains readable.
-  for (const [id, previous] of saved.records) {
-    const source = previous.agent.harness === "codex" ? "Codex" : "Claude Code";
-
-    if (
-      next.records.has(id) ||
-      previous.agent.source !== "native" ||
-      next.catalog.warnings.every((warning) => !warning.startsWith(source))
-    ) {
-      continue;
-    }
-
-    retainUnavailableAgent(next, id, previous);
-  }
-
-  return next;
-}
 
 // Read-only catalog/transcript cache, scoped to the server-configured parent.
 /**
@@ -77,6 +24,17 @@ export class AgentBrowser {
   private cached?: Discovery;
 
   private refreshing?: Promise<void>;
+
+  /** Report background preview failures without rejecting an unobserved promise.
+  @param record - Scoped preview source.
+  */
+  private async warm(record: AgentRecord) {
+    const result = await captureResult(this.reads.warm.bind(this.reads), record);
+
+    if (!result.ok) {
+      log().warn({ err: result.error, agent: record.agent.id }, "agents.preview_failed");
+    }
+  }
 
   /**
 Read native discovery and merge still-owned saved history before replacing the catalog.
@@ -94,17 +52,19 @@ Refresh scoped discovery while preserving known saved history through source out
 @param owner - Configured parent whose native descendants may be discovered.
 */
   private async refresh(owner: string) {
-    try {
-      await this.updateDiscovery(owner);
-    } catch (error) {
-      if (this.cached?.owner !== owner) {
-        throw error;
-      }
+    const refreshed = await captureResult(this.updateDiscovery.bind(this), owner);
 
-      log().warn({ err: error, owner }, "agents.discovery_failed");
-    } finally {
-      this.refreshing = undefined;
+    this.refreshing = undefined;
+
+    if (refreshed.ok) {
+      return;
     }
+
+    if (this.cached?.owner !== owner) {
+      throw refreshed.error;
+    }
+
+    log().warn({ err: refreshed.error, owner }, "agents.discovery_failed");
   }
 
   /**
@@ -174,20 +134,15 @@ Project native revisions and optionally warm previews without dispatching harnes
 */
   async catalog(owner: string, isPreviews = false) {
     const discovery = await this.discovery(owner);
-    const records = discovery.records
-      .values()
-      .toArray()
-      .toSorted((a, b) => Number(isActiveAgent(b.agent)) - Number(isActiveAgent(a.agent)));
-
-    await Promise.all(records.map((record) => this.reads.project(record)));
+    const records = await Promise.all(Array.from(discovery.records.values(), this.reads.project.bind(this.reads)));
 
     if (isPreviews) {
       for (const record of records) {
-        void this.reads.warm(record);
+        void this.warm(record);
       }
     }
 
-    return this.requireDiscovery(owner).catalog;
+    return { ...discovery.catalog, agents: Array.from(records, catalogAgent).toSorted(compareCatalogAgents) };
   }
 
   /**
@@ -199,9 +154,9 @@ Hydrate an owned agent and expose the shared normalized read-only display contra
   async transcript(owner: string, id: string): Promise<AgentTranscript> {
     const record = await this.owned(owner, id);
 
-    const isHistoryLoading = await this.reads.full(record);
+    const loaded = await this.reads.full(record);
 
-    return { ...projectAgentTranscript(record, id), isHistoryLoading };
+    return { ...projectAgentTranscript(loaded.record, id, Date.now()), isHistoryLoading: loaded.isHistoryLoading };
   }
 
   /**
@@ -216,9 +171,9 @@ Read an image only from an owned agent's complete native transcript.
   async image(owner: string, id: string, itemId: string, index: number, markdownSource?: string) {
     const record = await this.owned(owner, id);
 
-    await this.reads.full(record, true);
+    const loaded = await this.reads.full(record, true);
 
-    return agentImageSource(record, itemId, index, markdownSource);
+    return agentImageSource(loaded.record, itemId, index, markdownSource);
   }
 }
 

@@ -4,7 +4,7 @@ import { ParentReports } from "../../src/server/delegation-reports";
 import { configSchema } from "../../src/server/config";
 import { delegations } from "../../src/server/delegations";
 import { parentInput } from "../../src/server/internal-context";
-import { nativeText } from "../../src/server/harness/transcript";
+import { nativeText } from "../../src/state/harness-transcript";
 import { readInternalContext } from "./internal-context";
 import assert from "node:assert/strict";
 

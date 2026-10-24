@@ -6,3 +6,5 @@ export const MAIN_INSTRUCTIONS =
 export const SIDE_INSTRUCTIONS =
   readFileSync(new URL("prompts/side.txt", import.meta.url), "utf8") + "\n" + VISIBILITY_INSTRUCTIONS;
 export const ADOPTED_SIDE_ORIENTATION = readFileSync(new URL("prompts/side-adopted.txt", import.meta.url), "utf8");
+
+export const SIDE_PROMPTS = { side: SIDE_INSTRUCTIONS, adopted: ADOPTED_SIDE_ORIENTATION };

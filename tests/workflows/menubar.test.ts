@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import assert from "node:assert/strict";
 import path from "node:path";
@@ -82,10 +83,12 @@ await test(
   async () => {
     const home = await mkdtemp(path.join(tmpdir(), "pocket-menubar-window-"));
 
-    try {
-      await checkWindowFlow(home);
-    } finally {
-      await rm(home, { recursive: true, force: true });
+    const completed = await captureResult(checkWindowFlow(home));
+
+    await rm(home, { recursive: true, force: true });
+
+    if (!completed.ok) {
+      throw completed.error;
     }
   }
 );
@@ -197,11 +200,13 @@ await test(
       assert.equal(await readFile(config, "utf8"), "POCKET_PORT=43877\n");
     }
 
-    try {
-      await flow();
-    } finally {
-      command("remove");
-      await rm(home, { recursive: true, force: true });
+    const completed = await captureResult(flow());
+
+    command("remove");
+    await rm(home, { recursive: true, force: true });
+
+    if (!completed.ok) {
+      throw completed.error;
     }
   }
 );

@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { type Data } from "../../src/lib/protocol";
 import { createInterface } from "node:readline";
 import { fixtureRequestSchema } from "./replay-protocol";
@@ -30,14 +31,20 @@ async function respond(line: string, execute: FixtureExecutor) {
     return;
   }
 
-  try {
-    writeFixtureRecord({ id: request.id, result: await execute(request.method, request.params) });
-  } catch (error) {
-    writeFixtureRecord({
-      id: request.id,
-      error: { code: -32_000, message: error instanceof Error ? error.message : String(error) },
-    });
+  const response = await captureResult(execute, request.method, request.params);
+
+  if (response.ok) {
+    writeFixtureRecord({ id: request.id, result: response.value });
+
+    return;
   }
+
+  const error = response.error;
+
+  writeFixtureRecord({
+    id: request.id,
+    error: { code: -32_000, message: error instanceof Error ? error.message : String(error) },
+  });
 }
 
 /**
@@ -53,6 +60,18 @@ export async function readFixtureRequests(execute: FixtureExecutor) {
   }
 }
 
+/** Record a malformed pipelined request without serializing later input behind it.
+@param line - Native input frame.
+@param execute - Owned fixture executor.
+*/
+async function respondPipelined(line: string, execute: FixtureExecutor) {
+  const result = await captureResult(respond, line, execute);
+
+  if (!result.ok) {
+    process.stderr.write(result.error instanceof Error ? result.error.message : "Invalid fixture request.");
+  }
+}
+
 /**
 Allow a realtime stop to be read while an earlier synthetic audio acknowledgment is withheld.
 @param execute - The isolated realtime fixture executor.
@@ -61,8 +80,6 @@ export async function readPipelinedFixtureRequests(execute: FixtureExecutor) {
   const lines = createInterface({ input: process.stdin });
 
   for await (const line of lines) {
-    void respond(line, execute).catch((error: unknown) => {
-      process.stderr.write(error instanceof Error ? error.message : "Invalid fixture request.");
-    });
+    void respondPipelined(line, execute);
   }
 }

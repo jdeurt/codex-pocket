@@ -88,22 +88,28 @@ Validate recurrence fields before ICAL can normalize invalid values into default
 @param line - Uppercase source RRULE line retaining its original field values.
 */
 function validateRule(line: string) {
-  const parts = line
-    .slice(line.indexOf(":") + 1)
-    .split(";")
-    .map((part) => part.split("="));
-  const rule = new Map(parts.map(([key, value]) => [key, value]));
+  const fields = line.slice(line.indexOf(":") + 1).split(";");
+  const rule = new Map<string, string>();
 
-  if (
-    new Set(parts.map(([key]) => key)).size !== parts.length ||
-    parts.some(([key, value]) => !RULE_FIELDS.has(key) || !value)
-  ) {
-    throw new Error("RRULE contains an unknown, duplicated or empty field.");
-  }
+  for (const field of fields) {
+    const [key, value] = field.split("=", 2);
 
-  for (const [key, value] of parts) {
-    if (NONZERO_FIELDS.has(key) && value.split(",").some((part) => Number(part) === 0)) {
-      throw new Error(`${key} cannot contain zero.`);
+    if (!value || rule.has(key) || !RULE_FIELDS.has(key)) {
+      throw new Error("RRULE contains an unknown, duplicated or empty field.");
+    }
+
+    rule.set(key, value);
+
+    if (!NONZERO_FIELDS.has(key)) {
+      continue;
+    }
+
+    const parts = value.split(",");
+
+    for (const part of parts) {
+      if (Number(part) === 0) {
+        throw new Error(`${key} cannot contain zero.`);
+      }
     }
   }
 

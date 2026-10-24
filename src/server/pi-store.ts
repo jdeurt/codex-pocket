@@ -1,15 +1,8 @@
 import { readLocal, writeLocal } from "./local-state";
 import { createHash } from "node:crypto";
-import { turnSchema } from "../lib/protocol";
-import { z } from "zod";
+import { type PiState, piStateSchema } from "../state/pi-session";
 
-const piStateSchema = z.object({
-  sessionFile: z.string(),
-  name: z.string(),
-  turns: z.array(turnSchema),
-});
-
-export type PiState = z.infer<typeof piStateSchema>;
+export type { PiState } from "../state/pi-session";
 
 /** Namespace Pi's durable projection by the existing Pocket identity.
 @param owner - Parent conversation identity.

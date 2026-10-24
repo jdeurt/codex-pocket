@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { type ChildProcess, spawn } from "node:child_process";
 import { mkdir, open, rm } from "node:fs/promises";
 import { once } from "node:events";
@@ -16,13 +17,17 @@ Probe startup without treating refused connections as fixture failures.
 @returns The endpoint JSON when the host can answer.
 */
 async function runningVersion(): Promise<unknown> {
-  try {
-    const response = await fetch(`${ORIGIN}/api/version`, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) });
+  const response = await captureResult(fetch, `${ORIGIN}/api/version`, {
+    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+  });
 
-    return await response.json();
-  } catch {
-    return undefined;
+  if (!response.ok) {
+    return;
   }
+
+  const body = await captureResult(() => response.value.json());
+
+  return body.value;
 }
 
 /**

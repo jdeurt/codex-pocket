@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { type FileHandle, mkdir, open } from "node:fs/promises";
 import { type Hash, createHash } from "node:crypto";
 import { MAX_FILE_BYTES } from "../lib/attachments";
@@ -43,17 +44,21 @@ Close the file before cancelling its reader on success or failure.
 @returns The consumed byte count.
 */
 async function ownedUploadBody(file: FileHandle, reader: ReadableStreamDefaultReader<Uint8Array>, hash: Hash) {
-  try {
-    return await copyUploadBody(file, reader, hash);
-  } finally {
-    await file.close();
+  const completed = await captureResult(copyUploadBody(file, reader, hash));
 
-    try {
-      await reader.cancel();
-    } catch {
-      // A disconnected request has already closed its body.
-    }
+  await file.close();
+
+  const settled = await captureResult(reader.cancel());
+
+  if (!settled.ok) {
+    // A disconnected request has already closed its body.
   }
+
+  if (!completed.ok) {
+    throw completed.error;
+  }
+
+  return completed.value;
 }
 
 /**

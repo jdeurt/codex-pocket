@@ -4,6 +4,7 @@ import { type SDKSystemMessage } from "@anthropic-ai/claude-agent-sdk";
 import { type ScriptedCall } from "./contract";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import { t as attempt } from "try";
 
 const permissionMode = z.enum(["default", "acceptEdits", "bypassPermissions", "plan", "dontAsk", "auto"]);
 
@@ -175,14 +176,20 @@ Reply to SDK controls while retaining their request identity and native error en
 @param message - Complete native control request.
 */
   private controlRequest(message: Data) {
-    try {
+    const outcome = attempt(() => {
       this.replyControl(message);
-    } catch (error) {
-      this.emit({
-        type: "control_response",
-        response: { subtype: "error", request_id: message.request_id, error: String(error) },
-      });
+    });
+
+    if (outcome.ok) {
+      return;
     }
+
+    const error = outcome.error;
+
+    this.emit({
+      type: "control_response",
+      response: { subtype: "error", request_id: message.request_id, error: String(error) },
+    });
   }
 
   /**

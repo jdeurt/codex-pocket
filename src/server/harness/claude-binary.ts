@@ -1,6 +1,7 @@
 import { accessSync, constants } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { t as attempt } from "try";
 
 /**
 Resolve the configured Claude executable or the existing native PATH and installation candidates.
@@ -10,31 +11,39 @@ export function findClaudeBinary() {
   const configured = process.env.POCKET_CLAUDE_BINARY;
   const name = configured ?? "claude";
   // Executables are resolved on the operator's machine at runtime, outside the app's bundled files.
-  const candidates = name.includes("/")
-    ? [path.resolve(/* turbopackIgnore: true */ name)]
-    : [
-        ...(process.env.PATH ?? "")
-          .split(path.delimiter)
-          .filter(Boolean)
-          .map((directory) => path.join(/* turbopackIgnore: true */ directory, name)),
-        ...(configured
-          ? []
-          : [
-              path.join(/* turbopackIgnore: true */ os.homedir(), ".local/bin/claude"),
-              "/opt/homebrew/bin/claude",
-              "/usr/local/bin/claude",
-            ]),
-      ];
+  const candidates = name.includes("/") ? [path.resolve(/* turbopackIgnore: true */ name)] : [];
 
-  return candidates.find((candidate) => {
-    try {
-      accessSync(candidate, constants.X_OK);
+  if (!name.includes("/")) {
+    const directories = (process.env.PATH ?? "").split(path.delimiter);
 
-      return true;
-    } catch {
-      return false;
+    for (const directory of directories) {
+      if (directory) {
+        candidates.push(path.join(/* turbopackIgnore: true */ directory, name));
+      }
     }
-  });
+
+    if (!configured) {
+      candidates.push(
+        path.join(/* turbopackIgnore: true */ os.homedir(), ".local/bin/claude"),
+        "/opt/homebrew/bin/claude",
+        "/usr/local/bin/claude"
+      );
+    }
+  }
+
+  for (const candidate of candidates) {
+    const accessible = attempt(accessSync, candidate, constants.X_OK);
+
+    if (accessible.ok) {
+      return candidate;
+    }
+
+    const error = accessible.error;
+
+    if (!(error instanceof Error && "code" in error && ["ENOENT", "ENOTDIR", "EACCES"].includes(String(error.code)))) {
+      throw error;
+    }
+  }
 }
 
 /**

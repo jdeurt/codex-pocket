@@ -1,39 +1,25 @@
+import { taskEnvelopeEntries, taskMessageId } from "../state/task-context";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { localDirectory } from "./local-state";
 import path from "node:path";
-import { z } from "zod";
 import { scheduleTaskIndex } from "./task-search";
-import { sourceLink, taskTimeline } from "./task-record-view";
+import { sourceLink, taskTimeline } from "../state/task-record";
 
 export { searchTaskArchive } from "./task-search";
 
 const LAST_ENTRY = -1;
 
-export const contextEntrySchema = z.object({
-  id: z.string(),
-  sequence: z.number().int().nonnegative(),
-  role: z.string(),
-  text: z.string(),
-  original: z.unknown(),
-});
+import { contextEntrySchema, type ContextEntry, type TaskGroup, type ActiveMessage } from "../state/task-archive";
 
-export type ContextEntry = z.infer<typeof contextEntrySchema>;
-export const activeMessageSchema = z.object({
-  id: z.string(),
-  text: z.string(),
-  entries: z.array(contextEntrySchema),
-});
-
-export type ActiveMessage = z.infer<typeof activeMessageSchema>;
-export const taskGroupSchema = z.object({
-  id: z.uuid(),
-  file: z.string(),
-  anchor: z.string(),
-  matched: z.array(z.string()),
-});
-
-export type TaskGroup = z.infer<typeof taskGroupSchema>;
+export {
+  contextEntrySchema,
+  activeMessageSchema,
+  taskGroupSchema,
+  type ContextEntry,
+  type TaskGroup,
+  type ActiveMessage,
+} from "../state/task-archive";
 
 /** Keep each parent's archive in a private namespace without interpreting thread IDs as paths.
 @param owner - Durable Pocket parent identity.
@@ -104,16 +90,13 @@ export async function archiveTask(
   working: ActiveMessage[],
   isClosed: boolean
 ) {
-  const first = working.findIndex((message) => message.id === group.anchor);
-  // Retain the examined interleaving envelope, including results after another user steered the run.
-  // Context is deliberately duplicated across files; membership remains explicit in metadata.
-  const activeEntries = working.slice(first).flatMap((message) => message.entries);
+  const activeEntries = taskEnvelopeEntries(group, working);
   const entries = await sourceEnvelope(owner, activeEntries);
   const metadata = {
     ...group,
     owner,
     status: isClosed ? "closed" : "open",
-    matched: matched.map((message) => message.id),
+    matched: Array.from(matched, taskMessageId),
   };
   const directory = taskDirectory(owner);
   const rawFile = group.file.replace(/\.md$/u, ".json");
@@ -137,7 +120,7 @@ export async function archiveTask(
     `[Full exact envelope and metadata](${sourceLink(path.join(directory, rawFile))})`,
     "All native fields remain in the source files. Previews omit non-text content and explicitly truncate long text.",
     "",
-    taskTimeline(entries, (entry) => path.join(directory, "source", `${String(entry.sequence)}.json`)),
+    taskTimeline(entries, { directory }),
   ].join("\n");
 
   await writeTaskFile(directory, group.file, content);

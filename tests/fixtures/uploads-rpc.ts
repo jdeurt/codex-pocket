@@ -1,3 +1,4 @@
+import { t as captureResult } from "try";
 import { readInternalContext } from "./internal-context";
 // Offline integration fixture: no real harness session or credentials are used.
 import {
@@ -48,11 +49,12 @@ Restores canonical upload turns from this private replay's saved native history.
 @returns Validated history, or the original empty replay when reading or validation fails.
 */
 async function readHistory(file: string) {
-  try {
-    return uploadHistorySchema.parse(JSON.parse(await readFile(file, "utf8")));
-  } catch {
-    return uploadHistorySchema.parse({ id: "upload-replay-parent", name: "Upload replay", turns: [] });
-  }
+  const loaded = await captureResult(() => readFile(file, "utf8"));
+  const parsed = loaded.ok ? captureResult(() => uploadHistorySchema.parse(JSON.parse(loaded.value))) : loaded;
+
+  return parsed.ok
+    ? parsed.value
+    : uploadHistorySchema.parse({ id: "upload-replay-parent", name: "Upload replay", turns: [] });
 }
 
 /**
@@ -60,11 +62,10 @@ Reads the fake host's current control command without consulting live state.
 @returns Validated control record, or an empty record before a command exists.
 */
 async function readControl() {
-  try {
-    return controlSchema.parse(JSON.parse(await readFile(controlFile, "utf8")));
-  } catch {
-    return {};
-  }
+  const loaded = await captureResult(() => readFile(controlFile, "utf8"));
+  const parsed = loaded.ok ? captureResult(() => controlSchema.parse(JSON.parse(loaded.value))) : loaded;
+
+  return parsed.ok ? parsed.value : controlSchema.parse({});
 }
 
 let initialControl = await readControl();
@@ -272,7 +273,7 @@ Implements the bounded native RPC methods required by offline upload workflows.
 async function execute(method: string | undefined, params: Data) {
   switch (method) {
     case "initialize": {
-      return {};
+      return controlSchema.parse({});
     }
 
     case "config/read": {

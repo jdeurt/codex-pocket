@@ -1,4 +1,5 @@
 "use client";
+import { codeLines, type CodeLine } from "../../lib/code-lines";
 import * as React from "react";
 import { type VariantProps, cva } from "class-variance-authority";
 import { cn } from "cn";
@@ -90,6 +91,14 @@ function CodeBlockLine({
   );
 }
 
+/** Render one stable literal code line.
+@param line - Purely projected source line and occurrence identity.
+@returns Keyed code-line presentation.
+*/
+function numberedCodeLine(line: CodeLine) {
+  return <CodeBlockLine key={line.id}>{line.text}</CodeBlockLine>;
+}
+
 /**
 Render selectable code with optional wrapping, stable line keys and line numbering.
 @param props - Native attributes, children and the declared appearance or composition options.
@@ -108,20 +117,7 @@ function CodeBlockContent({
   lineNumbers?: boolean;
   startLine?: number;
 }) {
-  const occurrences = new Map<string, number>();
-  const lines =
-    typeof children === "string"
-      ? children
-          .replace(/\n$/, "")
-          .split("\n")
-          .map((line) => {
-            const occurrence = (occurrences.get(line) ?? 0) + 1;
-
-            occurrences.set(line, occurrence);
-
-            return { id: `${line}:${String(occurrence)}`, text: line };
-          })
-      : [];
+  const lines = codeLines(children);
 
   return (
     <pre
@@ -141,9 +137,7 @@ function CodeBlockContent({
         data-slot="code-block-code"
         className="grid min-h-lh min-w-max content-start in-data-numbered:grid-cols-[auto_1fr] in-data-wrap:min-w-0"
       >
-        {lineNumbers && typeof children === "string"
-          ? lines.map((line) => <CodeBlockLine key={line.id}>{line.text}</CodeBlockLine>)
-          : children}
+        {lineNumbers && typeof children === "string" ? Array.from(lines, numberedCodeLine) : children}
       </code>
     </pre>
   );

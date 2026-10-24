@@ -8,5 +8,11 @@ Open a directly navigated local file using browser-native rendering.
 export default async function FilePage({ searchParams }: PageProps<"/files">) {
   const params = await searchParams;
 
-  return <FileViewer key={String(params.path)} filename={typeof params.path === "string" ? params.path : ""} />;
+  return (
+    <FileViewer
+      key={`${String(params.pocket)}:${String(params.path)}`}
+      pocketId={typeof params.pocket === "string" ? params.pocket : "main"}
+      filename={typeof params.path === "string" ? params.path : ""}
+    />
+  );
 }

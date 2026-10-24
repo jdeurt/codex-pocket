@@ -55,12 +55,16 @@ export async function selectRelease(home, release) {
 @returns {Promise<string | undefined>} Previous release target, absent only on first installation.
 */
 export async function currentRelease(home) {
-  try {
-    return await readlink(path.join(home, "current"));
-  } catch (error) {
-    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
-      throw error;
-    }
+  const [completed] = await Promise.allSettled([readlink(path.join(home, "current"))]);
+
+  if (completed.status === "fulfilled") {
+    return completed.value;
+  }
+
+  const error = /** @type {unknown} */ (completed.reason);
+
+  if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+    throw error;
   }
 }
 

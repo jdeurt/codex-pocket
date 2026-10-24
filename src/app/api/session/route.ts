@@ -1,4 +1,4 @@
-import { errorResponse, guard, noStore, readBody } from "@/server/http";
+import { endpoint, guard, noStore, readBody } from "@/server/http";
 import { requestBridge } from "@/server/named-pockets";
 import { sessionSettingsSchema } from "@/server/session-settings";
 import { readModelCatalogQuery } from "@/server/model-catalog-query";
@@ -45,27 +45,19 @@ Inspect this Pocket's connected session without exposing arbitrary native RPC.
 @param request - Host and origin checked request.
 @returns Effective parent settings and native usage availability.
 */
-export async function GET(request: Request) {
-  try {
-    await guard(request);
+export const GET = endpoint(async (request: Request) => {
+  await guard(request);
 
-    return await sessionInfo(request);
-  } catch (error) {
-    return errorResponse(error);
-  }
-}
+  return sessionInfo(request);
+});
 
 /**
 Change only this Pocket's next-turn model or effort over its existing connection.
 @param request - Same-origin mutation with a strict model/effort body.
 @returns Native readback and persistence timing, or an explicit failure without retry.
 */
-export async function POST(request: Request) {
-  try {
-    await guard(request, true);
+export const POST = endpoint(async (request: Request) => {
+  await guard(request, true);
 
-    return await updateSettings(request);
-  } catch (error) {
-    return errorResponse(error);
-  }
-}
+  return updateSettings(request);
+});

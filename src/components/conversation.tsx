@@ -2,8 +2,8 @@
 import { Bubble, BubbleContent } from "@/components/ui/bubble";
 import { Empty, EmptyDescription, EmptyHeader, EmptyTitle } from "@/components/ui/empty";
 import { Message, MessageContent } from "@/components/ui/message";
-import { type QueuedMessage, type Snapshot } from "@/lib/protocol";
-import { turnMessages } from "@/lib/turn-messages";
+import { type QueuedMessage, type Snapshot, type PendingRequest } from "@/lib/protocol";
+import { conversationTurns, queuedIdentity } from "@/state/conversation";
 import { type VoiceSegment } from "@/lib/voice-history";
 import { ConversationActivity } from "./conversation-activity";
 import { FileAttachments } from "./file-attachments";
@@ -12,7 +12,6 @@ import { Prompt } from "./prompt";
 import { type ReactNode } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { VirtualizedTranscript } from "./virtualized-transcript";
-import { post } from "@/lib/client-api";
 import { voiceTimeline } from "@/lib/voice-timeline";
 
 /**
@@ -83,6 +82,43 @@ function deliveryLabel(status: QueuedMessage["status"]) {
   return status === "sending" ? "Sending…" : "Queued";
 }
 
+/** Render a queued delivery with its persisted status.
+@param item - Canonical delivery record.
+@returns Stable queued-message row.
+*/
+function queuedMessage(item: QueuedMessage) {
+  return (
+    <MessageScrollerItem messageId={`queue-${item.id}`} key={item.id}>
+      <Message align="end">
+        <MessageContent>
+          <Bubble variant="secondary" align="end" data-message-id={item.id} data-delivery={item.status}>
+            <BubbleContent>
+              {item.attachments && <FileAttachments files={item.attachments} />}
+              {!!item.text.trim() && <p className="whitespace-pre-wrap">{item.text}</p>}
+            </BubbleContent>
+          </Bubble>
+          {item.status !== "sent" && (item.source?.type !== "realtime" || item.status === "unknown") && (
+            <p className="delivery-status">{deliveryLabel(item.status)}</p>
+          )}
+        </MessageContent>
+      </Message>
+    </MessageScrollerItem>
+  );
+}
+
+/** Render one native request using the Pocket-owned answer operation.
+@param isReadOnly - Whether submission is disabled.
+@param request - Native pending request.
+@returns Stable request row.
+*/
+function pendingRequest(isReadOnly: boolean, request: PendingRequest) {
+  return (
+    <MessageScrollerItem messageId={`request-${String(request.id)}`} key={request.id}>
+      <Prompt request={request} readOnly={isReadOnly} />
+    </MessageScrollerItem>
+  );
+}
+
 /**
 Compose canonical turn entries with standard transcript virtualization and current activity.
 @param props - Normalized snapshot, read-only options, footer, activity control and covered-parent suspension.
@@ -111,38 +147,15 @@ export function Conversation({
   showTools?: boolean;
   realtimeSegments?: VoiceSegment[];
 }) {
-  const messages = state.turns.flatMap((turn) => {
-    const entries = turnMessages(
-      {
-        ...turn,
-        items: turn.items.flatMap((item) => {
-          if (readOnly && item.type === "pocketRestart") {
-            return [];
-          }
-
-          if (!showTools && item.type === "toolTrace") {
-            return item.images?.length ? { ...item, type: "imageOutput" } : [];
-          }
-
-          return item;
-        }),
-      },
-      turn.id === state.activeTurnId || turn.status === "inProgress"
-    );
-
-    return entries.length > 0 ? { id: turn.id, entries } : [];
-  });
+  const messages = conversationTurns(state, readOnly, showTools);
 
   return (
     <>
       <VirtualizedTranscript
+        ready={state.connection !== "connecting"}
         key={state.threadId}
         storageKey={readOnly ? undefined : state.threadId}
-        turns={voiceTimeline(
-          messages,
-          realtimeSegments,
-          state.queue.map((item) => item.id)
-        )}
+        turns={voiceTimeline(messages, realtimeSegments, Array.from(state.queue, queuedIdentity))}
         suspended={suspended}
         status={showActivity && <ConversationActivity state={state} control={activityControl} isWorking={isWorking} />}
       >
@@ -152,38 +165,8 @@ export function Conversation({
           readOnly={readOnly}
           emptyMessage={emptyMessage}
         />
-        {state.queue.map((item) => (
-          <MessageScrollerItem messageId={`queue-${item.id}`} key={item.id}>
-            <Message align="end">
-              <MessageContent>
-                <Bubble variant="secondary" align="end" data-message-id={item.id} data-delivery={item.status}>
-                  <BubbleContent>
-                    {item.attachments && <FileAttachments files={item.attachments} />}
-                    {!!item.text.trim() && <p className="whitespace-pre-wrap">{item.text}</p>}
-                  </BubbleContent>
-                </Bubble>
-                {item.status !== "sent" && (item.source?.type !== "realtime" || item.status === "unknown") && (
-                  <p className="delivery-status">{deliveryLabel(item.status)}</p>
-                )}
-              </MessageContent>
-            </Message>
-          </MessageScrollerItem>
-        ))}
-        {state.requests.map((request) => (
-          <MessageScrollerItem messageId={`request-${String(request.id)}`} key={request.id}>
-            <Prompt
-              request={request}
-              readOnly={readOnly}
-              answer={
-                readOnly
-                  ? undefined
-                  : async (id, result) => {
-                      await post("/api/answers", { id, result });
-                    }
-              }
-            />
-          </MessageScrollerItem>
-        ))}
+        {Array.from(state.queue, queuedMessage)}
+        {Array.from(state.requests, pendingRequest.bind(undefined, readOnly))}
         {footer}
       </VirtualizedTranscript>
     </>

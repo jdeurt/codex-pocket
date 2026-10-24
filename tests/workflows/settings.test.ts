@@ -169,7 +169,7 @@ async function rejectUnsafeRequests(directory: string) {
   assert.equal(contents.join("").includes("http.failed"), true);
 }
 
-await test("settings HTTP flow preserves partial updates, private keys, fresh-process reads and environment fallback", async () => {
+await test("settings HTTP flow preserves partial updates, private keys, fresh-process reads and environment fallback", async (t) => {
   const directory = await mkdtemp(path.join(tmpdir(), "pocket-settings-flow-"));
   const environment = {
     CODEX_THREAD_ID: "",
@@ -182,20 +182,7 @@ await test("settings HTTP flow preserves partial updates, private keys, fresh-pr
   Object.assign(process.env, environment);
   delete process.env.OPENAI_API_KEY;
 
-  try {
-    const response = await read();
-
-    assert.equal(response.headers.get("Cache-Control"), "no-store");
-    assert.deepEqual(pocketSettingsSchema.parse(await response.json()), {
-      showToolCalls: false,
-      realtimeVoice: null,
-      realtimeModel: null,
-      openaiApiKeyConfigured: false,
-      openaiApiKeySource: null,
-    });
-    await persistSettings(directory);
-    await rejectUnsafeRequests(directory);
-  } finally {
+  t.after(async () => {
     for (const [name, value] of previous) {
       if (value === undefined) {
         Reflect.deleteProperty(process.env, name);
@@ -205,5 +192,18 @@ await test("settings HTTP flow preserves partial updates, private keys, fresh-pr
     }
 
     await rm(directory, { recursive: true, force: true });
-  }
+  });
+
+  const response = await read();
+
+  assert.equal(response.headers.get("Cache-Control"), "no-store");
+  assert.deepEqual(pocketSettingsSchema.parse(await response.json()), {
+    showToolCalls: false,
+    realtimeVoice: null,
+    realtimeModel: null,
+    openaiApiKeyConfigured: false,
+    openaiApiKeySource: null,
+  });
+  await persistSettings(directory);
+  await rejectUnsafeRequests(directory);
 });

@@ -1,12 +1,10 @@
 import { type Data, object, realtimeItemAddedSchema, rpcEventSchema, string } from "../lib/protocol";
 import { RpcDiagnosticEvent, RpcDisconnectEvent, RpcNotificationEvent } from "./rpc-events";
 import {
-  RpcError,
   type SessionResponse,
   type configResponseSchema,
   decodeRpcLine,
   type itemsPageSchema,
-  rpcResponseSchemas,
   type threadResponseSchema,
   type threadsPageSchema,
   type turnResponseSchema,
@@ -16,18 +14,9 @@ import { RpcLineEvent, RpcTransport } from "./rpc-transport";
 import { type Config } from "./config";
 import { log } from "./logging";
 import { type z } from "zod";
+import { RpcAcknowledgements } from "./rpc-acknowledgements";
 
 export { RpcError } from "./rpc-protocol";
-
-const ACKNOWLEDGEMENT_TIMEOUT_MS = 90_000;
-
-interface PendingResponse {
-  resolve: (value: unknown) => void;
-  reject: (error: Error) => void;
-  timer: NodeJS.Timeout;
-  method: string;
-  startedAt: number;
-}
 
 // One owned JSON-RPC connection, over stdio or the existing owner's Unix socket.
 /**
@@ -36,38 +25,46 @@ Correlate validated native requests over one owned connection.
 export class CodexRpc extends EventTarget {
   private transport = new RpcTransport();
 
-  private sequence = 0;
+  private acknowledgements = new RpcAcknowledgements(this.write.bind(this), this.close.bind(this));
 
-  private pending = new Map<number, PendingResponse>();
+  /** Decode complete frames from the owned transport.
+  @param event - Native frame event.
+  */
+  private received = (event: Event) => {
+    if (event instanceof RpcLineEvent) {
+      this.line(event.line);
+    }
+  };
+
+  /** Forward transport diagnostics without sharing the original event object.
+  @param event - Native diagnostic event.
+  */
+  private diagnostic = (event: Event) => {
+    if (event instanceof RpcDiagnosticEvent) {
+      this.dispatchEvent(new RpcDiagnosticEvent(event.text));
+    }
+  };
+
+  /** Reject every outstanding acknowledgement when its transport disconnects.
+  @param event - Native terminal event.
+  */
+  private disconnected = (event: Event) => {
+    if (!(event instanceof RpcDisconnectEvent)) {
+      return;
+    }
+
+    this.acknowledgements.fail(event.error);
+    this.dispatchEvent(new RpcDisconnectEvent(event.error));
+  };
 
   /**
   Bind transport frames and failures before opening any native connection.
   */
   constructor() {
     super();
-    this.transport.addEventListener("line", (event) => {
-      if (event instanceof RpcLineEvent) {
-        this.line(event.line);
-      }
-    });
-    this.transport.addEventListener("diagnostic", (event) => {
-      if (event instanceof RpcDiagnosticEvent) {
-        this.dispatchEvent(new RpcDiagnosticEvent(event.text));
-      }
-    });
-    this.transport.addEventListener("disconnect", (event) => {
-      if (!(event instanceof RpcDisconnectEvent)) {
-        return;
-      }
-
-      for (const pending of this.pending.values()) {
-        clearTimeout(pending.timer);
-        pending.reject(event.error);
-      }
-
-      this.pending.clear();
-      this.dispatchEvent(new RpcDisconnectEvent(event.error));
-    });
+    this.transport.addEventListener("line", this.received);
+    this.transport.addEventListener("diagnostic", this.diagnostic);
+    this.transport.addEventListener("disconnect", this.disconnected);
   }
 
   /**
@@ -102,57 +99,6 @@ export class CodexRpc extends EventTarget {
   }
 
   /**
-  Validate a known method response before settling its pending request.
-  @param pending - Acknowledgement owner already removed from the pending map.
-  @param value - Untrusted native result value.
-  */
-  private result(pending: PendingResponse, value: unknown) {
-    const schema = rpcResponseSchemas.get(pending.method);
-
-    if (!schema) {
-      pending.resolve(value);
-
-      return;
-    }
-
-    try {
-      pending.resolve(schema.parse(value));
-    } catch (error) {
-      pending.reject(new Error(`Invalid ${pending.method} response.`, { cause: error }));
-    }
-  }
-
-  /**
-  Consume one matching acknowledgement and retain its native error or result.
-  @param id - Numeric request identity from the decoded response.
-  @param message - Decoded native response object.
-  */
-  private response(id: number, message: Data) {
-    const pending = this.pending.get(id);
-
-    if (!pending) {
-      return;
-    }
-
-    this.pending.delete(id);
-    clearTimeout(pending.timer);
-    log().debug(
-      { method: pending.method, id: message.id, durationMs: Date.now() - pending.startedAt, error: message.error },
-      "codex.rpc.acknowledged"
-    );
-
-    if (message.error) {
-      const error = object(message.error);
-
-      pending.reject(new RpcError(string(error.message), typeof error.code === "number" ? error.code : undefined));
-
-      return;
-    }
-
-    this.result(pending, message.result);
-  }
-
-  /**
   Route a decoded native stdout line to notification or response handling.
   @param line - Complete native stdout line.
   */
@@ -170,45 +116,8 @@ export class CodexRpc extends EventTarget {
 
       this.notification(message);
     } else if (typeof message.id === "number") {
-      const pending = this.pending.get(message.id);
-
-      if (pending && !pending.method.startsWith("thread/realtime/")) {
-        log().debug({ message }, "codex.rpc.in");
-      }
-
-      this.response(message.id, message);
+      this.acknowledgements.response(message.id, message);
     }
-  }
-
-  /**
-  Allocate an identity and reject uncertain requests when acknowledgement expires.
-  @param method - Native JSON-RPC method.
-  @param params - Native request parameters.
-  @returns The acknowledged native result.
-  */
-  private pendingRequest(method: string, params: Data) {
-    const id = ++this.sequence;
-
-    return new Promise<unknown>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        log().error({ method, id }, "codex.rpc.timeout");
-        this.pending.delete(id);
-        reject(
-          new RpcError(`Codex did not acknowledge ${method}. Its outcome is unknown; check the thread before retrying.`)
-        );
-        // A late result cannot be safely associated with a subsequent send.
-        this.close();
-      }, ACKNOWLEDGEMENT_TIMEOUT_MS);
-
-      this.pending.set(id, {
-        resolve,
-        reject,
-        timer,
-        method,
-        startedAt: Date.now(),
-      });
-      this.write({ id, method, params });
-    });
   }
 
   /**
@@ -257,8 +166,7 @@ export class CodexRpc extends EventTarget {
     await this.initialize();
   }
 
-  /**
-  Create or resume a native session with its effective model and reasoning effort.
+  /** Create or resume a native session with its effective model and reasoning effort.
   @param method - Native session creation or resume method.
   @param params - Native request parameters.
   @returns Validated session, model and nullable reasoning effort.
@@ -320,7 +228,9 @@ export class CodexRpc extends EventTarget {
   @returns Method-validated response, or unknown result for an unregistered method.
   */
   request(method: string, params: Data = {}): Promise<unknown> {
-    return this.running ? this.pendingRequest(method, params) : Promise.reject(new Error("Codex is not connected."));
+    return this.running
+      ? this.acknowledgements.request(method, params)
+      : Promise.reject(new Error("Codex is not connected."));
   }
 
   /**

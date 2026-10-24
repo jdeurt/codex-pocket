@@ -1,8 +1,11 @@
+import { optionalFile } from "./optional-file";
+import { log } from "./logging";
 import { readdir, stat } from "node:fs/promises";
 import { type AgentRecord } from "./agent-sources";
 import { object } from "../lib/protocol";
 import os from "node:os";
 import path from "node:path";
+import { t as attempt } from "try";
 
 const roots = new Map<string, Promise<string | undefined>>();
 
@@ -35,12 +38,10 @@ async function locateRoot(directory: string, root: string) {
       continue;
     }
 
-    try {
-      return await existingRoot(directory, entry.name, root);
-    } catch {
-      /*
-      Try the next project.
-      */
+    const candidate = await optionalFile(existingRoot, directory, entry.name, root);
+
+    if (candidate) {
+      return candidate;
     }
   }
 }
@@ -59,20 +60,23 @@ async function cachedClaudeFile(record: AgentRecord, root: string) {
   const key = `${directory}:${root}`;
 
   let pending = roots.get(key);
-  let project: string | undefined;
 
   if (!pending) {
     pending = locateRoot(directory, root);
     roots.set(key, pending);
   }
 
-  try {
-    project = await pending;
-  } finally {
-    if (!project) {
-      roots.delete(key);
-    }
+  const located = await attempt(pending);
+
+  if (!located.ok || !located.value) {
+    roots.delete(key);
   }
+
+  if (!located.ok) {
+    throw located.error;
+  }
+
+  const project = located.value;
 
   return (
     project &&
@@ -128,21 +132,21 @@ export async function agentRevision(record: AgentRecord) {
   let fileRevision: string | undefined;
 
   if (record.agent.harness === "claude" && record.sessionId) {
-    try {
-      fileRevision = await claudeRevision(record);
-    } catch {
-      /*
-      The SDK read supplies the user-facing availability state.
-      */
+    const revision = await attempt(claudeRevision, record);
+
+    // The SDK read supplies the user-facing availability state.
+    if (!revision.ok) {
+      log().warn({ err: revision.error, agent: record.agent.id }, "agents.revision_failed");
     }
+
+    fileRevision = revision.ok ? revision.value : undefined;
   }
 
-  record.fileRevision = fileRevision;
   const owner = record.pocket ?? record.runtimeOwner;
   const writes =
     owner && record.agent.harness === "claude" ? object(JSON.parse(owner.metadata)).claudeWrites : undefined;
 
-  return JSON.stringify({
+  const revision = JSON.stringify({
     parent: record.agent.parentId,
     session: record.sessionId,
     agent: record.claudeAgent,
@@ -155,4 +159,6 @@ export async function agentRevision(record: AgentRecord) {
     fileRevision,
     writes,
   });
+
+  return { record: { ...record, fileRevision }, revision };
 }

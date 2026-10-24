@@ -1,13 +1,14 @@
+import { t as captureResult } from "try";
 import { type Config, configSchema } from "../src/server/config";
 import { type Snapshot, string } from "../src/lib/protocol";
 import { Bridge } from "../src/server/bridge";
 import { CodexRpc } from "../src/server/rpc";
 import assert from "node:assert/strict";
-import { isRecoveryMessageId } from "../src/server/recovery";
+import { isRecoveryMessageId } from "../src/state/recovery";
 import { mkdir } from "node:fs/promises";
 import nextEnv from "@next/env";
 import path from "node:path";
-import { visibleSnapshot } from "../src/server/visible-snapshot";
+import { visibleSnapshot } from "../src/state/visible-snapshot";
 
 const TURN_TIMEOUT_MS = 120_000;
 const EXPECTED_RECOVERY_STARTS = 2;
@@ -218,11 +219,15 @@ class RecoveryCheck {
   private async archive() {
     const cleanup = new CodexRpc();
 
-    try {
-      await cleanup.connect(this.config);
-      await cleanup.request("thread/archive", { threadId: this.threadId });
-    } finally {
-      cleanup.close();
+    const started = await captureResult(cleanup.connect(this.config));
+    const executed = started.ok
+      ? await captureResult(() => cleanup.request("thread/archive", { threadId: this.threadId }))
+      : started;
+
+    cleanup.close();
+
+    if (!executed.ok) {
+      throw executed.error;
     }
   }
 
@@ -231,11 +236,13 @@ class RecoveryCheck {
   @returns Completion of the live scenarios and native archival.
   */
   async run() {
-    try {
-      await this.scenarios();
-    } finally {
-      this.bridge.close();
-      await this.archive();
+    const completed = await captureResult(this.scenarios());
+
+    this.bridge.close();
+    await this.archive();
+
+    if (!completed.ok) {
+      throw completed.error;
     }
   }
 }
@@ -267,13 +274,16 @@ Owns the bootstrap transport until the real test thread is created and named.
 async function startThread(config: Config) {
   const rpc = new CodexRpc();
 
-  try {
-    await rpc.connect(config);
+  const started = await captureResult(rpc.connect(config));
+  const executed = started.ok ? await captureResult(() => createThread(rpc, config)) : started;
 
-    return await createThread(rpc, config);
-  } finally {
-    rpc.close();
+  rpc.close();
+
+  if (!executed.ok) {
+    throw executed.error;
   }
+
+  return executed.value;
 }
 
 /**

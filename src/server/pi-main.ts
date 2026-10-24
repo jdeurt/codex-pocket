@@ -1,17 +1,19 @@
+import { t as captureResult } from "try";
 import { type AgentSession, type AgentSessionEvent, type ModelRuntime } from "@earendil-works/pi-coding-agent";
-import { type Data, type RpcEvent, type Turn, string } from "../lib/protocol";
-import { type PiState, savePiState } from "./pi-store";
+import { type Data, type RpcEvent, string } from "../lib/protocol";
+import { PiHistory } from "../runtime/pi-history";
+import { acceptedPiInput, completedPiTurn } from "../state/pi-messages";
+import { findById } from "../lib/identity";
+import { requireResults } from "../lib/results";
 import { piModel, piModelCatalog, piSettings, thinkingLevelSchema } from "./pi-models";
 import { type Config } from "./config";
 import { type CodexRpc } from "./rpc";
 import { PiTaskContext } from "./pi-task-context";
-import { PiMessages, publishAcceptedPiInput } from "./pi-projection";
+import { PiMessages } from "./pi-projection";
 import { openPiSession } from "./pi-session";
 import { piInput } from "./pi-input";
 import { PiQuestions } from "./pi-questions";
 import { PiActivity } from "./pi-activity";
-
-const LAST_TURN = -1;
 
 /**
 Embed Pi behind Pocket's canonical parent lifecycle while keeping native delegates separate.
@@ -20,12 +22,10 @@ export class PiMain {
   private session?: AgentSession;
   private isClosed = false;
   private runtime?: ModelRuntime;
-  private state?: PiState;
-  private active?: Turn;
+  private history: PiHistory;
   private messages = new PiMessages();
   private selection = "openai/gpt-6.1-sol";
   private effort = "medium";
-  private writes: Promise<void> = Promise.resolve();
   private tasks: PiTaskContext;
   private questions: PiQuestions;
   private activity: PiActivity;
@@ -46,27 +46,44 @@ export class PiMain {
     private onError: (error: unknown) => void,
     private openSession: typeof openPiSession = openPiSession
   ) {
+    this.history = new PiHistory(config.threadId, emit, onError);
     this.tasks = new PiTaskContext(config.threadId, readKey, onError);
-    this.questions = new PiQuestions(config.threadId, () => this.active?.id, emit);
+    this.questions = new PiQuestions(config.threadId, this.history.activeIdentity, emit);
     this.activity = new PiActivity(config.threadId, emit);
   }
 
-  /** Serialize durable UI projections without discarding a previous persistence failure.
-  @returns Completion after this projection is durable.
+  /** Reconcile background model completion with the original preflight acknowledgement.
+  @param run - Existing native prompt operation.
+  @param accepted - Original submission acknowledgement.
   */
-  private persist() {
-    const state = structuredClone(this.state);
-    const previous = this.writes;
+  private async settleTurn(run: Promise<void>, accepted: PromiseWithResolvers<undefined>) {
+    const prompted = await captureResult(run);
+    const finished = prompted.ok ? await captureResult(this.finish.bind(this)) : prompted;
 
-    this.writes = (async () => {
-      await previous;
+    if (finished.ok) {
+      return;
+    }
 
-      if (state) {
-        await savePiState(this.config.threadId, state);
-      }
-    })();
+    accepted.reject(finished.error);
+    this.onError(finished.error);
+    const recovered = await captureResult(this.finish.bind(this), finished.error);
 
-    return this.writes;
+    if (!recovered.ok) {
+      this.onError(recovered.error);
+    }
+  }
+
+  /** Forward native events and source writes without waiting for storage.
+  @param manager - Native append-only session source.
+  @param event - Native lifecycle event.
+  */
+  private observed(manager: Awaited<ReturnType<typeof openPiSession>>["manager"], event: AgentSessionEvent) {
+    if (event.type === "message_end" || event.type === "entry_appended") {
+      void this.tasks.sync(manager);
+    }
+
+    void this.history.event(this.messages, event);
+    this.activity.accept(event, this.history.active?.id);
   }
 
   /** Open Pi before exposing canonical resumed history to Bridge.
@@ -78,22 +95,15 @@ export class PiMain {
       this.questions.tool(),
     ]);
 
-    this.state = opened.state;
+    this.history.restore(opened.state);
     this.session = opened.session;
     this.runtime = opened.runtime;
     this.selection = opened.selection;
     this.effort = opened.session.thinkingLevel;
     await this.tasks.start(opened.manager, opened.session);
-    opened.session.subscribe((event) => {
-      if (event.type === "message_end" || event.type === "entry_appended") {
-        this.tasks.sync(opened.manager);
-      }
-
-      this.event(event);
-      this.activity.accept(event, this.active?.id);
-    });
+    opened.session.subscribe(this.observed.bind(this, opened.manager));
     await opened.session.bindExtensions({});
-    await this.persist();
+    await this.history.persist();
 
     return {
       thread: this.thread(),
@@ -118,66 +128,29 @@ export class PiMain {
       id: this.config.threadId,
       harness: "pi",
       executionBoundary: "Host process permissions; Pi does not enforce Codex sandbox or approval settings.",
-      name: this.state?.name ?? "Pocket",
-      turns: this.state?.turns ?? [],
+      name: this.history.saved?.name ?? "Pocket",
+      turns: this.history.saved?.turns ?? [],
       model: this.modelId(),
       reasoningEffort: this.effort,
     };
-  }
-
-  /** Normalize streamed messages and final source entries into existing Bridge notifications.
-  @param event - Authoritative Pi lifecycle or message event.
-  */
-  private event(event: AgentSessionEvent) {
-    if (event.type === "compaction_end" && event.result) {
-      this.emit({ method: "thread/compacted", params: { threadId: this.config.threadId } });
-    }
-
-    if (event.type === "agent_settled" && event.aborted && this.active) {
-      this.active.status = "interrupted";
-    }
-
-    if (
-      !this.active ||
-      (event.type !== "message_start" && event.type !== "message_update" && event.type !== "message_end")
-    ) {
-      return;
-    }
-
-    this.messages.publish(event.message, this.active, this.state?.turns ?? [], this.config.threadId, this.emit);
-
-    if (event.type === "message_end") {
-      void this.persist().catch(this.onError);
-    }
   }
 
   /** Complete one run only when prompt resolves after Pi's retries and queued continuations.
   @param error - Provider/run failure, absent on successful completion.
   */
   private async finish(error?: unknown) {
-    const turn = this.active;
+    const turn = this.history.active;
 
     if (!turn) {
       return;
     }
 
-    const last = this.session?.messages.findLast((message) => message.role === "assistant");
-    const isInterrupted = turn.status === "interrupted" || last?.stopReason === "aborted";
-    const isFailed = !isInterrupted && (error !== undefined || last?.stopReason === "error");
+    const completed = completedPiTurn(turn, this.session?.messages ?? [], error);
 
-    turn.status = isFailed ? "failed" : "completed";
-    turn.error = isFailed
-      ? { message: "Pi could not complete this turn. Inspect provider access and host logs." }
-      : null;
-
-    if (isInterrupted) {
-      turn.status = "interrupted";
-    }
-
-    this.active = undefined;
+    this.history.update(completed, undefined);
     this.messages.promptId = undefined;
-    await this.persist();
-    this.emit({ method: "turn/completed", params: { threadId: this.config.threadId, turn } });
+    await this.history.persist();
+    this.emit({ method: "turn/completed", params: { threadId: this.config.threadId, turn: completed } });
   }
 
   /** Accept a durable submission through Pi's preflight acknowledgment, never waiting for full inference.
@@ -188,7 +161,7 @@ export class PiMain {
   private async prompt(params: Data, isSteer: boolean) {
     const session = this.session;
 
-    if (!session || !this.state || !this.runtime) {
+    if (!session || !this.history.saved || !this.runtime) {
       throw new Error("Pi is not initialized.");
     }
 
@@ -198,55 +171,46 @@ export class PiMain {
     const { text, images } = await piInput(params.input);
 
     if (isSteer) {
-      if (!this.active || params.expectedTurnId !== this.active.id) {
+      if (!this.history.active || params.expectedTurnId !== this.history.active.id) {
         throw new Error("The requested Pi turn is no longer active; inspect before continuing.");
       }
 
-      const turn = this.active;
+      const turn = this.history.active;
       const receiptId = string(params.clientUserMessageId);
 
-      this.messages.userIds.push(receiptId);
-      await session.steer(text, images);
+      await this.messages.steer(session, receiptId, text, images);
       // Acceptance owns visibility even while Pi is waiting on a tool or is later interrupted.
-      publishAcceptedPiInput(turn, receiptId, text, this.config.threadId, this.emit);
-      await this.persist();
+      const current = findById(this.history.saved.turns, turn.id) ?? turn;
 
-      return { turnId: this.active.id };
+      this.history.publish(acceptedPiInput(current, receiptId, text, this.config.threadId));
+      await this.history.persist();
+
+      return { turnId: turn.id };
     }
 
-    if (this.active) {
+    if (this.history.active) {
       throw new Error("Pi already has active work.");
     }
 
     await session.setModel(piModel(this.runtime, this.selection));
     session.setThinkingLevel(thinkingLevelSchema.parse(this.effort));
-    this.active = { id: crypto.randomUUID(), status: "inProgress", items: [] };
-    this.state.turns.push(this.active);
+    const turn = { id: crypto.randomUUID(), status: "inProgress", items: [] };
+
+    this.history.update(turn, turn.id);
     this.messages.promptId = string(params.clientUserMessageId);
-    await this.persist();
-    this.emit({ method: "turn/started", params: { threadId: this.config.threadId, turn: this.active } });
+    await this.history.persist();
+    this.emit({ method: "turn/started", params: { threadId: this.config.threadId, turn: this.history.active } });
     const accepted = Promise.withResolvers<undefined>();
     const run = session.prompt(text, {
       images,
       expandPromptTemplates: false,
-      preflightResult: () => {
-        accepted.resolve(undefined);
-      },
+      preflightResult: accepted.resolve.bind(undefined, undefined),
     });
 
-    void (async () => {
-      try {
-        await run;
-        await this.finish();
-      } catch (error) {
-        accepted.reject(error);
-        this.onError(error);
-        await this.finish(error);
-      }
-    })().catch(this.onError);
+    void this.settleTurn(run, accepted);
     await accepted.promise;
 
-    return { turn: this.active ?? this.state.turns.at(LAST_TURN) };
+    return { turn: findById(this.history.saved.turns, turn.id) ?? turn };
   }
 
   /** Dispatch only parent lifecycle operations to Pi; delegate-native methods retain their original adapter.
@@ -268,7 +232,7 @@ export class PiMain {
 
       case "thread/turns/list": {
         return params.threadId === this.config.threadId
-          ? { data: this.state?.turns ?? [], nextCursor: null }
+          ? { data: this.history.saved?.turns ?? [], nextCursor: null }
           : this.native.request(method, params);
       }
 
@@ -285,11 +249,11 @@ export class PiMain {
           return this.native.request(method, params);
         }
 
-        if (!this.active || params.turnId !== this.active.id) {
+        if (!this.history.active || params.turnId !== this.history.active.id) {
           throw new Error("The requested Pi turn is no longer active; inspect before interrupting.");
         }
 
-        this.active.status = "interrupted";
+        this.history.update({ ...this.history.active, status: "interrupted" }, this.history.active.id);
         await this.session?.abort();
 
         return {};
@@ -325,11 +289,15 @@ export class PiMain {
     this.isClosed = true;
     this.tasks.interrupt();
     this.session?.abortCompaction();
-    await this.session?.abort();
-    await this.tasks.stop();
-    await this.session?.extensionRunner.emit({ type: "session_shutdown", reason: "quit" });
-    this.session?.dispose();
-    await this.writes;
+    const aborted = await captureResult(this.session?.abort() ?? Promise.resolve());
+    const stopped = await captureResult(this.tasks.stop.bind(this.tasks));
+    const notified = await captureResult(
+      this.session?.extensionRunner.emit({ type: "session_shutdown", reason: "quit" }) ?? Promise.resolve()
+    );
+    const disposed = this.session ? captureResult(this.session.dispose.bind(this.session)) : stopped;
+    const saved = await captureResult(this.history.flush());
+
+    requireResults([aborted, stopped, notified, disposed, saved], "Pi session shutdown failed.");
   }
 
   /** Resolve a structured phone question on this existing Pi session.

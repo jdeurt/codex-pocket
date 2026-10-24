@@ -1,3 +1,7 @@
+import { SIDE_PROMPTS } from "../pocket-prompts";
+import { codexResult } from "../../state/harness-result";
+import { restoreCodexThread } from "./codex-session";
+import { t as captureResult } from "try";
 import {
   type AdapterOptions,
   type HarnessAdapter,
@@ -5,21 +9,18 @@ import {
   type HarnessResult,
   type SteeringResult,
 } from "./types";
-import { CodexRpc, RpcError } from "../rpc";
+import { CodexRpc } from "../rpc";
 import { type Item, type PendingRequest, type RpcEvent, string } from "../../lib/protocol";
 import { RpcDiagnosticEvent, RpcDisconnectEvent, RpcNotificationEvent } from "../rpc-events";
-import { harnessMessages, nativeText } from "./transcript";
-import { CodexAgents } from "./codex-agents";
-import { type SessionResponse } from "../rpc-protocol";
+import { harnessMessages, nativeText } from "../../state/harness-transcript";
+import { type CodexAgentState, observedCodexAgents } from "../../state/codex-agents";
 import { codexParentTools } from "./mcp-config";
-import { codexPermissions } from "./permissions";
+import { codexPermissions } from "../../state/harness-permissions";
 import { loadHistory } from "../history";
 import { log } from "../logging";
-import { sidePocketInstructions } from "./instructions";
+import { sidePocketInstructions } from "../../state/harness-instructions";
 import { steerCodex } from "./codex-steering";
-import { validateAnswer } from "../answers";
-
-const INVALID_REQUEST_CODE = -32_600;
+import { validateAnswer } from "../../state/answers";
 
 /**
 Classify native approval methods without treating unsupported requests as approvals.
@@ -57,28 +58,43 @@ export class CodexAdapter implements HarnessAdapter {
 
   private outputs = new Map<string, string>();
 
-  private nativeAgents = new CodexAgents();
+  private nativeAgents: CodexAgentState = {};
+
+  /** Route the owned native event event.
+  @param event - Typed transport notification.
+  */
+  private readonly receivedEvent = (event: Event) => {
+    if (event instanceof RpcNotificationEvent) {
+      this.event(event.notification);
+    }
+  };
+
+  /** Route the owned native diagnostic event.
+  @param event - Typed transport notification.
+  */
+  private readonly receivedDiagnostic = (event: Event) => {
+    if (event instanceof RpcDiagnosticEvent) {
+      log().debug({ message: event.text }, "side_pocket.codex.stderr");
+    }
+  };
+
+  /** Route the owned native disconnect event.
+  @param event - Typed transport notification.
+  */
+  private readonly receivedDisconnect = (event: Event) => {
+    if (event instanceof RpcDisconnectEvent) {
+      this.pending?.reject(event.error);
+    }
+  };
 
   /**
   Subscribe to the delegated client's typed native transport events.
   @param options - Scoped child identity, inherited configuration and worker callbacks.
   */
   constructor(private options: AdapterOptions) {
-    this.rpc.addEventListener("event", (event) => {
-      if (event instanceof RpcNotificationEvent) {
-        this.event(event.notification);
-      }
-    });
-    this.rpc.addEventListener("diagnostic", (event) => {
-      if (event instanceof RpcDiagnosticEvent) {
-        log().debug({ message: event.text }, "side_pocket.codex.stderr");
-      }
-    });
-    this.rpc.addEventListener("disconnect", (event) => {
-      if (event instanceof RpcDisconnectEvent) {
-        this.pending?.reject(event.error);
-      }
-    });
+    this.rpc.addEventListener("event", this.receivedEvent);
+    this.rpc.addEventListener("diagnostic", this.receivedDiagnostic);
+    this.rpc.addEventListener("disconnect", this.receivedDisconnect);
   }
 
   /**
@@ -86,9 +102,10 @@ export class CodexAdapter implements HarnessAdapter {
   @param event - Validated native event.
   */
   private event(event: RpcEvent) {
-    const nativeAgents = this.nativeAgents.observe(event, this.sessionId);
+    const nativeAgents = observedCodexAgents(this.nativeAgents, event, this.sessionId);
 
     if (nativeAgents) {
+      this.nativeAgents = nativeAgents;
       this.options.callbacks.metadata({ nativeAgents });
     }
 
@@ -97,9 +114,7 @@ export class CodexAdapter implements HarnessAdapter {
     }
 
     if (event.id !== undefined) {
-      void this.answerRequest({ ...event, id: event.id }).catch((error: unknown) =>
-        this.pending?.reject(error instanceof Error ? error : new Error("Harness request failed.", { cause: error }))
-      );
+      void this.settleRequest(this.answerRequest({ ...event, id: event.id }));
 
       return;
     }
@@ -131,10 +146,7 @@ export class CodexAdapter implements HarnessAdapter {
 
         this.completed = true;
         this.active = undefined;
-        this.pending?.resolve({
-          status: turn.status === "completed" || turn.status === "interrupted" ? turn.status : "failed",
-          text: this.outputs.values().toArray().join("\n\n") || (turn.error?.message.length ? turn.error.message : ""),
-        });
+        this.pending?.resolve(codexResult(turn, this.outputs));
         break;
       }
     }
@@ -157,35 +169,6 @@ export class CodexAdapter implements HarnessAdapter {
   }
 
   /**
-  Resume a saved child or replace only a known never-started empty session.
-  @param params - Native session parameters including inherited permissions and instructions.
-  @returns The validated native session response.
-  */
-  private async session(params: Record<string, unknown>): Promise<SessionResponse> {
-    const { child } = this.options;
-
-    if (!child.sessionId) {
-      return this.rpc.request("thread/start", params);
-    }
-
-    try {
-      return await this.rpc.request("thread/resume", { ...params, threadId: child.sessionId });
-    } catch (error) {
-      if (
-        !(error instanceof RpcError) ||
-        error.code !== INVALID_REQUEST_CODE ||
-        child.sessionStarted !== false ||
-        !error.message.startsWith("no rollout found for thread id ")
-      ) {
-        throw error;
-      }
-
-      // Codex does not persist an empty thread. Only replace a session known to have received no input.
-      return this.rpc.request("thread/start", params);
-    }
-  }
-
-  /**
   Read effective instructions before creating or resuming the native child.
   @returns The native child session identity.
   */
@@ -195,11 +178,11 @@ export class CodexAdapter implements HarnessAdapter {
       cwd: child.cwd,
       includeLayers: false,
     });
-    const { thread, model, reasoningEffort } = await this.session({
+    const { thread, model, reasoningEffort } = await restoreCodexThread(this.rpc, child, {
       cwd: child.cwd,
       ...codexPermissions(child.policy),
       model: child.model ?? child.policy.model,
-      developerInstructions: [string(effective.developer_instructions), sidePocketInstructions(child)]
+      developerInstructions: [string(effective.developer_instructions), sidePocketInstructions(child, SIDE_PROMPTS)]
         .filter(Boolean)
         .join("\n\n"),
       ephemeral: false,
@@ -216,6 +199,19 @@ export class CodexAdapter implements HarnessAdapter {
     return thread.id;
   }
 
+  /** Reject the owned turn when a native request fails.
+  @param request - Pending start or question-response operation.
+  */
+  private async settleRequest(request: Promise<unknown>) {
+    const result = await captureResult(request);
+
+    if (!result.ok) {
+      this.pending?.reject(
+        result.error instanceof Error ? result.error : new Error("Harness request failed.", { cause: result.error })
+      );
+    }
+  }
+
   /**
   Hold the pending turn result until completion or transport failure, then release it.
   @param id - Durable delegated command identity.
@@ -223,22 +219,24 @@ export class CodexAdapter implements HarnessAdapter {
   @returns The terminal native harness result.
   */
   private async runTurn(id: string, input: string) {
-    const result = new Promise<HarnessResult>((resolve, reject) => {
-      this.pending = { resolve, reject };
-    });
+    const pending = Promise.withResolvers<HarnessResult>();
+
+    this.pending = pending;
 
     this.options.callbacks.metadata({ sessionStarted: true });
 
-    try {
-      this.started = this.startTurn(id, input);
-      void this.started.catch((error: unknown) =>
-        this.pending?.reject(error instanceof Error ? error : new Error("Harness request failed.", { cause: error }))
-      );
+    this.started = this.startTurn(id, input);
+    void this.settleRequest(this.started);
 
-      return await result;
-    } finally {
-      this.pending = undefined;
+    const completed = await captureResult(pending.promise);
+
+    this.pending = undefined;
+
+    if (!completed.ok) {
+      throw completed.error;
     }
+
+    return completed.value;
   }
 
   /**

@@ -5,6 +5,7 @@ import { configSchema } from "../src/server/config";
 import { createInterface } from "node:readline";
 import { log } from "../src/server/logging";
 import { readOpenAIApiKey } from "../src/server/pocket-settings";
+import { t as attempt } from "try";
 
 const config = configSchema.parse(JSON.parse(process.env.POCKET_PI_CONFIG ?? "null"));
 const native = new CodexRpc();
@@ -54,40 +55,58 @@ async function receive(message: Data) {
     return;
   }
 
-  try {
-    const result = await dispatch(string(message.method), object(message.params));
+  const dispatched = await attempt(dispatch, string(message.method), object(message.params));
+  const written = dispatched.ok ? attempt(write, { id: message.id, result: dispatched.value }) : dispatched;
 
-    write({ id: message.id, result });
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : "Pi request failed.";
-
-    write({ id: message.id, error: { code: -32_600, message: detail } });
+  if (written.ok) {
+    return;
   }
+
+  const detail = written.error instanceof Error ? written.error.message : "Pi request failed.";
+
+  write({ id: message.id, error: { code: -32_600, message: detail } });
 }
 
 /**
 Stop the owned Pi and native reader processes after host disconnect or termination.
 */
 async function close() {
-  try {
-    await main.close();
-  } finally {
-    await native.shutdown();
-    process.stdin.destroy();
+  const completed = await attempt(main.close());
+
+  const closed = await attempt(() => native.shutdown());
+
+  if (!closed.ok) {
+    console.error(closed.error);
+
+    return;
+  }
+
+  process.stdin.destroy();
+
+  if (!completed.ok) {
+    console.error(completed.error);
   }
 }
 
 process.once("SIGTERM", () => {
-  void close().catch(console.error);
+  void close();
 });
 lines.once("close", () => {
-  void close().catch(console.error);
+  void close();
 });
 
-for await (const line of lines) {
-  try {
-    void receive(object(JSON.parse(line))).catch(console.error);
-  } catch (error) {
-    console.error(error);
+/** Decode and process one line independently of later stop and steering requests.
+@param line - Host protocol frame.
+*/
+async function receiveLine(line: string) {
+  const decoded = attempt(() => object(JSON.parse(line)));
+  const received = decoded.ok ? await attempt(receive, decoded.value) : decoded;
+
+  if (!received.ok) {
+    console.error(received.error);
   }
+}
+
+for await (const line of lines) {
+  void receiveLine(line);
 }

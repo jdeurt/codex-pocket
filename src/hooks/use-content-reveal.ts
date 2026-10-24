@@ -1,56 +1,26 @@
 "use client";
-import { useEffect, useRef } from "react";
+import { useContext, useEffect, useRef, useState } from "react";
+import { ContentRevealContext } from "../providers/content-reveal-context";
+import { ContentReveals } from "../runtime/content-reveal";
 
-const revealed = new Set<string>();
-const MAX_REVEALS = 4096;
-const DURATION_MS = 100;
-
-/**
-Start only the current native opacity animations and provide cancellation on the next delta.
-@param element - Mounted shared Markdown container.
-@returns Cleanup cancelling unfinished animations without a backlog.
+/** Allocate an isolated fallback for Markdown rendered outside a conversation.
+@returns Animation owner used by standalone file views.
 */
-function animateContent(element: HTMLDivElement | null) {
-  const animations = [...(element?.querySelectorAll("[data-pocket-fresh]") ?? [])].map((node) =>
-    node.animate([{ opacity: 0 }, { opacity: 1 }], { duration: DURATION_MS, easing: "ease-out" })
-  );
-
-  return () => {
-    for (const animation of animations) {
-      animation.cancel();
-    }
-  };
+function createReveals() {
+  return new ContentReveals();
 }
 
-/**
-Animate each incoming revision once, without replaying on virtual remount or building an animation queue.
-@param revision - Optional incoming source-change identity, absent for loaded history.
-@returns The shared Markdown container ref used for opacity-only native animations.
+/** Bind the mounted Markdown element to its Pocket's animation runtime.
+@param revision - Incoming source-change identity, absent for loaded history.
+@returns Container ref consumed by the rendering component.
 */
 export function useContentReveal(revision?: string) {
+  const shared = useContext(ContentRevealContext);
+  const [local] = useState(createReveals);
+  const reveals = shared ?? local;
   const ref = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    if (!revision || revealed.has(revision)) {
-      return;
-    }
-
-    revealed.add(revision);
-
-    if (revealed.size > MAX_REVEALS) {
-      const oldest = revealed.values().next().value;
-
-      if (oldest) {
-        revealed.delete(oldest);
-      }
-    }
-
-    if (matchMedia("(prefers-reduced-motion: reduce)").matches) {
-      return;
-    }
-
-    return animateContent(ref.current);
-  }, [revision]);
+  useEffect(reveals.connect.bind(undefined, ref, revision), [reveals, ref, revision]);
 
   return ref;
 }

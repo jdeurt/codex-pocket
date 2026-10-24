@@ -1,88 +1,78 @@
 import type { Code, Root } from "mdast";
 import type { VFile } from "vfile";
 import { z } from "zod";
+import { t as attempt } from "try";
 
 const copyTextSchema = z.string();
 
-/**
-Validate a closed copy fence and attach only its exact decoded string payload.
-@param node - Code node whose literal fallback has already been restored.
-@param raw - Exact source text of its top-level fence.
+/** Validate a serialized copy payload without coercing its value.
+@param source - Exact JSON payload between closed fence markers.
+@returns Decoded text or a validation failure.
 */
-function annotateCopyFence(node: Code, raw: string) {
-  const marker = node.meta ? null : /^```pocket-copy\r?\n([\s\S]*?)\r?\n```[\t ]*$/.exec(raw);
-
-  if (!marker) {
-    return;
-  }
-
-  try {
-    const text = copyTextSchema.parse(JSON.parse(marker[1]));
-
-    node.data = { ...node.data, hProperties: { "data-pocket-copy-text": text } };
-  } catch {
-    // Partial or malformed payloads remain ordinary code blocks.
-  }
+function copyText(source: string) {
+  return copyTextSchema.parse(JSON.parse(source));
 }
 
-/**
-Keep copy fences literal until a complete payload can become an explicit copy action.
-@param node - Mutable code node from the parser.
-@param raw - Its exact source, including opening/closing fence text.
+/** Return literal or actionable code without changing the parser-owned node.
+@param node - Code node with optional source positions.
+@param source - Original complete or streaming Markdown.
+@returns Original node or a replacement with exact copy-fence content.
 */
-function rewriteCopyFence(node: Code, raw: string) {
-  if (!node.value.trim() && "```pocket-copy".startsWith(raw.trimEnd())) {
-    node.value = raw;
-
-    return;
-  }
-
-  if (node.lang !== "pocket-copy") {
-    return;
-  }
-
-  node.value = raw;
-  annotateCopyFence(node, raw);
-}
-
-/**
-Read a top-level code fence only when its source offsets describe an unindented fence.
-@param node - Code node whose source positions may be absent.
-@param source - Original Markdown source, without normalization.
-*/
-function transformCopyCode(node: Code, source: string) {
+function copyCode(node: Code, source: string): Code {
   const start = node.position?.start.offset;
   const end = node.position?.end.offset;
 
   if (start === undefined || end === undefined || node.position?.start.column !== 1) {
-    return;
+    return node;
   }
 
-  rewriteCopyFence(node, source.slice(start, end));
+  const raw = source.slice(start, end);
+
+  if (!node.value.trim() && "```pocket-copy".startsWith(raw.trimEnd())) {
+    return { ...node, value: raw };
+  }
+
+  if (node.lang !== "pocket-copy") {
+    return node;
+  }
+
+  const literal = { ...node, value: raw };
+  const marker = node.meta ? null : /^```pocket-copy\r?\n([\s\S]*?)\r?\n```[\t ]*$/.exec(raw);
+
+  if (!marker) {
+    return literal;
+  }
+
+  const payload = attempt(copyText, marker[1]);
+
+  return payload.ok
+    ? { ...literal, data: { ...node.data, hProperties: { "data-pocket-copy-text": payload.value } } }
+    : literal;
 }
 
-// Only this explicit, closed, top-level fence is actionable. Inspect the original
-// source because Markdown also accepts unterminated fences while streaming.
-/**
-Mark only closed top-level copy fences with a validated exact string payload.
-@param tree - Mutable Markdown AST whose code nodes receive copy-action metadata.
-@param file - Original source needed to distinguish closed fences from streaming fragments.
+/** Replace eligible code while retaining every other parser node.
+@param source - Original Markdown source.
+@param node - Parser-owned top-level node.
+@returns Original node or an independently annotated code node.
 */
-function transformCopyActions(tree: Root, file: VFile) {
-  const source = String(file);
-
-  for (const node of tree.children) {
-    if (node.type !== "code") {
-      continue;
-    }
-
-    transformCopyCode(node, source);
-  }
+function copiedNode(source: string, node: Root["children"][number]) {
+  return node.type === "code" ? copyCode(node, source) : node;
 }
 
-/**
-Install the assistant-only transformer that retains literal malformed and streaming fences.
-@returns The remark transformer for exact copy payloads.
+/** Transform closed top-level copy fences while preserving the original AST.
+@param tree - Parser-owned Markdown AST.
+@param file - Original source distinguishes closed fences from streaming fragments.
+@returns A new root with replacements only for code nodes.
+*/
+function transformCopyActions(tree: Root, file: VFile): Root {
+  const source = String(file);
+  const children = Array.from(tree.children, copiedNode.bind(undefined, source));
+
+  return { ...tree, children };
+}
+
+/** Install the pure transformer for exact assistant copy payloads.
+@returns The remark transformer.
 */
 export function remarkCopyAction() {
   return transformCopyActions;

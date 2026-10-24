@@ -1,15 +1,17 @@
-import { delegationMailSchema, delegationRequestSchema } from "./delegation-data";
+import { delegationMessagePrefix } from "../state/delegation-queue";
+import { delegationMailSchema, delegationRequestSchema } from "../state/delegation-data";
 import type Database from "better-sqlite3";
 import { type HarnessRequest } from "./harness/types";
 import { createHash } from "node:crypto";
 import { object } from "../lib/protocol";
-import { validateAnswer } from "./answers";
+import { validateAnswer } from "../state/answers";
 import { z } from "zod";
 
 const MAX_BODY_LENGTH = 65_536;
 const HISTORY_LIMIT = 200;
 export const parentMessageInput = z.object({ message: z.string().trim().min(1).max(MAX_BODY_LENGTH) }).strict();
-export const delegationMessagePrefix = "pocket-delegate:";
+
+export { delegationMessagePrefix } from "../state/delegation-queue";
 
 export type DelegationRequest = z.infer<typeof delegationRequestSchema>;
 
@@ -17,6 +19,8 @@ export type DelegationRequest = z.infer<typeof delegationRequestSchema>;
 Own durable parent reports and native requests scoped to managed child identities.
 */
 export class DelegationMailbox {
+  readonly answer;
+
   /**
 Bind the private database and committed-change notifier without dispatching work.
 @param db - Native private delegation database.
@@ -25,7 +29,11 @@ Bind the private database and committed-change notifier without dispatching work
   constructor(
     private db: Database.Database,
     private changed: () => void
-  ) {}
+  ) {
+    const answer = this.db.transaction(this.commitAnswer.bind(this));
+
+    this.answer = answer.immediate.bind(answer);
+  }
 
   /**
 Persist an active child's parent message under its content-derived retry identity.
@@ -69,6 +77,30 @@ Validate and atomically persist an owned pending answer without replacing a diff
     this.changed();
 
     return { id: request.id, answered: true };
+  }
+
+  /**
+Hold an immediate transaction while verifying ownership and persisting a validated native answer.
+@param parentId - Recorded parent permitted to answer.
+@param childId - Managed child owning the request.
+@param id - Persisted request identity returned by the child request boundary.
+@param answer - Untrusted native answer input.
+@returns Persisted answer acknowledgement, including an identical retry.
+*/
+  private commitAnswer(parentId: string, childId: string, id: string, answer: unknown) {
+    const request = delegationRequestSchema
+      .optional()
+      .parse(
+        this.db
+          .prepare("SELECT * FROM delegation_requests WHERE parentId=? AND childId=? AND id=?")
+          .get(parentId, childId, id)
+      );
+
+    if (!request || request.status === "cancelled") {
+      throw new Error("This request is no longer waiting. Send a follow-up to the saved Side Pocket session.");
+    }
+
+    return this.answerRequest(request, answer);
   }
 
   /**
@@ -236,34 +268,6 @@ Read native child requests within their recorded parent and optional pending fil
           )
           .all(parentId, childId, Number(isPendingOnly))
       );
-  }
-
-  /**
-Hold an immediate transaction while verifying ownership and persisting a validated native answer.
-@param parentId - Recorded parent permitted to answer.
-@param childId - Managed child owning the request.
-@param id - Persisted request identity returned by the child request boundary.
-@param answer - Untrusted native answer input.
-@returns Persisted answer acknowledgement, including an identical retry.
-*/
-  answer(parentId: string, childId: string, id: string, answer: unknown) {
-    return this.db
-      .transaction(() => {
-        const request = delegationRequestSchema
-          .optional()
-          .parse(
-            this.db
-              .prepare("SELECT * FROM delegation_requests WHERE parentId=? AND childId=? AND id=?")
-              .get(parentId, childId, id)
-          );
-
-        if (!request || request.status === "cancelled") {
-          throw new Error("This request is no longer waiting. Send a follow-up to the saved Side Pocket session.");
-        }
-
-        return this.answerRequest(request, answer);
-      })
-      .immediate();
   }
 
   /**

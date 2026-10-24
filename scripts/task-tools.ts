@@ -1,5 +1,6 @@
+import { t as captureResult } from "try";
 import { type McpServer } from "@modelcontextprotocol/server";
-import { toolResult } from "../src/server/mcp-result";
+import { toolError } from "../src/server/mcp-result";
 import { searchTaskArchivePage } from "../src/server/task-search";
 import { z } from "zod";
 
@@ -12,21 +13,22 @@ const MAX_QUERY_LENGTH = 2000;
 @returns MCP content and structured retrieval evidence, or the standard tool error.
 */
 async function search(owner: string, query: string, offset: number) {
-  try {
-    const page = await searchTaskArchivePage(owner, query, offset);
+  const searched = await captureResult(searchTaskArchivePage, owner, query, offset);
 
-    return {
-      content: [
-        { type: "text" as const, text: JSON.stringify(page.results) },
-        { type: "text" as const, text: JSON.stringify({ retrieval: page.retrieval, pagination: page.pagination }) },
-      ],
-      structuredContent: page,
-    };
-  } catch (error) {
-    return toolResult(() => {
-      throw error;
-    });
+  if (!searched.ok) {
+    return toolError(searched.error);
   }
+
+  const page = searched.value;
+  const encoded = captureResult(() => ({
+    content: [
+      { type: "text" as const, text: JSON.stringify(page.results) },
+      { type: "text" as const, text: JSON.stringify({ retrieval: page.retrieval, pagination: page.pagination }) },
+    ],
+    structuredContent: page,
+  }));
+
+  return encoded.ok ? encoded.value : toolError(encoded.error);
 }
 
 /** Register earlier-task retrieval at the existing model-facing MCP entry point.
