@@ -5,7 +5,6 @@ import {
   installRealtimePeer,
   openVoice,
   providerAction,
-  startVoice,
   negotiateVoice,
 } from "../../fixtures/realtime-browser";
 
@@ -66,7 +65,7 @@ test("realtime owns the conversation and returns worker results without duplicat
   await installRealtimePeer(page);
   await openVoice(page);
   await page.getByRole("textbox", { name: "Message Pocket" }).fill("keep this draft");
-  await startVoice(page);
+  await negotiateVoice(page);
   await providerAction("speech");
   await expect(page.getByText(reply, { exact: true })).toHaveCount(1);
   await expect(page.getByText(spoken, { exact: true })).toHaveCount(1);
