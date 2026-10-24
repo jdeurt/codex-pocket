@@ -100,7 +100,6 @@ function messageEntries(turn: Turn, isActive: boolean): TurnEntry[] {
   for (const item of turn.items) {
     const isVisible =
       item.type === "toolTrace" ||
-      item.type === "delegateReport" ||
       (["userMessage", "agentMessage", "imageOutput"].includes(item.type) &&
         ((Array.isArray(item.images) && item.images.length > 0) ||
           (Array.isArray(item.attachments) && item.attachments.length > 0) ||

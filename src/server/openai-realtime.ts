@@ -1,123 +1,136 @@
-import { type Data } from "../lib/protocol";
+import { t } from "try";
+import { type Data, object, string } from "../lib/protocol";
 import { RealtimeControl, REALTIME_TIMEOUT_MS } from "./realtime-control";
 import { configuration, REALTIME_MODEL } from "../state/realtime-configuration";
 
 export { REALTIME_MODEL, REALTIME_VOICES } from "../state/realtime-configuration";
 
-const CALLS_URL = "https://api.openai.com/v1/realtime/calls";
-const LAST = -1;
+const SESSIONS_URL = "https://api.openai.com/v1/live/sessions";
 const HTTP_NOT_FOUND = 404;
-const SOCKET_URL = "wss://api.openai.com/v1/realtime";
+const MAX_SESSION_ID_LENGTH = 512;
 
 /**
-Create a WebRTC call and own only its server control connection. Audio bypasses Pocket.
+Create GPT-Live WebRTC sessions and own their server-side metadata connection.
 */
 export class OpenAIRealtime {
   private control?: RealtimeControl;
   private stopped = false;
-  private callId?: string;
+  private sessionId?: string;
   private key?: string;
-  private callsUrl = CALLS_URL;
+  private sessionsUrl = SESSIONS_URL;
   private closing?: Promise<void>;
 
-  /**
-  Bind the session's control event consumer.
-  @param receive - Owning session's provider event consumer.
+  /** Bind one application's private delegation and caption consumer.
+  @param receive - Session-scoped provider event consumer.
   */
   constructor(private receive: (event: Data) => void) {}
 
   /**
-  End the provider call, including a call created after local cancellation.
+  End a created session when sideband attachment or finalization fails.
   */
   private async hangup() {
-    if (!this.callId || !this.key) {
+    if (!this.sessionId || !this.key) {
       return;
     }
 
-    const response = await fetch(`${this.callsUrl}/${this.callId}/hangup`, {
+    const response = await fetch(`${this.sessionsUrl}/${encodeURIComponent(this.sessionId)}/hangup`, {
       method: "POST",
       headers: { Authorization: `Bearer ${this.key}` },
       signal: AbortSignal.timeout(REALTIME_TIMEOUT_MS),
     });
 
     if (!response.ok && response.status !== HTTP_NOT_FOUND) {
-      throw new Error("Realtime call closure could not be confirmed.");
+      throw new Error("GPT-Live call closure could not be confirmed.");
     }
   }
 
   /**
-  Negotiate SDP with OpenAI, then attach server tools before the browser starts sending media.
-  @param key - Private provider credential.
-  @param voice - Configured provider voice.
-  @param sdp - Browser media offer.
-  @param model - Configured Realtime model.
-  @param endpoint - Optional test provider endpoint.
-  @param context - Explicit startup conversation context.
-  @returns Provider media answer after control setup succeeds.
+  Preserve incomplete-finalization errors while attempting an emergency provider hangup.
+  */
+  private async finish() {
+    if (!this.control) {
+      await this.hangup();
+
+      return;
+    }
+
+    const finalized = await t(this.control.close.bind(this.control));
+
+    if (finalized.ok) {
+      return;
+    }
+
+    const hungUp = await t(this.hangup.bind(this));
+
+    throw hungUp.ok
+      ? finalized.error
+      : new AggregateError([finalized.error, hungUp.error], "GPT-Live shutdown failed.");
+  }
+
+  /** Negotiate JSON session creation, preserving the provider's opaque session identity.
+  @param key - Private project credential.
+  @param voice - Selected voice.
+  @param sdp - Fully gathered browser offer.
+  @param model - GPT-Live model override or current default.
+  @param endpoint - Authorized loopback fixture base, when supplied.
+  @param context - Historical conversation data supplied once at creation.
+  @returns Native provider SDP answer after the sideband is attached.
   */
   async connect(key: string, voice: string, sdp: string, model = REALTIME_MODEL, endpoint?: string, context = "") {
     this.key = key;
-    this.callsUrl = endpoint ? new URL("/v1/realtime/calls", endpoint).href : CALLS_URL;
-    const body = new FormData();
-
-    body.set("sdp", sdp);
-    body.set("session", JSON.stringify({ ...configuration(voice, context).session, model }));
-    const response = await fetch(this.callsUrl, {
+    this.sessionsUrl = endpoint ? new URL("/v1/live/sessions", endpoint).href : SESSIONS_URL;
+    const response = await fetch(this.sessionsUrl, {
       method: "POST",
-      headers: { Authorization: `Bearer ${key}` },
-      body,
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ session: configuration(voice, context, model), transport: { type: "webrtc", sdp } }),
       signal: AbortSignal.timeout(REALTIME_TIMEOUT_MS),
     });
 
     if (!response.ok) {
-      throw new Error(`OpenAI Realtime call failed (HTTP ${String(response.status)}). Check Settings and try again.`);
+      throw new Error(`GPT-Live session failed (HTTP ${String(response.status)}). Check Settings and try again.`);
     }
 
-    const location = response.headers.get("location");
-    const callId = location?.split("/").at(LAST);
+    const result = object(await response.json());
+    const id = string(object(result.session).id);
+    const answer = string(object(result.transport).sdp);
 
-    if (!callId || !/^[\w-]+$/.test(callId)) {
-      throw new Error("OpenAI Realtime did not return a call identity.");
+    this.sessionId = id.length > MAX_SESSION_ID_LENGTH ? undefined : id;
+
+    if (!answer || !this.sessionId) {
+      throw new Error("GPT-Live did not return a session identity and SDP answer.");
     }
-
-    this.callId = callId;
-    const answer = await response.text();
 
     if (this.stopped) {
       await this.hangup();
-      throw new Error("Realtime stopped while connecting.");
+      throw new Error("Live voice stopped while connecting.");
     }
 
-    const url = new URL(endpoint ?? SOCKET_URL);
+    const url = new URL(`${this.sessionsUrl}/${encodeURIComponent(id)}/attach`);
 
     url.protocol = url.protocol === "http:" ? "ws:" : "wss:";
-    url.searchParams.set("call_id", callId);
-    this.control = new RealtimeControl(url, key, voice, context, this.receive);
+    this.control = new RealtimeControl(url, key, this.receive);
     await this.control.ready;
 
     return answer;
   }
 
-  /**
-  Send tool results and session controls; microphone and playback never use this socket.
-  @param event - Provider control event.
+  /** Send private application controls independently of the WebRTC media track.
+  @param event - GPT-Live command.
   */
   send(event: Data) {
     if (this.stopped || !this.control) {
-      throw new Error("Realtime has stopped.");
+      throw new Error("Live voice has stopped.");
     }
 
     this.control.send(event);
   }
 
-  /**
-  Revoke controls immediately and release the provider's media session once.
-  @returns Completion of provider hangup.
+  /** Stop submitting commands and finalize the provider session once.
+  @returns Remote finalization, preserving failure when confirmation is unavailable.
   */
   close() {
     this.stopped = true;
-    this.control?.close();
-    this.closing ??= this.hangup();
+    this.closing ??= this.finish();
 
     return this.closing;
   }

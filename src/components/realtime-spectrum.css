@@ -12,6 +12,9 @@
   height: 100%;
 }
 .realtime-spectrum-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   position: absolute;
   left: 0;
   top: 50%;
@@ -20,6 +23,15 @@
   font-size: 12px;
   opacity: 0;
   pointer-events: none;
+}
+.realtime-spectrum[data-state="stopping"] canvas {
+  filter: grayscale(1);
+  opacity: 0.45;
+}
+.realtime-spectrum[data-state="stopping"] .realtime-spectrum-label {
+  opacity: 1;
+  background: var(--secondary);
+  padding-right: 8px;
 }
 @media (prefers-reduced-motion: reduce) {
   .realtime-spectrum canvas {

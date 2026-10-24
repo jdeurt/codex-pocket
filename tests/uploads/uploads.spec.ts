@@ -111,7 +111,10 @@ test("pick, retry, remove, file-only send, reload, queued recovery and real stor
       await expect(selected.getByText("Ready to send", { exact: true })).toHaveCount(MIXED_FILE_COUNT);
       await send.click();
       await expect(selected).toHaveCount(0);
-      await expect(page.getByText("Queued", { exact: true }).last()).toBeVisible();
+      await expect(page.locator('[data-delivery="queued"] > [data-slot="bubble-content"]').last()).toHaveCSS(
+        "border-top-style",
+        "dotted"
+      );
 
       return await test.step("Read the durable outbox receipt", async () => {
         const source = await readFile(path.join(directory, "state/outbox.json"), "utf8");

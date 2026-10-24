@@ -5,7 +5,7 @@ import { useState } from "react";
 
 /** Edit optional provider identifiers without taking ownership of the voice transport or catalog.
 @param props - Saved overrides, shared submission lock, and partial persistence callback.
-@returns Realtime fields whose blank values restore provider defaults for the next session.
+@returns Realtime fields whose blank values restore Pocket’s current OpenAI recommendations for the next session.
 */
 export function RealtimeSettingsFields({
   settings,
@@ -23,8 +23,8 @@ export function RealtimeSettingsFields({
     <section aria-labelledby="realtime-settings-heading">
       <h3 id="realtime-settings-heading">Realtime</h3>
       <p id="realtime-settings-help" className="pocket-settings-help">
-        Voice and model overrides apply to the next realtime session. Leave a field blank to use the provider default.
-        Availability is checked when the session starts.
+        Voice and model overrides apply to the next realtime session. Leave a field blank to use Pocket’s current OpenAI
+        recommendation. Availability is checked when the session starts.
       </p>
       <form onSubmit={submitRealtimeSettings.bind(undefined, save, voice, model)}>
         <label htmlFor="realtime-voice">Realtime voice</label>

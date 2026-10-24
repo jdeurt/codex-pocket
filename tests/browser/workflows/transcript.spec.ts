@@ -1,9 +1,10 @@
-import { expect } from "@playwright/test";
+import { type Page, expect } from "@playwright/test";
 import { test } from "../../fixtures/browser-workflow";
 import { expectAnchor, scrollToFraction, settledAnchor } from "../virtualization-measure";
 
 const READING_FRACTION = 0.35;
 const MOUNTED_ROW_LIMIT = 250;
+const END_TOLERANCE = 3;
 
 test("saved native history stays readable and restores the reader's place after leaving the page", async ({ page }) => {
   await page.goto("/");
@@ -51,4 +52,28 @@ test("a provider's copy action copies decoded text only after the user activates
   await copy.click();
   await expect(page.getByRole("status").filter({ hasText: "Copied" })).toBeVisible();
   expect(writes).toEqual(["café ✓\nKeep exact text."]);
+});
+
+/** Measure the viewport after real native messages have been rendered.
+@param page - Browser showing the persisted native conversation.
+@returns Remaining distance to the latest message.
+*/
+async function nativeDistanceFromEnd(page: Page) {
+  return page
+    .locator('[data-slot="message-scroller-viewport"]')
+    .evaluate((element) => element.scrollHeight - element.clientHeight - element.scrollTop);
+}
+
+test("new native agent replies follow after returning from earlier history", async ({ page }) => {
+  await page.goto("/");
+  await expect(page.getByText("Earlier note 319", { exact: true })).toBeVisible();
+  await scrollToFraction(page, READING_FRACTION);
+  await page.getByRole("button", { name: "Jump to latest message" }).click();
+  const previousDistance = await nativeDistanceFromEnd(page);
+
+  expect(previousDistance).toBeLessThanOrEqual(END_TOLERANCE);
+  await page.getByRole("textbox", { name: "Message Pocket" }).fill("Continue from the latest message.");
+  await page.getByRole("button", { name: /^Send message(?:;|$)/ }).click();
+  await expect(page.getByRole("button", { name: "Copy text", exact: true }).last()).toBeVisible();
+  await expect.poll(nativeDistanceFromEnd.bind(undefined, page)).toBeLessThanOrEqual(END_TOLERANCE);
 });

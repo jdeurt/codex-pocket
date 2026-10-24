@@ -1,3 +1,5 @@
+import { observable } from "./stores";
+import { transcriptAnchor, transcriptFollow } from "../state/transcript-follow";
 import {
   Virtualizer,
   type VirtualizerOptions,
@@ -73,6 +75,7 @@ function readLayout(instance: MessageVirtualizer): TranscriptLayout {
 Own native measurement lifecycle and publish detached values to React.
 */
 export class TranscriptVirtualizer {
+  private readonly ownsFollow;
   private readonly listeners = new Set<() => void>();
   private layout = initialTranscriptLayout();
   private readonly instance: MessageVirtualizer;
@@ -93,6 +96,8 @@ export class TranscriptVirtualizer {
     this.publish(instance);
     onChange?.(instance, isSynchronous);
   };
+
+  readonly follow;
 
   /** Return the stable detached snapshot consumed by React.
   @returns Latest cached geometry.
@@ -128,8 +133,11 @@ export class TranscriptVirtualizer {
 
   /** Construct native resources without mounting observers.
   @param options - Initial native options.
+  @param isFollowing - Restored follow preference for the outer transcript.
   */
-  constructor(options: MessageOptions) {
+  constructor(options: MessageOptions, isFollowing?: boolean) {
+    this.ownsFollow = isFollowing !== undefined;
+    this.follow = observable(transcriptFollow(isFollowing ?? false));
     this.instance = new Virtualizer({
       observeElementOffset,
       observeElementRect: observeTranscriptRect,
@@ -177,11 +185,13 @@ export class TranscriptVirtualizer {
       observeElementRect: observeTranscriptRect,
       scrollToFn: elementScroll,
       ...options,
+      anchorTo: transcriptAnchor(this.ownsFollow, this.follow.getState(), options.anchorTo),
       onChange: this.changed.bind(undefined, options.onChange),
     });
     const offset = typeof options.initialOffset === "function" ? options.initialOffset() : (options.initialOffset ?? 0);
     const anchor = restoredAnchor(options.initialMeasurementsCache, offset);
-    const isRestoring = anchor !== undefined && options.anchorTo === "start" && !options.useCachedMeasurements;
+    const isRestoring =
+      anchor !== undefined && this.instance.options.anchorTo === "start" && !options.useCachedMeasurements;
 
     this.instance.shouldAdjustScrollPositionOnItemSizeChange =
       adjust ?? (isRestoring ? shouldAdjustRestoredAnchor.bind(undefined, anchor) : undefined);

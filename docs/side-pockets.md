@@ -8,7 +8,7 @@ Main Pockets run Pi; see the [migration support and permission limits](pi-main-c
 
 Ask for a task with a clear outcome, for example: “Have a Codex Side Pocket review the changes in this project and report any bugs. Do not edit files.” Give a different working folder when needed; children default to the parent's folder. For concurrent code changes, use separate worktrees or agree which files each agent owns.
 
-Open the agents hint in the status row to browse agents and their conversations. Incoming reports appear as collapsed, single-line previews. Expand one to read the original text, then choose **Open Side Pocket** to view its read-only chat. Your main draft and reading position are preserved. Reports are not paraphrased.
+Open the agents hint in the status row to browse agents and their own read-only conversations. Side Pocket reports stay in the private mailbox and reach the main agent as internal context. They are never injected as main-chat messages. The main Pocket delivers requested results in its own reply. Your main draft and reading position are preserved.
 
 Previously read history appears from a cache while it refreshes. Cold conversations use skeleton placeholders; errors and empty histories show explanatory messages.
 

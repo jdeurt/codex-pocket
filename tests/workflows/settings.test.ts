@@ -4,6 +4,7 @@ import { readOpenAIApiKey, readPocketSettings } from "../../src/server/pocket-se
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import path from "node:path";
+import { dataSchema } from "../../src/lib/protocol";
 import { pocketSettingsSchema } from "../../src/lib/settings";
 import { promisify } from "node:util";
 import test from "node:test";
@@ -101,6 +102,14 @@ async function persistSettings(directory: string) {
     openaiApiKeyConfigured: true,
     openaiApiKeySource: "environment",
   });
+  assert.equal(await readOpenAIApiKey(), ENVIRONMENT_KEY);
+  const migrated = await update({ realtimeModel: "gpt-realtime-2.1" });
+  const migrationResult = pocketSettingsSchema.parse(await migrated.json());
+  const encoded = await readFile(path.join(directory, "settings.json"), "utf8");
+  const durable = dataSchema.parse(JSON.parse(encoded));
+
+  assert.equal(migrationResult.realtimeModel, null);
+  assert.equal(durable.realtimeModel, null);
   assert.equal(await readOpenAIApiKey(), ENVIRONMENT_KEY);
   await update({ showToolCalls: false, realtimeVoice: null, realtimeModel: null });
   assert.equal(await readOpenAIApiKey(), ENVIRONMENT_KEY);

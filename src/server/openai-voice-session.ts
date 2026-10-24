@@ -12,11 +12,13 @@ Own call controls and history while WebRTC carries audio directly between the br
 export class OpenAIVoiceSession extends EventTarget {
   private token?: string;
   private attempt = 0;
-  private phase: "idle" | "connecting" | "active" = "idle";
+  private phase: "idle" | "connecting" | "active" | "stopping" = "idle";
   private error?: string;
   private transport?: OpenAIRealtime;
   private tools?: RealtimeTools;
   private readonly captions;
+  private sessionId?: string;
+  private closing?: Promise<void>;
 
   /**
   Bind the main agent used as a tool by the realtime conversational agent.
@@ -41,18 +43,25 @@ export class OpenAIVoiceSession extends EventTarget {
   @param sessionId - Original native call identity.
   */
   private receive(event: Data, sessionId: string) {
-    this.tools?.receive(event);
-
     this.captions.receive(event, sessionId);
 
+    if (["session.delegation.created", "session.input_transcript.delta"].includes(string(event.type))) {
+      this.tools?.receive(event, this.captions.segments());
+    }
+
     switch (event.type) {
+      case "session.closed": {
+        this.providerClosed();
+        break;
+      }
+
       case "error": {
-        void this.disconnect(string(object(event.error).message) || "OpenAI Realtime failed.");
+        void this.disconnect(string(object(event.error).message) || "GPT-Live failed.");
         break;
       }
 
       case "closed": {
-        void this.disconnect("OpenAI Realtime disconnected. Start voice again to continue.");
+        void this.disconnect("GPT-Live disconnected. Start voice again to continue.");
         break;
       }
     }
@@ -82,6 +91,36 @@ export class OpenAIVoiceSession extends EventTarget {
   }
 
   /**
+  Release only this provider connection after its final session event.
+  */
+  private providerClosed() {
+    const transport = this.transport;
+
+    this.token = undefined;
+    this.sessionId = undefined;
+    this.transport = undefined;
+    this.tools?.close();
+    this.tools = undefined;
+    this.phase = "idle";
+    this.publish({ type: "closed" });
+
+    if (transport) {
+      void this.finishTransport(transport);
+    }
+  }
+
+  /** Join final transport cleanup without creating an unhandled shutdown rejection.
+  @param transport - Finalized provider connection.
+  */
+  private async finishTransport(transport: OpenAIRealtime) {
+    const closed = await captureResult(transport.close.bind(transport));
+
+    if (!closed.ok) {
+      log().error({ error: closed.error }, "live.final_cleanup_failed");
+    }
+  }
+
+  /**
   Negotiate one call and attach its tool connection before returning the browser's SDP.
   @param attempt - Reserved native connection generation.
   @param sdp - Browser media offer.
@@ -105,6 +144,8 @@ export class OpenAIVoiceSession extends EventTarget {
     const transport = new OpenAIRealtime(this.received.bind(this, attempt, sessionId));
 
     this.token = crypto.randomUUID();
+    this.sessionId = sessionId;
+    this.closing = undefined;
     this.transport = transport;
     this.error = undefined;
     this.captions.reset();
@@ -112,7 +153,8 @@ export class OpenAIVoiceSession extends EventTarget {
       sessionId,
       this.owner,
       transport.send.bind(transport),
-      this.toolFailed.bind(this, attempt)
+      this.toolFailed.bind(this, attempt),
+      context
     );
     const answer = await transport.connect(settings.key, settings.voice, sdp, settings.model, endpoint, context);
 
@@ -123,6 +165,29 @@ export class OpenAIVoiceSession extends EventTarget {
     this.phase = "active";
 
     return { token: this.token, nativeSessionId: sessionId, sdp: answer, phase: this.phase };
+  }
+
+  /** Finalize the remote session while its browser and sideband continue receiving events.
+  @param transport - Connection being closed, retained across asynchronous finalization.
+  */
+  private async finishStop(transport: OpenAIRealtime | undefined) {
+    this.phase = "stopping";
+    this.tools?.close();
+    this.publish({ type: "stopping" });
+    const stopped = transport ? await captureResult(transport.close.bind(transport)) : undefined;
+
+    if (this.transport === transport) {
+      this.token = undefined;
+      this.sessionId = undefined;
+      this.transport = undefined;
+      this.tools = undefined;
+      this.phase = "idle";
+      this.publish({ type: "closed" });
+    }
+
+    if (stopped && !stopped.ok) {
+      throw stopped.error;
+    }
   }
 
   /**
@@ -166,14 +231,13 @@ export class OpenAIVoiceSession extends EventTarget {
     const error = completed.error;
 
     if (this.attempt === attempt) {
-      void this.disconnect(error instanceof Error ? error.message : "OpenAI Realtime could not start.");
+      void this.disconnect(error instanceof Error ? error.message : "GPT-Live could not start.");
     }
 
     throw error;
   }
 
-  /**
-  Stop media and controls without waiting for transcript completion.
+  /** Stop only the call owned by this browser token, sharing simultaneous shutdown requests.
   @param token - Browser ownership credential.
   */
   async stop(token: string) {
@@ -181,15 +245,29 @@ export class OpenAIVoiceSession extends EventTarget {
       return;
     }
 
-    const transport = this.transport;
+    this.closing ??= this.finishStop(this.transport);
+    await this.closing;
+  }
 
-    this.token = undefined;
-    this.transport = undefined;
-    this.tools?.close();
-    this.tools = undefined;
-    this.phase = "idle";
-    this.publish({ type: "closed" });
-    await transport?.close();
+  /** End only the local call explicitly identified by the main Pocket's backend tool.
+  @param sessionId - Original call identity supplied in the delegation context.
+  @returns Whether that call was still active and was closed.
+  */
+  async endSession(sessionId: string) {
+    if (sessionId !== this.sessionId || !this.token) {
+      return false;
+    }
+
+    await this.stop(this.token);
+
+    return true;
+  }
+
+  /** Read the local call identity for an authorized main-agent inspection.
+  @returns Current identity, absent when no voice call is owned.
+  */
+  identity() {
+    return this.sessionId;
   }
 
   /**
@@ -217,6 +295,21 @@ export class OpenAIVoiceSession extends EventTarget {
     return this.captions.live();
   }
 
+  /** Capture live speech before a canonical restart, independently of pending disk writes.
+  @param id - Explicit new restart identity.
+  @returns Observed fragments at this synchronous boundary.
+  */
+  beginTimelineBoundary(id: string) {
+    return this.captions.boundary(id);
+  }
+
+  /** Release the temporary anchor after the canonical restart operation finishes.
+  @param id - Completed restart identity.
+  */
+  commitTimelineBoundary(id: string) {
+    this.captions.commitBoundary(id);
+  }
+
   /**
   Revoke stale control and tool callbacks immediately and release the provider call.
   @param message - Public reason for call termination.
@@ -226,6 +319,7 @@ export class OpenAIVoiceSession extends EventTarget {
     const transport = this.transport;
 
     this.token = undefined;
+    this.sessionId = undefined;
     this.transport = undefined;
     this.tools?.close();
     this.tools = undefined;

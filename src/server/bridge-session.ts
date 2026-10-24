@@ -19,7 +19,7 @@ import { RealtimeSession } from "./realtime-session";
 import { SessionControls } from "./session-controls";
 import { loadHistory } from "./history";
 import { log } from "./logging";
-import { recordRestart } from "./restart-events";
+import { recordBridgeRestart } from "./restart-events";
 import { pollDesktopReplies } from "./desktop";
 import { resumePocket } from "./pocket-runtime";
 
@@ -197,9 +197,7 @@ export class Bridge {
       this.event(event);
     }
 
-    const restartEvents = await recordRestart(this.snapshot);
-
-    this.snapshot = { ...this.snapshot, restartEvents };
+    await recordBridgeRestart(this);
     await this.messages.recover(config.threadId);
 
     this.snapshot = { ...this.snapshot, connection: "connected", connectionRetry: undefined };

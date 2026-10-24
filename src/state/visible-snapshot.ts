@@ -1,6 +1,5 @@
 import { type Item, type Snapshot, type Turn, string, isTextContent } from "../lib/protocol";
 import { itemImageSources, itemImageUrl } from "../lib/images";
-import { type DelegateReport } from "../lib/delegate-reports";
 import { currentActivity } from "./native-activity";
 import { delegationMessagePrefix } from "./delegation-queue";
 import { isRecoveryMessageId } from "./recovery";
@@ -99,11 +98,18 @@ Exclude internal work and preserve explicit restart and original-file rows befor
 @returns The existing phone display projection, including deliberate empty output.
 */
 function displayItem(item: Item, scheduled: ReadonlySet<string>, hasTools: boolean): Item | Item[] {
-  if (item.type === "pocketRestart") {
-    return { id: item.id, type: item.type };
+  if (item.type === "delegateReport") {
+    return [];
   }
 
-  if (item.type === "userMessage" && (scheduled.has(string(item.clientId)) || isInternal(item.clientId))) {
+  if (item.type === "pocketRestart") {
+    return { id: item.id, type: item.type, ...(item.afterItemId !== undefined && { afterItemId: item.afterItemId }) };
+  }
+
+  if (
+    item.type === "userMessage" &&
+    (scheduled.has(string(item.clientId)) || isInternal(item.clientId) || isInternal(item.id))
+  ) {
     return [];
   }
 
@@ -112,21 +118,15 @@ function displayItem(item: Item, scheduled: ReadonlySet<string>, hasTools: boole
     : visibleOutput(item, hasTools);
 }
 
-/** Project a turn and report consumed delivery IDs without mutating caller-owned maps.
-@param turn - Native turn.
-@param scheduled - Hidden scheduled identities.
-@param hasTools - Whether tool details are visible.
-@param reports - Available report projections.
-@returns Turn and explicit consumed-report identities.
+/**
+Project one canonical turn through the shared public transcript boundary.
+@param options - Hidden scheduled identities and the opt-in for native tool traces.
+@param turn - Native or restart-projected turn.
+@returns Canonical display items without internal report inputs or synthetic report rows.
 */
-function projectedTurn(
-  turn: Turn,
-  scheduled: ReadonlySet<string>,
-  hasTools: boolean,
-  reports: ReadonlyMap<string, DelegateReport>
-) {
+export function visibleTurn(options: { scheduled?: Set<string>; tools?: boolean }, turn: Turn): Turn {
   const items: Item[] = [];
-  const consumed = new Set<string>();
+  const scheduled = options.scheduled ?? new Set<string>();
 
   let isWorker = false;
 
@@ -139,32 +139,12 @@ function projectedTurn(
       continue;
     }
 
-    const report = reports.get(string(item.clientId));
+    const projected = displayItem(item, scheduled, options.tools === true);
 
-    if (report && item.type === "userMessage" && !consumed.has(report.id)) {
-      consumed.add(report.id);
-      items.push({ id: report.id, type: "delegateReport", delegateReport: report });
-    } else {
-      const projected = displayItem(item, scheduled, hasTools);
-
-      items.push(...(Array.isArray(projected) ? projected : [projected]));
-    }
+    items.push(...(Array.isArray(projected) ? projected : [projected]));
   }
 
-  return { turn: { ...turn, items }, consumed };
-}
-
-/**
-Project one native turn through the shared visible-message and image boundary.
-@param turn - Canonical native or restart-projected turn.
-@param options - Hidden scheduled identities and the existing opt-in for native tool traces.
-@returns Turn containing only the phone's normalized display items.
-*/
-export function visibleTurn(
-  turn: Turn,
-  options: { scheduled?: Set<string>; tools?: boolean; reports?: Map<string, DelegateReport> } = {}
-): Turn {
-  return projectedTurn(turn, options.scheduled ?? new Set(), options.tools === true, options.reports ?? new Map()).turn;
+  return { ...turn, items };
 }
 
 /**
@@ -174,39 +154,13 @@ Expose only canonical messages and explicit display projections to the phone.
 @returns Snapshot with internal work hidden and guarded visible outputs normalized.
 */
 // Only messages and explicitly projected display items leave the computer.
-export function visibleSnapshot(
-  state: Snapshot,
-  options: { tools?: boolean; reports?: DelegateReport[] } = {}
-): Snapshot {
+export function visibleSnapshot(state: Snapshot, options: { tools?: boolean } = {}): Snapshot {
   const { activityState: _hostActivity, ...publicState } = state;
   const scheduled = new Set(Object.keys(state.scheduled));
-  const reports = new Map<string, DelegateReport>();
-
-  const reportEntries = options.reports ?? [];
-
-  for (const report of reportEntries) {
-    reports.set(report.id, report);
-  }
-
-  const turns: Turn[] = [];
-
-  for (const turn of projectRestarts(state)) {
-    const projected = projectedTurn(turn, scheduled, options.tools === true, reports);
-
-    turns.push(projected.turn);
-
-    for (const id of projected.consumed) {
-      reports.delete(id);
-    }
-  }
-
-  for (const report of reports.values()) {
-    turns.push({
-      id: report.id,
-      status: "completed",
-      items: [{ id: report.id, type: "delegateReport", delegateReport: report }],
-    });
-  }
+  const turns = Array.from(
+    projectRestarts(state),
+    visibleTurn.bind(undefined, { scheduled, tools: options.tools === true })
+  );
 
   return {
     ...publicState,

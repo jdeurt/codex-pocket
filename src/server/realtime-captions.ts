@@ -1,7 +1,15 @@
 import { createStore } from "zustand/vanilla";
 import { t } from "try";
 import { SerialQueue } from "../runtime/serial-queue";
-import { liveCaptionState, receivedCaption, type CaptionTransition } from "../state/realtime-captions";
+import {
+  captionFrame,
+  openedCaptionBoundary,
+  closedCaptionBoundary,
+  liveCaptionState,
+  receivedCaption,
+  shouldAnchorCaption,
+  type CaptionTransition,
+} from "../state/realtime-captions";
 import type { Data } from "../lib/protocol";
 import type { VoiceSessionOwner } from "./voice-session-owner";
 import { VoiceHistory } from "./voice-history";
@@ -34,11 +42,11 @@ export class RealtimeCaptions {
     return this.history;
   }
 
-  /** Execute one explicit finalized-caption persistence command.
+  /** Execute one immutable-fragment persistence command.
   @param final - Provider evidence and original chronological anchor.
   */
   private async write(final: NonNullable<CaptionTransition["final"]>) {
-    await this.savedHistory().finalize(final.event, final.sessionId, final.role, final.afterItemId);
+    await this.savedHistory().save(final);
   }
 
   /** Observe queued persistence without allowing its failure to stop media or later writes.
@@ -55,12 +63,15 @@ export class RealtimeCaptions {
     this.publish({ type: "warning", error: "Voice history could not be saved. Your live call is still connected." });
   }
 
-  /** Publish a provider caption immediately and queue only finalized persistence.
+  /** Publish an observed fragment immediately and queue its independent persistence.
   @param event - Original provider control frame.
   @param sessionId - Native call identity.
   */
   receive(event: Data, sessionId: string) {
-    const received = receivedCaption(this.store.getState(), event, sessionId, this.owner.lastItemId?.() ?? null);
+    const state = this.store.getState();
+    const canonical =
+      state.boundary ?? (shouldAnchorCaption(state, event, sessionId) ? (this.owner.lastItemId?.() ?? null) : null);
+    const received = receivedCaption(state, event, sessionId, canonical);
 
     this.store.setState(received.state, true);
 
@@ -80,7 +91,7 @@ export class RealtimeCaptions {
     return this.savedHistory().read();
   }
 
-  /** Read finalized history after already queued writes have been observed.
+  /** Read immutable history after already queued writes have been observed.
   @returns Saved captions for context hydration or typed continuation.
   */
   async read() {
@@ -93,7 +104,33 @@ export class RealtimeCaptions {
   @returns Bounded session-local caption frames.
   */
   live() {
+    return Array.from(this.store.getState().captions.values(), captionFrame.bind(undefined));
+  }
+
+  /** Read observed fragments for backend context without waiting for persistence.
+  @returns Detached immutable caption entries.
+  */
+  segments() {
     return this.store.getState().captions.values().toArray();
+  }
+
+  /** Capture observed speech and split subsequent groups before restart storage yields.
+  @param id - New canonical notice identity.
+  @returns Immutable fragments observed before that boundary.
+  */
+  boundary(id: string) {
+    const previous = this.store.getState();
+
+    this.store.setState(openedCaptionBoundary(previous, id), true);
+
+    return previous.captions.values().toArray();
+  }
+
+  /** Release the temporary anchor once the canonical notice operation finishes.
+  @param id - Completed canonical notice identity.
+  */
+  commitBoundary(id: string) {
+    this.store.setState(closedCaptionBoundary(this.store.getState(), id), true);
   }
 
   /**

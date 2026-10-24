@@ -24,6 +24,7 @@ export interface VoiceResources {
   startingRequest?: Promise<Record<string, unknown>>;
   connectionTimer?: ReturnType<typeof setTimeout>;
   active: boolean;
+  stopping: boolean;
 }
 
 /** Send lifecycle controls only. Media never uses HTTP commands.
@@ -66,7 +67,7 @@ export function receiveRealtime(
     callbacks.error(typeof message.error === "string" ? message.error : "Realtime connection failed.");
   }
 
-  if (["error", "closed", "idle"].includes(String(message.type))) {
+  if (["error", "closed", "idle", "stopping"].includes(String(message.type))) {
     callbacks.stop();
   }
 

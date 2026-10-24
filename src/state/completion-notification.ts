@@ -25,7 +25,7 @@ export function completionNotification(threadId: string, turn: Turn): Notificati
   let unphasedReply: Item | undefined;
   let hasImage = false;
 
-  const entries = turnMessages(visibleTurn(turn), false);
+  const entries = turnMessages(visibleTurn({}, turn), false);
 
   for (const entry of entries) {
     if (entry.kind !== "message") {

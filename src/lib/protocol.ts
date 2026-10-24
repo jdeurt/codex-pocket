@@ -1,6 +1,5 @@
 import { type ActivityState } from "../state/activity";
 import { type ContextUsage, contextUsageSchema } from "./usage";
-import { type DelegateReport, delegateReportSchema } from "./delegate-reports";
 import { type FileAttachment, fileAttachmentSchema } from "./attachments";
 import { z } from "zod";
 
@@ -11,7 +10,6 @@ export type Data = Record<string, unknown>;
 export type Item = Data & {
   id: string;
   type: string;
-  delegateReport?: DelegateReport;
   attachments?: FileAttachment[];
   images?: { source: string; alt?: string }[];
 };
@@ -49,6 +47,7 @@ export interface RestartEvent {
   id: string;
   threadId: string;
   after: { turnId: string; itemId: string };
+  afterItemId?: string | null;
 }
 export interface Snapshot {
   /**
@@ -127,7 +126,6 @@ const scheduledTurnSchema = z.object({ title: z.string(), scheduledAt: z.number(
 export const itemSchema: z.ZodType<Item> = z.looseObject({
   id: z.string(),
   type: z.string(),
-  delegateReport: delegateReportSchema.optional(),
   attachments: z.array(fileAttachmentSchema).optional(),
   images: z.array(itemImageSchema).optional(),
 });
@@ -169,6 +167,7 @@ export const restartEventSchema = z.object({
   id: z.string(),
   threadId: z.string(),
   after: z.object({ turnId: z.string(), itemId: z.string() }),
+  afterItemId: z.string().nullable().optional(),
 });
 export const pendingRequestSchema = rpcEventSchema.extend({ id: z.union([z.string(), z.number()]) });
 export const snapshotSchema: z.ZodType<Snapshot> = z.object({

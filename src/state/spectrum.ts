@@ -1,6 +1,5 @@
-export const SPECTRUM_BARS = 32;
+const BAR_WIDTH = 4.5;
 const GAP = 4;
-const MIN_WIDTH = 2;
 const MIN_HALF = 1.5;
 const HALF = 2;
 const ENVELOPE_POWER = 2.45;
@@ -40,21 +39,31 @@ function silentLevel(): SpectrumLevel {
   return { input: 0, output: 0 };
 }
 
+/** Count whole bars that fit at the fixed width and spacing.
+@param width - Available canvas width in CSS pixels.
+@returns Nonnegative number of complete bars.
+*/
+export function spectrumCount(width: number) {
+  return Math.max(0, Math.floor((width + GAP) / (BAR_WIDTH + GAP)));
+}
+
 /** Allocate initial immutable spectrum values.
+@param width - Available canvas width in CSS pixels.
 @returns Silent levels in frequency order.
 */
-export function silentSpectrum() {
-  return Array.from({ length: SPECTRUM_BARS }, silentLevel);
+export function silentSpectrum(width: number) {
+  return Array.from({ length: spectrumCount(width) }, silentLevel);
 }
 
 /** Read one logarithmic frequency band's peak from a detached sample.
 @param sample - Bytes and frequency represented by each bin.
 @param index - Logarithmic band index.
+@param count - Number of visible frequency bands.
 @returns Normalized perceptual intensity.
 */
-function intensity(sample: SpectrumSample, index: number) {
-  const low = LOW_FREQUENCY * FREQUENCY_RATIO ** (index / SPECTRUM_BARS);
-  const high = LOW_FREQUENCY * FREQUENCY_RATIO ** ((index + 1) / SPECTRUM_BARS);
+function intensity(sample: SpectrumSample, index: number, count: number) {
+  const low = LOW_FREQUENCY * FREQUENCY_RATIO ** (index / count);
+  const high = LOW_FREQUENCY * FREQUENCY_RATIO ** ((index + 1) / count);
   const from = Math.min(sample.bytes.length - 1, Math.floor(low / sample.binWidth));
   const to = Math.min(sample.bytes.length, Math.max(from + 1, Math.ceil(high / sample.binWidth)));
 
@@ -79,14 +88,21 @@ function smoothed(previous: number, target: number) {
 /** Project one band from explicit samples.
 @param input - Microphone sample.
 @param output - Agent sample.
+@param count - Number of visible frequency bands.
 @param level - Previous band level.
 @param index - Frequency band.
 @returns New smoothed levels.
 */
-function sampledLevel(input: SpectrumSample, output: SpectrumSample, level: SpectrumLevel, index: number) {
+function sampledLevel(
+  input: SpectrumSample,
+  output: SpectrumSample,
+  count: number,
+  level: SpectrumLevel,
+  index: number
+) {
   return {
-    input: smoothed(level.input, intensity(input, index)),
-    output: smoothed(level.output, intensity(output, index)),
+    input: smoothed(level.input, intensity(input, index, count)),
+    output: smoothed(level.output, intensity(output, index, count)),
   };
 }
 
@@ -94,10 +110,18 @@ function sampledLevel(input: SpectrumSample, output: SpectrumSample, level: Spec
 @param previous - Previous frequency levels.
 @param input - Microphone sample.
 @param output - Agent sample.
+@param width - Available canvas width in CSS pixels.
 @returns New frequency levels.
 */
-export function sampledSpectrum(previous: readonly SpectrumLevel[], input: SpectrumSample, output: SpectrumSample) {
-  return Array.from(previous, sampledLevel.bind(undefined, input, output));
+export function sampledSpectrum(
+  previous: readonly SpectrumLevel[],
+  input: SpectrumSample,
+  output: SpectrumSample,
+  width: number
+) {
+  const levels = previous.length === spectrumCount(width) ? previous : silentSpectrum(width);
+
+  return Array.from(levels, sampledLevel.bind(undefined, input, output, levels.length));
 }
 
 /** Compute one bar within the composer's capsule envelope.
@@ -107,7 +131,7 @@ export function sampledSpectrum(previous: readonly SpectrumLevel[], input: Spect
 @returns Rectangle for native canvas rendering.
 */
 function spectrumBar(bounds: SpectrumBounds, index: number, level: number): SpectrumBar {
-  const width = Math.max(MIN_WIDTH, (bounds.width - GAP * (SPECTRUM_BARS - 1)) / SPECTRUM_BARS);
+  const width = BAR_WIDTH;
   const x = index * (width + GAP);
   const distance = Math.min(bounds.inset + x, bounds.inset + bounds.width - x - width);
   const capsule = distance >= bounds.radius ? 1 : Math.sqrt(1 - (1 - Math.max(0, distance) / bounds.radius) ** HALF);
@@ -118,14 +142,15 @@ function spectrumBar(bounds: SpectrumBounds, index: number, level: number): Spec
 
 /** Project one input/output pair with reversed agent ordering.
 @param bounds - Explicit measured geometry.
+@param count - Number of visible bars.
 @param level - Smoothed levels.
 @param index - Frequency band.
 @returns Paired native rectangles.
 */
-function pairedBars(bounds: SpectrumBounds, level: SpectrumLevel, index: number) {
+function pairedBars(bounds: SpectrumBounds, count: number, level: SpectrumLevel, index: number) {
   return {
     input: spectrumBar(bounds, index, level.input),
-    output: spectrumBar(bounds, SPECTRUM_BARS - 1 - index, level.output),
+    output: spectrumBar(bounds, count - 1 - index, level.output),
   };
 }
 
@@ -135,5 +160,5 @@ function pairedBars(bounds: SpectrumBounds, level: SpectrumLevel, index: number)
 @returns Paired rectangles in compositing order.
 */
 export function spectrumBars(levels: readonly SpectrumLevel[], bounds: SpectrumBounds) {
-  return Array.from(levels, pairedBars.bind(undefined, bounds));
+  return Array.from(levels, pairedBars.bind(undefined, bounds, levels.length));
 }

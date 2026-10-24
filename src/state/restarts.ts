@@ -14,14 +14,20 @@ export function isParentRestart(threadId: string | undefined, event: RestartEven
 /** Describe a real hydrated restart without generating identities or writing storage.
 @param state - Hydrated canonical parent state.
 @param id - Runtime-generated event identity.
+@param afterItemId - Latest combined transcript identity when available.
 @returns Restart boundary when usable history is present.
 */
-export function resumedRestart(state: Snapshot, id: string): RestartEvent | undefined {
+export function resumedRestart(state: Snapshot, id: string, afterItemId?: string | null): RestartEvent | undefined {
   const turn = state.turns.findLast(hasTurnItems);
   const item = turn?.items.at(LAST_ITEM);
 
   if (turn && item && state.threadId) {
-    return { id, threadId: state.threadId, after: { turnId: turn.id, itemId: item.id } };
+    return {
+      id,
+      threadId: state.threadId,
+      after: { turnId: turn.id, itemId: item.id },
+      ...(afterItemId !== undefined && { afterItemId }),
+    };
   }
 }
 
@@ -54,7 +60,11 @@ export function projectRestarts(state: Snapshot): Turn[] {
       const notices = boundaries.get(turn.id)?.get(item.id) ?? [];
 
       for (const event of notices) {
-        items.push({ id: event.id, type: "pocketRestart" });
+        items.push({
+          id: event.id,
+          type: "pocketRestart",
+          ...(event.afterItemId !== undefined && { afterItemId: event.afterItemId }),
+        });
       }
     }
 

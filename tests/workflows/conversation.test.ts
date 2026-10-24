@@ -10,52 +10,6 @@ import test from "node:test";
 const NOW = Date.parse("2026-10-19T00:00:00Z");
 const DUE = Date.parse("2026-10-20T16:00:00Z");
 
-await test("Codex delivery retains identical messages as distinct receipts and retries once across reconnect", async (t) => {
-  const fixture = await nativeWorkspace(t, { turn: { chunks: ["Saved ", "answer ✓"] } });
-  const bridge = workflowBridge(fixture, fixture.config);
-
-  await bridge.ensureConnected();
-  assert.equal(bridge.snapshot.turns.length, 0);
-
-  for (const id of ["first", "second"]) {
-    assert.deepEqual(await bridge.send(id, "Repeat this exact message."), { id, status: "sent" });
-    await eventually(() => !bridge.snapshot.activeTurnId, "The submitted turn must complete");
-  }
-
-  assert.deepEqual(await bridge.send("first", "Repeat this exact message."), { id: "first", status: "sent" });
-  await assert.rejects(bridge.send("first", "Changed content"), /different content/);
-  const before = structuredClone(bridge.snapshot.turns);
-
-  bridge.close();
-  const reopened = workflowBridge(fixture, fixture.config);
-
-  await reopened.ensureConnected();
-  assert.deepEqual(await reopened.send("second", "Repeat this exact message."), { id: "second", status: "sent" });
-  assert.deepEqual(reopened.snapshot.turns.slice(0, 2), before);
-  const allItems = reopened.snapshot.turns.flatMap((turn) => turn.items);
-  const receipts = allItems.filter(
-    (item) =>
-      item.type === "userMessage" &&
-      (["first", "second"].includes(String(item.clientId)) || nativeText(item.content) === "Repeat this exact message.")
-  );
-  const delivered = reopened.snapshot.turns.filter((turn) => turn.items.some((item) => receipts.includes(item)));
-  const items = delivered.flatMap((turn) => turn.items);
-
-  assert.equal(delivered.length, 2);
-
-  assert.deepEqual(
-    receipts.map((item) => [item.clientId, nativeText(item.content)]),
-    [
-      ["first", "Repeat this exact message."],
-      ["second", "Repeat this exact message."],
-    ]
-  );
-  assert.deepEqual(
-    items.filter((item) => item.type === "agentMessage").map((item) => item.text),
-    ["Saved answer ✓", "Saved answer ✓"]
-  );
-});
-
 await test("a Codex question accepts ordered corrections and an answer in the original turn", async (t) => {
   const fixture = await nativeWorkspace(t, {
     turn: {

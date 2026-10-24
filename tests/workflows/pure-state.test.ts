@@ -126,8 +126,8 @@ function activityTransitions() {
   });
   const active = freeze(reduceEvent(first, started));
 
-  assert.equal(currentActivity(active), "running commands");
-  assert.equal(currentActivity(structuredClone(active)), "running commands");
+  assert.equal(currentActivity(active), "Running commands");
+  assert.equal(currentActivity(structuredClone(active)), "Running commands");
   assert.equal(currentActivity(second), "");
   assert.equal(Object.hasOwn(visibleSnapshot(active), "activityState"), false);
   const completed = reduceEvent(active, {
@@ -140,7 +140,7 @@ function activityTransitions() {
   });
 
   assert.equal(currentActivity(completed), "");
-  assert.equal(currentActivity(active), "running commands");
+  assert.equal(currentActivity(active), "Running commands");
   assert.deepEqual(active, reduceEvent(first, started));
 }
 

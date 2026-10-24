@@ -1,3 +1,5 @@
+import { type StoreApi } from "zustand/vanilla";
+import { scrolledTranscript, type TranscriptFollow } from "../state/transcript-follow";
 import { type RefObject, type UIEvent } from "react";
 import { elementScroll, measureElement, type Virtualizer } from "@tanstack/react-virtual";
 import { END_THRESHOLD } from "../lib/transcript-virtualization";
@@ -52,31 +54,23 @@ export function attachTranscriptRow(instance: Instance, isSuspended: boolean, el
   }
 }
 
-/** Let user input resume native following without overriding a covered parent.
-@param isSuspended - Covered-parent state.
-@param initialEnd - Mutable lifecycle marker for initial positioning.
-@param publish - Component-local follow setter.
+/** Pause following as soon as the reader interacts with transcript scrolling.
+@param isSuspended - Whether a child view covers this transcript.
+@param store - Transcript-owned follow state.
 */
-export function resumeTranscriptFollow(
-  isSuspended: boolean,
-  initialEnd: RefObject<boolean>,
-  publish: (shouldFollow: boolean) => void
-) {
-  if (isSuspended) {
-    return;
+export function pauseTranscriptFollow(isSuspended: boolean, store: StoreApi<TranscriptFollow>) {
+  if (!isSuspended) {
+    store.setState({ isFollowing: false });
   }
-
-  initialEnd.current = false;
-  publish(true);
 }
 
-/** Keep initial end positioning after late footer and viewport measurements.
+/** Follow committed content growth while the reader remains at the latest message.
 @param instance - Native scroll owner.
-@param initialEnd - Whether initial positioning still owns the view.
-@param isSuspended - Covered-parent state.
+@param store - Single source of the reader's follow preference.
+@param isSuspended - Whether a child view covers this transcript.
 */
-export function maintainTranscriptEnd(instance: Instance, initialEnd: RefObject<boolean>, isSuspended: boolean) {
-  if (!isSuspended && initialEnd.current) {
+export function maintainTranscriptEnd(instance: Instance, store: StoreApi<TranscriptFollow>, isSuspended: boolean) {
+  if (!isSuspended && store.getState().isFollowing) {
     instance.scrollToEnd();
   }
 }
@@ -112,21 +106,22 @@ export function connectTranscriptBookmark(key: string | undefined, instance: Ins
   return key ? subscribeTranscriptBookmark(key, instance, expanded) : undefined;
 }
 
-/** Relinquish initial end positioning once the user scrolls away.
-@param initialEnd - Initial-position lifecycle marker.
+/** Resume following when the reader reaches the bottom; content growth cannot disable it.
+@param store - Transcript-owned follow state.
 @param event - Native viewport scroll.
 */
-export function trackTranscriptScroll(initialEnd: RefObject<boolean>, event: UIEvent<HTMLDivElement>) {
+export function trackTranscriptScroll(store: StoreApi<TranscriptFollow>, event: UIEvent<HTMLDivElement>) {
   const target = event.currentTarget;
+  const isAtEnd = target.scrollHeight - target.clientHeight - target.scrollTop <= END_THRESHOLD;
 
-  initialEnd.current &&= target.scrollTop + target.clientHeight >= target.scrollHeight - END_THRESHOLD;
+  store.setState(scrolledTranscript(store.getState(), isAtEnd));
 }
 
-/** Request native following and move to the latest rendered message.
-@param publish - Component-local follow setter.
+/** Resume following and move to the latest rendered message.
+@param store - Transcript-owned follow state.
 @param instance - Native scroll owner.
 */
-export function jumpToLatest(publish: (shouldFollow: boolean) => void, instance: Instance) {
-  publish(true);
+export function jumpToLatest(store: StoreApi<TranscriptFollow>, instance: Instance) {
+  store.setState({ isFollowing: true });
   instance.scrollToEnd();
 }

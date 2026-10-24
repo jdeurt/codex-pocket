@@ -1,48 +1,50 @@
 import { type Data } from "../lib/protocol";
-import type { VoiceSessionOwner } from "./voice-session-owner";
+import { type VoiceSegment } from "../lib/voice-history";
+import { type VoiceSessionOwner } from "./voice-session-owner";
 import { t } from "try";
 import { createStore } from "zustand/vanilla";
 import {
   realtimeToolState,
-  completedToolResponse,
   receivedTools,
-  requestedTool,
-  queuedToolResult,
+  requestedTools,
   resolvedTool,
-  flushedTools,
+  liveResultEvents,
 } from "../state/realtime-tools";
 import { log } from "./logging";
 
 export { REALTIME_TOOL_PREFIX } from "../state/realtime-tools";
 
 /**
-Execute worker handoffs and provider controls independently of media and transcript storage.
+Own deduplicated GPT-Live client delegations and their existing main-agent outbox receipts.
 */
 export class RealtimeTools {
   private readonly store = createStore(realtimeToolState);
 
-  /** Bind one live conversation's worker and provider controls.
-  @param sessionId - Unique voice connection identity.
-  @param owner - Main-agent delivery interface.
-  @param send - Server control channel, never microphone audio.
-  @param fail - Owning session's control failure handler.
+  /** Bind this call's backend and native sideband, without owning its media.
+  @param sessionId - Local call identity used for durable source receipts.
+  @param owner - Main Pocket's authorized backend interface.
+  @param send - Session-scoped GPT-Live command sender.
+  @param fail - Original transport failure handler.
+  @param historical - Startup context supplied once; not new authorization.
   */
   constructor(
     private sessionId: string,
     private owner: VoiceSessionOwner,
     private send: (event: Data) => void,
-    private fail: (error: unknown) => void
+    private fail: (error: unknown) => void,
+    private historical: string
   ) {}
 
-  /**
-  Send selected control frames and surface the exact transport failure.
+  /** Send verified context immediately; GPT-Live continues its own conversational schedule.
+  @param delegationId - Original provider delegation identity.
+  @param text - Actual backend result or confirmed failure description.
   */
-  private flush() {
-    const flushed = flushedTools(this.store.getState());
+  private result(delegationId: string, text: string) {
+    if (!this.store.getState().active) {
+      return;
+    }
 
-    this.store.setState(flushed.state, true);
-
-    for (const event of flushed.events) {
+    for (const event of liveResultEvents(delegationId, text, crypto.randomUUID())) {
       const sent = t(this.send, event);
 
       if (!sent.ok) {
@@ -53,106 +55,69 @@ export class RealtimeTools {
     }
   }
 
-  /** Queue an actual outcome in its original live conversation.
-  @param callId - Provider call awaiting the result.
-  @param result - Worker outcome or explicit delivery uncertainty.
+  /** Dispatch an already reserved receipt without waiting for caption persistence or silence.
+  @param call - Pure handoff description derived from observed user context.
   */
-  private result(callId: string, result: Data) {
-    this.store.setState(queuedToolResult(this.store.getState(), callId, result), true);
-    this.flush();
+  private async dispatch(call: Parameters<VoiceSessionOwner["handoff"]>[0]) {
+    const delivery = await t(this.owner.handoff.bind(this.owner), call);
+    const current = this.store.getState();
+    const delegationId = current.pending.get(call.id);
+
+    if (!delegationId || (delivery.ok && ["sent", "queued"].includes(delivery.value.status))) {
+      return;
+    }
+
+    this.store.setState(resolvedTool(current, call.id), true);
+
+    if (!delivery.ok) {
+      log().error({ error: delivery.error, id: call.id }, "live.delegation_failed");
+    }
+
+    this.result(
+      delegationId,
+      "The requested work could not be confirmed. Do not automatically retry or claim completion."
+    );
   }
 
-  /** Dispatch a deduplicated request without consulting captions or waiting for storage.
-  @param call - Provider's completed native function call.
+  /** Reserve provider metadata, then dispatch only after current user speech has been observed.
+  @param event - Native Live event.
+  @param fragments - Already observed captions; no storage barrier.
   */
-  private async dispatch(call: Data) {
-    const requested = requestedTool(this.store.getState(), this.sessionId, call);
+  receive(event: Data, fragments: VoiceSegment[]) {
+    const observed = receivedTools(this.store.getState(), event);
+    const requested = requestedTools(observed, this.sessionId, fragments, this.historical);
 
     this.store.setState(requested.state, true);
 
-    if (!requested.callId) {
-      return;
-    }
-
-    if (!requested.id) {
-      this.result(requested.callId, { error: requested.error });
-
-      return;
-    }
-
-    const delivery = await t(this.owner.handoff.bind(this.owner), {
-      id: requested.id,
-      request: requested.request,
-      source: { type: "realtime", sessionId: this.sessionId, itemId: requested.callId },
-    });
-    const current = this.store.getState();
-
-    if (!delivery.ok) {
-      log().error(
-        { error: delivery.error, sessionId: this.sessionId, callId: requested.callId },
-        "realtime.handoff_failed"
-      );
-      this.store.setState(resolvedTool(current, requested.id), true);
-      this.result(requested.callId, {
-        status: "unknown",
-        error: "Work could not be confirmed. Do not automatically retry.",
-      });
-
-      return;
-    }
-
-    if (!current.pending.has(requested.id) || delivery.value.status === "sent" || delivery.value.status === "queued") {
-      return;
-    }
-
-    this.store.setState(resolvedTool(current, requested.id), true);
-    this.result(requested.callId, {
-      status: "unknown",
-      error: "Delivery is uncertain. Check the work before retrying.",
-    });
-  }
-
-  /** Publish immutable provider state before launching selected worker requests.
-  @param event - Provider control event.
-  */
-  receive(event: Data) {
-    const received = receivedTools(this.store.getState(), event);
-
-    this.store.setState(received.state, true);
-
-    for (const call of received.calls) {
+    for (const call of requested.calls) {
       void this.dispatch(call);
     }
-
-    if (!received.isCompleted) {
-      return;
-    }
-
-    this.store.setState(completedToolResponse(this.store.getState()), true);
-    this.flush();
   }
 
-  /** Resolve a worker receipt back to its original provider call.
-  @param id - Main-agent delivery identity.
-  @param text - Actual worker answer.
-  @param status - Native turn completion status.
+  /** Return one native completion only to the call and delegation that requested it.
+  @param id - Durable main-agent receipt identity.
+  @param text - Actual main-agent result.
+  @param status - Native completion status.
   */
   answer(id: string, text: string, status = "completed") {
     const current = this.store.getState();
-    const callId = current.pending.get(id);
+    const delegationId = current.pending.get(id);
 
-    if (!callId) {
+    if (!delegationId) {
       return;
     }
 
     this.store.setState(resolvedTool(current, id), true);
-    this.result(callId, { status, result: text || "The worker finished without a text result." });
+    this.result(
+      delegationId,
+      `Backend outcome: ${status}. ${text || "The requested work finished without a text result."}`
+    );
   }
 
   /**
-  Detach pending work without replaying it into a future voice connection.
+  Revoke future result destinations without cancelling accepted main-agent work.
   */
   close() {
-    this.store.setState({ active: false, pending: new Map(), results: [] });
+    this.store.setState({ active: false, waiting: new Map(), pending: new Map() });
   }
 }

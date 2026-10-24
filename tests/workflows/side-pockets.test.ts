@@ -9,8 +9,18 @@ import {
 } from "../fixtures/delegation-native";
 import { owner, tool, state, assignment } from "../fixtures/delegation-flow";
 import { delegationCommandSchema } from "../../src/state/delegation-data";
+import { object } from "../../src/lib/protocol";
 import assert from "node:assert/strict";
 import test from "node:test";
+
+/** Read a report from the canonical mailbox without a second display projection.
+@param expected - Exact report body.
+@param mail - Scoped durable mailbox row.
+@returns Whether this row contains the expected report.
+*/
+function isReport(expected: string, mail: { payload: string }) {
+  return object(JSON.parse(mail.payload)).message === expected;
+}
 
 await test("a Side Pocket receives current corrections, cancels obsolete work and reports its original result once", async (t) => {
   const native = await nativeFlow(t);
@@ -59,11 +69,11 @@ await test("a Side Pocket receives current corrections, cancels obsolete work an
   await native.worker.until((events) => events.some((event) => event.event === "mail" && event.text.includes(report)));
   await correction(native, child, "finish", "finish", "accepted");
   await state(native.flow.store, () => native.flow.store.get(owner, child.id).status === "idle");
-  const reports = native.flow.store.reports.list(owner);
+  const reports = native.flow.store.mail.history(owner, child.id);
 
-  assert.equal(reports.filter((entry) => entry.text === report).length, 1);
-  assert.equal(reports.find((entry) => entry.text === report)?.agentId, `pocket:${child.id}`);
-  assert.deepEqual(native.flow.store.reports.list("another-parent"), []);
+  assert.equal(reports.filter(isReport.bind(undefined, report)).length, 1);
+  assert.equal(reports.find(isReport.bind(undefined, report))?.childId, child.id);
+  assert.deepEqual(native.flow.store.mail.history("another-parent", child.id), []);
   const resumed = await tool(native.client, "side_pocket_send", {
     id: child.id,
     message: "Continue the saved inspection",

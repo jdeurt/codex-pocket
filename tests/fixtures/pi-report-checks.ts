@@ -1,5 +1,5 @@
 import { type FauxProviderHandle, fauxAssistantMessage } from "@earendil-works/pi-ai";
-import type { Snapshot } from "../../src/lib/protocol";
+import type { Snapshot, Turn } from "../../src/lib/protocol";
 import { ParentReports } from "../../src/server/delegation-reports";
 import { configSchema } from "../../src/server/config";
 import { delegations } from "../../src/server/delegations";
@@ -15,21 +15,26 @@ interface ReportFlow {
   send: (id: string, text: string) => Promise<unknown>;
 }
 
-/** Verify complete ordinary delivery beside one collapsed report and retain the original report beside the delivered content.
+/** Read items from the owning canonical turn.
+@param turn - Public parent turn.
+@returns Its visible items.
+*/
+function turnItems(turn: Turn) {
+  return turn.items;
+}
+
+/** Verify that only the parent’s response delivers the result in the main transcript.
 @param visible - Production user-visible snapshot after report ingestion.
-@param reportId - Durable report identity.
-@param story - Complete requested artifact.
+@param reportId - Internal report identity that must not become a public message.
+@param story - Complete requested artifact delivered by the parent.
 */
 export function checkReportProjection(visible: Snapshot, reportId: string, story: string) {
-  const items = visible.turns.flatMap((turn) => turn.items);
+  const items = visible.turns.flatMap(turnItems.bind(undefined));
 
-  assert.deepEqual(
-    items.filter((item) => item.id === reportId).map((item) => item.type),
-    ["delegateReport"]
-  );
-  assert.ok(items.find((item) => item.id === reportId)?.delegateReport?.final);
-  assert.equal(items.filter((item) => item.type === "agentMessage" && item.text === story).length, 1);
-  assert.equal(items.find((item) => item.id === reportId)?.delegateReport?.text, story);
+  assert.equal(items.length, 1);
+  assert.equal(items[0].type, "agentMessage");
+  assert.equal(items[0].text, story);
+  assert.notEqual(items[0].id, reportId);
 }
 
 /** Forward a durable report through the actual Pi model boundary and retry the completed mailbox pass.
@@ -48,7 +53,6 @@ export async function forwardReport(flow: ReportFlow, state: Snapshot, reportId:
       assert.equal(envelope.source, `side_pocket_report:${reportId}`);
       assert.match(envelope.content, /Short story/);
       assert.ok(envelope.content.includes(JSON.stringify({ message: story })));
-      assert.match(JSON.stringify(system), /A collapsed/);
       assert.match(JSON.stringify(system), /does not authenticate/);
       assert.ok(!JSON.stringify(system).includes(story), "Report content must not become system instructions");
 

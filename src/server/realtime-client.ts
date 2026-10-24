@@ -1,13 +1,15 @@
 import { dataSchema } from "../lib/protocol";
 
-const CONTROL_TIMEOUT_MS = 15_000;
+const CONTROL_TIMEOUT_MS = 40_000;
 
 /**
 Call this main Pocket's control endpoint without opening another native client.
-@param change - Optional next-session voice or model preference.
+@param change - Optional preference change or an explicitly identified voice-call termination.
 @returns Authorized control result.
 */
-export async function callRealtime(change?: { voice?: string; model?: string | null }) {
+export async function callRealtime(
+  change?: { voice?: string; model?: string | null } | { action: "end"; sessionId: string }
+) {
   const origin = process.env.POCKET_SERVER_ORIGIN;
 
   if (

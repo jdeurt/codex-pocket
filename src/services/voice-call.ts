@@ -1,4 +1,5 @@
 import { t } from "try";
+import { VoiceTiming } from "../runtime/voice-timing";
 import { type VoiceResources, listenRealtime, receiveRealtime } from "../runtime/realtime-stream";
 import { connectVoice, playRemoteAudio } from "../runtime/realtime-capture";
 import { type VoiceStore, mergeCaptions } from "../runtime/stores";
@@ -10,11 +11,12 @@ const MEDIA_CONNECT_TIMEOUT_MS = 45_000;
 Runtime owner of the callbacks registered for one particular media connection.
 */
 export class VoiceCall {
+  private readonly timing;
   /** Publish a media error only while this call owns active resources.
   @param message - User-facing failure.
   */
   private fail = (message: string) => {
-    if (!this.resources.active) {
+    if (!this.resources.active || this.resources.stopping) {
       return;
     }
 
@@ -33,7 +35,7 @@ export class VoiceCall {
   Track the peer's actual connection state.
   */
   private connectionChanged = () => {
-    if (!this.resources.active) {
+    if (!this.resources.active || this.resources.stopping) {
       return;
     }
 
@@ -97,7 +99,7 @@ export class VoiceCall {
   private followCaptions = async (token: string) => {
     const listened = await t(listenRealtime, this.resources, token, this.receive);
 
-    if (!listened.ok && this.resources.active) {
+    if (!listened.ok && this.resources.active && !this.resources.stopping) {
       this.error("Reply text disconnected. Your live audio is still connected.");
     }
   };
@@ -112,6 +114,7 @@ export class VoiceCall {
     current.peer.addEventListener("connectionstatechange", this.connectionChanged);
     current.peer.addEventListener("track", this.track);
     current.channel.addEventListener("close", this.closed);
+    current.channel.addEventListener("message", this.timing.receive);
     await connectVoice(current, this.fail);
 
     if (current.active && current.token) {
@@ -128,5 +131,7 @@ export class VoiceCall {
     readonly resources: VoiceResources,
     private readonly store: VoiceStore,
     private readonly stop: () => void
-  ) {}
+  ) {
+    this.timing = new VoiceTiming(resources);
+  }
 }

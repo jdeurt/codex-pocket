@@ -13,6 +13,8 @@ const PROBE_MS = 2000;
 const STARTUP_MS = 120_000;
 const SHUTDOWN_MS = 15_000;
 const POLL_MS = 100;
+const CLEANUP_RETRIES = 3;
+const CLEANUP_RETRY_MS = 100;
 const scripts: Record<string, string> = {
   pockets: "pockets-server.ts",
   agents: "agent-browser-server.ts",
@@ -122,7 +124,7 @@ export const test = base.extend<object, { application: undefined }>({
 
       const completed = await captureResult(assertExpectedRequests(path.join(directory, "state")));
 
-      await rm(directory, { recursive: true, force: true });
+      await rm(directory, { recursive: true, force: true, maxRetries: CLEANUP_RETRIES, retryDelay: CLEANUP_RETRY_MS });
 
       if (!completed.ok) {
         throw completed.error;

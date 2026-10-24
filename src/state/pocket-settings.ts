@@ -1,11 +1,12 @@
 import { openaiApiKeySchema, realtimeSettingSchema, type PocketSettingsMutation } from "../lib/settings";
 import { z } from "zod";
+import { migratedRealtimeModel } from "./realtime-configuration";
 
 export const savedSettingsSchema = z
   .object({
     showToolCalls: z.boolean().default(false),
     realtimeVoice: realtimeSettingSchema.nullable().default(null),
-    realtimeModel: realtimeSettingSchema.nullable().default(null),
+    realtimeModel: realtimeSettingSchema.nullable().default(null).transform(migratedRealtimeModel),
     openaiApiKey: openaiApiKeySchema.nullable().default(null),
   })
   .strict();
@@ -45,6 +46,8 @@ export function changedSettings(saved: SavedSettings, change: PocketSettingsMuta
     showToolCalls: change.showToolCalls ?? saved.showToolCalls,
     openaiApiKey: change.openaiApiKey === undefined ? saved.openaiApiKey : change.openaiApiKey,
     realtimeVoice: change.realtimeVoice === undefined ? saved.realtimeVoice : change.realtimeVoice,
-    realtimeModel: change.realtimeModel === undefined ? saved.realtimeModel : change.realtimeModel,
+    realtimeModel: migratedRealtimeModel(
+      change.realtimeModel === undefined ? saved.realtimeModel : change.realtimeModel
+    ),
   };
 }

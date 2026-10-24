@@ -1,6 +1,6 @@
 import { t } from "try";
 import { type VoiceResources, stopRealtime } from "../runtime/realtime-stream";
-import { createVoiceResources, releaseVoiceResources } from "../runtime/realtime-capture";
+import { createVoiceResources, releaseVoiceResources, quiesceVoiceResources } from "../runtime/realtime-capture";
 import { type VoiceStore } from "../runtime/stores";
 import { CaptionHistory } from "./voice-history";
 import { VoiceCall } from "./voice-call";
@@ -23,12 +23,13 @@ export class VoiceController {
     }
   };
 
-  /** Confirm remote shutdown after local media has already been released.
-  @param current - Released media resources for the closing call.
+  /** Confirm remote shutdown after muting local media, then release the transports.
+  @param current - Muted resources retained for final session metadata.
   */
   private finishStop = async (current: VoiceResources) => {
     const stopped = await t(stopRealtime, current);
 
+    releaseVoiceResources(current);
     this.stopTask = null;
     this.store.setState({ state: "idle" });
 
@@ -85,7 +86,7 @@ export class VoiceController {
     }
 
     this.call = null;
-    releaseVoiceResources(current);
+    quiesceVoiceResources(current);
     this.store.setState({ state: "stopping" });
     this.stopTask = this.finishStop(current);
     await this.stopTask;

@@ -31,10 +31,21 @@ export function registerSessionTools(server: McpServer) {
     "pocket_realtime_inspect",
     {
       description:
-        "Read OpenAI realtime voices, central next-session settings, and saved finalized speech with handoff status. Consult this history when a voice request refers to earlier spoken context.",
+        "Read GPT-Live voices, next-session settings, current local session identity, live transcript fragments, and saved speech. Inspect live fragments when a delegated request is incomplete; captions can still be growing.",
       inputSchema: z.object({}).strict(),
     },
     () => toolResult(() => callRealtime())
+  );
+  server.registerTool(
+    "pocket_realtime_end",
+    {
+      description:
+        "End only the voice session explicitly identified in the current GPT-Live delegation or inspection. " +
+        "Use only when the user asks to hang up. Preserve chat history and existing main-agent work. " +
+        "An old session ID cannot end a replacement call. Finalization is confirmed before returning.",
+      inputSchema: z.object({ sessionId: z.uuid() }).strict(),
+    },
+    ({ sessionId }) => toolResult(() => callRealtime({ action: "end", sessionId }))
   );
   server.registerTool(
     "pocket_realtime_voice",
@@ -49,7 +60,7 @@ export function registerSessionTools(server: McpServer) {
     "pocket_realtime_model",
     {
       description:
-        "Set the central OpenAI Realtime model override for future voice sessions. OpenAI validates availability when a session starts. Pass null to restore the provider default. Active speech is unchanged.",
+        "Set the central GPT-Live model override for future voice sessions. OpenAI validates availability when a session starts. Pass null to restore the current GPT-Live default. Active speech is unchanged.",
       inputSchema: z.object({ model: z.string().trim().min(1).nullable() }).strict(),
     },
     ({ model }) => toolResult(() => callRealtime({ model }))

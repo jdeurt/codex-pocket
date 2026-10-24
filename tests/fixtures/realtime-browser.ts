@@ -1,4 +1,4 @@
-import { type Page, expect } from "@playwright/test";
+import { type Page, type Response, expect } from "@playwright/test";
 import { readFile, writeFile } from "node:fs/promises";
 import { type Data, dataSchema } from "../../src/lib/protocol";
 import path from "node:path";
@@ -10,6 +10,7 @@ interface MediaProbe {
   answer: (sdp: string) => Promise<string>;
   stats: () => Promise<{ received: number; sent: number }>;
   microphone?: MediaStreamTrack;
+  channel?: RTCDataChannel;
 }
 
 declare global {
@@ -18,9 +19,10 @@ declare global {
 
 /** Use two native browser peers to test actual RTP in both directions without a live provider.
 @param page - Browser before app load.
+@param shouldObserveTiming - Whether to expose the native metadata channel for protocol-driven timing checks.
 */
-export async function installRealtimePeer(page: Page) {
-  await page.addInitScript(() => {
+export async function installRealtimePeer(page: Page, shouldObserveTiming = false) {
+  await page.addInitScript((shouldObserve) => {
     const peers: RTCPeerConnection[] = [];
 
     const probe: MediaProbe = {
@@ -71,6 +73,31 @@ export async function installRealtimePeer(page: Page) {
     };
 
     Object.defineProperty(globalThis, "pocketMediaProbe", { configurable: true, value: probe });
+
+    if (shouldObserve) {
+      const NativePeer = RTCPeerConnection;
+
+      /**
+      Observe actual native data channels without replacing their transport behavior.
+      */
+      class ObservedPeer extends NativePeer {
+        /** Record the same native channel returned to the application.
+        @param label - Requested native channel label.
+        @param options - Native channel negotiation options.
+        @returns The original browser-owned channel.
+        */
+        override createDataChannel(label: string, options?: RTCDataChannelInit) {
+          const channel = super.createDataChannel(label, options);
+
+          globalThis.pocketMediaProbe.channel = channel;
+
+          return channel;
+        }
+      }
+
+      Object.defineProperty(globalThis, "RTCPeerConnection", { configurable: true, value: ObservedPeer });
+    }
+
     const capture = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
 
     navigator.mediaDevices.getUserMedia = async (constraints) => {
@@ -80,7 +107,7 @@ export async function installRealtimePeer(page: Page) {
 
       return stream;
     };
-  });
+  }, shouldObserveTiming);
   await page.route("**/api/realtime", async (route) => {
     const request = route.request();
 
@@ -137,11 +164,35 @@ export async function openVoice(page: Page) {
   await expect(page.getByRole("button", { name: /Send message; hold and swipe up/ })).toBeEnabled();
 }
 
+/** Identify the actual start response independently of native RTP readiness.
+@param response - Native browser HTTP response.
+@returns Whether this response negotiates the requested call.
+*/
+function isVoiceNegotiated(response: Response) {
+  return (
+    response.url().endsWith("/api/realtime") &&
+    response.request().method() === "POST" &&
+    dataSchema.parse(response.request().postDataJSON()).action === "start"
+  );
+}
+
+/** Negotiate a native call before exercising independent captions or cleanup controls.
+@param page - Loaded application with native peer fixtures installed.
+*/
+export async function negotiateVoice(page: Page) {
+  const negotiated = page.waitForResponse(isVoiceNegotiated.bind(undefined));
+
+  await page.getByRole("button", { name: "Start realtime voice" }).focus();
+  await page.keyboard.press("Enter");
+  const response = await negotiated;
+
+  expect(response.ok()).toBe(true);
+}
+
 /** Activate voice with a real gesture and wait for the media connection.
 @param page - Loaded application.
 */
 export async function startVoice(page: Page) {
-  await page.getByRole("button", { name: "Start realtime voice" }).focus();
-  await page.keyboard.press("Enter");
+  await negotiateVoice(page);
   await expect(page.getByRole("status", { name: "Realtime voice active" })).toBeVisible();
 }

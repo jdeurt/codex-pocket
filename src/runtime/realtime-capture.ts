@@ -7,6 +7,7 @@ import { pocketUrl } from "./pocket-navigation";
 
 const ANALYSER_FFT_SIZE = 2048;
 const ANALYSER_SMOOTHING = 0.72;
+const ICE_TIMEOUT_MS = 10_000;
 
 /** Create native WebRTC transport and visualization nodes without capturing or queuing PCM.
 @param context - Audio context activated by the user's gesture.
@@ -38,6 +39,7 @@ export function createVoiceResources(context: AudioContext): VoiceResources {
     outputAnalyser,
     abort: new AbortController(),
     active: true,
+    stopping: false,
   };
 }
 
@@ -46,7 +48,7 @@ export function createVoiceResources(context: AudioContext): VoiceResources {
 @param event - Remote audio track delivered by WebRTC.
 */
 export async function playRemoteAudio(current: VoiceResources, event: RTCTrackEvent) {
-  if (!current.active) {
+  if (!current.active || current.stopping) {
     return;
   }
 
@@ -79,7 +81,68 @@ async function closeAudioContext(context: AudioContext) {
 @returns Whether the call still owns its media.
 */
 function isVoiceActive(current: VoiceResources) {
-  return current.active;
+  return current.active && !current.stopping;
+}
+
+/** Mute local media immediately while keeping final session metadata receivable.
+@param current - Resources whose remote session is being finalized.
+*/
+export function quiesceVoiceResources(current: VoiceResources) {
+  current.stopping = true;
+  clearTimeout(current.connectionTimer);
+  current.output.pause();
+
+  if (!current.startingRequest) {
+    current.abort.abort();
+  }
+
+  const tracks = current.stream?.getTracks() ?? [];
+
+  for (const track of tracks) {
+    track.enabled = false;
+    track.stop();
+  }
+}
+
+/** Complete an ICE waiter only after the native offer contains gathered candidates.
+@param peer - Native negotiation owner.
+@param pending - The exact pending gathering lifetime.
+*/
+function gatheredIce(peer: RTCPeerConnection, pending: PromiseWithResolvers<undefined>) {
+  if (peer.iceGatheringState === "complete") {
+    pending.resolve(undefined);
+  }
+}
+
+/** Cancel a negotiation waiter when cancelled or its bounded deadline expires.
+@param pending - Gathering lifetime whose failure is owned by connectVoice.
+*/
+function failedIce(pending: PromiseWithResolvers<undefined>) {
+  pending.reject(new Error("Live voice candidate gathering was cancelled or timed out."));
+}
+
+/** Gather the browser's complete SDP without adding a per-speech-turn wait.
+@param current - Native session resources, with cancellation owned by release.
+*/
+async function gatherVoiceIce(current: VoiceResources) {
+  const pending = Promise.withResolvers<undefined>();
+  const changed = gatheredIce.bind(undefined, current.peer, pending);
+  const failed = failedIce.bind(undefined, pending);
+
+  current.peer.addEventListener("icegatheringstatechange", changed);
+  current.abort.signal.addEventListener("abort", failed, { once: true });
+  const timer = setTimeout(failed, ICE_TIMEOUT_MS);
+
+  changed();
+  const outcome = await captureResult(pending.promise);
+
+  clearTimeout(timer);
+  current.peer.removeEventListener("icegatheringstatechange", changed);
+  current.abort.signal.removeEventListener("abort", failed);
+
+  if (!outcome.ok) {
+    throw outcome.error;
+  }
 }
 
 /** Release microphone and playback synchronously, before waiting for server cleanup.
@@ -137,16 +200,19 @@ export async function connectVoice(current: VoiceResources, fail: (message: stri
   const offer = await current.peer.createOffer();
 
   await current.peer.setLocalDescription(offer);
+  await gatherVoiceIce(current);
 
   if (!isVoiceActive(current)) {
     return;
   }
 
-  if (!offer.sdp) {
+  const sdp = current.peer.localDescription?.sdp;
+
+  if (!sdp) {
     throw new Error("The browser could not create an audio connection.");
   }
 
-  current.startingRequest = realtimeCommand({ action: "start", sdp: offer.sdp }, current.commandUrl);
+  current.startingRequest = realtimeCommand({ action: "start", sdp }, current.commandUrl);
   const result = await current.startingRequest;
 
   if (!isVoiceActive(current)) {

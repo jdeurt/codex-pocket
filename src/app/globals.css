@@ -308,17 +308,21 @@
 [data-slot="message-content"] {
   min-width: 0;
 }
+[data-delivery="sending"] > [data-slot="bubble-content"],
+[data-delivery="queued"] > [data-slot="bubble-content"] {
+  border-color: var(--muted-foreground);
+  border-style: dashed;
+  background: transparent;
+}
+[data-delivery="queued"] > [data-slot="bubble-content"] {
+  border-style: dotted;
+}
 .delivery-status {
   color: var(--muted-foreground);
   font-size: 12px;
   margin: 0;
   padding: 0;
   text-align: right;
-}
-[data-delivery="sending"],
-[data-delivery="queued"],
-[data-delivery="unknown"] {
-  opacity: 0.55;
 }
 .activity-indicator,
 .system-event {
