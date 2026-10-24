@@ -5,7 +5,7 @@ import { OpenAIVoiceSession } from "./openai-voice-session";
 import { BridgeVoiceOwner, voicePreferences } from "./bridge-voice-owner";
 import { voiceWorkerResult } from "../state/voice-context";
 import { settingsSchema } from "./realtime-schema";
-import { type Turn } from "../lib/protocol";
+import { type Turn, type RpcEvent } from "../lib/protocol";
 
 /**
 Select an explicitly enabled loopback provider fixture; production always uses OpenAI.
@@ -59,11 +59,23 @@ export class RealtimeSession extends OpenAIVoiceSession {
   completed(completed?: Turn) {
     const result = voiceWorkerResult(this.bridge.snapshot, completed);
 
-    if (result) {
-      for (const id of result.ids) {
-        this.answer(id, result.text, result.status);
-      }
+    if (!result) {
+      return;
     }
+
+    this.workerCompleted(result);
+  }
+
+  /** Split subsequent captions at explicitly published chat messages.
+  @param event - Parent-scoped canonical event already applied by the bridge.
+  */
+  observeChat(event: RpcEvent) {
+    if (event.method !== "item/completed" || event.params.item?.delivery !== "chat") {
+      return;
+    }
+
+    this.beginTimelineBoundary(event.params.item.id);
+    this.commitTimelineBoundary(event.params.item.id);
   }
 
   /**

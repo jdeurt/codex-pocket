@@ -5,6 +5,7 @@ import { findById, withoutId } from "../lib/identity";
 import { validateAnswer } from "../state/answers";
 import { writeLocal } from "./local-state";
 import { requestFile } from "./request-files";
+import { isInternalMessageId } from "../state/internal-messages";
 
 /**
 Runtime owner of user commands executed under the bridge's shared operation lease.
@@ -21,7 +22,7 @@ export class BridgeCommands {
     await this.bridge.ensureConnected();
     const { rpc, config } = this.bridge.connection();
 
-    if (!source) {
+    if (!source && !isInternalMessageId(id)) {
       await this.bridge.realtime.prepareText();
     }
 

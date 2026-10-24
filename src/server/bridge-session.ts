@@ -222,6 +222,8 @@ export class Bridge {
 
     this.snapshot = applyBridgeEvent(this.snapshot, this.config, event);
 
+    this.realtime.observeChat(event);
+
     if (event.id === undefined && event.method === "turn/completed") {
       this.realtime.completed(event.params.turn);
       void this.drainMessages();

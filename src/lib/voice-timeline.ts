@@ -3,11 +3,27 @@ import { rowsForTurns, type TranscriptTurn } from "./transcript-virtualization";
 import { type VoiceSegment } from "./voice-history";
 import { hasMessageText } from "./turn-messages";
 import { groupedVoiceSegments } from "../state/voice";
+import { type VoiceGroup } from "../state/voice-groups";
 
 interface AnchoredTurn {
   id: string;
   afterItemId?: string | null;
   turn: TranscriptTurn;
+}
+
+/** Keep prior speech before sibling notices when legacy caption identities have merged.
+@param left - Anchored speech or restart row.
+@param right - Other anchored row.
+@returns Stable voice-first order; dependency traversal still places later speech after notices.
+*/
+function compareAnchoredEntries(left: AnchoredTurn, right: AnchoredTurn) {
+  const first = left.turn.entries[0];
+  const second = right.turn.entries[0];
+
+  return (
+    Number(first.kind === "message" && first.item.type === "pocketRestart") -
+    Number(second.kind === "message" && second.item.type === "pocketRestart")
+  );
 }
 
 /** Resolve timeline anchors without recursion, preserving cycle and missing-anchor fallbacks.
@@ -41,9 +57,10 @@ function anchorPosition(
 
 /** Order voice and restart dependencies before their descendants.
 @param segments - Anchored timeline entries in stable source order.
+@param aliases - Original caption identities mapped to their current display group.
 @returns Entries with each available predecessor before its descendants.
 */
-function orderedEntries(segments: AnchoredTurn[]) {
+function orderedEntries(segments: AnchoredTurn[], aliases: ReadonlyMap<string, string>) {
   const pending = new Map<string, AnchoredTurn>();
   const ordered: AnchoredTurn[] = [];
 
@@ -58,13 +75,42 @@ function orderedEntries(segments: AnchoredTurn[]) {
 
     while (current && pending.delete(current.id)) {
       chain.push(current);
-      current = pending.get(current.afterItemId ?? "");
+      const predecessor = current.afterItemId ?? "";
+
+      current = pending.get(aliases.get(predecessor) ?? predecessor);
     }
 
     ordered.push(...chain.toReversed());
   }
 
   return ordered;
+}
+
+/** Read a derived bubble identity before building legacy aliases.
+@param group - Visible speaker bubble.
+@returns Its stable display identity.
+*/
+function voiceGroupIdentity(group: VoiceGroup) {
+  return group.id;
+}
+
+/** Retain original caption identities after display groups merge.
+@param segments - Derived bubbles with immutable source identities.
+@returns Original identity to current bubble identity lookup.
+*/
+function voiceAliases(segments: VoiceGroup[]) {
+  const aliases = new Map<string, string>();
+  const visibleIds = new Set(Array.from(segments, voiceGroupIdentity.bind(undefined)));
+
+  for (const segment of segments) {
+    for (const id of segment.sourceIds) {
+      if (!visibleIds.has(id)) {
+        aliases.set(id, segment.id);
+      }
+    }
+  }
+
+  return aliases;
 }
 
 /** Read the durable handoff identity shared by legacy captions and canonical messages.
@@ -116,7 +162,7 @@ function isUserReceipt(item: Item) {
 */
 function anchoredVoiceGroups(fragments: VoiceSegment[]) {
   const groups = groupedVoiceSegments(fragments);
-  const anchored: VoiceSegment[] = [];
+  const anchored: VoiceGroup[] = [];
 
   let previous: VoiceSegment | undefined;
 
@@ -184,10 +230,12 @@ export function voiceTimeline(turns: TranscriptTurn[], fragments: VoiceSegment[]
     }
   }
 
-  const anchors = new Map<string, string | null | undefined>();
+  const aliases = voiceAliases(segments);
+  const anchors = new Map<string, string | null | undefined>(aliases);
 
   for (const segment of segments) {
     anchors.set(segment.id, segment.afterItemId);
+
     const position = receipts.get(captionReceipt(segment));
 
     if (position !== undefined) {
@@ -210,8 +258,9 @@ export function voiceTimeline(turns: TranscriptTurn[], fragments: VoiceSegment[]
   }
 
   const buckets = new Map<number, TranscriptTurn[]>();
+  const ordered = orderedEntries(anchored.toSorted(compareAnchoredEntries), aliases);
 
-  for (const entry of orderedEntries(anchored)) {
+  for (const entry of ordered) {
     const position = anchorPosition(entry.afterItemId, positions, anchors, rows.length);
     const bucket = buckets.get(position) ?? [];
 

@@ -5,7 +5,6 @@ import {
   installRealtimePeer,
   openVoice,
   providerAction,
-  startVoice,
   negotiateVoice,
 } from "../../fixtures/realtime-browser";
 
@@ -16,6 +15,28 @@ const REPLY_REPEATS = 30;
 const READING_FRACTION = 0.35;
 const STREAM_DELAY_MS = 1200;
 const END_TOLERANCE = 8;
+const PAUSE_MS = 2000;
+const ALIGNMENT_TOLERANCE = 1;
+
+/** Measure the visible first character rather than a message container's padding.
+@param element - Actual caption paragraph.
+@returns Text position including the effect of preserved leading whitespace.
+*/
+function firstCharacterLeft(element: HTMLElement | SVGElement) {
+  const node = element.firstChild;
+
+  if (!node) {
+    throw new Error("The caption must have a text node.");
+  }
+
+  const offset = element.textContent.search(/\S/u);
+  const range = document.createRange();
+
+  range.setStart(node, offset);
+  range.setEnd(node, offset + 1);
+
+  return range.getBoundingClientRect().left;
+}
 
 /** Measure actual scroll geometry independently of the transcript's follow state.
 @param page - Browser displaying the live conversation.
@@ -44,7 +65,7 @@ test("realtime owns the conversation and returns worker results without duplicat
   await installRealtimePeer(page);
   await openVoice(page);
   await page.getByRole("textbox", { name: "Message Pocket" }).fill("keep this draft");
-  await startVoice(page);
+  await negotiateVoice(page);
   await providerAction("speech");
   await expect(page.getByText(reply, { exact: true })).toHaveCount(1);
   await expect(page.getByText(spoken, { exact: true })).toHaveCount(1);
@@ -96,4 +117,39 @@ test("streaming replies follow the end and preserve a reader who scrolls up", as
   await page.getByRole("button", { name: "Jump to latest message" }).click();
   await expect.poll(distanceFromEnd.bind(undefined, page)).toBeLessThanOrEqual(END_TOLERANCE);
   await page.getByRole("button", { name: "Stop realtime voice" }).click();
+});
+
+test("paused voice fragments remain one left-aligned bubble and reload without leading spaces", async ({ page }) => {
+  const partial = "   I checked the logs.";
+  const complete = partial + " The report is ready.";
+  const second = "Here is the next answer.";
+
+  await configureVoice({
+    transcript: "Check the logs.",
+    replyText: complete,
+    partialReplyText: partial,
+    replyDelayMs: PAUSE_MS,
+  });
+  await installRealtimePeer(page);
+  await openVoice(page);
+  await negotiateVoice(page);
+  await providerAction("speech");
+  const reply = page.getByText(complete.trim(), { exact: true });
+
+  await expect(reply).toBeVisible();
+  await expect(reply).toHaveJSProperty("textContent", complete.trim());
+  await expect(page.getByText(partial.trim(), { exact: true })).toHaveCount(0);
+  await configureVoice({ transcript: "And next?", replyText: second });
+  await providerAction("speech");
+  const next = page.getByText(second, { exact: true });
+
+  await expect(next).toBeVisible();
+  const firstLeft = await reply.evaluate(firstCharacterLeft);
+  const nextLeft = await next.evaluate(firstCharacterLeft);
+
+  expect(Math.abs(firstLeft - nextLeft)).toBeLessThanOrEqual(ALIGNMENT_TOLERANCE);
+  await page.getByRole("button", { name: "Stop realtime voice" }).click();
+  await page.reload();
+  await expect(page.getByText(complete.trim(), { exact: true })).toHaveCount(1);
+  await expect(page.getByText(second, { exact: true })).toHaveCount(1);
 });

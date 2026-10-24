@@ -6,6 +6,7 @@ import { voiceTimeline } from "../lib/voice-timeline";
 import { visibleSnapshot } from "./visible-snapshot";
 import { findById } from "../lib/identity";
 import { conversationTurns, queuedIdentity } from "./conversation";
+import { delegationMessagePrefix } from "./delegation-queue";
 
 const CONTEXT_CHARACTERS = 48_000;
 const LAST = -1;
@@ -186,15 +187,31 @@ export function voiceWorkerResult(snapshot: Snapshot, completed: Turn | undefine
   const messages: string[] = [];
   const ids: string[] = [];
 
+  let hasChatDelivery = false;
+  let isContinuation = false;
+
   for (const item of turn.items) {
-    if (item.type === "agentMessage" && item.phase !== "commentary") {
+    hasChatDelivery ||= item.delivery === "chat";
+
+    if (item.type === "agentMessage" && item.phase !== "commentary" && item.delivery !== "chat") {
       messages.push(messageText(item));
     }
 
-    if (item.type === "userMessage") {
-      ids.push(string(item.clientId) || item.id);
+    if (item.type !== "userMessage") {
+      continue;
     }
+
+    const id = string(item.clientId) || item.id;
+
+    ids.push(id);
+    isContinuation ||= id.startsWith(delegationMessagePrefix);
   }
 
-  return { ids, text: messages.join("\n"), status: turn.status };
+  return {
+    ids,
+    turnId: turn.id,
+    text: messages.join("\n") || (hasChatDelivery ? "The requested content was delivered directly to chat." : ""),
+    status: turn.status,
+    isContinuation,
+  };
 }
