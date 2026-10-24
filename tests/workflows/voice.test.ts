@@ -24,7 +24,8 @@ await test("realtime delegates its own request before captions and returns worke
   const session = object(flow.calls[0].session);
   const input = object(object(session.audio).input);
 
-  assert.equal(object(input.turn_detection).create_response, true);
+  assert.equal(input.turn_detection, undefined);
+  assert.equal(session.reasoning, undefined);
   assert.equal(object(input.transcription).model, "gpt-4o-transcribe");
   flow.speech("request");
   const response = await flow.response(0);

@@ -1,7 +1,12 @@
 import { createStore } from "zustand/vanilla";
 import { t } from "try";
 import { SerialQueue } from "../runtime/serial-queue";
-import { liveCaptionState, receivedCaption, type CaptionTransition } from "../state/realtime-captions";
+import {
+  liveCaptionState,
+  receivedCaption,
+  shouldAnchorCaption,
+  type CaptionTransition,
+} from "../state/realtime-captions";
 import type { Data } from "../lib/protocol";
 import type { VoiceSessionOwner } from "./voice-session-owner";
 import { VoiceHistory } from "./voice-history";
@@ -60,7 +65,9 @@ export class RealtimeCaptions {
   @param sessionId - Native call identity.
   */
   receive(event: Data, sessionId: string) {
-    const received = receivedCaption(this.store.getState(), event, sessionId, this.owner.lastItemId?.() ?? null);
+    const state = this.store.getState();
+    const canonical = shouldAnchorCaption(state, event, sessionId) ? (this.owner.lastItemId?.() ?? null) : null;
+    const received = receivedCaption(state, event, sessionId, canonical);
 
     this.store.setState(received.state, true);
 

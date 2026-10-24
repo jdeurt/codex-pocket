@@ -39,8 +39,17 @@ class SpectrumRenderer {
     const bounds = this.element.getBoundingClientRect();
     const scale = devicePixelRatio || 1;
 
-    this.element.width = Math.max(1, Math.round(bounds.width * scale));
-    this.element.height = Math.max(1, Math.round(bounds.height * scale));
+    const width = Math.max(1, Math.round(bounds.width * scale));
+    const height = Math.max(1, Math.round(bounds.height * scale));
+
+    if (this.element.width !== width) {
+      this.element.width = width;
+    }
+
+    if (this.element.height !== height) {
+      this.element.height = height;
+    }
+
     this.context.setTransform(scale, 0, 0, scale, 0, 0);
     this.context.clearRect(0, 0, bounds.width, bounds.height);
     this.input.getByteFrequencyData(this.inputBytes);

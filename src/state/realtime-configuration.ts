@@ -1,3 +1,5 @@
+// OpenAI’s current browser speech-to-speech model alias:
+// https://developers.openai.com/api/docs/guides/realtime-webrtc
 export const REALTIME_MODEL = "gpt-realtime-2.1";
 export const REALTIME_VOICES = [
   "alloy",
@@ -47,7 +49,6 @@ export function configuration(voice: string, context = "") {
       audio: {
         input: {
           transcription: { model: "gpt-4o-transcribe" },
-          turn_detection: { type: "semantic_vad", create_response: true, interrupt_response: true },
         },
         output: { voice },
       },

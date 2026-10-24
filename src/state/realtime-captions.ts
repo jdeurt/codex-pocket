@@ -23,6 +23,46 @@ export function liveCaptionState(): LiveCaptionState {
   return { anchors: new Map(), partial: new Map(), captions: new Map() };
 }
 
+/** Select only events that can introduce a new speech identity.
+@param event - Provider metadata event.
+@returns Native item identity and speaker, when an anchor can be needed.
+*/
+function captionIdentity(event: Data): { itemId: string; role: Role } | undefined {
+  switch (event.type) {
+    case "response.output_item.added": {
+      const item = object(event.item);
+
+      return item.type === "message" && item.role === "assistant"
+        ? { itemId: string(item.id), role: "assistant" }
+        : undefined;
+    }
+
+    case "input_audio_buffer.speech_started":
+    case "input_audio_buffer.committed":
+    case "conversation.item.input_audio_transcription.completed":
+    case "conversation.item.input_audio_transcription.delta": {
+      return { itemId: string(event.item_id), role: "user" };
+    }
+
+    case "response.output_audio_transcript.done":
+    case "response.output_audio_transcript.delta": {
+      return { itemId: string(event.item_id), role: "assistant" };
+    }
+  }
+}
+
+/** Request canonical history only for a speech identity's first observation.
+@param state - Existing immutable caption anchors.
+@param event - Provider event, including unrelated media/control metadata.
+@param sessionId - Native call identity.
+@returns Whether the runtime needs to read the canonical transcript boundary.
+*/
+export function shouldAnchorCaption(state: LiveCaptionState, event: Data, sessionId: string) {
+  const identity = captionIdentity(event);
+
+  return identity !== undefined && !state.anchors.has(`realtime:${sessionId}:${identity.itemId}:${identity.role}`);
+}
+
 /** Anchor native speech to explicit canonical history before its captions arrive.
 @param state - Previous caption projection.
 @param itemId - Native speech identity.
