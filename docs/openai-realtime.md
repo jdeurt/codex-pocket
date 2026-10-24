@@ -10,6 +10,14 @@ Sessions use `delegation: { type: "client" }`. A `session.delegation.created` ev
 
 Verified backend results return through `session.commentary.append` with the original `delegation_id`, a unique command `event_id`, and content chunks capped at 400 UTF-8 bytes, conservatively below the provider’s 500-token limit. A context acknowledgment means acceptance, not completed playback. Pocket sends no `response.create` and does not wait for silence or a nonexistent per-response completion event. The Live model decides when to use the result. Internal backend requests and replies stay out of the public chat. Ending voice revokes its result destinations while accepted main-agent work continues.
 
+## Interruption policy
+
+All voice sessions use the same prompt policy. Backchannels are disabled: Pocket stays silent while the user speaks and produces no filler acknowledgments or listening sounds. During its own response, it ignores brief noises, coughs, and acknowledgments. For ambiguous input, it targets about 3 seconds of sustained speech before yielding. Clear intentional interruptions and requests to stop or hang up take effect immediately. A request to stop speaking still does not cancel work or end the call.
+
+This is an approximate conversational target in GPT-Live’s supported interruption instructions. It is not a configurable setting, strict duration gate, or silence timeout. It adds no application audio buffer or fixed delay before replies. The Realtime API’s VAD controls do not apply to GPT-Live sessions. No English-only restriction is applied.
+
+When a request needs tools or capabilities the live voice lacks, it requests help from the main Pocket. The main Pocket checks Side Pocket capabilities and delegates suitable work when its own tools cannot fulfill the request, preserving the user’s constraints and existing permissions.
+
 ## Negotiation and shutdown
 
 The browser registers its data channel, captures a native microphone track, and fully gathers ICE candidates before submitting SDP. The server creates a session through JSON `POST /v1/live/sessions`, supplying immutable startup instructions, audio settings, optional historical input, and `transport: { type: "webrtc", sdp }`. It preserves the returned opaque session ID and attaches `wss://api.openai.com/v1/live/sessions/{id}/attach` using the same private project credential. Attachment joins an already running session: Pocket sends no second startup or session-settings command.

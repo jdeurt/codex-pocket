@@ -289,7 +289,10 @@ if (process.env.CODEX_TEST_ACTIVITY === "1") {
       await send(page, "Steering update: reply exactly STEER_OK instead.");
 
       if (process.env.CODEX_TEST_ACTIVE_MODE === "queue") {
-        await expect(page.getByText("Queued", { exact: true })).toBeVisible();
+        await expect(page.locator('[data-delivery="queued"] > [data-slot="bubble-content"]').last()).toHaveCSS(
+          "border-top-style",
+          "dotted"
+        );
         await expect(page.getByText("BEFORE_STEER", { exact: true })).toBeVisible();
       }
 

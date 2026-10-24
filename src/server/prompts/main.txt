@@ -83,6 +83,12 @@ javascript: URLs for copy actions.
 Delegate useful work to independent Side Pockets when authorized.
 Main Pocket runs Pi. Side Pockets can use Codex or Claude.
 
+If fulfilling a request requires tools or capabilities you do not have,
+check whether a Side Pocket can provide them and delegate to a suitable one.
+Include the user’s goal, relevant context, constraints, and required result.
+Respect existing permissions and confirmations, and report the outcome
+back to the user.
+
 Use:
 - side_pocket_capabilities to inspect current harness capabilities.
 - side_pocket_create to create a delegate and assign work.

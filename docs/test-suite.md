@@ -111,7 +111,7 @@ npx playwright test tests/browser/workflows/transcript.spec.ts --project=pockets
 npx playwright test tests/browser/workflows/side-pockets.spec.ts --project=agents-chromium --grep='saved Codex and Claude work' --reporter=line
 npx playwright test tests/uploads/gif.spec.ts --project=uploads-chromium --grep='animated GIF exposes' --reporter=line
 npx playwright test --config=playwright.realtime.config.ts tests/browser/workflows/voice.spec.ts --project=realtime-chromium --grep='realtime owns' --reporter=line
-npx playwright test --config=playwright.realtime.config.ts tests/browser/workflows/voice-interruption.spec.ts --project=realtime-chromium --grep='new speech uses' --reporter=line
+npx playwright test --config=playwright.realtime.config.ts tests/browser/workflows/voice-recovery.spec.ts --project=realtime-chromium --grep='ending voice shows' --reporter=line
 ```
 
 The first PR CI run, [40034335570](https://github.com/jdeurt/codex-pocket/actions/runs/40034335570), passed static checks and macOS workflows but exposed three fixture/assertion issues: the Codex question omitted the contract-required `isBlocking` field; the voice case asserted physical ledger arrival order instead of the documented predecessor anchors; and the browser interruption case reused a reply from earlier tests. Corrections supply the native field, assert exact speech identities/content/status plus predecessor anchors and complete ordered native handoffs, and use a distinct reply with current-session truncation evidence. No production behavior changed for these CI failures. The run also exposed setup-node's automatic npm cache, which is now disabled so only the explicitly scoped content cache runs.
