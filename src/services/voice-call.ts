@@ -16,7 +16,7 @@ export class VoiceCall {
   @param message - User-facing failure.
   */
   private fail = (message: string) => {
-    if (!this.resources.active) {
+    if (!this.resources.active || this.resources.stopping) {
       return;
     }
 
@@ -35,7 +35,7 @@ export class VoiceCall {
   Track the peer's actual connection state.
   */
   private connectionChanged = () => {
-    if (!this.resources.active) {
+    if (!this.resources.active || this.resources.stopping) {
       return;
     }
 
@@ -99,7 +99,7 @@ export class VoiceCall {
   private followCaptions = async (token: string) => {
     const listened = await t(listenRealtime, this.resources, token, this.receive);
 
-    if (!listened.ok && this.resources.active) {
+    if (!listened.ok && this.resources.active && !this.resources.stopping) {
       this.error("Reply text disconnected. Your live audio is still connected.");
     }
   };

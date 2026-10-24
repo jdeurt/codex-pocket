@@ -30,7 +30,7 @@ test("provider control loss releases media and permits a fresh call", async ({ p
   await openVoice(page);
   await startVoice(page);
   await providerAction("disconnect");
-  await expect(page.getByText(/OpenAI Realtime disconnected/)).toBeVisible();
+  await expect(page.getByText(/GPT-Live disconnected/)).toBeVisible();
   expect(await page.evaluate(() => globalThis.pocketMediaProbe.microphone?.readyState)).toBe("ended");
   await startVoice(page);
   await page.getByRole("button", { name: "Stop realtime voice" }).click();

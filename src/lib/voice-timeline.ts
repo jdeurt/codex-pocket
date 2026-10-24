@@ -2,6 +2,7 @@ import { type Item, string } from "./protocol";
 import { rowsForTurns, type TranscriptTurn } from "./transcript-virtualization";
 import { type VoiceSegment } from "./voice-history";
 import { hasMessageText } from "./turn-messages";
+import { groupedVoiceSegments } from "../state/voice";
 
 interface AnchoredTurn {
   id: string;
@@ -109,13 +110,38 @@ function isUserReceipt(item: Item) {
   return item.type === "userMessage" && hasMessageText(item);
 }
 
+/** Project timestamp-ordered Live bubbles into predecessor chains shared with restart notices.
+@param fragments - Immutable saved or live fragments.
+@returns Display-only anchors that preserve media order without rewriting saved evidence.
+*/
+function anchoredVoiceGroups(fragments: VoiceSegment[]) {
+  const groups = groupedVoiceSegments(fragments);
+  const anchored: VoiceSegment[] = [];
+
+  let previous: VoiceSegment | undefined;
+
+  for (const group of groups) {
+    const shouldChain =
+      !!previous?.groupId &&
+      !!group.groupId &&
+      previous.nativeSessionId === group.nativeSessionId &&
+      previous.afterItemId === group.afterItemId;
+
+    anchored.push(previous && shouldChain ? { ...group, afterItemId: previous.id } : group);
+    previous = group;
+  }
+
+  return anchored;
+}
+
 /** Order speech and restart notices at durable anchors, retaining native order and receipt identity.
 @param turns - Canonical main-agent rows in their authoritative order.
-@param segments - Saved speech in provider order, including legacy entries without anchors.
+@param fragments - Immutable Live fragments or legacy speech entries.
 @param queued - Receipts still owned by the main outbox.
 @returns One transcript for voice and main-agent messages without text-based deduplication.
 */
-export function voiceTimeline(turns: TranscriptTurn[], segments: VoiceSegment[], queued: string[]) {
+export function voiceTimeline(turns: TranscriptTurn[], fragments: VoiceSegment[], queued: string[]) {
+  const segments = anchoredVoiceGroups(fragments);
   const canonical = new Set(queued);
   const positions = new Map<string, number>();
   const receipts = new Map<string, number>();

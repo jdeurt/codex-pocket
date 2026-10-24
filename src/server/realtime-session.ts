@@ -53,7 +53,7 @@ export class RealtimeSession extends OpenAIVoiceSession {
     super(new BridgeVoiceOwner(bridge));
   }
 
-  /** Return worker results to the realtime agent as tool outputs, never as a read-aloud user message.
+  /** Return verified main-agent findings as native Live commentary context.
   @param completed - Parent-scoped native turn supplied by the bridge.
   */
   completed(completed?: Turn) {
@@ -67,8 +67,8 @@ export class RealtimeSession extends OpenAIVoiceSession {
   }
 
   /**
-  Return central next-session preferences and finalized conversation history without credentials.
-  @returns Public configuration and finalized history.
+  Return next-session preferences, live fragments, and saved conversation without credentials.
+  @returns Public configuration and observed history.
   */
   async info() {
     await this.bridge.ensureConnected();
@@ -80,6 +80,8 @@ export class RealtimeSession extends OpenAIVoiceSession {
       voices: REALTIME_VOICES,
       configuredModel: central.realtimeModel,
       phase: this.status().type,
+      sessionId: this.identity(),
+      live: this.liveCaptions(),
       effectiveFor: "next realtime session; an active session keeps its voice and model",
       modelCatalog: "OpenAI validates the selected realtime model when the next session starts.",
       history: await this.transcripts(),
@@ -87,7 +89,7 @@ export class RealtimeSession extends OpenAIVoiceSession {
   }
 
   /**
-  Flush finalized captions before text resumes, without making live speech wait for storage.
+  Flush observed fragments before text resumes, without making live speech wait for storage.
   */
   async prepareText() {
     if (this.status().type !== "idle") {
@@ -110,7 +112,7 @@ export class RealtimeSession extends OpenAIVoiceSession {
     }
 
     if (change.voice && !REALTIME_VOICES.includes(change.voice)) {
-      throw new Error("That voice is unavailable in OpenAI Realtime.");
+      throw new Error("That voice is unavailable in GPT-Live.");
     }
 
     await updatePocketSettings({ realtimeVoice: change.voice, realtimeModel: change.model });

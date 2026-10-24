@@ -32,86 +32,108 @@ function emit(peer: WebSocket, event: Data) {
   }
 }
 
-/** Finish the synthetic spoken reply after its optional streaming pause.
-@param peer - Provider control connection.
-@param responseId - Active response identity.
-@param itemId - Spoken message identity.
-@param text - Complete spoken transcript.
-@param partial - Transcript already emitted before the pause.
+/** Emit one native transcript fragment without invented turn-complete events.
+@param peer - Attached metadata connection.
+@param role - Native transcript lane.
+@param text - Exact observed text.
+@param start - Media time.
 */
-function finishReply(peer: WebSocket, responseId: string, itemId: string, text: string, partial: string) {
-  if (text.length > partial.length) {
+function caption(peer: WebSocket, role: "input" | "output", text: string, start: number) {
+  if (text) {
     emit(peer, {
-      type: "response.output_audio_transcript.delta",
-      response_id: responseId,
-      item_id: itemId,
-      delta: text.slice(partial.length),
+      type: `session.${role}_transcript.delta`,
+      event_id: crypto.randomUUID(),
+      delta: text,
+      start_ms: start,
+      end_ms: start + 100,
     });
   }
-
-  emit(peer, {
-    type: "response.output_audio_transcript.done",
-    response_id: responseId,
-    item_id: itemId,
-    transcript: text,
-  });
-  emit(peer, { type: "response.done", response: { id: responseId, status: "completed", output: [] } });
 }
+
+/** Finish a streaming display group without scheduling or delaying media.
+@param peer - Native sideband.
+@param text - Remaining exact text.
+@param start - Fragment media time.
+*/
+function finishReply(peer: WebSocket, text: string, start: number) {
+  caption(peer, "output", text, start);
+}
+
+const clocks = new WeakMap<WebSocket, number>();
 
 function reply(peer: WebSocket) {
   const options = control();
-  const responseId = crypto.randomUUID();
-  const itemId = crypto.randomUUID();
   const text = string(options.replyText) || "Hello from realtime.";
   const partial = string(options.partialReplyText) || text;
+  const start = (clocks.get(peer) ?? 0) + 500;
 
-  emit(peer, { type: "response.created", response: { id: responseId } });
-  emit(peer, { type: "response.output_item.added", item: { id: itemId, type: "message", role: "assistant" } });
-  emit(peer, {
-    type: "response.output_audio_transcript.delta",
-    response_id: responseId,
-    item_id: itemId,
-    delta: partial,
-  });
-  setTimeout(finishReply, Number(options.replyDelayMs ?? 0), peer, responseId, itemId, text, partial);
+  caption(peer, "output", partial, start);
+  setTimeout(finishReply, Number(options.replyDelayMs ?? 0), peer, text.slice(partial.length), start + 100);
 }
 
 function speech(peer: WebSocket) {
   const options = control();
-  const itemId = crypto.randomUUID();
-  const responseId = crypto.randomUUID();
 
-  emit(peer, { type: "input_audio_buffer.speech_started", item_id: itemId });
-  emit(peer, { type: "input_audio_buffer.speech_stopped", item_id: itemId });
-  emit(peer, { type: "input_audio_buffer.committed", item_id: itemId });
+  const mediaClock = (clocks.get(peer) ?? 0) + 10_000;
+
+  clocks.set(peer, mediaClock);
 
   if (!options.missingFinal) {
     setTimeout(
-      () => {
-        emit(peer, {
-          type: "conversation.item.input_audio_transcription.completed",
-          item_id: itemId,
-          transcript: string(options.transcript) || "Test voice",
-        });
-      },
-      Number(options.finalDelayMs ?? 0)
+      caption,
+      Number(options.finalDelayMs ?? 0),
+      peer,
+      "input",
+      string(options.transcript) || "Test voice",
+      mediaClock
     );
   }
 
   if (options.handoff || options.backendToolUntilSteer) {
-    const callId = crypto.randomUUID();
-    const call = {
-      type: "function_call",
-      name: "handoff_to_pocket",
-      call_id: callId,
-      arguments: JSON.stringify({ request: string(options.request) || "Inspect the audio transport." }),
-    };
-
-    emit(peer, { type: "response.created", response: { id: responseId } });
-    emit(peer, { type: "response.done", response: { id: responseId, status: "completed", output: [call] } });
+    emit(peer, {
+      type: "session.delegation.created",
+      offset_ms: mediaClock + 100,
+      delegation: { id: crypto.randomUUID(), type: "delegation", target: "client" },
+    });
   } else {
     reply(peer);
   }
+}
+
+const answered = new WeakMap<WebSocket, Set<string>>();
+
+function receive(peer: WebSocket, raw: RawData) {
+  const event = decode(raw);
+
+  record({ method: "provider/realtime/control", ...event });
+
+  if (event.type === "session.close") {
+    record({ method: "provider/realtime/stop" });
+    emit(peer, { type: "session.closed", usage: { seconds: 1 }, reason: "client_close" });
+
+    return;
+  }
+
+  if (event.type === "session.commentary.append") {
+    const ids = answered.get(peer) ?? new Set<string>();
+    const id = string(event.delegation_id);
+
+    emit(peer, { type: "session.commentary.appended", client_event_id: event.event_id });
+
+    if (!ids.has(id)) {
+      ids.add(id);
+      answered.set(peer, ids);
+      reply(peer);
+    }
+
+    return;
+  }
+
+  throw new Error(`Unexpected control frame ${String(event.type)}`);
+}
+
+function connected(peer: WebSocket) {
+  peer.on("message", receive.bind(undefined, peer));
 }
 
 export async function realtimeProvider() {
@@ -141,7 +163,7 @@ export async function realtimeProvider() {
       return;
     }
 
-    if (request.url !== "/v1/realtime/calls") {
+    if (request.url !== "/v1/live/sessions") {
       failures.push(`Unexpected HTTP route ${String(request.url)}`);
       response.writeHead(404).end();
 
@@ -151,37 +173,17 @@ export async function realtimeProvider() {
     const { session } = await readRealtimeOffer(request);
 
     record({ method: "provider/realtime/start", session });
-    response.writeHead(201, { Location: `/v1/realtime/calls/rtc_${crypto.randomUUID()}` });
-    response.end(string(control().answerSdp) || "v=0\r\ns=API fixture answer\r\n");
+    response.writeHead(201, { "Content-Type": "application/json" });
+    const answerSdp = string(control().answerSdp) || "v=0\r\ns=API fixture answer\r\n";
+
+    response.end(
+      JSON.stringify({
+        session: { id: `live_${crypto.randomUUID()}` },
+        transport: { type: "webrtc", sdp: answerSdp },
+      })
+    );
   });
-  server.on("connection", (peer) => {
-    peer.on("message", (raw) => {
-      const event = decode(raw);
-
-      record({ method: "provider/realtime/control", ...event });
-
-      switch (event.type) {
-        case "session.update": {
-          emit(peer, { type: "session.updated", session: { id: crypto.randomUUID() } });
-          break;
-        }
-
-        case "conversation.item.create": {
-          break;
-        }
-
-        case "response.create": {
-          reply(peer);
-          break;
-        }
-
-        default: {
-          failures.push(`Unexpected control frame ${String(event.type)}`);
-          peer.close();
-        }
-      }
-    });
-  });
+  server.on("connection", connected.bind(undefined));
   http.listen(0, "127.0.0.1");
   await once(http, "listening");
   const address = http.address();
@@ -190,7 +192,7 @@ export async function realtimeProvider() {
     throw new Error("Provider did not bind.");
   }
 
-  const url = `http://127.0.0.1:${String(address.port)}/v1/realtime`;
+  const url = `http://127.0.0.1:${String(address.port)}/v1/live`;
 
   writeFileSync(path.join(directory, "provider-url"), url);
 

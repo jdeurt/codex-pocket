@@ -8,6 +8,9 @@ export const voiceSegmentSchema = z.object({
   done: z.boolean(),
   nativeSessionId: z.string(),
   afterItemId: z.string().nullable().optional(),
+  groupId: z.string().optional(),
+  startMs: z.number().nonnegative().optional(),
+  endMs: z.number().nonnegative().optional(),
   handoffId: z.string().optional(),
   handoff: z.enum(["sending", "queued", "sent", "unknown"]).optional(),
 });

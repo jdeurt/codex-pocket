@@ -1,8 +1,9 @@
-import { type Data, object, string } from "../lib/protocol";
+import { type Data } from "../lib/protocol";
 import { z } from "zod";
+import { liveTranscriptSchema } from "./realtime-captions";
 
-const RESPONSE_LIMIT = 32;
 const MILLISECONDS = 1000;
+const OUTPUT_GROUP_GAP_MS = 1500;
 const audioStatsSchema = z.object({
   type: z.literal("inbound-rtp"),
   kind: z.literal("audio").optional(),
@@ -13,116 +14,64 @@ const audioStatsSchema = z.object({
   packetsLost: z.number().optional(),
 });
 
-interface ResponseTiming {
-  createdAt: number;
-  speechStoppedAt?: number;
-  captionAt?: number;
-  audioAt?: number;
-}
 export interface VoiceTimingState {
-  speechStoppedAt?: number;
-  responses: ReadonlyMap<string, ResponseTiming>;
+  inputEndMs?: number;
+  inputReceivedAt?: number;
+  outputEndMs?: number;
 }
 export interface VoiceTimingSample extends Data {
-  responseId: string;
-  phase: "first_caption" | "audio_started";
-  responseToEventMs: number;
-  speechStopToResponseMs?: number;
-  captionLeadMs?: number;
+  phase: "output_transcript_started";
+  mediaStartMs: number;
+  mediaEndMs: number;
+  inputCaptionToOutputCaptionMs?: number;
+  mediaGapMs?: number;
 }
 
-/** Create a call-scoped timing ledger containing no speech or transcript text.
-@returns Empty response correlations.
+/** Create one call's content-free timing state without inventing spoken-response boundaries.
+@returns Empty native timestamp observations.
 */
 export function voiceTimingState(): VoiceTimingState {
-  return { responses: new Map() };
+  return {};
 }
 
-/** Select timing differences using only one browser's monotonic clock.
-@param responseId - Provider response identity.
-@param phase - First caption or provider audio-buffer start.
-@param timing - Explicit browser-observed milestones.
-@param now - Current event receipt time.
-@returns Content-free diagnostic fields; audio-buffer start is not a measurement of audible sound.
-*/
-function timingSample(
-  responseId: string,
-  phase: VoiceTimingSample["phase"],
-  timing: ResponseTiming,
-  now: number
-): VoiceTimingSample {
-  return {
-    responseId,
-    phase,
-    responseToEventMs: now - timing.createdAt,
-    ...(timing.speechStoppedAt !== undefined && { speechStopToResponseMs: timing.createdAt - timing.speechStoppedAt }),
-    ...(timing.captionAt !== undefined &&
-      timing.audioAt !== undefined && { captionLeadMs: timing.audioAt - timing.captionAt }),
-  };
-}
-
-/** Observe provider milestones without retaining text or changing playback decisions.
-@param state - Previous call-local timing state.
-@param event - Provider data-channel event.
-@param now - Explicit monotonic browser receipt time.
-@returns Next ledger and at most one diagnostic sample for this event.
+/** Observe transcript receipt and media timing independently of acoustic playback.
+@param state - Previous call-local observations.
+@param event - GPT-Live metadata event, never raw audio.
+@param now - Explicit browser monotonic receipt time.
+@returns Next observations and one diagnostic at the start of an approximate output group.
 */
 export function receivedVoiceTiming(
   state: VoiceTimingState,
   event: Data,
   now: number
 ): { state: VoiceTimingState; sample?: VoiceTimingSample } {
-  if (event.type === "input_audio_buffer.speech_stopped") {
-    return { state: { ...state, speechStoppedAt: now } };
-  }
+  const parsed = liveTranscriptSchema.safeParse(event);
 
-  if (event.type === "input_audio_buffer.speech_started") {
-    return { state: { ...state, speechStoppedAt: undefined } };
-  }
-
-  if (event.type === "response.created") {
-    const id = string(object(event.response).id);
-
-    if (!id || state.responses.has(id)) {
-      return { state };
-    }
-
-    const responses = new Map(state.responses);
-
-    responses.set(id, { createdAt: now, speechStoppedAt: state.speechStoppedAt });
-
-    if (responses.size > RESPONSE_LIMIT) {
-      responses.delete(responses.keys().next().value ?? "");
-    }
-
-    return { state: { responses, speechStoppedAt: undefined } };
-  }
-
-  const responseId = string(event.response_id);
-  const previous = state.responses.get(responseId);
-
-  if (!previous) {
+  if (!parsed.success) {
     return { state };
   }
 
-  let phase: VoiceTimingSample["phase"];
-  let timing: ResponseTiming;
+  const fragment = parsed.data;
 
-  if (event.type === "response.output_audio_transcript.delta" && previous.captionAt === undefined) {
-    phase = "first_caption";
-    timing = { ...previous, captionAt: now };
-  } else if (event.type === "output_audio_buffer.started" && previous.audioAt === undefined) {
-    phase = "audio_started";
-    timing = { ...previous, audioAt: now };
-  } else {
-    return { state };
+  if (fragment.type === "session.input_transcript.delta") {
+    return { state: { ...state, inputEndMs: fragment.end_ms, inputReceivedAt: now } };
   }
 
-  const responses = new Map(state.responses);
+  const isNew = state.outputEndMs === undefined || fragment.start_ms - state.outputEndMs > OUTPUT_GROUP_GAP_MS;
+  const next = { ...state, outputEndMs: Math.max(state.outputEndMs ?? 0, fragment.end_ms) };
 
-  responses.set(responseId, timing);
-
-  return { state: { ...state, responses }, sample: timingSample(responseId, phase, timing, now) };
+  return {
+    state: next,
+    ...(isNew && {
+      sample: {
+        phase: "output_transcript_started",
+        mediaStartMs: fragment.start_ms,
+        mediaEndMs: fragment.end_ms,
+        ...(state.inputEndMs !== undefined && { mediaGapMs: fragment.start_ms - state.inputEndMs }),
+        ...(state.inputReceivedAt !== undefined && { inputCaptionToOutputCaptionMs: now - state.inputReceivedAt }),
+      } satisfies VoiceTimingSample,
+    }),
+  };
 }
 
 /** Read a browser's cumulative audio jitter-buffer counters without retaining network addresses.

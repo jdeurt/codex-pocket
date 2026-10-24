@@ -40,12 +40,11 @@ export class VoiceTiming {
   */
   constructor(private readonly resources: VoiceResources) {}
 
-  /** Report at most two milestones per response; no per-delta logging or media waits.
+  /** Report once per approximate output group; no per-delta logging or media waits.
   @param sample - Content-free receipt timings from the pure projection.
   */
   private async report(sample: VoiceTimingSample) {
-    const stats =
-      sample.phase === "audio_started" ? await t(this.resources.peer.getStats.bind(this.resources.peer)) : undefined;
+    const stats = await t(this.resources.peer.getStats.bind(this.resources.peer));
 
     if (!this.resources.active) {
       return;
@@ -56,7 +55,7 @@ export class VoiceTiming {
       audioElementPaused: this.resources.output.paused,
       audioElementReadyState: this.resources.output.readyState,
       audioContextState: this.resources.context.state,
-      ...(stats?.ok && voiceAudioStats(stats.value.values().toArray())),
+      ...(stats.ok && voiceAudioStats(stats.value.values().toArray())),
     });
   }
 }

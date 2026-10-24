@@ -2,6 +2,7 @@ import { createStore } from "zustand/vanilla";
 import { t } from "try";
 import { SerialQueue } from "../runtime/serial-queue";
 import {
+  captionFrame,
   liveCaptionState,
   receivedCaption,
   shouldAnchorCaption,
@@ -39,11 +40,11 @@ export class RealtimeCaptions {
     return this.history;
   }
 
-  /** Execute one explicit finalized-caption persistence command.
+  /** Execute one immutable-fragment persistence command.
   @param final - Provider evidence and original chronological anchor.
   */
   private async write(final: NonNullable<CaptionTransition["final"]>) {
-    await this.savedHistory().finalize(final.event, final.sessionId, final.role, final.afterItemId);
+    await this.savedHistory().save(final);
   }
 
   /** Observe queued persistence without allowing its failure to stop media or later writes.
@@ -60,7 +61,7 @@ export class RealtimeCaptions {
     this.publish({ type: "warning", error: "Voice history could not be saved. Your live call is still connected." });
   }
 
-  /** Publish a provider caption immediately and queue only finalized persistence.
+  /** Publish an observed fragment immediately and queue its independent persistence.
   @param event - Original provider control frame.
   @param sessionId - Native call identity.
   */
@@ -87,7 +88,7 @@ export class RealtimeCaptions {
     return this.savedHistory().read();
   }
 
-  /** Read finalized history after already queued writes have been observed.
+  /** Read immutable history after already queued writes have been observed.
   @returns Saved captions for context hydration or typed continuation.
   */
   async read() {
@@ -100,6 +101,13 @@ export class RealtimeCaptions {
   @returns Bounded session-local caption frames.
   */
   live() {
+    return Array.from(this.store.getState().captions.values(), captionFrame.bind(undefined));
+  }
+
+  /** Read observed fragments for backend context without waiting for persistence.
+  @returns Detached immutable caption entries.
+  */
+  segments() {
     return this.store.getState().captions.values().toArray();
   }
 

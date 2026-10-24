@@ -118,7 +118,8 @@ function isVoiceNegotiated(response: Response) {
 
 test("provider timing diagnostics omit speech content and leave captions independent", async ({ page }) => {
   const records: Data[] = [];
-  const expectedRecords = 2;
+  const expectedRecords = 1;
+  const expectedMediaGap = 100;
   const privateText = "Private speech that must never enter timing diagnostics.";
   const visibleReply = "Captions remain independent of timing diagnostics.";
 
@@ -139,13 +140,26 @@ test("provider timing diagnostics omit speech content and leave captions indepen
     }
 
     channel.dispatchEvent(new MessageEvent("message", { data: "malformed optional metadata" }));
+    const inputEnd = 100;
+    const outputStart = 200;
+    const outputMiddle = 300;
+    const outputEnd = 400;
     const frames = [
-      { type: "input_audio_buffer.speech_stopped" },
-      { type: "response.created", response: { id: "timed-response" } },
-      { type: "response.output_audio_transcript.delta", response_id: "timed-response", delta: text },
-      { type: "response.output_audio_transcript.delta", response_id: "timed-response", delta: text },
-      { type: "output_audio_buffer.started", response_id: "timed-response" },
-      { type: "output_audio_buffer.started", response_id: "timed-response" },
+      { type: "session.input_transcript.delta", event_id: "input-private", delta: text, start_ms: 0, end_ms: inputEnd },
+      {
+        type: "session.output_transcript.delta",
+        event_id: "output-private",
+        delta: text,
+        start_ms: outputStart,
+        end_ms: outputMiddle,
+      },
+      {
+        type: "session.output_transcript.delta",
+        event_id: "output-next",
+        delta: text,
+        start_ms: outputMiddle,
+        end_ms: outputEnd,
+      },
     ];
 
     for (const frame of frames) {
@@ -155,9 +169,9 @@ test("provider timing diagnostics omit speech content and leave captions indepen
   await providerAction("speech");
   await expect(page.getByText(visibleReply, { exact: true })).toBeVisible();
   await expect.poll(() => records.length).toBe(expectedRecords);
-  expect(records.map((record) => record.phase)).toEqual(["first_caption", "audio_started"]);
-  expect(records[0].speechStopToResponseMs).toBeGreaterThanOrEqual(0);
-  expect(records[1].captionLeadMs).toBeGreaterThanOrEqual(0);
+  expect(records.map((record) => record.phase)).toEqual(["output_transcript_started"]);
+  expect(records[0].inputCaptionToOutputCaptionMs).toBeGreaterThanOrEqual(0);
+  expect(records[0].mediaGapMs).toBe(expectedMediaGap);
   expect(JSON.stringify(records)).not.toContain(privateText);
   await page.getByRole("button", { name: "Stop realtime voice" }).click();
 });

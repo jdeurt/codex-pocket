@@ -9,6 +9,7 @@ const MAX_SDP_LENGTH = 100_000;
 const command = z.discriminatedUnion("action", [
   z.object({ action: z.literal("start"), sdp: z.string().min(1).max(MAX_SDP_LENGTH) }).strict(),
   z.object({ action: z.literal("stop"), token: z.uuid() }).strict(),
+  z.object({ action: z.literal("end"), sessionId: z.uuid() }).strict(),
   z
     .object({ action: z.literal("settings"), voice: z.string().optional(), model: z.string().nullable().optional() })
     .strict(),
@@ -54,6 +55,10 @@ async function applyCommand(request: Request) {
       await realtime.stop(input.token);
 
       return { stopped: true };
+    }
+
+    case "end": {
+      return { stopped: await realtime.endSession(input.sessionId) };
     }
 
     case "settings": {
