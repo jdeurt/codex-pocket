@@ -1,6 +1,6 @@
 import { object, string } from "../lib/protocol";
 import type { DelegateReport } from "../lib/delegate-reports";
-import type { DelegationCommand, delegationMailSchema } from "../server/delegation-data";
+import type { DelegationCommand, delegationMailSchema } from "./delegation-data";
 import { z } from "zod";
 import { t as attempt } from "try";
 

@@ -1,7 +1,7 @@
 import { workflowBridge } from "../fixtures/workflow-bridge";
 import { ScheduleStore } from "../../src/server/schedules";
 import { Scheduler } from "../../src/server/scheduler";
-import { visibleSnapshot } from "../../src/server/visible-snapshot";
+import { visibleSnapshot } from "../../src/state/visible-snapshot";
 import { nativeText } from "../../src/state/harness-transcript";
 import { eventually, nativeWorkspace } from "../fixtures/workflow";
 import assert from "node:assert/strict";

@@ -1,4 +1,6 @@
-import type { DelegationCommand } from "../server/delegation-data";
+export const delegationMessagePrefix = "pocket-delegate:";
+
+import type { DelegationCommand } from "./delegation-data";
 
 /** Compare stable replacement identities.
 @param left - First identity.

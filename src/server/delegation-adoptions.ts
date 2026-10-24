@@ -1,6 +1,6 @@
 import { findById } from "../lib/identity";
 import { type AdoptedSession, type AdoptionInput, adoptionInput, sessionAttachment } from "./session-adoption";
-import { pocket, storedPocketSchema } from "./delegation-data";
+import { pocket, storedPocketSchema } from "../state/delegation-data";
 import type Database from "better-sqlite3";
 import { type DelegationStore } from "./delegations";
 import { createHash } from "node:crypto";

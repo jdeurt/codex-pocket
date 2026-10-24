@@ -1,3 +1,4 @@
+import { SIDE_PROMPTS } from "../pocket-prompts";
 import { codexResult } from "../../state/harness-result";
 import { restoreCodexThread } from "./codex-session";
 import { t as captureResult } from "try";
@@ -14,10 +15,10 @@ import { RpcDiagnosticEvent, RpcDisconnectEvent, RpcNotificationEvent } from "..
 import { harnessMessages, nativeText } from "../../state/harness-transcript";
 import { type CodexAgentState, observedCodexAgents } from "../../state/codex-agents";
 import { codexParentTools } from "./mcp-config";
-import { codexPermissions } from "./permissions";
+import { codexPermissions } from "../../state/harness-permissions";
 import { loadHistory } from "../history";
 import { log } from "../logging";
-import { sidePocketInstructions } from "./instructions";
+import { sidePocketInstructions } from "../../state/harness-instructions";
 import { steerCodex } from "./codex-steering";
 import { validateAnswer } from "../../state/answers";
 
@@ -181,7 +182,7 @@ export class CodexAdapter implements HarnessAdapter {
       cwd: child.cwd,
       ...codexPermissions(child.policy),
       model: child.model ?? child.policy.model,
-      developerInstructions: [string(effective.developer_instructions), sidePocketInstructions(child)]
+      developerInstructions: [string(effective.developer_instructions), sidePocketInstructions(child, SIDE_PROMPTS)]
         .filter(Boolean)
         .join("\n\n"),
       ephemeral: false,

@@ -1,12 +1,12 @@
 import { type Item, type Snapshot, type Turn, string, isTextContent } from "../lib/protocol";
 import { itemImageSources, itemImageUrl } from "../lib/images";
 import { type DelegateReport } from "../lib/delegate-reports";
-import { currentActivity } from "./activity";
-import { delegationMessagePrefix } from "./delegation-mail";
-import { isRecoveryMessageId } from "../state/recovery";
-import { projectRestarts } from "../state/restarts";
+import { currentActivity } from "./native-activity";
+import { delegationMessagePrefix } from "./delegation-queue";
+import { isRecoveryMessageId } from "./recovery";
+import { projectRestarts } from "./restarts";
 import { REALTIME_TOOL_PREFIX } from "./realtime-tools";
-import { toolTrace } from "../state/tool-trace";
+import { toolTrace } from "./tool-trace";
 
 /**
 Recognize reserved recovery and delegation identities without inspecting message text.

@@ -1,6 +1,6 @@
 import type { Snapshot } from "../lib/protocol";
 import { visiblePreview } from "./agent-history";
-import { visibleSnapshot } from "../server/visible-snapshot";
+import { visibleSnapshot } from "./visible-snapshot";
 
 const PREVIEW_LIMIT = 180;
 

@@ -1,4 +1,4 @@
-import { type ActivityState } from "../state/activity";
+import { type ActivityState } from "./activity";
 import { type Data, type Item, type RpcEvent, type Snapshot, type Turn, object, string } from "../lib/protocol";
 
 const LAST_ITEM_INDEX = -1;

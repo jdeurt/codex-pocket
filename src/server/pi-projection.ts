@@ -1,14 +1,50 @@
+import type { AgentSession } from "@earendil-works/pi-coding-agent";
+import { t } from "try";
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { Turn } from "../lib/protocol";
 import { piItems, piItemUpdate, receiptTurn } from "../state/pi-messages";
+
+const MISSING_RECEIPT = -1;
 
 /**
 Runtime identity owner for provider message objects and accepted receipt correlation.
 */
 export class PiMessages {
   private identities = new WeakMap<object, string>();
-  userIds: string[] = [];
+  private userIds: string[] = [];
   promptId?: string;
+
+  /** Reserve native correlation before sending and release receipts rejected by Pi.
+  @param session - Native steering boundary.
+  @param id - Durable correction receipt.
+  @param text - Original correction.
+  @param images - Native image attachments, if present.
+  */
+  async steer(
+    session: Pick<AgentSession, "steer">,
+    id: string,
+    text: string,
+    images?: Parameters<AgentSession["steer"]>[1]
+  ) {
+    this.userIds.push(id);
+    const sent = await t(session.steer.bind(session), text, images);
+
+    if (sent.ok && sent.value === "queued") {
+      return;
+    }
+
+    const index = this.userIds.indexOf(id);
+
+    if (index !== MISSING_RECEIPT) {
+      this.userIds.splice(index, 1);
+    }
+
+    if (!sent.ok) {
+      throw sent.error;
+    }
+
+    throw new Error("Pi handled this input without queueing a correction. Inspect the active work before continuing.");
+  }
 
   /** Correlate one provider object before projecting its immutable turn update.
   @param message - Original native message object.

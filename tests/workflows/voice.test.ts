@@ -1,6 +1,6 @@
 import { nativeText } from "../../src/state/harness-transcript";
 import { object, dataSchema } from "../../src/lib/protocol";
-import { visibleSnapshot } from "../../src/server/visible-snapshot";
+import { visibleSnapshot } from "../../src/state/visible-snapshot";
 import { VoiceHistory } from "../../src/server/voice-history";
 import { voiceWorkflow, TEST_SDP } from "../fixtures/voice-workflow";
 import { eventually } from "../fixtures/workflow";

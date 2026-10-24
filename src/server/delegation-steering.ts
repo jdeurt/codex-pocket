@@ -1,4 +1,4 @@
-import { type DelegationCommand, delegationCommandSchema } from "./delegation-data";
+import { type DelegationCommand, delegationCommandSchema } from "../state/delegation-data";
 import type Database from "better-sqlite3";
 import { type DelegationNotifications } from "./delegation-notifications";
 import { type SteeringResult } from "./harness/types";

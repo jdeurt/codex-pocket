@@ -3,7 +3,7 @@ import { type VoiceSegment, voiceSegmentSchema } from "../lib/voice-history";
 import { type TranscriptTurn } from "../lib/transcript-virtualization";
 import { messageText, turnMessages, hasMessageText } from "../lib/turn-messages";
 import { voiceTimeline } from "../lib/voice-timeline";
-import { visibleSnapshot } from "../server/visible-snapshot";
+import { visibleSnapshot } from "./visible-snapshot";
 import { findById } from "../lib/identity";
 import { queuedIdentity } from "./conversation";
 

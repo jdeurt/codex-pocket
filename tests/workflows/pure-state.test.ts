@@ -5,9 +5,9 @@ import { receivedThread, stagedMessage, threadState } from "../../src/state/thre
 import { reconcileCaptions } from "../../src/state/voice";
 import { finalizedCaptions } from "../../src/state/saved-voice";
 import { type VoiceSegment } from "../../src/lib/voice-history";
-import { reduceEvent } from "../../src/server/reducer";
-import { currentActivity } from "../../src/server/activity";
-import { visibleSnapshot } from "../../src/server/visible-snapshot";
+import { reduceEvent } from "../../src/state/reducer";
+import { currentActivity } from "../../src/state/native-activity";
+import { visibleSnapshot } from "../../src/state/visible-snapshot";
 
 /** Freeze test inputs recursively so accidental input mutation fails at the offending write.
 @param value - Test data owned by this fixture.

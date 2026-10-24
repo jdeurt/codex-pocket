@@ -28,7 +28,7 @@ import {
   applyClaudeWrites,
 } from "../../state/claude-writes";
 import { claudeOptions } from "./claude-options";
-import { claudePermissions } from "./permissions";
+import { claudePermissions } from "../../state/harness-permissions";
 import { log } from "../logging";
 import { waitForProcessExit } from "./process";
 import { z } from "zod";

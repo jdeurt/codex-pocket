@@ -1,4 +1,4 @@
-import { type AgentRecord, type CodexThread, observedMetadata } from "../server/agent-sources";
+import { type AgentRecord, type CodexThread, observedMetadata } from "./agent-metadata";
 import type { SidePocket } from "../server/delegations";
 import { type AgentStatus, agentStatusSchema } from "../lib/agents";
 import { type PendingRequest, object, string } from "../lib/protocol";

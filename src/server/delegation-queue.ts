@@ -1,10 +1,10 @@
 import { nextCommand, steeringTarget, selectedCommandIds } from "../state/delegation-queue";
-import { type DelegationCommand, delegationCommandSchema, pocket, storedPocketSchema } from "./delegation-data";
+import { type DelegationCommand, delegationCommandSchema, pocket, storedPocketSchema } from "../state/delegation-data";
 import { CommandSteering } from "./delegation-steering";
 import type Database from "better-sqlite3";
 import { type DelegationNotifications } from "./delegation-notifications";
 import { type DelegationStore } from "./delegations";
-import { commandText } from "./delegation-input";
+import { commandText } from "../state/delegation-input";
 import { sessionAttachment } from "./session-adoption";
 import { z } from "zod";
 

@@ -1,4 +1,4 @@
-import { type AgentRecord, observedMetadata } from "./agent-sources";
+import { type AgentRecord, observedMetadata } from "./agent-metadata";
 import { type Turn } from "../lib/protocol";
 import { sessionAttachment } from "./session-adoption";
 

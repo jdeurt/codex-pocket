@@ -178,8 +178,7 @@ export class PiMain {
       const turn = this.history.active;
       const receiptId = string(params.clientUserMessageId);
 
-      this.messages.userIds.push(receiptId);
-      await session.steer(text, images);
+      await this.messages.steer(session, receiptId, text, images);
       // Acceptance owns visibility even while Pi is waiting on a tool or is later interrupted.
       const current = findById(this.history.saved.turns, turn.id) ?? turn;
 

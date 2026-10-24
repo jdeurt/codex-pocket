@@ -1,7 +1,7 @@
 import type Database from "better-sqlite3";
 import { privateDatabase } from "./private-database";
 import { mkdirSync } from "node:fs";
-import { commandStatusSchema } from "./delegation-data";
+import { commandStatusSchema } from "../state/delegation-data";
 import path from "node:path";
 import { z } from "zod";
 

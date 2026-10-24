@@ -1,3 +1,5 @@
+import { PiMessages } from "../../src/server/pi-projection";
+import { t } from "try";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { observedCodexAgents, type CodexAgentState } from "../../src/state/codex-agents";
@@ -83,3 +85,35 @@ async function setupCancellation() {
 await test("native metadata updates preserve earlier published state", nativeMetadata);
 await test("partial settings preserve omitted values and explicit removal", partialSettings);
 await test("stream abort during producer setup releases its eventual subscription", setupCancellation);
+
+/** Reject one native correction before it is queued.
+@returns Original rejected native outcome.
+*/
+function rejectedSteering(): Promise<"queued"> {
+  return Promise.reject(new Error("native rejection"));
+}
+
+/** Acknowledge a native queued correction.
+@returns Original native disposition.
+*/
+function acceptedSteering(): Promise<"queued"> {
+  return Promise.resolve("queued");
+}
+
+/**
+Verify a failed native correction cannot claim the next accepted message's receipt.
+*/
+async function failedReceipt() {
+  const messages = new PiMessages();
+  const rejected = await t(messages.steer.bind(messages), { steer: rejectedSteering }, "rejected", "first");
+
+  assert.equal(rejected.ok, false);
+  await messages.steer({ steer: acceptedSteering }, "accepted", "second");
+  const turn = { id: "active", status: "inProgress", items: [] };
+  const projected = messages.project({ role: "user", content: "second", timestamp: 1 }, turn, [turn], "parent");
+
+  assert.equal(projected.turn.items[0].clientId, "accepted");
+  assert.equal(turn.items.length, 0);
+}
+
+await test("rejected Pi steering cannot consume a later message receipt", failedReceipt);

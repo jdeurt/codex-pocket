@@ -4,7 +4,7 @@ import { type Config } from "./config";
 import { MAIN_INSTRUCTIONS } from "./pocket-prompts";
 import { delegations } from "./delegations";
 import { localDirectory } from "./local-state";
-import { parentPolicy } from "./harness/permissions";
+import { parentPolicy } from "../state/harness-permissions";
 import path from "node:path";
 import { savedSessionSettings } from "./session-settings";
 import { string } from "../lib/protocol";

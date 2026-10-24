@@ -32,7 +32,7 @@ SQLite remains server-owned. Zustand is the in-process state interface, not a da
 
 The thread store reconciles optimistic messages by their durable client IDs when canonical snapshots arrive. The delivery service owns submit locks, retry identity and uncertain-delivery recovery. Settings, Pocket mutations and approval responses share a guarded operation runner; form values remain local.
 
-The voice store exposes lifecycle status, errors and captions. Peer connections, microphone tracks, analysers and control subscriptions stay private to the voice service. Audio streams over WebRTC independently of caption events and persistence. A caption read or storage failure cannot gate audio playback. Saved final captions win over delayed partial captions.
+The voice store exposes lifecycle status, errors and captions. Peer connections, microphone tracks, analysers and control subscriptions stay private to the voice service. Audio streams over WebRTC independently of caption events and persistence. A caption read or storage failure cannot gate audio playback. Saved final captions win over delayed partial captions. Server caption and tool-control projections have separate vanilla Zustand stores and pure transitions; they retain native message identity and chronological anchors. Final captions enter a serial persistence queue. Its failures are logged and published as warnings, and later writes can proceed. Tool calls reserve their receipts before dispatch, so results that arrive before acknowledgements still resolve to the original call.
 
 ## Adding state
 
@@ -40,9 +40,9 @@ Define pure state and transitions in `src/state` when data must survive componen
 
 ## Refactor checks
 
-JSCPD guides consolidation across the authored `src` tree. Shared operation handling, serial execution, native text streams, optional-file reads and static UI slots now have explicit reusable implementations. The app-wide cleanup is still in progress; remaining native adapters are being checked for captured state, input mutation and lost failures. A nested-function count alone does not establish purity.
+JSCPD guides consolidation across the authored `src` tree. Shared operation handling, serial execution, native text streams, optional-file reads, private SQLite initialization and static UI slots now have explicit reusable implementations. The production-source audit covers components, hooks, stores, services and server adapters. It finds no nested function implementations or ESLint suppression comments in `src`. State transitions were also checked for input mutation and implicit runtime reads; the nesting count alone is not proof of purity. Native resource owners remain explicitly effectful.
 
-At the current checkpoint, the unchanged JSCPD configuration reports 128 clone pairs and 1,634 duplicated lines across 38,738 source lines (4.22%). The pre-cleanup baseline was 150 pairs and 2,012 duplicated lines across 33,307 lines (6.04%). Both the duplicate count and duplicated-line count decreased; total source size increased during boundary extraction.
+The unchanged JSCPD configuration reports 137 clone pairs and 1,752 duplicated lines across 39,681 source lines (4.42%). The pre-cleanup baseline was 150 pairs and 2,012 duplicated lines across 33,307 lines (6.04%). Both duplication measures decreased; total source size increased during boundary extraction. The report includes similar static UI wrappers and theme CSS, which remain separate where consolidation would obscure their contracts.
 
 Application logic receives explicit state, time, identities and configuration. Function implementations belong at module scope; framework callbacks bind explicit arguments or native resource owners. The exception for effects covers actual I/O, resource lifetimes and observable publication, not arbitrary business logic inside a service class. ESLint rules remain enabled; the migration does not add suppressions.
 

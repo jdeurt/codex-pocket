@@ -1,5 +1,5 @@
-import { object, string } from "../../lib/protocol";
-import type { ParentPolicy } from "./types";
+import { object, string } from "../lib/protocol";
+import type { ParentPolicy } from "../server/harness/types";
 
 /**
 Validate the parent's effective native access policy before allowing it to be inherited.

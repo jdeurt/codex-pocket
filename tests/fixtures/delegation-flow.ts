@@ -4,7 +4,7 @@ import {
   type SidePocket,
   delegationCommandSchema,
   sidePocketSchema,
-} from "../../src/server/delegation-data";
+} from "../../src/state/delegation-data";
 import { type HostEvent, type HostReply, hostPacketSchema } from "./delegation-protocol";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { Client } from "@modelcontextprotocol/client";

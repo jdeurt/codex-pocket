@@ -1,3 +1,4 @@
+import { SIDE_PROMPTS } from "../pocket-prompts";
 import { type Data, object } from "../../lib/protocol";
 import {
   type HookJSONOutput,
@@ -6,10 +7,10 @@ import {
   type PermissionRequestHookInput,
 } from "@anthropic-ai/claude-agent-sdk";
 import { type AdapterOptions } from "./types";
-import { claudePermissions } from "./permissions";
+import { claudePermissions } from "../../state/harness-permissions";
 import { log } from "../logging";
 import { requireClaudeBinary } from "./claude-binary";
-import { sidePocketInstructions } from "./instructions";
+import { sidePocketInstructions } from "../../state/harness-instructions";
 import { z } from "zod";
 
 const HOOK_TIMEOUT_SECONDS = 3600;
@@ -128,7 +129,7 @@ export function claudeOptions(
     ...((child.model ?? process.env.POCKET_CLAUDE_MODEL) && { model: child.model ?? process.env.POCKET_CLAUDE_MODEL }),
     ...(effort && { effort: z.enum(["low", "medium", "high", "xhigh", "max"]).parse(effort) }),
     pathToClaudeCodeExecutable: requireClaudeBinary(),
-    systemPrompt: { type: "preset", preset: "claude_code", append: sidePocketInstructions(child) },
+    systemPrompt: { type: "preset", preset: "claude_code", append: sidePocketInstructions(child, SIDE_PROMPTS) },
     title: `Side Pocket: ${child.title}`,
     tools: { type: "preset", preset: "claude_code" },
     settingSources: ["user", "project", "local"],

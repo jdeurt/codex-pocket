@@ -1,7 +1,7 @@
 import { hasMessageText, messageText, turnMessages } from "../lib/turn-messages";
 import type { NotificationPayload } from "../lib/notification-payload";
 import type { Turn, Item } from "../lib/protocol";
-import { visibleTurn } from "../server/visible-snapshot";
+import { visibleTurn } from "./visible-snapshot";
 
 // RFC 8291 permits 3993 plaintext bytes in a 4096-byte encrypted payload.
 const MAX_PAYLOAD_BYTES = 3993;

@@ -5,7 +5,7 @@ import { Bridge } from "../src/server/bridge";
 import { CodexRpc } from "../src/server/rpc";
 import { type Config } from "../src/server/config";
 import { DelegationWorker } from "../src/server/delegation-worker";
-import { type SidePocket } from "../src/server/delegation-data";
+import { type SidePocket } from "../src/state/delegation-data";
 import assert from "node:assert/strict";
 import path from "node:path";
 import { setTimeout } from "node:timers/promises";

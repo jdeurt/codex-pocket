@@ -8,7 +8,7 @@ import { isRecoveryMessageId } from "../src/state/recovery";
 import { mkdir } from "node:fs/promises";
 import nextEnv from "@next/env";
 import path from "node:path";
-import { visibleSnapshot } from "../src/server/visible-snapshot";
+import { visibleSnapshot } from "../src/state/visible-snapshot";
 
 const TURN_TIMEOUT_MS = 120_000;
 const EXPECTED_RECOVERY_STARTS = 2;

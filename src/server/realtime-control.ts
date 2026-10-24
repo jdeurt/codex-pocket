@@ -1,7 +1,7 @@
 import WebSocket, { type RawData } from "ws";
 import { t } from "try";
 import { type Data, dataSchema, object, string } from "../lib/protocol";
-import { configuration } from "./realtime-configuration";
+import { configuration } from "../state/realtime-configuration";
 import { log } from "./logging";
 
 export const REALTIME_TIMEOUT_MS = 15_000;

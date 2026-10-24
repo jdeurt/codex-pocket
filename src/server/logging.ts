@@ -1,3 +1,4 @@
+import { valueAfterCleanup } from "../lib/results";
 import { type WriteStream, createWriteStream, closeSync, mkdirSync, openSync, readdirSync, unlinkSync } from "node:fs";
 import { Writable } from "node:stream";
 import { localDirectory } from "./local-state";
@@ -61,6 +62,21 @@ function openLogDescriptor(filename: string) {
   return openSync(/* turbopackIgnore: true */ filename, "wx", PRIVATE_FILE_MODE);
 }
 
+/** Complete destruction only after the descriptor closes, preserving independent native failures.
+@param file - Closed native file stream.
+@param error - Original sink failure, if present.
+@param callback - Native destruction completion.
+*/
+function logFileClosed(file: WriteStream, error: Error | null, callback: WriteCallback) {
+  const failure = file.errored;
+
+  callback(
+    error && failure && error !== failure
+      ? new AggregateError([error, failure], "Log writing and file cleanup both failed.")
+      : (error ?? failure)
+  );
+}
+
 /**
 Runtime owner of serialized native writes and bounded file rotation.
 */
@@ -98,8 +114,7 @@ class RotatingLogStream extends Writable {
       const pruned = t(pruneLogs, this.directory, this.maxFiles);
 
       if (!pruned.ok) {
-        closeSync(opened.value);
-        throw pruned.error;
+        valueAfterCleanup(pruned, t(closeSync, opened.value));
       }
 
       const output = createWriteStream(filename, { fd: opened.value, autoClose: true });
@@ -173,6 +188,19 @@ class RotatingLogStream extends Writable {
   */
   override _final(callback: WriteCallback) {
     this.file.end(callback);
+  }
+
+  /** Release the owned file when the sink is destroyed or finishes.
+  @param error - Original native sink failure, if present.
+  @param callback - Native teardown completion.
+  */
+  override _destroy(error: Error | null, callback: WriteCallback) {
+    if (this.file.closed) {
+      logFileClosed(this.file, error, callback);
+    } else {
+      this.file.once("close", logFileClosed.bind(undefined, this.file, error, callback));
+      this.file.destroy();
+    }
   }
 }
 

@@ -1,8 +1,8 @@
 import { type Data } from "../lib/protocol";
 import { RealtimeControl, REALTIME_TIMEOUT_MS } from "./realtime-control";
-import { configuration, REALTIME_MODEL } from "./realtime-configuration";
+import { configuration, REALTIME_MODEL } from "../state/realtime-configuration";
 
-export { REALTIME_MODEL, REALTIME_VOICES } from "./realtime-configuration";
+export { REALTIME_MODEL, REALTIME_VOICES } from "../state/realtime-configuration";
 
 const CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 const LAST = -1;

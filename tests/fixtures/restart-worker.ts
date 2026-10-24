@@ -2,7 +2,7 @@ import { t as captureResult } from "try";
 import { Bridge } from "../../src/server/bridge";
 import { type Snapshot } from "../../src/lib/protocol";
 import { setTimeout as pause } from "node:timers/promises";
-import { visibleSnapshot } from "../../src/server/visible-snapshot";
+import { visibleSnapshot } from "../../src/state/visible-snapshot";
 import { z } from "zod";
 
 const SETTLE_ATTEMPTS = 200;

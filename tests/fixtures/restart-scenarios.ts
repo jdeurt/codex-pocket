@@ -7,7 +7,7 @@ import assert from "node:assert/strict";
 import { failedAndPendingChecks } from "./restart-failures";
 import path from "node:path";
 import { turnMessages } from "../../src/lib/turn-messages";
-import { visibleSnapshot } from "../../src/server/visible-snapshot";
+import { visibleSnapshot } from "../../src/state/visible-snapshot";
 import { readInternalContext } from "./internal-context";
 
 const RECONNECTS = 8;

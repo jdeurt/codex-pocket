@@ -1,4 +1,3 @@
-/* eslint-disable jsdoc/require-param, jsdoc/require-returns -- This route exposes only the selected session's status feed. */
 import { endpoint, errorResponse, guard, noStore } from "@/server/http";
 import { HTTP_FORBIDDEN } from "@/lib/constants";
 import { realtimeStream } from "@/server/realtime-stream";
@@ -9,6 +8,8 @@ export const dynamic = "force-dynamic";
 
 /**
 Observe reply text and status. This subscription never transports or owns audio.
+@param request - Authorized browser subscription carrying its ownership token.
+@returns Private control-event stream response.
 */
 async function subscribe(request: Request) {
   await guard(request);
@@ -27,10 +28,9 @@ async function subscribe(request: Request) {
 }
 
 /**
-Read the selected call's status stream without taking ownership of its media.
-*/
-/**
 Return the existing authorization status for an invalid call subscription.
+@param error - Original subscription failure.
+@returns Public forbidden response.
 */
 function forbidden(error: unknown) {
   return errorResponse(error, HTTP_FORBIDDEN);

@@ -8,7 +8,7 @@ import {
   fillCapacity,
 } from "../fixtures/delegation-native";
 import { owner, tool, state, assignment } from "../fixtures/delegation-flow";
-import { delegationCommandSchema } from "../../src/server/delegation-data";
+import { delegationCommandSchema } from "../../src/state/delegation-data";
 import assert from "node:assert/strict";
 import test from "node:test";
 

@@ -1,4 +1,5 @@
-import { delegationMailSchema, delegationRequestSchema } from "./delegation-data";
+import { delegationMessagePrefix } from "../state/delegation-queue";
+import { delegationMailSchema, delegationRequestSchema } from "../state/delegation-data";
 import type Database from "better-sqlite3";
 import { type HarnessRequest } from "./harness/types";
 import { createHash } from "node:crypto";
@@ -9,7 +10,8 @@ import { z } from "zod";
 const MAX_BODY_LENGTH = 65_536;
 const HISTORY_LIMIT = 200;
 export const parentMessageInput = z.object({ message: z.string().trim().min(1).max(MAX_BODY_LENGTH) }).strict();
-export const delegationMessagePrefix = "pocket-delegate:";
+
+export { delegationMessagePrefix } from "../state/delegation-queue";
 
 export type DelegationRequest = z.infer<typeof delegationRequestSchema>;
 

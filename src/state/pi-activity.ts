@@ -1,6 +1,6 @@
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 import type { RpcEvent } from "../lib/protocol";
-import { itemActivity } from "../server/activity";
+import { itemActivity } from "./native-activity";
 
 /** Describe assistant streaming without interpreting generated tool arguments as execution progress.
 @param event - Native Pi message event.

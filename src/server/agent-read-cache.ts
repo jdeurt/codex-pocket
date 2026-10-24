@@ -7,7 +7,7 @@ import {
   applyRead,
   isAttached,
   isFreshRead,
-} from "./agent-read-state";
+} from "../state/agent-read";
 import { agentRead, promoteAgentRead } from "./agent-read-pool";
 import { agentRevision } from "./agent-revision";
 import { bridge } from "./bridge";

@@ -1,57 +1,24 @@
+import { type sessionListInput, type AdoptionInput, socketPath, inspectedSession } from "../state/session-adoption";
+
+export {
+  type AdoptionInput,
+  type AdoptedSession,
+  type SessionAttachment,
+  adoptionInput,
+  sessionListInput,
+  sessionAttachment,
+  socketPath,
+  attachmentSchema,
+} from "../state/session-adoption";
 import { valueAfterCleanup } from "../lib/results";
-import { activeNativeTurn } from "../state/harness-result";
 import { t as captureResult } from "try";
 import { type Config, configSchema } from "./config";
-import { type Thread, object, string } from "../lib/protocol";
+import { type Thread } from "../lib/protocol";
 import { CodexRpc } from "./rpc";
-import { delegationKey } from "./delegation-input";
 import { delegations } from "./delegations";
 import { z } from "zod";
 
 const PAGE_SIZE = 50;
-export const socketPath = z
-  .string()
-  .startsWith("/")
-  .refine((value) => !/[:\r\n\0]/u.test(value), "Invalid socket path");
-export const adoptionInput = z
-  .object({
-    threadId: z.string().min(1),
-    title: delegationKey,
-    idempotencyKey: delegationKey,
-    socketPath: socketPath.optional(),
-  })
-  .strict();
-export const sessionListInput = z
-  .object({
-    cursor: z.string().optional(),
-    archived: z.boolean().default(false),
-    search: z.string().optional(),
-    socketPath: socketPath.optional(),
-  })
-  .strict();
-
-export type AdoptionInput = z.infer<typeof adoptionInput>;
-export interface AdoptedSession {
-  threadId: string;
-  cwd: string;
-  turnId?: string;
-}
-export const attachmentSchema = z.object({
-  socketPath,
-  turnId: z.string().optional(),
-  watchCommandId: z.string().optional(),
-});
-
-export type SessionAttachment = z.infer<typeof attachmentSchema>;
-
-/**
-Read persisted attachment metadata without trusting unchecked JSON fields.
-@param metadata - Persisted child metadata.
-@returns Validated live attachment, or undefined for ordinary saved children.
-*/
-export function sessionAttachment(metadata: string) {
-  return attachmentSchema.optional().parse(object(JSON.parse(metadata)).attachment);
-}
 
 /**
 Choose the explicit transport without falling back from an unavailable owner.
@@ -103,27 +70,6 @@ export async function requireLoadedSession(rpc: CodexRpc, threadId: string) {
   } while (cursor);
 
   throw new Error("That server does not own a loaded session with this ID. No saved copy was resumed.");
-}
-
-/**
-Reject active saved copies and retain the exact native identity and working folder.
-@param thread - Native persisted or loaded session.
-@param isLive - Whether the caller selected the owning server.
-@returns Metadata needed for durable adoption.
-*/
-function inspectedSession(thread: Thread, isLive: boolean): AdoptedSession {
-  const active = activeNativeTurn(thread.turns, new Map());
-  const cwd = string(thread.cwd);
-
-  if (!cwd.startsWith("/")) {
-    throw new Error("The existing session has no absolute working directory.");
-  }
-
-  if (!isLive && (active || object(thread.status).type === "active")) {
-    throw new Error("This session may still be running. Supply its owning app-server socketPath to attach live.");
-  }
-
-  return { threadId: thread.id, cwd, ...(active && { turnId: active }) };
 }
 
 /**

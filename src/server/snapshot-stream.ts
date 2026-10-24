@@ -3,7 +3,7 @@ import type { Bridge } from "./bridge-session";
 import { delegations } from "./delegations";
 import { log } from "./logging";
 import { noStore } from "./http";
-import { visibleSnapshot } from "./visible-snapshot";
+import { visibleSnapshot } from "../state/visible-snapshot";
 import { TextStream } from "./text-stream";
 import { valueAfterCleanup } from "../lib/results";
 

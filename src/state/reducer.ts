@@ -1,6 +1,6 @@
 import { type RpcEvent, type Snapshot, type Turn, object, pretty, string } from "../lib/protocol";
 import { findById, upsertById, withoutId } from "../lib/identity";
-import { updatedActivity } from "./activity";
+import { updatedActivity } from "./native-activity";
 
 /** Replace one canonical turn without changing the previous snapshot.
 @param state - Previous parent projection.

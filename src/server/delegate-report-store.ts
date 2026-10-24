@@ -1,7 +1,7 @@
 import { delegateReports } from "../state/delegate-reports";
 import { type Database } from "better-sqlite3";
 import { type DelegateReport } from "../lib/delegate-reports";
-import { delegationCommandSchema, delegationMailSchema } from "./delegation-data";
+import { delegationCommandSchema, delegationMailSchema } from "../state/delegation-data";
 import { z } from "zod";
 
 /**

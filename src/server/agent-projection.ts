@@ -14,7 +14,7 @@ import {
 import { type AgentRecord } from "./agent-sources";
 import { itemImageSources } from "../lib/images";
 import { markdownImageSource } from "./agent-images";
-import { visibleSnapshot } from "./visible-snapshot";
+import { visibleSnapshot } from "../state/visible-snapshot";
 
 /**
 Distinguish failed reads from available or empty canonical visible history.

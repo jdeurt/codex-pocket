@@ -1,6 +1,6 @@
 import { type RpcEvent, type Snapshot, type PendingRequest } from "../lib/protocol";
 import { contextUsageSchema } from "../lib/usage";
-import { reduceEvent } from "../server/reducer";
+import { reduceEvent } from "./reducer";
 
 /** Remove requests completed by an explicit native turn.
 @param requests - Pending native requests.

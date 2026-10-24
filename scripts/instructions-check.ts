@@ -11,7 +11,7 @@ import { loadHistory } from "../src/server/history";
 import path from "node:path";
 import { readInstructionRollout } from "./instruction-rollout";
 import { seedThread } from "./seed-thread";
-import { visibleSnapshot } from "../src/server/visible-snapshot";
+import { visibleSnapshot } from "../src/state/visible-snapshot";
 
 const MARKER = "POCKET_NATIVE_PROMPT";
 

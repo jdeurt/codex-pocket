@@ -11,7 +11,7 @@ import { createRotatingLogStream } from "../../src/server/logging";
 import { optionalFile } from "../../src/server/optional-file";
 import { valueAfterCleanup } from "../../src/lib/results";
 import { TextStream } from "../../src/server/text-stream";
-import { visibleSnapshot } from "../../src/server/visible-snapshot";
+import { visibleSnapshot } from "../../src/state/visible-snapshot";
 import { initialSnapshot } from "../../src/lib/protocol";
 import { keywordRetrieval, completedRetrieval, retrievalCapabilities } from "../../src/state/task-retrieval";
 

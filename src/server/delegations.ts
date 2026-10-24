@@ -4,16 +4,16 @@ import {
   parentContextSchema,
   pocket,
   storedPocketSchema,
-} from "./delegation-data";
+} from "../state/delegation-data";
 import { delegationDatabase, lastCommandStatus } from "./delegation-db";
 import { DelegateReportStore } from "./delegate-report-store";
 import { DelegationAdoptions } from "./delegation-adoptions";
 import { DelegationMailbox } from "./delegation-mail";
 import { DelegationNotifications } from "./delegation-notifications";
 import { DelegationQueue } from "./delegation-queue";
-import { claudePermissions } from "./harness/permissions";
+import { claudePermissions } from "../state/harness-permissions";
 import { createHash } from "node:crypto";
-import { delegationInput } from "./delegation-input";
+import { delegationInput } from "../state/delegation-input";
 import { log } from "./logging";
 import { requireClaudeBinary } from "./harness/claude-binary";
 import { z } from "zod";
@@ -23,9 +23,9 @@ const RECOVERY_MESSAGE =
 
 export { delegations } from "./delegation-runtime";
 export { MAX_CONCURRENT_CHILDREN } from "./delegation-queue";
-export { delegationInput, delegationKey, delegationBody } from "./delegation-input";
+export { delegationInput, delegationKey, delegationBody } from "../state/delegation-input";
 
-export type { DelegationCommand, ParentContext, SidePocket, StoredPocket } from "./delegation-data";
+export type { DelegationCommand, ParentContext, SidePocket, StoredPocket } from "../state/delegation-data";
 
 /**
 Own private parent and child identities, composing their durable mailbox and command queue.
