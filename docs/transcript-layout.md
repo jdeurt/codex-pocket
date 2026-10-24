@@ -10,14 +10,16 @@ At the transcript end:
 
 - The bottom of the last visible transcript component is **24px** above the status text's line box.
 - The reserved status row ends **10px** above the composer area.
-- The thinking indicator, one-line status label, and agents hint share a vertical center.
+- The thinking indicator, one-line status label, and agents hint share a vertical center. The status label starts with a capital letter.
 - The agents button has a **44px** touch target without negative vertical margins.
 - The default spinner's visible **16px** bounds align with transcript text, with **8px** before its label.
 - Custom spinner images remain **28px** wide. Both spinner types use a **32px**-high slot; horizontal space fits the displayed indicator.
 
 Short conversations align to the bottom. The scroll fade ends at the composer boundary and disappears at the transcript end. Notifications, errors, and attachments belong to the composer area below the status row. Empty, thinking-only, agents-only, and combined states keep the same vertical geometry.
 
-The transcript has a centered 960px maximum width; the composer has a centered 736px maximum width. Phone layouts retain their existing gutters. Classic desktop scrollbars reserve symmetric gutters so the transcript and composer stay centered together. The virtual footer keeps one stable identity as messages arrive so its measured status height survives appends. Overlays suspend following while covered and retain the prior following preference when closed.
+The transcript has a centered 960px maximum width; the composer has a centered 736px maximum width. Phone layouts retain their existing gutters. Classic desktop scrollbars reserve symmetric gutters so the transcript and composer stay centered together. The virtual footer keeps one stable identity as messages arrive so its measured status height survives appends. A transcript-owned Zustand store holds the reader’s follow preference and gesture state. Committed content growth follows the end, including new rows before the stable footer and streamed text growing within an existing row. Scrolling up pauses following; reaching the end or choosing “Jump to latest message” resumes it. Native measurements remain owned by the virtualizer. Overlays suspend following while covered and retain the prior following preference when closed.
+
+The voice spectrum uses fixed **4.5px** bars and **4px** gaps, fitting only whole bars within its available width. During shutdown, its bars turn gray and the composer shows an “Ending call…” spinner.
 
 ## Reports, attachments, and navigation
 

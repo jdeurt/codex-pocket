@@ -1,11 +1,11 @@
-import { type Snapshot, type Turn, type QueuedMessage, string } from "../lib/protocol";
+import { type Snapshot, type Turn, type QueuedMessage, type Item, string } from "../lib/protocol";
 import { type VoiceSegment, voiceSegmentSchema } from "../lib/voice-history";
 import { type TranscriptTurn } from "../lib/transcript-virtualization";
 import { messageText, turnMessages, hasMessageText } from "../lib/turn-messages";
 import { voiceTimeline } from "../lib/voice-timeline";
 import { visibleSnapshot } from "./visible-snapshot";
 import { findById } from "../lib/identity";
-import { queuedIdentity } from "./conversation";
+import { conversationTurns, queuedIdentity } from "./conversation";
 
 const CONTEXT_CHARACTERS = 48_000;
 const LAST = -1;
@@ -124,6 +124,31 @@ export function realtimeContext(state: Snapshot, history: VoiceSegment[]) {
     .join("\n\n");
 }
 
+/** Recognize public messages and restart boundaries as chronological anchors.
+@param item - Visible canonical item.
+@returns Whether new speech can follow this item.
+*/
+function isTimelineAnchor(item: Item) {
+  return item.type === "pocketRestart" || hasMessageText(item);
+}
+
+/** Read the latest identity from the same combined timeline displayed by the client.
+@param snapshot - Canonical conversation including persisted restart boundaries.
+@param history - Saved voice captions.
+@returns Last public item identity, or the beginning of the conversation.
+*/
+export function lastTimelineItem(snapshot: Snapshot, history: VoiceSegment[]) {
+  const visible = visibleSnapshot(snapshot);
+  const timeline = voiceTimeline(
+    conversationTurns(visible, false, false),
+    history,
+    Array.from(visible.queue, queuedIdentity)
+  );
+  const entry = timeline.at(LAST)?.entries.at(LAST);
+
+  return entry ? (entry.kind === "message" ? entry.item.id : (entry.items.at(LAST)?.id ?? null)) : null;
+}
+
 /** Select the last visible message for a new voice segment's chronological anchor.
 @param snapshot - Canonical conversation.
 @returns Latest visible message identity, or no anchor.
@@ -132,7 +157,7 @@ export function lastVisibleMessage(snapshot: Snapshot) {
   const turns = visibleSnapshot(snapshot).turns;
 
   for (let index = turns.length - 1; index >= 0; index--) {
-    const item = turns[index].items.findLast(hasMessageText);
+    const item = turns[index].items.findLast(isTimelineAnchor.bind(undefined));
 
     if (item) {
       return item.id;

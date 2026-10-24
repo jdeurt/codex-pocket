@@ -3,6 +3,7 @@ import { z } from "zod";
 import { t } from "try";
 
 const MAX_REQUEST_LENGTH = 32_000;
+const endCallSchema = z.object({}).strict();
 const argumentsSchema = z.object({ request: z.string().trim().min(1).max(MAX_REQUEST_LENGTH) }).strict();
 export const REALTIME_TOOL_PREFIX = "realtime-tool:";
 
@@ -16,6 +17,8 @@ export interface RealtimeToolState {
   speaking: boolean;
   awaitingSpeechResponse: boolean;
   active: boolean;
+  ending: boolean;
+  audioPlaying: boolean;
 }
 
 /** Create independent control state without starting media or worker work.
@@ -31,6 +34,8 @@ export function realtimeToolState(): RealtimeToolState {
     speaking: false,
     awaitingSpeechResponse: false,
     active: true,
+    ending: false,
+    audioPlaying: false,
   };
 }
 
@@ -44,6 +49,15 @@ export function receivedTools(
   event: Data
 ): { state: RealtimeToolState; calls: Data[]; isCompleted: boolean } {
   switch (event.type) {
+    case "output_audio_buffer.started": {
+      return { state: { ...state, audioPlaying: true }, calls: [], isCompleted: false };
+    }
+
+    case "output_audio_buffer.stopped":
+    case "output_audio_buffer.cleared": {
+      return { state: { ...state, audioPlaying: false }, calls: [], isCompleted: false };
+    }
+
     case "input_audio_buffer.speech_started": {
       return { state: { ...state, speaking: true, awaitingSpeechResponse: true }, calls: [], isCompleted: false };
     }
@@ -118,6 +132,15 @@ export function requestedTool(state: RealtimeToolState, sessionId: string, call:
 
   const next = { ...state, completed: new Set([...state.completed, callId]) };
 
+  if (call.name === "end_call") {
+    const decoded = t(JSON.parse, string(call.arguments));
+    const input = endCallSchema.safeParse(decoded.ok ? decoded.value : undefined);
+
+    return input.success
+      ? { state: { ...next, ending: true }, callId, endCall: true }
+      : { state: next, callId, error: "Supply an empty object to end the voice call." };
+  }
+
   if (call.name !== "handoff_to_pocket") {
     return { state: next, callId, error: "That tool is unavailable. No work was dispatched." };
   }
@@ -137,6 +160,18 @@ export function requestedTool(state: RealtimeToolState, sessionId: string, call:
   return { state: { ...next, pending }, callId, id, request: input.data.request };
 }
 
+/** Describe one provider tool result without starting another model response.
+@param callId - Original provider function identity.
+@param result - Actual tool outcome.
+@returns Native function output frame.
+*/
+export function toolOutput(callId: string, result: Data): Data {
+  return {
+    type: "conversation.item.create",
+    item: { type: "function_call_output", call_id: callId, output: JSON.stringify(result) },
+  };
+}
+
 /** Append a worker outcome to its original live conversation.
 @param state - Previous session control state.
 @param callId - Provider call awaiting the result.
@@ -147,13 +182,7 @@ export function queuedToolResult(state: RealtimeToolState, callId: string, resul
   return state.active
     ? {
         ...state,
-        results: [
-          ...state.results,
-          {
-            type: "conversation.item.create",
-            item: { type: "function_call_output", call_id: callId, output: JSON.stringify(result) },
-          },
-        ],
+        results: [...state.results, toolOutput(callId, result)],
       }
     : state;
 }
@@ -194,4 +223,12 @@ export function flushedTools(state: RealtimeToolState) {
 */
 export function completedToolResponse(state: RealtimeToolState): RealtimeToolState {
   return { ...state, responseActive: false };
+}
+
+/** Wait for the acknowledgement's audio playback before ending the owning call.
+@param state - Current provider response and playback state.
+@returns Whether the runtime should release this voice session.
+*/
+export function shouldEndCall(state: RealtimeToolState) {
+  return state.active && state.ending && !state.audioPlaying && !state.responseActive;
 }

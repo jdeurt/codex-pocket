@@ -49,6 +49,7 @@ export interface RestartEvent {
   id: string;
   threadId: string;
   after: { turnId: string; itemId: string };
+  afterItemId?: string | null;
 }
 export interface Snapshot {
   /**
@@ -169,6 +170,7 @@ export const restartEventSchema = z.object({
   id: z.string(),
   threadId: z.string(),
   after: z.object({ turnId: z.string(), itemId: z.string() }),
+  afterItemId: z.string().nullable().optional(),
 });
 export const pendingRequestSchema = rpcEventSchema.extend({ id: z.union([z.string(), z.number()]) });
 export const snapshotSchema: z.ZodType<Snapshot> = z.object({

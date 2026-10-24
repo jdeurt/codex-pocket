@@ -6,7 +6,8 @@ import {
   measureTranscriptRow,
   scrollTranscript,
   attachTranscriptRow,
-  resumeTranscriptFollow,
+  beginTranscriptGesture,
+  endTranscriptGesture,
   maintainTranscriptEnd,
   preserveTranscriptOffset,
   connectTranscriptBookmark,
@@ -156,8 +157,6 @@ function MeasuredTranscript({
 }) {
   const viewport = useRef<HTMLDivElement>(null);
   const savedOffset = useRef<number | undefined>(undefined);
-  const initialEnd = useRef(!bookmark || bookmark.atEnd);
-  const [follow, setFollow] = useState(bookmark?.atEnd ?? true);
 
   const [activityMeasurements] = useState(createActivityMeasurements);
   const rangeExtractor = useBoundCallback(transcriptRange, rows, expanded);
@@ -165,37 +164,42 @@ function MeasuredTranscript({
   const getScrollElement = useBoundCallback(transcriptViewport, viewport);
   const estimateSize = useBoundCallback(estimatedTranscriptRow, rows.length);
   const scrollToFn = useBoundCallback(scrollTranscript, suspended);
-  const { virtualizer, layout } = useTranscriptVirtualizer({
-    enabled: ready || rows.length > 0,
-    count: rows.length + 1,
-    getScrollElement,
-    getItemKey,
-    estimateSize,
-    measureElement: measureTranscriptRow,
-    initialOffset: bookmark?.offset ?? rows.length * ESTIMATED_MESSAGE_HEIGHT,
-    initialMeasurementsCache: bookmark?.measurements,
-    anchorTo: suspended || !follow ? "start" : "end",
-    followOnAppend: !suspended && follow,
-    scrollEndThreshold: END_THRESHOLD,
-    paddingStart: PADDING_START,
-    paddingEnd: PADDING_END,
-    rangeExtractor,
-    overscan: rows.length + 1,
-    useCachedMeasurements: suspended,
-    scrollToFn,
-  });
+  const { virtualizer, layout, follow, followStore } = useTranscriptVirtualizer(
+    {
+      enabled: ready || rows.length > 0,
+      count: rows.length + 1,
+      getScrollElement,
+      getItemKey,
+      estimateSize,
+      measureElement: measureTranscriptRow,
+      initialOffset: bookmark?.offset ?? rows.length * ESTIMATED_MESSAGE_HEIGHT,
+      initialMeasurementsCache: bookmark?.measurements,
+      anchorTo: suspended ? "start" : "end",
+      followOnAppend: false,
+      scrollEndThreshold: END_THRESHOLD,
+      paddingStart: PADDING_START,
+      paddingEnd: PADDING_END,
+      rangeExtractor,
+      overscan: rows.length + 1,
+      useCachedMeasurements: suspended,
+      scrollToFn,
+    },
+    undefined,
+    bookmark?.atEnd ?? true
+  );
   const measure = useBoundCallback(attachTranscriptRow, virtualizer, suspended);
   const items = layout.rows;
   const messages = measuredMessages(items, rows.length);
   const footerRow = items.at(LAST_ITEM);
   const blockStart = messages.at(0)?.start ?? footerRow?.start ?? 0;
-  const resumeFollow = useBoundCallback(resumeTranscriptFollow, suspended, initialEnd, setFollow);
-  const maintainEnd = useBoundCallback(maintainTranscriptEnd, virtualizer, initialEnd, suspended);
+  const beginGesture = useBoundCallback(beginTranscriptGesture, suspended, followStore);
+  const endGesture = useBoundCallback(endTranscriptGesture, followStore);
+  const maintainEnd = useBoundCallback(maintainTranscriptEnd, virtualizer, followStore, suspended);
   const connectBookmark = useBoundCallback(connectTranscriptBookmark, storageKey, virtualizer, expanded);
-  const trackScroll = useBoundCallback(trackTranscriptScroll, initialEnd);
+  const trackScroll = useBoundCallback(trackTranscriptScroll, followStore);
   const preserveOffset = useBoundCallback(preserveTranscriptOffset, virtualizer, viewport, savedOffset, suspended);
 
-  useLayoutEffect(maintainEnd, [maintainEnd, layout.size, layout.height]);
+  useLayoutEffect(maintainEnd, [maintainEnd, layout.size, layout.height, follow.isFollowing]);
   useEffect(connectBookmark, [connectBookmark]);
   useLayoutEffect(preserveOffset, [preserveOffset]);
 
@@ -210,11 +214,12 @@ function MeasuredTranscript({
             data-scroll-suspended={suspended || undefined}
             preserveScrollOnPrepend={false}
             style={{ overflowAnchor: "none", overflowY: suspended ? "hidden" : undefined }}
-            onWheel={resumeFollow}
-            onTouchStart={resumeFollow}
-            onPointerDown={resumeFollow}
-            onKeyDown={resumeFollow}
+            onWheel={beginGesture}
+            onTouchStart={beginGesture}
+            onPointerDown={beginGesture}
+            onKeyDown={beginGesture}
             onScroll={trackScroll}
+            onScrollEnd={endGesture}
           >
             <div className="transcript" style={{ paddingBlock: 0, minHeight: "100%", justifyContent: "flex-end" }}>
               <div style={{ height: layout.size, position: "relative", flexShrink: 0 }}>
@@ -255,7 +260,7 @@ function MeasuredTranscript({
               size="icon-xl"
               className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full border-border bg-background"
               aria-label="Jump to latest message"
-              onClick={jumpToLatest.bind(undefined, setFollow, virtualizer)}
+              onClick={jumpToLatest.bind(undefined, followStore, virtualizer)}
             >
               <ArrowDownIcon />
             </Button>

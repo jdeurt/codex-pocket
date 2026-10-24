@@ -23,7 +23,8 @@ class SpectrumRenderer {
   private readonly reduced = matchMedia(MOTION_QUERY);
   private readonly inputBytes;
   private readonly outputBytes;
-  private levels = silentSpectrum();
+  private readonly resize;
+  private levels = silentSpectrum(0);
   private frame = 0;
   private isRunning = true;
 
@@ -44,10 +45,12 @@ class SpectrumRenderer {
     this.context.clearRect(0, 0, bounds.width, bounds.height);
     this.input.getByteFrequencyData(this.inputBytes);
     this.output.getByteFrequencyData(this.outputBytes);
+
     this.levels = sampledSpectrum(
       this.levels,
       { bytes: this.inputBytes, binWidth: this.input.context.sampleRate / this.input.fftSize },
-      { bytes: this.outputBytes, binWidth: this.output.context.sampleRate / this.output.fftSize }
+      { bytes: this.outputBytes, binWidth: this.output.context.sampleRate / this.output.fftSize },
+      bounds.width
     );
     const composer = this.element.closest<HTMLElement>(".composer");
     const composerBounds = composer?.getBoundingClientRect();
@@ -82,12 +85,22 @@ class SpectrumRenderer {
   };
 
   /**
+  Keep fixed-width bars fitted after a resize when animation is disabled.
+  */
+  private resized = () => {
+    if (this.reduced.matches) {
+      this.draw();
+    }
+  };
+
+  /**
   Release the animation and exact preference listener.
   */
   stop = () => {
     this.isRunning = false;
     cancelAnimationFrame(this.frame);
     this.reduced.removeEventListener("change", this.motionChanged);
+    this.resize.disconnect();
   };
 
   /** Start one mounted native renderer.
@@ -104,6 +117,8 @@ class SpectrumRenderer {
   ) {
     this.inputBytes = new Uint8Array(input.frequencyBinCount);
     this.outputBytes = new Uint8Array(output.frequencyBinCount);
+    this.resize = new ResizeObserver(this.resized);
+    this.resize.observe(element);
     this.draw();
     this.reduced.addEventListener("change", this.motionChanged);
   }

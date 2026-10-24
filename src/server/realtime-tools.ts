@@ -10,6 +10,8 @@ import {
   queuedToolResult,
   resolvedTool,
   flushedTools,
+  shouldEndCall,
+  toolOutput,
 } from "../state/realtime-tools";
 import { log } from "./logging";
 
@@ -26,12 +28,14 @@ export class RealtimeTools {
   @param owner - Main-agent delivery interface.
   @param send - Server control channel, never microphone audio.
   @param fail - Owning session's control failure handler.
+  @param endCall - Release only the voice connection that owns these tools.
   */
   constructor(
     private sessionId: string,
     private owner: VoiceSessionOwner,
     private send: (event: Data) => void,
-    private fail: (error: unknown) => void
+    private fail: (error: unknown) => void,
+    private endCall: () => Promise<void>
   ) {}
 
   /**
@@ -74,6 +78,16 @@ export class RealtimeTools {
       return;
     }
 
+    if (requested.endCall) {
+      const sent = t(this.send, toolOutput(requested.callId, { status: "ending" }));
+
+      if (!sent.ok) {
+        this.fail(sent.error);
+      }
+
+      return;
+    }
+
     if (!requested.id) {
       this.result(requested.callId, { error: requested.error });
 
@@ -112,6 +126,22 @@ export class RealtimeTools {
     });
   }
 
+  /**
+  Release an explicitly ended call once its acknowledgement finishes playing.
+  */
+  private async finishCall() {
+    if (!shouldEndCall(this.store.getState())) {
+      return;
+    }
+
+    this.store.setState({ active: false });
+    const ended = await t(this.endCall);
+
+    if (!ended.ok) {
+      this.fail(ended.error);
+    }
+  }
+
   /** Publish immutable provider state before launching selected worker requests.
   @param event - Provider control event.
   */
@@ -125,10 +155,13 @@ export class RealtimeTools {
     }
 
     if (!received.isCompleted) {
+      void this.finishCall();
+
       return;
     }
 
     this.store.setState(completedToolResponse(this.store.getState()), true);
+    void this.finishCall();
     this.flush();
   }
 

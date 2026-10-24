@@ -2,6 +2,10 @@ import { type RestartEvent, type Snapshot, restartEventSchema } from "../lib/pro
 import { readLocal, writeLocal } from "./local-state";
 import { resumedRestart, isParentRestart } from "../state/restarts";
 import { z } from "zod";
+import { t } from "try";
+import { log } from "./logging";
+import { VoiceHistory } from "./voice-history";
+import { lastTimelineItem } from "../state/voice-context";
 
 const STORE = "restart-events.json";
 
@@ -16,7 +20,25 @@ export async function recordRestart(state: Snapshot): Promise<RestartEvent[]> {
     .parse(await readLocal(STORE, []))
     .filter(isParentRestart.bind(undefined, state.threadId));
   const saved = z.array(restartEventSchema).parse(await readLocal(file, legacy));
-  const restart = resumedRestart(state, `pocket-restart:${crypto.randomUUID()}`);
+
+  if (!resumedRestart(state, "")) {
+    return saved.filter(isParentRestart.bind(undefined, state.threadId));
+  }
+
+  const voice = new VoiceHistory(state.threadId ?? "");
+  const restored = await t(voice.read.bind(voice));
+
+  if (!restored.ok) {
+    log().error({ error: restored.error }, "restart.voice_history_unavailable");
+  }
+
+  const history = restored.ok ? restored.value : [];
+  const snapshot = { ...state, restartEvents: saved };
+  const restart = resumedRestart(
+    snapshot,
+    `pocket-restart:${crypto.randomUUID()}`,
+    lastTimelineItem(snapshot, history)
+  );
   const next = restart ? [...saved, restart] : saved;
 
   if (restart) {

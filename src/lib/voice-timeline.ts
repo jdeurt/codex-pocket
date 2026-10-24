@@ -3,12 +3,18 @@ import { rowsForTurns, type TranscriptTurn } from "./transcript-virtualization";
 import { type VoiceSegment } from "./voice-history";
 import { hasMessageText } from "./turn-messages";
 
-/** Resolve caption anchors without recursion, preserving cycle and missing-anchor fallbacks.
+interface AnchoredTurn {
+  id: string;
+  afterItemId?: string | null;
+  turn: TranscriptTurn;
+}
+
+/** Resolve timeline anchors without recursion, preserving cycle and missing-anchor fallbacks.
 @param id - Anchor to resolve.
 @param positions - Canonical message positions.
-@param anchors - Caption-to-anchor relationships.
+@param anchors - Voice and restart predecessor relationships.
 @param tail - Position after the last canonical row.
-@returns The insertion boundary for this caption.
+@returns The insertion boundary for this entry.
 */
 function anchorPosition(
   id: string | null | undefined,
@@ -32,22 +38,22 @@ function anchorPosition(
   return id === null ? 0 : tail;
 }
 
-/** Order caption dependencies before their descendants while retaining provider order.
-@param segments - Saved provider-ordered captions.
-@returns Captions with each available anchor preceding its dependent captions.
+/** Order voice and restart dependencies before their descendants.
+@param segments - Anchored timeline entries in stable source order.
+@returns Entries with each available predecessor before its descendants.
 */
-function orderedSegments(segments: VoiceSegment[]) {
-  const pending = new Map<string, VoiceSegment>();
-  const ordered: VoiceSegment[] = [];
+function orderedEntries(segments: AnchoredTurn[]) {
+  const pending = new Map<string, AnchoredTurn>();
+  const ordered: AnchoredTurn[] = [];
 
   for (const segment of segments) {
     pending.set(segment.id, segment);
   }
 
   for (const segment of segments) {
-    const chain: VoiceSegment[] = [];
+    const chain: AnchoredTurn[] = [];
 
-    let current: VoiceSegment | undefined = segment;
+    let current: AnchoredTurn | undefined = segment;
 
     while (current && pending.delete(current.id)) {
       chain.push(current);
@@ -68,7 +74,42 @@ function captionReceipt(segment: VoiceSegment) {
   return segment.handoffId ?? `realtime:${segment.nativeSessionId}:${segment.itemId}`;
 }
 
-/** Insert saved speech at durable message anchors, retaining native order and receipt identity.
+/** Retain an explicitly anchored restart for the shared dependency ordering.
+@param turn - One canonical display row.
+@returns Restart dependency when the row carries its combined timeline anchor.
+*/
+function anchoredRestart(turn: TranscriptTurn): AnchoredTurn | undefined {
+  const entry = turn.entries[0];
+
+  if (entry.kind !== "message" || entry.item.type !== "pocketRestart") {
+    return;
+  }
+
+  const anchor = entry.item.afterItemId;
+
+  if (typeof anchor === "string" || anchor === null) {
+    return { id: entry.item.id, afterItemId: anchor, turn };
+  }
+}
+
+/** Keep nonempty captions whose user receipt is not already displayed.
+@param canonical - Native or queued user receipts.
+@param segment - Candidate caption.
+@returns Whether the caption belongs in the combined transcript.
+*/
+function isVisibleCaption(canonical: ReadonlySet<string>, segment: VoiceSegment) {
+  return !!segment.text.trim() && !(segment.role === "user" && canonical.has(captionReceipt(segment)));
+}
+
+/** Recognize a native user receipt with visible text.
+@param item - Canonical item.
+@returns Whether its identity deduplicates a saved user caption.
+*/
+function isUserReceipt(item: Item) {
+  return item.type === "userMessage" && hasMessageText(item);
+}
+
+/** Order speech and restart notices at durable anchors, retaining native order and receipt identity.
 @param turns - Canonical main-agent rows in their authoritative order.
 @param segments - Saved speech in provider order, including legacy entries without anchors.
 @param queued - Receipts still owned by the main outbox.
@@ -79,17 +120,28 @@ export function voiceTimeline(turns: TranscriptTurn[], segments: VoiceSegment[],
   const positions = new Map<string, number>();
   const receipts = new Map<string, number>();
   const rows: TranscriptTurn[] = [];
+  const anchored: AnchoredTurn[] = [];
 
   for (const row of rowsForTurns(turns)) {
     const entry = row.entry;
 
-    rows.push({ id: row.turnId, entries: [entry] });
+    const turn = { id: row.turnId, entries: [entry] };
+
+    const restart = anchoredRestart(turn);
+
+    if (restart) {
+      anchored.push(restart);
+
+      continue;
+    }
+
+    rows.push(turn);
     const items = entry.kind === "message" ? [entry.item] : entry.items;
 
     for (const item of items) {
       positions.set(item.id, rows.length);
 
-      if (!(item.type === "userMessage" && hasMessageText(item))) {
+      if (!isUserReceipt(item)) {
         continue;
       }
 
@@ -117,18 +169,27 @@ export function voiceTimeline(turns: TranscriptTurn[], segments: VoiceSegment[],
     }
   }
 
-  const buckets = new Map<number, TranscriptTurn[]>();
-
-  for (const segment of orderedSegments(segments)) {
-    if (!segment.text.trim() || (segment.role === "user" && canonical.has(captionReceipt(segment)))) {
+  for (const segment of segments) {
+    if (!isVisibleCaption(canonical, segment)) {
       continue;
     }
 
-    const position = anchorPosition(segment.afterItemId, positions, anchors, rows.length);
     const item: Item = { id: segment.id, type: "voiceMessage", voice: segment };
+
+    anchored.push({ ...segment, turn: { id: segment.id, entries: [{ kind: "message", item }] } });
+  }
+
+  for (const entry of anchored) {
+    anchors.set(entry.id, entry.afterItemId);
+  }
+
+  const buckets = new Map<number, TranscriptTurn[]>();
+
+  for (const entry of orderedEntries(anchored)) {
+    const position = anchorPosition(entry.afterItemId, positions, anchors, rows.length);
     const bucket = buckets.get(position) ?? [];
 
-    bucket.push({ id: segment.id, entries: [{ kind: "message", item }] });
+    bucket.push(entry.turn);
     buckets.set(position, bucket);
   }
 

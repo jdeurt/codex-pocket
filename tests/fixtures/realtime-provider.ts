@@ -32,15 +32,23 @@ function emit(peer: WebSocket, event: Data) {
   }
 }
 
-function reply(peer: WebSocket) {
-  const options = control();
-  const responseId = crypto.randomUUID();
-  const itemId = crypto.randomUUID();
-  const text = string(options.replyText) || "Hello from realtime.";
+/** Finish the synthetic spoken reply after its optional streaming pause.
+@param peer - Provider control connection.
+@param responseId - Active response identity.
+@param itemId - Spoken message identity.
+@param text - Complete spoken transcript.
+@param partial - Transcript already emitted before the pause.
+*/
+function finishReply(peer: WebSocket, responseId: string, itemId: string, text: string, partial: string) {
+  if (text.length > partial.length) {
+    emit(peer, {
+      type: "response.output_audio_transcript.delta",
+      response_id: responseId,
+      item_id: itemId,
+      delta: text.slice(partial.length),
+    });
+  }
 
-  emit(peer, { type: "response.created", response: { id: responseId } });
-  emit(peer, { type: "response.output_item.added", item: { id: itemId, type: "message", role: "assistant" } });
-  emit(peer, { type: "response.output_audio_transcript.delta", response_id: responseId, item_id: itemId, delta: text });
   emit(peer, {
     type: "response.output_audio_transcript.done",
     response_id: responseId,
@@ -48,6 +56,24 @@ function reply(peer: WebSocket) {
     transcript: text,
   });
   emit(peer, { type: "response.done", response: { id: responseId, status: "completed", output: [] } });
+}
+
+function reply(peer: WebSocket) {
+  const options = control();
+  const responseId = crypto.randomUUID();
+  const itemId = crypto.randomUUID();
+  const text = string(options.replyText) || "Hello from realtime.";
+  const partial = string(options.partialReplyText) || text;
+
+  emit(peer, { type: "response.created", response: { id: responseId } });
+  emit(peer, { type: "response.output_item.added", item: { id: itemId, type: "message", role: "assistant" } });
+  emit(peer, {
+    type: "response.output_audio_transcript.delta",
+    response_id: responseId,
+    item_id: itemId,
+    delta: partial,
+  });
+  setTimeout(finishReply, Number(options.replyDelayMs ?? 0), peer, responseId, itemId, text, partial);
 }
 
 function speech(peer: WebSocket) {

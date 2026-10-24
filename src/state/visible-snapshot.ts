@@ -100,7 +100,7 @@ Exclude internal work and preserve explicit restart and original-file rows befor
 */
 function displayItem(item: Item, scheduled: ReadonlySet<string>, hasTools: boolean): Item | Item[] {
   if (item.type === "pocketRestart") {
-    return { id: item.id, type: item.type };
+    return { id: item.id, type: item.type, ...(item.afterItemId !== undefined && { afterItemId: item.afterItemId }) };
   }
 
   if (item.type === "userMessage" && (scheduled.has(string(item.clientId)) || isInternal(item.clientId))) {

@@ -81,6 +81,15 @@ export class OpenAIVoiceSession extends EventTarget {
     }
   }
 
+  /** End the voice connection only while the requesting tool still owns it.
+  @param attempt - Original native connection generation.
+  */
+  private async endCall(attempt: number) {
+    if (this.attempt === attempt && this.token) {
+      await this.stop(this.token);
+    }
+  }
+
   /**
   Negotiate one call and attach its tool connection before returning the browser's SDP.
   @param attempt - Reserved native connection generation.
@@ -112,7 +121,8 @@ export class OpenAIVoiceSession extends EventTarget {
       sessionId,
       this.owner,
       transport.send.bind(transport),
-      this.toolFailed.bind(this, attempt)
+      this.toolFailed.bind(this, attempt),
+      this.endCall.bind(this, attempt)
     );
     const answer = await transport.connect(settings.key, settings.voice, sdp, settings.model, endpoint, context);
 

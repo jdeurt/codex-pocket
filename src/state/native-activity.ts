@@ -216,10 +216,10 @@ function restoredExecutions(turn: Turn): [string, string][] {
 
 /** Normalize human activity text without touching native tool names, paths or transcript payloads.
 @param label - Human description from the activity vocabulary.
-@returns Description with its first character in lowercase.
+@returns Description with its first character capitalized.
 */
 function activityLabel(label: string) {
-  return label.charAt(0).toLowerCase() + label.slice(1);
+  return label.charAt(0).toUpperCase() + label.slice(1);
 }
 
 /** Reconcile native execution identities without changing the previous bookkeeping.
