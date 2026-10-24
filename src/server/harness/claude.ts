@@ -1,3 +1,4 @@
+import { valueAfterCleanup, requireResults } from "../../lib/results";
 import { t as captureResult } from "try";
 import {
   type AdapterOptions,
@@ -9,6 +10,7 @@ import {
 import { type ChildProcess, spawn } from "node:child_process";
 import {
   type Query,
+  type Options,
   type SDKAssistantMessage,
   type SDKMessage,
   type SDKResultMessage,
@@ -17,9 +19,14 @@ import {
   getSessionMessages,
   query,
 } from "@anthropic-ai/claude-agent-sdk";
-import { claudeTranscript, harnessMessages, nativeText } from "./transcript";
-import { ClaudeAgents } from "./claude-agents";
-import { ClaudeWrites, applyClaudeWrites } from "./claude-writes";
+import { claudeTranscript, harnessMessages, nativeText } from "../../state/harness-transcript";
+import { type ClaudeAgentState, observedClaudeAgents, waitingClaudeAgent } from "../../state/claude-agents";
+import {
+  type ClaudeWriteState,
+  restoredClaudeWrites,
+  observedClaudeWrites,
+  applyClaudeWrites,
+} from "../../state/claude-writes";
 import { claudeOptions } from "./claude-options";
 import { claudePermissions } from "./permissions";
 import { log } from "../logging";
@@ -31,6 +38,21 @@ export { claudeOptions } from "./claude-options";
 const messageIdSchema: z.ZodType<NonNullable<SDKUserMessage["uuid"]>> = z
   .uuid()
   .pipe(z.templateLiteral([z.string(), "-", z.string(), "-", z.string(), "-", z.string(), "-", z.string()]));
+
+/** Keep one SDK input open until its query consumer has finished.
+@param id - Validated native message identity.
+@param text - Original delegated assignment.
+@param finished - Explicit query-lifetime completion signal.
+@yields The single owned native user message.
+*/
+async function* claudeInput(
+  id: NonNullable<SDKUserMessage["uuid"]>,
+  text: string,
+  finished: Promise<undefined>
+): AsyncGenerator<SDKUserMessage> {
+  yield { type: "user", message: { role: "user", content: text }, parent_tool_use_id: null, uuid: id };
+  await finished;
+}
 
 /**
 Own one delegated Claude SDK session and its native process and query lifetimes.
@@ -46,9 +68,43 @@ export class ClaudeAdapter implements HarnessAdapter {
 
   private interrupted = false;
 
-  private nativeAgents = new ClaudeAgents();
+  private nativeAgents: ClaudeAgentState = {};
 
-  private writes: ClaudeWrites;
+  private writes: ClaudeWriteState;
+
+  /** Publish native question ownership without mutating an earlier snapshot.
+  @param nativeId - Known native task.
+  @param isWaiting - Whether an answer is outstanding.
+  */
+  private readonly waiting = (nativeId: string, isWaiting: boolean) => {
+    const nativeAgents = waitingClaudeAgent(this.nativeAgents, nativeId, isWaiting);
+
+    if (!nativeAgents) {
+      return;
+    }
+
+    this.nativeAgents = nativeAgents;
+    this.options.callbacks.metadata({ nativeAgents });
+  };
+
+  /** Acquire the exact native process that this query must later join.
+  @param options - SDK launch configuration.
+  @returns Owned child process.
+  */
+  private readonly spawnProcess: NonNullable<Options["spawnClaudeCodeProcess"]> = (options) => {
+    const child = spawn(options.command, options.args, {
+      cwd: options.cwd,
+      env: { NODE_ENV: process.env.NODE_ENV, ...options.env },
+      signal: options.signal,
+      stdio: "pipe",
+      shell: false,
+    });
+
+    this.process = child;
+    this.options.callbacks.metadata({ pid: child.pid });
+
+    return child;
+  };
 
   /**
 Retain a saved native session or allocate a new child identity.
@@ -57,7 +113,7 @@ Retain a saved native session or allocate a new child identity.
   constructor(private options: AdapterOptions) {
     this.sessionId = options.child.sessionId ?? crypto.randomUUID();
     this.resume = !!options.child.sessionId;
-    this.writes = new ClaudeWrites(this.sessionId, options.child.metadata);
+    this.writes = restoredClaudeWrites(options.child.metadata);
   }
 
   /**
@@ -68,10 +124,12 @@ Publish native display metadata before forwarding assistant text.
     log().debug({ childId: this.options.child.id, message }, "side_pocket.claude.event");
 
     this.publishNative(message);
-    const writes = this.writes.observe(message);
+    const writes = observedClaudeWrites(this.writes, this.sessionId, message);
 
-    if (writes) {
-      this.options.callbacks.metadata(writes);
+    this.writes = writes.state;
+
+    if (writes.patch) {
+      this.options.callbacks.metadata(writes.patch);
     }
 
     if (message.type === "system" && message.subtype === "init") {
@@ -94,11 +152,14 @@ Publish task lifecycle changes only when the SDK message concerns native agents.
 @param message - Native SDK message from the owned query.
 */
   private publishNative(message: SDKMessage) {
-    const nativeAgents = this.nativeAgents.observe(message);
+    const nativeAgents = observedClaudeAgents(this.nativeAgents, message);
 
-    if (nativeAgents) {
-      this.options.callbacks.metadata({ nativeAgents });
+    if (!nativeAgents) {
+      return;
     }
+
+    this.nativeAgents = nativeAgents;
+    this.options.callbacks.metadata({ nativeAgents });
   }
 
   /**
@@ -159,58 +220,34 @@ Hold the SDK input stream open until query consumption and process cleanup finis
   private async turn(id: string, text: string) {
     const finished = Promise.withResolvers<undefined>();
     const messageId = messageIdSchema.parse(id);
-    const input = async function* (): AsyncGenerator<SDKUserMessage> {
-      yield {
-        type: "user",
-        message: { role: "user", content: text },
-        parent_tool_use_id: null,
-        uuid: messageId,
-      };
-      await finished.promise;
-    };
-    const run = query({
-      prompt: input(),
+    const started = captureResult(query, {
+      prompt: claudeInput(messageId, text, finished.promise),
       options: {
-        ...claudeOptions(this.options, this.sessionId, this.resume, (nativeId, waiting) => {
-          const nativeAgents = this.nativeAgents.waiting(nativeId, waiting);
-
-          if (!nativeAgents) {
-            return;
-          }
-
-          this.options.callbacks.metadata({ nativeAgents });
-        }),
-        spawnClaudeCodeProcess: (options) => {
-          const child = spawn(options.command, options.args, {
-            cwd: options.cwd,
-            env: { NODE_ENV: process.env.NODE_ENV, ...options.env },
-            signal: options.signal,
-            stdio: "pipe",
-            shell: false,
-          });
-
-          this.process = child;
-          this.options.callbacks.metadata({ pid: child.pid });
-
-          return child;
-        },
+        ...claudeOptions(this.options, this.sessionId, this.resume, this.waiting),
+        spawnClaudeCodeProcess: this.spawnProcess,
       },
     });
 
-    this.current = run;
-
-    const completed = await captureResult(this.consume(run));
+    this.current = started.ok ? started.value : undefined;
+    const completed = started.ok ? await captureResult(this.consume.bind(this), started.value) : started;
 
     finished.resolve(undefined);
-    run.close();
-    await waitForProcessExit(this.process);
+    const closed = captureResult(this.closeQuery.bind(this));
+    const exited = await captureResult(waitForProcessExit, this.process);
+
     this.current = undefined;
 
-    if (!completed.ok) {
-      throw completed.error;
-    }
+    return valueAfterCleanup(
+      completed,
+      captureResult(requireResults, [closed, exited], "Claude query cleanup failed.")
+    );
+  }
 
-    return completed.value;
+  /**
+  Release the current SDK iterator even after consumption failed.
+  */
+  private closeQuery() {
+    this.current?.close();
   }
 
   /**
@@ -232,7 +269,7 @@ Reset per-turn state before submitting the next native SDK input.
 */
   async run(id: string, text: string): Promise<HarnessResult> {
     this.interrupted = false;
-    this.nativeAgents.reset();
+    this.nativeAgents = {};
     this.options.callbacks.metadata({ nativeAgents: null });
 
     return this.turn(id, text);
@@ -280,7 +317,9 @@ Interrupt the native query while Pocket retains the resumable saved session.
 Close the owned SDK query and await its native process exit.
 */
   async close() {
-    this.current?.close();
-    await waitForProcessExit(this.process);
+    const closed = captureResult(this.closeQuery.bind(this));
+    const exited = await captureResult(waitForProcessExit, this.process);
+
+    requireResults([closed, exited], "Claude query shutdown failed.");
   }
 }

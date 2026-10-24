@@ -1,4 +1,4 @@
-import { nativeText } from "../../src/server/harness/transcript";
+import { nativeText } from "../../src/state/harness-transcript";
 import { object, dataSchema } from "../../src/lib/protocol";
 import { visibleSnapshot } from "../../src/server/visible-snapshot";
 import { VoiceHistory } from "../../src/server/voice-history";

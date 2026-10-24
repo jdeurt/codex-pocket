@@ -1,5 +1,10 @@
 import { type Data, object } from "../../lib/protocol";
-import { type HookJSONOutput, type Options, type PermissionRequestHookInput } from "@anthropic-ai/claude-agent-sdk";
+import {
+  type HookJSONOutput,
+  type HookInput,
+  type Options,
+  type PermissionRequestHookInput,
+} from "@anthropic-ai/claude-agent-sdk";
 import { type AdapterOptions } from "./types";
 import { claudePermissions } from "./permissions";
 import { log } from "../logging";
@@ -76,6 +81,28 @@ async function requestedPermission(
   return completedPermission(input, isQuestion ? await answeredQuestion(input, data, callbacks) : data, nativeRequest);
 }
 
+/** Route the SDK permission hook to the explicit scoped worker callbacks.
+@param callbacks - Worker that owns native question answers.
+@param nativeRequest - Optional task waiting-state publisher.
+@param input - SDK hook payload.
+@returns The supported permission decision or an empty unrelated-hook result.
+*/
+async function permissionHook(
+  callbacks: AdapterOptions["callbacks"],
+  nativeRequest: NativeRequest | undefined,
+  input: HookInput
+) {
+  return input.hook_event_name === "PermissionRequest" ? requestedPermission(input, callbacks, nativeRequest) : {};
+}
+
+/** Record native stderr with its explicit child identity.
+@param childId - Owning delegated child.
+@param message - Native stderr text.
+*/
+function diagnostic(childId: string, message: string) {
+  log().debug({ message, childId }, "side_pocket.claude.stderr");
+}
+
 /**
 Build native SDK options with inherited permissions, prompts and scoped parent tools.
 @param options - Validated child context and worker callbacks.
@@ -108,20 +135,12 @@ export function claudeOptions(
     strictMcpConfig: true,
     mcpServers: parentTools ? { pocket_parent: { type: "stdio", ...parentTools } } : {},
     persistSession: true,
-    stderr: (message) => {
-      log().debug({ message, childId: child.id }, "side_pocket.claude.stderr");
-    },
+    stderr: diagnostic.bind(undefined, child.id),
     hooks: {
       PermissionRequest: [
         {
           timeout: HOOK_TIMEOUT_SECONDS,
-          hooks: [
-            async (input) => {
-              return input.hook_event_name === "PermissionRequest"
-                ? requestedPermission(input, callbacks, nativeRequest)
-                : {};
-            },
-          ],
+          hooks: [permissionHook.bind(undefined, callbacks, nativeRequest)],
         },
       ],
     },

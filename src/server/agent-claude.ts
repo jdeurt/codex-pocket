@@ -1,11 +1,11 @@
 import { historyItems } from "../state/agent-history";
-import { type ClaudeMessage, claudeTranscript } from "./harness/transcript";
+import { type ClaudeMessage, claudeTranscript } from "../state/harness-transcript";
 import { type Data, type Item, object, string } from "../lib/protocol";
 import { agentStatusSchema, isActiveAgent } from "../lib/agents";
 import { getSessionInfo, getSessionMessages, getSubagentMessages, listSubagents } from "@anthropic-ai/claude-agent-sdk";
 import { type AgentRecord } from "./agent-sources";
 import { agentRead } from "./agent-read-pool";
-import { applyClaudeWrites } from "./harness/claude-writes";
+import { applyClaudeWrites } from "../state/claude-writes";
 
 /** Find the first explicit native relationship.
 @param messages - Saved SDK messages.

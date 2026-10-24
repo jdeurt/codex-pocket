@@ -1,9 +1,10 @@
-import { type Data, type Item, type Turn, object, string } from "../../lib/protocol";
-import { type HarnessMessage } from "./types";
+import { type Data, type Item, type Turn, object, string } from "../lib/protocol";
+import { type HarnessMessage } from "../server/harness/types";
 import { type SessionMessage } from "@anthropic-ai/claude-agent-sdk";
-import { inputToolPreview } from "../tool-preview";
+import { inputToolPreview } from "./tool-preview";
 
 export type ClaudeMessage = SessionMessage;
+const NO_CONTENT_INDEX = -1;
 
 /**
 Normalize string or native text-block content without including non-text payloads.
@@ -15,12 +16,19 @@ export function nativeText(content: unknown): string {
     return content;
   }
 
-  return Array.isArray(content)
-    ? content
-        .map((part) => string(object(part).text))
-        .filter(Boolean)
-        .join("\n")
-    : "";
+  const texts: string[] = [];
+
+  if (Array.isArray(content)) {
+    for (const part of content) {
+      const text = string(object(part).text);
+
+      if (text) {
+        texts.push(text);
+      }
+    }
+  }
+
+  return texts.join("\n");
 }
 
 /**
@@ -33,7 +41,7 @@ function messageParts(raw: Data): Data[] {
     return [{ type: "text", text: raw.content }];
   }
 
-  return Array.isArray(raw.content) ? raw.content.map((part) => object(part)) : [];
+  return Array.isArray(raw.content) ? Array.from(raw.content, object) : [];
 }
 
 /**
@@ -67,25 +75,32 @@ function imageContent(part: Data) {
 interface MessageContext {
   message: ClaudeMessage;
   raw: Data;
-  parts: Data[];
   userContent: Data[];
-  turn: Turn;
-  calls: Map<string, Item>;
+  firstContentIndex: number;
 }
 
-/**
-Project one normalized SDK part into canonical message, tool or image items.
-@param context - Saved message, active turn and cross-message tool-call ownership.
-@param part - Normalized native content part.
-@param index - Part position within the saved message.
+/** Convert one native visible content part without changing its source.
+@param part - Native content metadata.
+@returns Canonical text or image content.
 */
-function appendPart(context: MessageContext, part: Data, index: number) {
-  const { message, raw, parts, userContent, turn, calls } = context;
+function displayContent(part: Data) {
+  return part.type === "image" ? imageContent(part) : part;
+}
+
+/** Project a native part into independent display items; correlation is explicit.
+@param context - Original message and its visible user content.
+@param part - Native content part.
+@param index - Native part position.
+@param hasToolCall - Whether a prior tool call owns this result.
+@returns Newly constructed canonical items.
+*/
+function partItems(context: MessageContext, part: Data, index: number, hasToolCall: boolean): Item[] {
+  const { message, raw, userContent, firstContentIndex } = context;
   const id = `${message.uuid}:${String(index)}`;
 
-  switch (part.type) {
-    case "tool_use": {
-      const item: Item = {
+  if (part.type === "tool_use") {
+    return [
+      {
         id,
         type: "toolTrace",
         nativeId: string(part.id),
@@ -94,72 +109,56 @@ function appendPart(context: MessageContext, part: Data, index: number) {
         toolLabels: inputToolPreview(string(part.name), object(part.input)),
         status: "running",
         text: "",
-      };
+      },
+    ];
+  }
 
-      calls.set(string(part.id), item);
-      turn.items.push(item);
+  if (part.type === "tool_result") {
+    const items: Item[] = hasToolCall
+      ? []
+      : [
+          {
+            id,
+            type: "toolTrace",
+            tool: "Tool result",
+            status: part.is_error ? "failed" : "completed",
+            text: nativeText(part.content),
+          },
+        ];
 
-      return;
-    }
+    if (Array.isArray(part.content)) {
+      for (const [imageIndex, entry] of part.content.entries()) {
+        const image = object(entry);
 
-    case "tool_result": {
-      const item = calls.get(string(part.tool_use_id));
-      const output = nativeText(part.content);
-
-      if (item) {
-        item.status = part.is_error ? "failed" : "completed";
-        item.text = output;
-      } else {
-        turn.items.push({
-          id,
-          type: "toolTrace",
-          tool: "Tool result",
-          status: part.is_error ? "failed" : "completed",
-          text: output,
-        });
-      }
-
-      if (Array.isArray(part.content)) {
-        const images = part.content.map((entry) => object(entry));
-
-        for (const [imageIndex, image] of images.entries()) {
-          if (image.type === "image") {
-            turn.items.push({
-              id: `${id}:image:${String(imageIndex)}`,
-              type: "imageOutput",
-              content: [imageContent(image)],
-            });
-          }
+        if (image.type === "image") {
+          items.push({ id: `${id}:image:${String(imageIndex)}`, type: "imageOutput", content: [imageContent(image)] });
         }
       }
-
-      return;
     }
 
-    case "text":
-    case "image": {
-      if (message.type === "user") {
-        if (index === parts.findIndex((entry) => entry.type === "text" || entry.type === "image")) {
-          turn.items.push({
-            id: message.uuid,
-            type: "userMessage",
-            content: userContent.map((entry) => (entry.type === "image" ? imageContent(entry) : entry)),
-          });
-        }
-      } else if (part.type === "text") {
-        turn.items.push({
+    return items;
+  }
+
+  if (part.type !== "text" && part.type !== "image") {
+    return [];
+  }
+
+  if (message.type === "user") {
+    return index === firstContentIndex
+      ? [{ id: message.uuid, type: "userMessage", content: Array.from(userContent, displayContent) }]
+      : [];
+  }
+
+  return [
+    part.type === "text"
+      ? {
           id,
           type: "agentMessage",
           text: string(part.text),
           phase: raw.stop_reason === "end_turn" ? "final_answer" : "commentary",
-        });
-      } else {
-        turn.items.push({ id, type: "imageOutput", content: [imageContent(part)] });
-      }
-
-      return;
-    }
-  }
+        }
+      : { id, type: "imageOutput", content: [imageContent(part)] },
+  ];
 }
 
 // Both harnesses use Pocket's existing turns/items model. Tool calls are display data,
@@ -179,7 +178,21 @@ export function claudeTranscript(messages: ClaudeMessage[]): Turn[] {
   for (const message of messages) {
     const raw = object(message.message);
     const parts = messageParts(raw);
-    const userContent = parts.filter((part) => ["text", "image"].includes(string(part.type)));
+    const userContent: Data[] = [];
+
+    let firstContentIndex = NO_CONTENT_INDEX;
+
+    for (const [index, part] of parts.entries()) {
+      if (!(part.type === "text" || part.type === "image")) {
+        continue;
+      }
+
+      if (firstContentIndex === NO_CONTENT_INDEX) {
+        firstContentIndex = index;
+      }
+
+      userContent.push(part);
+    }
 
     if (!turn || (message.type === "user" && userContent.length > 0)) {
       turn = { id: message.uuid, status: "inProgress", items: [] };
@@ -191,7 +204,19 @@ export function claudeTranscript(messages: ClaudeMessage[]): Turn[] {
     }
 
     for (const [index, part] of parts.entries()) {
-      appendPart({ message, raw, parts, userContent, turn, calls }, part, index);
+      const call = calls.get(string(part.tool_use_id));
+      const items = partItems({ message, raw, userContent, firstContentIndex }, part, index, !!call);
+
+      if (call && part.type === "tool_result") {
+        call.status = part.is_error ? "failed" : "completed";
+        call.text = nativeText(part.content);
+      }
+
+      if (part.type === "tool_use") {
+        calls.set(string(part.id), items[0]);
+      }
+
+      turn.items.push(...items);
     }
 
     if (raw.stop_reason === "end_turn" || raw.stop_reason === "stop_sequence") {
@@ -210,12 +235,18 @@ Project canonical items into delegated history without exposing executable reque
 @returns Delegated messages retaining their original canonical items.
 */
 export function harnessMessages(turns: Turn[]): HarnessMessage[] {
-  return turns.flatMap((turn) =>
-    turn.items.map((item) => ({
-      id: string(item.clientId) || item.id,
-      role: messageRole(item),
-      text: string(item.text) || nativeText(item.content),
-      item,
-    }))
-  );
+  const messages: HarnessMessage[] = [];
+
+  for (const turn of turns) {
+    for (const item of turn.items) {
+      messages.push({
+        id: string(item.clientId) || item.id,
+        role: messageRole(item),
+        text: string(item.text) || nativeText(item.content),
+        item,
+      });
+    }
+  }
+
+  return messages;
 }

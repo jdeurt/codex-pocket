@@ -16,11 +16,11 @@ const names = new Map(
 // dynamic output uses inputText. Read display content, never arguments/_meta.
 /**
 Read only native text or embedded-resource text from one untrusted content block.
-@param part - External native content block normalized at this boundary.
 @param type - Native protocol text discriminator for MCP or dynamic output.
+@param part - External native content block normalized at this boundary.
 @returns Display text only, excluding arguments and private metadata.
 */
-function contentPartText(part: unknown, type: "text" | "inputText") {
+function contentPartText(type: "text" | "inputText", part: unknown) {
   const value = object(part);
 
   if (value.type === type) {
@@ -38,10 +38,7 @@ Normalize native content blocks once into the existing newline-separated display
 */
 function contentText(content: unknown, type: "text" | "inputText") {
   return Array.isArray(content)
-    ? content
-        .map((part) => contentPartText(part, type))
-        .filter(Boolean)
-        .join("\n")
+    ? Array.from(content, contentPartText.bind(undefined, type)).filter(Boolean).join("\n")
     : "";
 }
 

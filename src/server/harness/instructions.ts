@@ -18,8 +18,13 @@ export function sidePocketInstructions(child: ChildContext) {
   const adopted = child.metadata && object(JSON.parse(child.metadata)).adopted === true;
   const instructions = adopted ? `${ADOPTED_SIDE_ORIENTATION}\n${SIDE_INSTRUCTIONS}` : SIDE_INSTRUCTIONS;
 
-  return instructions.replaceAll(
-    /\{(parentId|id|title|cwd|sessionId)\}/g,
-    (placeholder, name: string) => fields[name] ?? placeholder
-  );
+  let result = "";
+  let offset = 0;
+
+  for (const match of instructions.matchAll(/\{(parentId|id|title|cwd|sessionId)\}/g)) {
+    result += instructions.slice(offset, match.index) + (fields[match[1]] ?? match[0]);
+    offset = match.index + match[0].length;
+  }
+
+  return result + instructions.slice(offset);
 }

@@ -1,6 +1,6 @@
 import { fauxAssistantMessage, fauxToolCall } from "@earendil-works/pi-ai";
 import { readFile } from "node:fs/promises";
-import { nativeText } from "../../src/server/harness/transcript";
+import { nativeText } from "../../src/state/harness-transcript";
 import { object } from "../../src/lib/protocol";
 import { piWorkflow } from "../fixtures/pi-workflow";
 import { eventually } from "../fixtures/workflow";

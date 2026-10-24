@@ -1,23 +1,10 @@
+import { localOrigin } from "../state/native-config";
 import { DefaultResourceLoader, createMcpExtension, type LoadedMcpConfig } from "@earendil-works/pi-coding-agent";
 import { type Config } from "./config";
 import { MAIN_INSTRUCTIONS } from "./pocket-prompts";
 import { localDirectory } from "./local-state";
 import path from "node:path";
 import { taskDirectory } from "./task-archive";
-
-/** Prefer the explicit loopback host used by the native MCP process.
-@param origins - Configured allowed origins.
-@returns First loopback origin or the original first origin.
-*/
-function localOrigin(origins: string[]) {
-  for (const origin of origins) {
-    if (["127.0.0.1", "localhost"].includes(new URL(origin).hostname)) {
-      return origin;
-    }
-  }
-
-  return origins[0];
-}
 
 /** Read the host's narrowly scoped native MCP environment.
 @param config - Validated parent configuration.

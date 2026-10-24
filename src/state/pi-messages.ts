@@ -1,8 +1,8 @@
 import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import { type Item, type Turn, type RpcEvent, object, string } from "../lib/protocol";
 import { findById, upsertById } from "../lib/identity";
-import { nativeText } from "../server/harness/transcript";
-import { inputToolPreview, toolPreview } from "../server/tool-preview";
+import { nativeText } from "./harness-transcript";
+import { inputToolPreview, toolPreview } from "./tool-preview";
 
 /** Project native tool images without modifying provider content.
 @param message - Completed tool message.

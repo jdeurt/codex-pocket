@@ -1,3 +1,4 @@
+import { codexResult } from "../../state/harness-result";
 import { restoreCodexThread } from "./codex-session";
 import { t as captureResult } from "try";
 import {
@@ -10,8 +11,8 @@ import {
 import { CodexRpc } from "../rpc";
 import { type Item, type PendingRequest, type RpcEvent, string } from "../../lib/protocol";
 import { RpcDiagnosticEvent, RpcDisconnectEvent, RpcNotificationEvent } from "../rpc-events";
-import { harnessMessages, nativeText } from "./transcript";
-import { CodexAgents } from "./codex-agents";
+import { harnessMessages, nativeText } from "../../state/harness-transcript";
+import { type CodexAgentState, observedCodexAgents } from "../../state/codex-agents";
 import { codexParentTools } from "./mcp-config";
 import { codexPermissions } from "./permissions";
 import { loadHistory } from "../history";
@@ -56,28 +57,43 @@ export class CodexAdapter implements HarnessAdapter {
 
   private outputs = new Map<string, string>();
 
-  private nativeAgents = new CodexAgents();
+  private nativeAgents: CodexAgentState = {};
+
+  /** Route the owned native event event.
+  @param event - Typed transport notification.
+  */
+  private readonly receivedEvent = (event: Event) => {
+    if (event instanceof RpcNotificationEvent) {
+      this.event(event.notification);
+    }
+  };
+
+  /** Route the owned native diagnostic event.
+  @param event - Typed transport notification.
+  */
+  private readonly receivedDiagnostic = (event: Event) => {
+    if (event instanceof RpcDiagnosticEvent) {
+      log().debug({ message: event.text }, "side_pocket.codex.stderr");
+    }
+  };
+
+  /** Route the owned native disconnect event.
+  @param event - Typed transport notification.
+  */
+  private readonly receivedDisconnect = (event: Event) => {
+    if (event instanceof RpcDisconnectEvent) {
+      this.pending?.reject(event.error);
+    }
+  };
 
   /**
   Subscribe to the delegated client's typed native transport events.
   @param options - Scoped child identity, inherited configuration and worker callbacks.
   */
   constructor(private options: AdapterOptions) {
-    this.rpc.addEventListener("event", (event) => {
-      if (event instanceof RpcNotificationEvent) {
-        this.event(event.notification);
-      }
-    });
-    this.rpc.addEventListener("diagnostic", (event) => {
-      if (event instanceof RpcDiagnosticEvent) {
-        log().debug({ message: event.text }, "side_pocket.codex.stderr");
-      }
-    });
-    this.rpc.addEventListener("disconnect", (event) => {
-      if (event instanceof RpcDisconnectEvent) {
-        this.pending?.reject(event.error);
-      }
-    });
+    this.rpc.addEventListener("event", this.receivedEvent);
+    this.rpc.addEventListener("diagnostic", this.receivedDiagnostic);
+    this.rpc.addEventListener("disconnect", this.receivedDisconnect);
   }
 
   /**
@@ -85,9 +101,10 @@ export class CodexAdapter implements HarnessAdapter {
   @param event - Validated native event.
   */
   private event(event: RpcEvent) {
-    const nativeAgents = this.nativeAgents.observe(event, this.sessionId);
+    const nativeAgents = observedCodexAgents(this.nativeAgents, event, this.sessionId);
 
     if (nativeAgents) {
+      this.nativeAgents = nativeAgents;
       this.options.callbacks.metadata({ nativeAgents });
     }
 
@@ -128,10 +145,7 @@ export class CodexAdapter implements HarnessAdapter {
 
         this.completed = true;
         this.active = undefined;
-        this.pending?.resolve({
-          status: turn.status === "completed" || turn.status === "interrupted" ? turn.status : "failed",
-          text: this.outputs.values().toArray().join("\n\n") || (turn.error?.message.length ? turn.error.message : ""),
-        });
+        this.pending?.resolve(codexResult(turn, this.outputs));
         break;
       }
     }
@@ -204,16 +218,16 @@ export class CodexAdapter implements HarnessAdapter {
   @returns The terminal native harness result.
   */
   private async runTurn(id: string, input: string) {
-    const result = new Promise<HarnessResult>((resolve, reject) => {
-      this.pending = { resolve, reject };
-    });
+    const pending = Promise.withResolvers<HarnessResult>();
+
+    this.pending = pending;
 
     this.options.callbacks.metadata({ sessionStarted: true });
 
     this.started = this.startTurn(id, input);
     void this.settleRequest(this.started);
 
-    const completed = await captureResult(result);
+    const completed = await captureResult(pending.promise);
 
     this.pending = undefined;
 

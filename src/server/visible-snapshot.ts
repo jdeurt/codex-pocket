@@ -6,7 +6,7 @@ import { delegationMessagePrefix } from "./delegation-mail";
 import { isRecoveryMessageId } from "../state/recovery";
 import { projectRestarts } from "../state/restarts";
 import { REALTIME_TOOL_PREFIX } from "./realtime-tools";
-import { toolTrace } from "./tool-trace";
+import { toolTrace } from "../state/tool-trace";
 
 /**
 Recognize reserved recovery and delegation identities without inspecting message text.

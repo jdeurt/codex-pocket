@@ -1,3 +1,4 @@
+import { codexOverrides } from "../../state/native-config";
 import type { AdapterOptions } from "./types";
 
 /**
@@ -23,5 +24,5 @@ export function codexParentTools(server: AdapterOptions["parentTools"]) {
     }
   }
 
-  return Object.entries(overrides).flatMap(([key, value]) => ["-c", `${key}=${JSON.stringify(value)}`]);
+  return codexOverrides(overrides);
 }

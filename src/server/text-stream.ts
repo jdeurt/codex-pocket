@@ -41,8 +41,13 @@ export class TextStream implements UnderlyingDefaultSource<Uint8Array> {
       return;
     }
 
-    this.cancel();
-    this.controller?.close();
+    const cancelled = t(this.cancel);
+
+    if (cancelled.ok) {
+      this.controller?.close();
+    } else {
+      this.controller?.error(cancelled.error);
+    }
   };
 
   /** Start one producer after the native stream allocates its controller.
@@ -57,20 +62,31 @@ export class TextStream implements UnderlyingDefaultSource<Uint8Array> {
       return;
     }
 
+    this.signal.addEventListener("abort", this.close, { once: true });
     const connected = t(this.connect, this);
 
     if (!connected.ok) {
-      this.cancel();
-      controller.error(connected.error);
+      const cancelled = t(this.cancel);
+
+      controller.error(
+        cancelled.ok
+          ? connected.error
+          : new AggregateError([connected.error, cancelled.error], "Stream setup and cleanup failed.")
+      );
 
       return;
     }
 
     this.disconnect = connected.value;
-    this.signal.addEventListener("abort", this.close, { once: true });
+
+    if (this.isClosed) {
+      this.disconnect();
+
+      return;
+    }
 
     if (this.heartbeatMs !== undefined) {
-      this.timer = setInterval(this.send, this.heartbeatMs, ": keepalive\n\n");
+      this.timer = setInterval(this.send, this.heartbeatMs, this.heartbeatFrame);
     }
   };
 
@@ -78,10 +94,12 @@ export class TextStream implements UnderlyingDefaultSource<Uint8Array> {
   @param signal - Owning request's abort signal.
   @param connect - Producer setup returning its teardown.
   @param heartbeatMs - Optional SSE keepalive interval.
+  @param heartbeatFrame - Wire frame understood by the consuming watchdog.
   */
   constructor(
     private readonly signal: AbortSignal,
     private readonly connect: (stream: TextStream) => () => void,
-    private readonly heartbeatMs?: number
+    private readonly heartbeatMs?: number,
+    private readonly heartbeatFrame = ": keepalive\n\n"
   ) {}
 }

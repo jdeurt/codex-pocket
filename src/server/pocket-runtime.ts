@@ -1,3 +1,4 @@
+import { localOrigin, codexOverrides } from "../state/native-config";
 import { type CodexRpc } from "./rpc";
 import { type Config } from "./config";
 import { MAIN_INSTRUCTIONS } from "./pocket-prompts";
@@ -30,15 +31,10 @@ export function pocketServerArgs(config: Config) {
     "mcp_servers.pocket.env.POCKET_CODEX_SERVER_ARGS": JSON.stringify(config.serverArgs),
     "mcp_servers.pocket.env.POCKET_ID": config.pocketId ?? "main",
     "mcp_servers.pocket.env.POCKET_MAIN_THREAD_ID": config.threadId,
-    "mcp_servers.pocket.env.POCKET_SERVER_ORIGIN":
-      config.allowedOrigins.find((origin) => ["127.0.0.1", "localhost"].includes(new URL(origin).hostname)) ??
-      config.allowedOrigins[0],
+    "mcp_servers.pocket.env.POCKET_SERVER_ORIGIN": localOrigin(config.allowedOrigins),
   };
 
-  return [
-    ...config.serverArgs,
-    ...Object.entries(overrides).flatMap(([key, value]) => ["-c", `${key}=${JSON.stringify(value)}`]),
-  ];
+  return [...config.serverArgs, ...codexOverrides(overrides)];
 }
 
 /**

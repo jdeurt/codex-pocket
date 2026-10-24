@@ -35,9 +35,11 @@ export class DelegationQuestions {
 
     this.store.setStatus(child.parentId, child.id, "waiting");
 
-    return new Promise<unknown>((resolve, reject) => {
-      this.waiting.set(id, { childId: child.id, resolve, reject });
-    });
+    const pending = Promise.withResolvers<unknown>();
+
+    this.waiting.set(id, { childId: child.id, resolve: pending.resolve, reject: pending.reject });
+
+    return pending.promise;
   }
 
   /**

@@ -4,7 +4,7 @@ import { t as captureResult } from "try";
 import { type AgentSession, type SessionEntry, type SessionManager } from "@earendil-works/pi-coding-agent";
 import { type TaskContextState, groupTaskContext, ingestTaskEntry, readTaskState, saveTaskState } from "./task-context";
 import { isSameTask } from "./task-decisions";
-import { nativeText } from "./harness/transcript";
+import { nativeText } from "../state/harness-transcript";
 import { scheduleTaskIndex } from "./task-search";
 import { saveTaskSource, taskDirectory } from "./task-archive";
 import { internalContext } from "./internal-context";

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 import { contextEntrySchema, type ContextEntry } from "./task-archive";
-import { nativeText } from "../server/harness/transcript";
+import { nativeText } from "./harness-transcript";
 import { object, string } from "../lib/protocol";
 import { z } from "zod";
 

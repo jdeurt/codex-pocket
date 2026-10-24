@@ -1,3 +1,4 @@
+import { hasActiveTurn } from "../../lib/protocol";
 import { t as captureResult } from "try";
 import { type CodexRpc, RpcError } from "../rpc";
 import { type SteeringResult } from "./types";
@@ -15,7 +16,7 @@ Inspect native session state only after a response proves the correction was rej
 async function inspectRejection(rpc: CodexRpc, sessionId: string, detail: string): Promise<SteeringResult> {
   const { thread } = await rpc.request("thread/read", { threadId: sessionId, includeTurns: true });
 
-  return thread.turns.some((turn) => turn.status === "inProgress")
+  return hasActiveTurn(thread.turns)
     ? { status: "failed", detail }
     : { status: "idle", detail: "Native steering was rejected and no turn is active. Nothing was accepted." };
 }

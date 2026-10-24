@@ -15,15 +15,21 @@ Retain the operation and path for every native file-change entry.
 @returns Safe display-only file labels in native order.
 */
 function fileLabels(changes: unknown) {
-  return Array.isArray(changes)
-    ? changes.flatMap((entry) => {
-        const change = object(entry);
-        const verb = FILE_VERBS.get(string(object(change.kind).type) || string(change.kind));
-        const path = string(change.path);
+  const labels: string[] = [];
 
-        return verb && path ? `${verb} ${path}` : [];
-      })
-    : [];
+  if (Array.isArray(changes)) {
+    for (const entry of changes) {
+      const change = object(entry);
+      const verb = FILE_VERBS.get(string(object(change.kind).type) || string(change.kind));
+      const path = string(change.path);
+
+      if (verb && path) {
+        labels.push(`${verb} ${path}`);
+      }
+    }
+  }
+
+  return labels;
 }
 
 /**
@@ -33,7 +39,15 @@ Project only explicit command and file metadata, excluding unrelated private too
 */
 export function toolPreview(item: Item): string[] {
   if (Array.isArray(item.toolLabels)) {
-    return item.toolLabels.filter((label): label is string => typeof label === "string");
+    const labels: string[] = [];
+
+    for (const label of item.toolLabels) {
+      if (typeof label === "string") {
+        labels.push(label);
+      }
+    }
+
+    return labels;
   }
 
   if (item.type === "commandExecution" && typeof item.command === "string") {

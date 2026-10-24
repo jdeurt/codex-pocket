@@ -26,7 +26,10 @@ export async function loadItems(rpc: CodexRpc, threadId: string, turnId: string)
       sortDirection: "asc",
     });
 
-    items.push(...page.data.map((entry) => entry.item));
+    for (const entry of page.data) {
+      items.push(entry.item);
+    }
+
     cursor = page.nextCursor;
   } while (cursor);
 
@@ -54,11 +57,9 @@ export async function* readHistoryTurns(rpc: CodexRpc, threadId: string, sortDir
     });
 
     for (const turn of page.data) {
-      if (turn.itemsView && turn.itemsView !== "full") {
-        turn.items = await loadItems(rpc, threadId, turn.id);
-      }
-
-      yield turn;
+      yield turn.itemsView && turn.itemsView !== "full"
+        ? { ...turn, items: await loadItems(rpc, threadId, turn.id) }
+        : turn;
     }
 
     cursor = page.nextCursor;
