@@ -4,13 +4,18 @@ umask 077
 
 case "${1:-}" in
   --help|-h)
-    printf 'Install or update Pocket on this Mac: bash install.sh [--yes]\n\n--yes keeps saved settings and uses defaults without setup questions.\n'
+    printf 'Install or update Pocket on this Mac: bash install.sh [--yes|--update]\n\n--yes keeps saved settings and uses defaults without setup questions.\n--update also skips installation when the accepted release is current.\n'
     exit 0
     ;;
 esac
-if [ "$#" -gt 1 ] || { [ "$#" -eq 1 ] && [ "$1" != --yes ]; }; then
-  printf 'Usage: install.sh [--yes]\n' >&2
+if [ "$#" -gt 1 ] || { [ "$#" -eq 1 ] && [ "$1" != --yes ] && [ "$1" != --update ]; }; then
+  printf 'Usage: install.sh [--yes|--update]\n' >&2
   exit 1
+fi
+pocket_update_only=false
+if [ "${1:-}" = --update ]; then
+  pocket_update_only=true
+  set -- --yes
 fi
 
 if [ "$(/usr/bin/uname -s)" != Darwin ]; then
@@ -40,6 +45,11 @@ if [ -d "$pocket_root/.git" ]; then
     exit 1
   fi
   git -C "$pocket_root" fetch origin main
+  if [ "$pocket_update_only" = true ] && [ -f "$pocket_home/current/.pocket-source-revision" ] &&
+    [ "$(cat "$pocket_home/current/.pocket-source-revision")" = "$(git -C "$pocket_root" rev-parse FETCH_HEAD)" ]; then
+    printf 'Pocket is already up to date.\n'
+    exit 0
+  fi
   git -C "$pocket_root" checkout --detach FETCH_HEAD
 elif [ -e "$pocket_root" ]; then
   printf '~/.pocket/source exists but is not a Git checkout. Move it aside before installing.\n' >&2

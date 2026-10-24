@@ -134,6 +134,21 @@ function requireAppServer(codex) {
 }
 
 /**
+Reads the exact source revision to record in the accepted release.
+@returns {string} Full Git revision of the managed source checkout.
+*/
+function sourceRevision() {
+  const result = spawnSync("git", ["-C", root, "rev-parse", "HEAD"], { encoding: "utf8" });
+  const revision = result.stdout.trim();
+
+  if (!revision || result.error || result.status !== 0) {
+    throw new Error("Could not identify the Pocket source revision.", { cause: result.error });
+  }
+
+  return revision;
+}
+
+/**
 Finds and authenticates the selected native executable before touching the running Pocket service.
 @param {NodeJS.ProcessEnv} saved - Saved binary preference.
 @param {NodeJS.ProcessEnv} environment - Child environment receiving the resolved binary.
@@ -191,7 +206,8 @@ async function install(userId, isInteractive, prompt) {
       npm(["run", "build"], environment, release);
       npm(["run", "setup"], environment, release);
     },
-    service
+    service,
+    sourceRevision()
   );
 
   const [completed] = await Promise.allSettled([installPath()]);

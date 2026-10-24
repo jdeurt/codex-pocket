@@ -31,7 +31,7 @@ Add Pocket to your Home Screen for an app-like experience. On iPhone or iPad, op
 Open a new terminal after installation, then run these commands from any directory:
 
 ```sh
-pocket update  # Pull latest main, build and check it, then switch releases
+pocket update  # Fetch main; build and switch releases when the accepted release differs
 pocket start   # Start Pocket
 pocket stop    # Stop Pocket; keep settings and data
 pocket restart # Restart the installed release

@@ -64,7 +64,7 @@ export function pocketCommand(args, run, home, userId) {
   }
 
   return command === "update"
-    ? (run("/bin/bash", [path.join(home, ".pocket/current/install.sh"), "--yes"]).status ?? 1)
+    ? (run("/bin/bash", [path.join(home, ".pocket/current/install.sh"), "--update"]).status ?? 1)
     : serviceCommand(command, run, home, userId);
 }
 

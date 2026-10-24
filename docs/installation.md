@@ -14,7 +14,7 @@ The installer downloads and checksums a private Node.js 24 runtime. It finds a l
 
 First setup creates a saved conversation and makes a short model call to confirm it works. Updates reuse the saved conversation. Setup writes private settings without changing your global Codex configuration or importing another Pocket checkout's data.
 
-You can also run `./install.sh` from a checkout. Both entry points fetch the latest `main` into `~/.pocket/source` before building.
+You can also run `./install.sh` from a checkout. Both entry points fetch the latest `main` before building. `pocket update` skips the build and service restart when the accepted release already contains that commit.
 
 For unattended setup, sign in to Codex first, then run:
 
@@ -45,15 +45,15 @@ export PATH="$HOME/.pocket/bin:$PATH"
 
 For another shell, add `~/.pocket/bin` to its executable search path.
 
-| Command                 | Effect                                                                |
-| ----------------------- | --------------------------------------------------------------------- |
-| `pocket update`         | Fetch latest `main`, build and validate a candidate, then activate it |
-| `pocket start`          | Start the saved login service; do nothing if it is already running    |
-| `pocket stop`           | Stop the service while keeping configuration and data                 |
-| `pocket restart`        | Restart the saved release, or start it if stopped                     |
-| `pocket --help`         | Show command help                                                     |
-| `pocket menubar setup`  | Build and start the menu bar companion, and enable launch at login    |
-| `pocket menubar remove` | Remove the menu bar companion and its login startup                   |
+| Command                 | Effect                                                                       |
+| ----------------------- | ---------------------------------------------------------------------------- |
+| `pocket update`         | Fetch latest `main`; build and activate only if the accepted release differs |
+| `pocket start`          | Start the saved login service; do nothing if it is already running           |
+| `pocket stop`           | Stop the service while keeping configuration and data                        |
+| `pocket restart`        | Restart the saved release, or start it if stopped                            |
+| `pocket --help`         | Show command help                                                            |
+| `pocket menubar setup`  | Build and start the menu bar companion, and enable launch at login           |
+| `pocket menubar remove` | Remove the menu bar companion and its login startup                          |
 
 Menu bar setup requires macOS 13 or later and Apple's Command Line Tools (`xcode-select --install`).
 Click the icon to show or hide the existing Pocket interface. The window stays above other windows when you use another app.
@@ -64,7 +64,7 @@ The companion uses Pocket's saved local port. Run setup again after changing the
 Its app lives at `~/.pocket/menubar/Pocket.app`, with login startup in
 `~/Library/LaunchAgents/dev.pocket.menubar.plist`. Setup and removal do not restart the web service or change Pocket data.
 
-Wait for active agent work before an update or restart unless interruption is intended. After editing runtime settings in `~/.pocket/.env.local`, run `pocket restart`. Port and state/log-directory changes need `pocket update` to regenerate the login service.
+Wait for active agent work before an update or restart unless interruption is intended. After editing runtime settings in `~/.pocket/.env.local`, run `pocket restart`. Port and state/log-directory changes need `bash ~/.pocket/current/install.sh --yes` to regenerate the login service, even if the source commit has not changed.
 
 ## Updates and rollback
 

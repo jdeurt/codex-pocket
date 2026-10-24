@@ -85,6 +85,7 @@ for (const failure of ["build", "missing-output"]) {
 await test("successful activation stops only after build and shares the original state and config", async (t) => {
   const root = await fixture(t);
   const events: string[] = [];
+  const revision = "0123456789abcdef0123456789abcdef01234567";
 
   await withInstallLock(root, async () => {
     await installRelease(
@@ -112,6 +113,7 @@ await test("successful activation stops only after build and shares the original
         },
         async start(candidate) {
           assert.equal(await readFile(path.join(candidate, ".next/BUILD_ID"), "utf8"), "new-build");
+          assert.equal(await readFile(path.join(candidate, ".pocket-source-revision"), "utf8"), `${revision}\n`);
           assert.equal(await realpath(path.join(candidate, ".env.local")), path.join(root, ".env.local"));
           assert.equal(await readFile(path.join(root, ".env.local"), "utf8"), "CODEX_THREAD_ID=candidate\n");
           events.push("started");
@@ -119,13 +121,15 @@ await test("successful activation stops only after build and shares the original
         restore() {
           assert.fail("A successful activation must not roll back");
         },
-      }
+      },
+      revision
     );
   });
 
   assert.deepEqual(events, ["built", "stopped", "started"]);
   assert.equal(await readFile(path.join(root, ".next/BUILD_ID"), "utf8"), "old-build");
   assert.equal(await readFile(path.join(root, "data/outbox.json"), "utf8"), "durable delivery");
+  assert.equal(await readFile(path.join(root, "current/.pocket-source-revision"), "utf8"), `${revision}\n`);
 });
 
 await test("failed startup restores configuration before restarting the old service", async (t) => {

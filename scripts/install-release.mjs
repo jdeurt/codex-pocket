@@ -1,4 +1,4 @@
-import { cp, mkdir, mkdtemp, readFile, readdir, rm, symlink } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from "node:fs/promises";
 import { currentRelease, installLauncher, selectRelease } from "./install-commands.mjs";
 import { optionalFile, replaceFile } from "./install-files.mjs";
 import path from "node:path";
@@ -98,13 +98,18 @@ export async function requireBuild(release) {
 @param {string} release - Isolated candidate directory.
 @param {Buffer | undefined} saved - Existing private settings.
 @param {(release: string) => void | Promise<void>} build - Candidate build gates.
+@param {string | undefined} revision - Source commit for update comparisons.
 @returns {Promise<void>} Completion of all candidate validation.
 */
-async function buildCandidate(source, release, saved, build) {
+async function buildCandidate(source, release, saved, build, revision) {
   await copySources(source, release);
   await replaceFile(path.join(release, ".env.local"), saved);
   await build(release);
   await requireBuild(release);
+
+  if (revision) {
+    await writeFile(path.join(release, ".pocket-source-revision"), `${revision}\n`);
+  }
 }
 
 /** Build in isolation and change the running installation only after every build gate succeeds.
@@ -112,13 +117,14 @@ async function buildCandidate(source, release, saved, build) {
 @param {string} root - Private Pocket home.
 @param {(release: string) => void | Promise<void>} build - Dependency, setup, check and production build gates.
 @param {{ stop: () => void | Promise<void>, start: (release: string) => void | Promise<void>, restore: () => void | Promise<void> }} service - Owned login service operations.
+@param {string} [revision] - Source commit recorded after a successful candidate build.
 @returns {Promise<string>} Activated release path; failed candidates are removed unless recovery failed.
 */
-export async function installRelease(source, root, build, service) {
+export async function installRelease(source, root, build, service, revision) {
   const release = await createRelease(path.join(root, "releases"));
   const saved = await optionalFile(path.join(root, ".env.local"));
 
-  const [built] = await Promise.allSettled([buildCandidate(source, release, saved, build)]);
+  const [built] = await Promise.allSettled([buildCandidate(source, release, saved, build, revision)]);
   const [activated] =
     built.status === "fulfilled" ? await Promise.allSettled([activate(root, release, service)]) : [built];
 
