@@ -4,7 +4,7 @@ Pocket uses WebRTC to stream microphone audio directly from the browser to OpenA
 
 ## Conversation and tools
 
-Realtime acts and speaks as Pocket. Its dedicated instructions live in `src/server/realtime-configuration.ts`. It keeps internal routing out of ordinary conversation, answers directly only for short replies grounded in context it already has, and delegates everything else to the main Pocket agent. Requests include the last few relevant user and assistant messages, plus needed earlier decisions and constraints. It asks for clarification when intent is unclear and does not claim success before receiving a result.
+Realtime acts and speaks as Pocket. Its dedicated instructions live in `src/state/realtime-configuration.ts`. It keeps internal routing out of ordinary conversation, answers directly only for short replies grounded in context it already has, and delegates everything else to the main Pocket agent. Requests include the last few relevant user and assistant messages, plus needed earlier decisions and constraints. It asks for clarification when intent is unclear and does not claim success before receiving a result.
 
 Realtime has one tool: `handoff_to_pocket({ request: string })`. The main agent retains workspace tools and decides whether to delegate to other agents. A completed realtime tool call enters the existing durable main-agent outbox with a stable receipt identity. Duplicate calls cannot submit duplicate work. Cancelled responses cannot dispatch tools; uncertain delivery is reported without automatic retry.
 
