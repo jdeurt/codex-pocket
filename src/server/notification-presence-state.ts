@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { t as attempt } from "try";
 
 const FOREGROUND_PROBE_TIMEOUT_MS = 1500;
 
@@ -97,9 +98,11 @@ Require a fresh acknowledgement from a connected device before suppressing its p
       this.challenges.set(challengeId, { deviceId, finish });
 
       for (const probe of connections) {
-        try {
+        const outcome = attempt(() => {
           probe(challengeId);
-        } catch {
+        });
+
+        if (!outcome.ok) {
           // A broken stream must not prevent the normal push path.
           connections.delete(probe);
         }

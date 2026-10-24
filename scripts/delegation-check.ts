@@ -33,13 +33,13 @@ Owns the native bootstrap process until the new parent thread is ready.
 async function bootstrap(base: Config, cwd: string) {
   const setup = new CodexRpc();
 
-  try {
+  return (async () => {
     await setup.connect({ ...base, cwd }, "bare");
 
     return await createParent(setup, cwd);
-  } finally {
+  })().finally(async () => {
     await setup.shutdown();
-  }
+  });
 }
 
 /**

@@ -92,7 +92,7 @@ await test("realtime captions and worker tools continue while transcript persist
     return persist(...args);
   });
 
-  try {
+  await (async () => {
     flow.speech("request", "Check the buffer.");
     const response = await flow.response(0);
 
@@ -112,9 +112,9 @@ await test("realtime captions and worker tools continue while transcript persist
     assert.equal(flow.voice.status().type, "active");
     await flow.voice.stop(started.token);
     assert.equal(flow.voice.status().type, "idle");
-  } finally {
+  })().finally(() => {
     blocked.resolve(undefined);
-  }
+  });
 
   await flow.voice.transcripts();
   const saved = await storage.read();

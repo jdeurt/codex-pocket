@@ -182,7 +182,7 @@ await test("settings HTTP flow preserves partial updates, private keys, fresh-pr
   Object.assign(process.env, environment);
   delete process.env.OPENAI_API_KEY;
 
-  try {
+  await (async () => {
     const response = await read();
 
     assert.equal(response.headers.get("Cache-Control"), "no-store");
@@ -195,7 +195,7 @@ await test("settings HTTP flow preserves partial updates, private keys, fresh-pr
     });
     await persistSettings(directory);
     await rejectUnsafeRequests(directory);
-  } finally {
+  })().finally(async () => {
     for (const [name, value] of previous) {
       if (value === undefined) {
         Reflect.deleteProperty(process.env, name);
@@ -205,5 +205,5 @@ await test("settings HTTP flow preserves partial updates, private keys, fresh-pr
     }
 
     await rm(directory, { recursive: true, force: true });
-  }
+  });
 });

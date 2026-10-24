@@ -30,10 +30,12 @@ export class SnapshotConnection {
   Connect and subscribe to browser wake events.
   @param isDisconnected - Accepts a snapshot and returns whether its native connection is disconnected.
   @param lost - Publishes transport loss without erasing the last transcript.
+  @param url - Endpoint explicitly bound to the owning Pocket.
   */
   constructor(
     private isDisconnected: (text: string) => boolean,
-    private lost: () => void
+    private lost: () => void,
+    private url = pocketUrl("/api/events")
   ) {
     this.connect();
     globalThis.addEventListener("online", this.wake);
@@ -84,7 +86,7 @@ export class SnapshotConnection {
   Bind callbacks to the exact source instance so delayed events cannot replace newer state.
   */
   private listen() {
-    const current = new EventSource(pocketUrl("/api/events"));
+    const current = new EventSource(this.url);
 
     this.source = current;
     this.received();

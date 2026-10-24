@@ -5,6 +5,7 @@ import { AGENT_ORIGIN } from "./browser-defaults";
 import { DelegationStore } from "../../src/server/delegations";
 import path from "node:path";
 import { runNextFixture } from "./next-server";
+import { t as attempt } from "try";
 
 /**
 Reset this replay's private data and configure its fake protocol paths.
@@ -99,7 +100,7 @@ async function seedClaude() {
   const { default: Database } = await import("better-sqlite3");
   const db = new Database(path.join(directory, "state", "delegations.sqlite"));
 
-  try {
+  const outcome = attempt(() => {
     db.prepare("UPDATE side_pockets SET harness='claude' WHERE id=?").run(claude.id);
     store.metadata(replayParent, claude.id, {
       model: "claude-replay",
@@ -109,8 +110,12 @@ async function seedClaude() {
         "a-nested": { name: "Claude nested analysis", status: "completed", parentId: "a-replay" },
       },
     });
-  } finally {
-    db.close();
+  });
+
+  db.close();
+
+  if (!outcome.ok) {
+    throw outcome.error;
   }
 }
 
@@ -141,7 +146,7 @@ function savePrivateChild() {
 Build the saved child hierarchy and retain identifiers used by browser assertions.
 */
 async function seedPockets() {
-  try {
+  await (async () => {
     store.saveParent(replayParent, { cwd: process.cwd(), policy });
     seedCodex();
     pocket("Closed Side Pocket", "closed-session", "closed");
@@ -150,9 +155,9 @@ async function seedPockets() {
     await seedClaude();
     savePrivateChild();
     await writeFile(path.join(directory, "ids.json"), JSON.stringify(ids));
-  } finally {
+  })().finally(() => {
     store.close();
-  }
+  });
 }
 
 /**

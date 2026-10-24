@@ -17,7 +17,7 @@ await test(
     const release = path.join(home, "releases/accepted");
     const failure = 7;
 
-    try {
+    await (async () => {
       await mkdir(path.join(release, "scripts"), { recursive: true });
       await cp("scripts/pocket-cli.mjs", path.join(release, "scripts/pocket-cli.mjs"));
       await cp("scripts/pocket.mjs", path.join(release, "scripts/pocket.mjs"));
@@ -38,8 +38,8 @@ await test(
         }).status,
         failure
       );
-    } finally {
+    })().finally(async () => {
       await rm(userHome, { recursive: true, force: true });
-    }
+    });
   }
 );

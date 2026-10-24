@@ -64,13 +64,13 @@ export function ActivitySpinner() {
 
       isRefreshing = true;
 
-      try {
-        await readPreference();
-      } catch {
-        // Keep the last preference through a transient disconnect; initial state is the SVG.
-      } finally {
-        isRefreshing = false;
-      }
+      await readPreference()
+        .catch(() => {
+          // Keep the last preference through a transient disconnect; initial state is the SVG.
+        })
+        .finally(() => {
+          isRefreshing = false;
+        });
     }
 
     const visible = () => void refresh();

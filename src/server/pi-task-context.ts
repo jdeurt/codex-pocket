@@ -37,11 +37,9 @@ export class PiTaskContext {
     const previous = this.serial;
 
     this.serial = (async () => {
-      try {
-        await previous;
-      } catch (error) {
+      await (async () => previous)().catch((error: unknown) => {
         this.onError(error);
-      }
+      });
 
       await operation();
     })();
@@ -58,16 +56,16 @@ export class PiTaskContext {
 
     this.passController = controller;
 
-    try {
-      await this.groupAndCompact(session, key, controller.signal);
-    } catch (error) {
-      // Provider/compaction failures retain the checkpoint and must not reject later user submissions.
-      if (!(error instanceof Error && error.name === "AbortError")) {
-        this.onError(error);
-      }
-    } finally {
-      this.passController = undefined;
-    }
+    await this.groupAndCompact(session, key, controller.signal)
+      .catch((error: unknown) => {
+        // Provider/compaction failures retain the checkpoint and must not reject later user submissions.
+        if (!(error instanceof Error && error.name === "AbortError")) {
+          this.onError(error);
+        }
+      })
+      .finally(() => {
+        this.passController = undefined;
+      });
   }
 
   /** Apply checkpointed grouping, then use Pi's native compactor with exact archive references.
@@ -210,13 +208,11 @@ export class PiTaskContext {
   @returns Completion of all currently queued archive operations.
   */
   async flush() {
-    try {
-      await this.serial;
-    } catch (error) {
+    await (async () => this.serial)().catch((error: unknown) => {
       if (!(error instanceof Error && error.name === "AbortError")) {
         throw error;
       }
-    }
+    });
   }
 
   /** Stop background classification and flush queued source writes before shutdown.

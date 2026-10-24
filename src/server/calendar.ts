@@ -1,5 +1,6 @@
 import path from "node:path";
 import { spawn } from "node:child_process";
+import { t as attempt } from "try";
 
 export { normalizeCalendar } from "./calendar-validation";
 
@@ -61,11 +62,17 @@ export async function nextOccurrence(calendar: string, after: number): Promise<n
         return;
       }
 
-      try {
+      const outcome = attempt(() => {
         resolve(decodedOccurrence(output, after));
-      } catch (error) {
-        reject(error instanceof Error ? error : new Error("Invalid calendar response.", { cause: error }));
+      });
+
+      if (outcome.ok) {
+        return;
       }
+
+      const error = outcome.error;
+
+      reject(error instanceof Error ? error : new Error("Invalid calendar response.", { cause: error }));
     });
     child.stdin.end(JSON.stringify({ calendar, after }));
   });

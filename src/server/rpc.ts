@@ -16,6 +16,7 @@ import { RpcLineEvent, RpcTransport } from "./rpc-transport";
 import { type Config } from "./config";
 import { log } from "./logging";
 import { type z } from "zod";
+import { t as attempt } from "try";
 
 export { RpcError } from "./rpc-protocol";
 
@@ -101,8 +102,7 @@ export class CodexRpc extends EventTarget {
     this.dispatchEvent(new RpcNotificationEvent(event.data));
   }
 
-  /**
-  Validate a known method response before settling its pending request.
+  /** Validate a known method response before settling its pending request.
   @param pending - Acknowledgement owner already removed from the pending map.
   @param value - Untrusted native result value.
   */
@@ -115,15 +115,18 @@ export class CodexRpc extends EventTarget {
       return;
     }
 
-    try {
+    const outcome = attempt(() => {
       pending.resolve(schema.parse(value));
-    } catch (error) {
-      pending.reject(new Error(`Invalid ${pending.method} response.`, { cause: error }));
+    });
+
+    if (outcome.ok) {
+      return;
     }
+
+    pending.reject(new Error(`Invalid ${pending.method} response.`, { cause: outcome.error }));
   }
 
-  /**
-  Consume one matching acknowledgement and retain its native error or result.
+  /** Consume one matching acknowledgement and retain its native error or result.
   @param id - Numeric request identity from the decoded response.
   @param message - Decoded native response object.
   */
@@ -257,8 +260,7 @@ export class CodexRpc extends EventTarget {
     await this.initialize();
   }
 
-  /**
-  Create or resume a native session with its effective model and reasoning effort.
+  /** Create or resume a native session with its effective model and reasoning effort.
   @param method - Native session creation or resume method.
   @param params - Native request parameters.
   @returns Validated session, model and nullable reasoning effort.

@@ -5,6 +5,7 @@ import { type ScriptedCall, validateMessage, validateResult } from "./contract";
 import { CodexFiles } from "./codex-files";
 import { isDeepStrictEqual } from "node:util";
 import { setTimeout } from "node:timers/promises";
+import { t as attempt } from "try";
 
 const INVALID_REQUEST = -32_600;
 const INVALID_PARAMS = -32_602;
@@ -300,17 +301,19 @@ Accept real newline-delimited protocol records, preserving IDs, errors, and even
       return;
     }
 
-    try {
+    const outcome = attempt(() => {
       validateMessage(method, message);
-    } catch (error) {
+    });
+
+    if (!outcome.ok) {
+      const error = outcome.error;
+
       this.emit({ id: message.id, error: { code: INVALID_PARAMS, message: String(error) } });
 
       return;
     }
 
-    try {
-      await this.dispatch(message, method, params);
-    } catch (error) {
+    await (async () => this.dispatch(message, method, params))().catch((error: unknown) => {
       const detail = error instanceof Error ? error.message : String(error);
 
       this.emit({
@@ -320,6 +323,6 @@ Accept real newline-delimited protocol records, preserving IDs, errors, and even
           message: detail,
         },
       });
-    }
+    });
   }
 }

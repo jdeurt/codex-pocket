@@ -8,13 +8,11 @@ const PRIVATE_MODE = 0o600;
 @returns {Promise<Buffer | undefined>} Existing bytes, or undefined only when missing.
 */
 export async function optionalFile(file) {
-  try {
-    return await readFile(file);
-  } catch (error) {
+  return (async () => readFile(file))().catch((/** @type {unknown} */ error) => {
     if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
       throw error;
     }
-  }
+  });
 }
 
 /** Atomically restore saved bytes, or remove a file that did not previously exist.
@@ -31,10 +29,10 @@ export async function replaceFile(file, contents) {
     return;
   }
 
-  try {
+  await (async () => {
     await writeFile(temporary, contents, { mode: PRIVATE_MODE });
     await rename(temporary, file);
-  } finally {
+  })().finally(async () => {
     await rm(temporary, { force: true });
-  }
+  });
 }

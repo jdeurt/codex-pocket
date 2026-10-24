@@ -2,6 +2,7 @@ import { errorResponse, guard, noStore, readBody } from "@/server/http";
 import { HTTP_FORBIDDEN } from "@/lib/constants";
 import { requestBridge } from "@/server/named-pockets";
 import { z } from "zod";
+import { t as attempt } from "try";
 
 export const runtime = "nodejs";
 
@@ -11,13 +12,17 @@ Submits a validated phone answer only after same-origin mutation authorization.
 @returns Existing acknowledgment or distinct authorization/answer-validation failure.
 */
 export async function POST(request: Request) {
-  try {
+  const outcome = await attempt(async () => {
     await guard(request, true);
-  } catch (error) {
+  });
+
+  if (!outcome.ok) {
+    const error = outcome.error;
+
     return errorResponse(error, HTTP_FORBIDDEN);
   }
 
-  try {
+  return (async () => {
     const bridge = await requestBridge(request);
     const input = z
       .object({ id: z.union([z.string(), z.number()]), result: z.unknown() })
@@ -27,7 +32,7 @@ export async function POST(request: Request) {
     await bridge.answer(input.id, input.result);
 
     return Response.json({ ok: true }, { headers: noStore });
-  } catch (error) {
+  })().catch((error: unknown) => {
     return errorResponse(error);
-  }
+  });
 }

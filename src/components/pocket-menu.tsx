@@ -5,14 +5,10 @@ import { POCKET_NAME_LIMIT, type Pocket, pocketHref, pocketsSchema, selectedPock
 import { useEffect, useRef, useState } from "react";
 import { Dialog } from "@base-ui/react/dialog";
 import { PocketSettingsPanel } from "./pocket-settings";
-import { post } from "@/lib/client-api";
+import { usePocketClient } from "@/providers/pocket-state";
+import { useStore } from "zustand";
+import { type PocketEdit as Edit } from "@/services/pockets";
 import { useAgentRead } from "@/hooks/use-agents";
-
-interface Edit {
-  action: "create" | "rename" | "delete";
-  id: string;
-  name: string;
-}
 
 /** Show a saved name, current work preview, and explicit management controls.
 @param props - Durable entry, current selection, and editor callback.
@@ -165,52 +161,24 @@ export function PocketMenu({
   const [open, setOpen] = useState(false);
   const [edit, setEdit] = useState<Edit | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const { pockets, settings } = usePocketClient();
+  const operation = useStore(pockets.store);
+  const isSavingSettings = useStore(settings.store, (state) => state.busy);
+  const isBusy = operation.busy || isSavingSettings;
+  const error = operation.error;
   const { data, error: readError } = useAgentRead("/api/pockets", pocketsSchema);
   const selected = selectedPocketId();
   const current = data?.pockets.find((entry) => entry.id === selected);
 
-  async function saveEdit(change: Edit) {
-    const result = await post(
-      "/api/pockets",
-      change.action === "delete" ? { action: change.action, id: change.id } : change
-    );
-    const entries = pocketsSchema.shape.pockets.parse(result.pockets);
-    const created = entries.find((entry) => entry.id === change.id);
-
-    if (change.action === "create" && created?.state !== "ready") {
-      throw new Error("Setup did not finish. Delete this entry before trying a new Pocket.");
-    }
-
-    if (change.action === "create" || (change.action === "delete" && change.id === selected)) {
-      location.assign(
-        pocketHref(
-          change.action === "create" ? change.id : (entries.find((entry) => entry.state === "ready")?.id ?? "main")
-        )
-      );
-
-      return;
-    }
-
-    setEdit(null);
-    globalThis.dispatchEvent(new Event("online"));
-  }
-
   async function submit() {
-    if (!edit || busy) {
+    if (!edit || isBusy) {
       return;
     }
 
-    setBusy(true);
-    setError("");
+    const result = await pockets.save(edit);
 
-    try {
-      await saveEdit(edit);
-    } catch (error_) {
-      setError(error_ instanceof Error ? error_.message : "Could not save this Pocket.");
-    } finally {
-      setBusy(false);
+    if (result.ok) {
+      setEdit(null);
     }
   }
 
@@ -219,7 +187,7 @@ export function PocketMenu({
       <Dialog.Root
         open={open}
         onOpenChange={(value, details) => {
-          if (busy) {
+          if (isBusy) {
             details.cancel();
 
             return;
@@ -227,7 +195,7 @@ export function PocketMenu({
 
           setOpen(value);
           onOpenChange(value);
-          setError("");
+          pockets.clearError();
           setEdit(null);
           setSettingsOpen(false);
         }}
@@ -240,7 +208,7 @@ export function PocketMenu({
           <Dialog.Popup className="pockets-panel">
             <MenuHeading
               isSettings={settingsOpen}
-              busy={busy}
+              busy={isBusy}
               back={() => {
                 setSettingsOpen(false);
               }}
@@ -248,17 +216,17 @@ export function PocketMenu({
             <div className="pockets-content">
               {(error || readError) && <p role="alert">{error || readError}</p>}
               {!data && !readError && !settingsOpen && <p role="status">Loading Pockets…</p>}
-              {settingsOpen && <PocketSettingsPanel busy={busy} onBusyChange={setBusy} />}
+              {settingsOpen && <PocketSettingsPanel />}
               {edit && (
                 <PocketEditor
                   edit={edit}
-                  busy={busy}
+                  busy={isBusy}
                   change={(name) => {
                     setEdit({ ...edit, name });
                   }}
                   cancel={() => {
                     setEdit(null);
-                    setError("");
+                    pockets.clearError();
                   }}
                   submit={submit}
                 />

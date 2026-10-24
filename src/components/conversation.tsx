@@ -12,7 +12,7 @@ import { Prompt } from "./prompt";
 import { type ReactNode } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { VirtualizedTranscript } from "./virtualized-transcript";
-import { post } from "@/lib/client-api";
+import { usePocketClient } from "@/providers/pocket-state";
 import { voiceTimeline } from "@/lib/voice-timeline";
 
 /**
@@ -111,6 +111,7 @@ export function Conversation({
   showTools?: boolean;
   realtimeSegments?: VoiceSegment[];
 }) {
+  const client = usePocketClient();
   const messages = state.turns.flatMap((turn) => {
     const entries = turnMessages(
       {
@@ -178,7 +179,7 @@ export function Conversation({
                 readOnly
                   ? undefined
                   : async (id, result) => {
-                      await post("/api/answers", { id, result });
+                      await client.answer(id, result);
                     }
               }
             />

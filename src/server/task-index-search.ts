@@ -2,6 +2,7 @@ import { extractSnippet, type HybridQueryResult, type QMDStore } from "@tobilu/q
 import path from "node:path";
 import { readFile } from "node:fs/promises";
 import { type TaskIndexDocument, isParentTaskFile, optionalTaskFile, taskViewHash } from "./task-index-views";
+import { t as attempt } from "try";
 
 const RESULT_LIMIT = 5;
 const CANDIDATE_LIMIT = 100;
@@ -53,7 +54,7 @@ async function retrieve(store: QMDStore, query: string, retrieval: RetrievalMode
     const queries = [{ type: "lex" as const, query }];
     const expanded = retrieval.mode === "hybrid" ? [...queries, { type: "vec" as const, query }] : queries;
 
-    try {
+    const outcome = await attempt(async () => {
       const result = await store.search({
         queries: expanded,
         collections: ["tasks"],
@@ -72,13 +73,17 @@ async function retrieve(store: QMDStore, query: string, retrieval: RetrievalMode
         chunkPos: hit.bestChunkPos,
         explain: hit.explain,
       }));
-    } catch (error) {
-      retrieval.reasons.push(
-        `Local model search unavailable: ${error instanceof Error ? error.message : String(error)}`
-      );
-      retrieval.mode = "keyword";
-      retrieval.reranked = false;
+    });
+
+    if (outcome.ok) {
+      return outcome.value;
     }
+
+    const error = outcome.error;
+
+    retrieval.reasons.push(`Local model search unavailable: ${error instanceof Error ? error.message : String(error)}`);
+    retrieval.mode = "keyword";
+    retrieval.reranked = false;
   }
 
   const lexical = await store.searchLex(query, { collection: "tasks", limit: CANDIDATE_LIMIT });

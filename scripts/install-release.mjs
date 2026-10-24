@@ -38,27 +38,27 @@ async function activate(root, release, service) {
   await rm(path.join(release, ".env.local"));
   await symlink(file, path.join(release, ".env.local"));
 
-  try {
+  await (async () => {
     await service.stop();
     await replaceFile(file, candidate);
     await service.start(release);
     await selectRelease(root, release);
-  } catch (error) {
-    try {
+  })().catch(async (/** @type {unknown} */ error) => {
+    await (async () => {
       await service.stop();
       await replaceFile(file, previous);
       await selectRelease(root, priorRelease);
       await service.restore();
-    } catch (recoveryError) {
+    })().catch((/** @type {unknown} */ recoveryError) => {
       throw new AggregateError(
         [error, recoveryError],
         "Pocket activation and recovery failed; saved releases are retained.",
         { cause: recoveryError }
       );
-    }
+    });
 
     throw error;
-  }
+  });
 }
 
 /** Allocate a private candidate after creating its parent directory.
@@ -94,7 +94,7 @@ export async function installRelease(source, root, build, service) {
   const release = await createRelease(path.join(root, "releases"));
   const saved = await optionalFile(path.join(root, ".env.local"));
 
-  try {
+  return (async () => {
     await copySources(source, release);
     await replaceFile(path.join(release, ".env.local"), saved);
     await build(release);
@@ -104,13 +104,13 @@ export async function installRelease(source, root, build, service) {
     await activate(root, release, service);
 
     return release;
-  } catch (error) {
+  })().catch(async (/** @type {unknown} */ error) => {
     if (!(error instanceof AggregateError)) {
       await rm(release, { recursive: true, force: true });
     }
 
     throw error;
-  }
+  });
 }
 
 /** Prevent concurrent installers from promoting different builds over the same service.
@@ -123,9 +123,7 @@ export async function withInstallLock(root, operation) {
 
   await mkdir(path.dirname(lock), { recursive: true });
 
-  try {
-    await mkdir(lock);
-  } catch (error) {
+  await (async () => mkdir(lock))().catch((/** @type {unknown} */ error) => {
     if (error instanceof Error && "code" in error && error.code === "EEXIST") {
       throw new Error(
         "Another installer is active. If it was interrupted, remove ~/.pocket/install.lock before retrying.",
@@ -134,11 +132,9 @@ export async function withInstallLock(root, operation) {
     }
 
     throw error;
-  }
+  });
 
-  try {
-    await operation();
-  } finally {
+  await (async () => operation())().finally(async () => {
     await rm(lock, { recursive: true, force: true });
-  }
+  });
 }

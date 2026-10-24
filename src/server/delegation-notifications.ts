@@ -1,6 +1,7 @@
 import { type FSWatcher, watch, writeFileSync } from "node:fs";
 import { log } from "./logging";
 import path from "node:path";
+import { t as attempt } from "try";
 
 const SIGNAL_FILE = "delegations.notify";
 
@@ -36,9 +37,13 @@ Coalesce local change hints into one post-transaction microtask before notifying
         return;
       }
 
-      try {
+      const outcome = attempt(() => {
         writeFileSync(path.join(this.directory, SIGNAL_FILE), crypto.randomUUID(), { mode: 0o600 });
-      } catch (error) {
+      });
+
+      if (!outcome.ok) {
+        const error = outcome.error;
+
         log().warn({ error }, "side_pocket.notification_failed");
       }
 
@@ -70,7 +75,7 @@ Acquire a native directory watcher while at least one change subscriber exists.
     this.listeners.add(listener);
 
     if (!this.watcher) {
-      try {
+      const outcome1 = attempt(() => {
         this.watcher = watch(this.directory, { persistent: false }, (_event, filename) => {
           if (!filename || filename === SIGNAL_FILE) {
             this.emit();
@@ -81,7 +86,11 @@ Acquire a native directory watcher while at least one change subscriber exists.
           this.watcher?.close();
           this.watcher = undefined;
         });
-      } catch (error) {
+      });
+
+      if (!outcome1.ok) {
+        const error = outcome1.error;
+
         log().warn({ error }, "side_pocket.notification_watch_failed");
       }
     }

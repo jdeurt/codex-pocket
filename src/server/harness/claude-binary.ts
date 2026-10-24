@@ -1,6 +1,7 @@
 import { accessSync, constants } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { t as attempt } from "try";
 
 /**
 Resolve the configured Claude executable or the existing native PATH and installation candidates.
@@ -27,13 +28,13 @@ export function findClaudeBinary() {
       ];
 
   return candidates.find((candidate) => {
-    try {
+    const outcome = attempt(() => {
       accessSync(candidate, constants.X_OK);
 
       return true;
-    } catch {
-      return false;
-    }
+    });
+
+    return outcome.ok && outcome.value;
   });
 }
 

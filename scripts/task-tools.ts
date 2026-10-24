@@ -12,7 +12,7 @@ const MAX_QUERY_LENGTH = 2000;
 @returns MCP content and structured retrieval evidence, or the standard tool error.
 */
 async function search(owner: string, query: string, offset: number) {
-  try {
+  return (async () => {
     const page = await searchTaskArchivePage(owner, query, offset);
 
     return {
@@ -22,11 +22,11 @@ async function search(owner: string, query: string, offset: number) {
       ],
       structuredContent: page,
     };
-  } catch (error) {
+  })().catch((error: unknown) => {
     return toolResult(() => {
       throw error;
     });
-  }
+  });
 }
 
 /** Register earlier-task retrieval at the existing model-facing MCP entry point.

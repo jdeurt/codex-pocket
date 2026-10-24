@@ -18,26 +18,24 @@ await writeFile(
 );
 const provider = await realtimeProvider();
 
-try {
-  await runNextFixture("realtime", origin, {
-    OPENAI_API_KEY: "",
-    POCKET_REALTIME_TEST_URL: provider.url,
-    CODEX_THREAD_ID: "realtime-fixture-parent",
-    CODEX_CWD: process.cwd(),
-    CODEX_BINARY: process.execPath,
-    CODEX_SERVER_ARGS: JSON.stringify(["--import", "tsx", "tests/fixtures/realtime-rpc.ts"]),
-    CODEX_ALLOWED_ORIGINS: origin,
-    CODEX_POCKET_STATE_DIR: path.join(directory, "state"),
-    CLAUDE_CONFIG_DIR: path.join(directory, "claude"),
-  });
-} finally {
+await runNextFixture("realtime", origin, {
+  OPENAI_API_KEY: "",
+  POCKET_REALTIME_TEST_URL: provider.url,
+  CODEX_THREAD_ID: "realtime-fixture-parent",
+  CODEX_CWD: process.cwd(),
+  CODEX_BINARY: process.execPath,
+  CODEX_SERVER_ARGS: JSON.stringify(["--import", "tsx", "tests/fixtures/realtime-rpc.ts"]),
+  CODEX_ALLOWED_ORIGINS: origin,
+  CODEX_POCKET_STATE_DIR: path.join(directory, "state"),
+  CLAUDE_CONFIG_DIR: path.join(directory, "claude"),
+}).finally(() => {
   for (const client of provider.server.clients) {
     client.terminate();
   }
 
   provider.server.close();
   provider.http.close();
-}
+});
 
 if (provider.failures.length > 0) {
   throw new Error(provider.failures.join("\n"));

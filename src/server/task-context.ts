@@ -30,12 +30,12 @@ const LAST_ENTRY = -1;
 @returns Persisted active working set, or a fresh state when absent.
 */
 export async function readTaskState(owner: string): Promise<TaskContextState> {
-  try {
+  return (async () => {
     const file = path.join(taskDirectory(owner), "active.json");
     const content = await readFile(file, "utf8");
 
     return activeStateSchema.parse(JSON.parse(content));
-  } catch (error) {
+  })().catch((error: unknown) => {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") {
       return {
         version: 1,
@@ -49,7 +49,7 @@ export async function readTaskState(owner: string): Promise<TaskContextState> {
     }
 
     throw error;
-  }
+  });
 }
 
 /** Persist active membership atomically after source ingestion or a successful pass.

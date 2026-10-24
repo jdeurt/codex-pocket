@@ -3,6 +3,7 @@ import { type AgentRecord } from "./agent-sources";
 import { object } from "../lib/protocol";
 import os from "node:os";
 import path from "node:path";
+import { t as attempt } from "try";
 
 const roots = new Map<string, Promise<string | undefined>>();
 
@@ -35,13 +36,16 @@ async function locateRoot(directory: string, root: string) {
       continue;
     }
 
-    try {
+    const outcome = await attempt(async () => {
       return await existingRoot(directory, entry.name, root);
-    } catch {
-      /*
-      Try the next project.
-      */
+    });
+
+    if (outcome.ok) {
+      return outcome.value;
     }
+    /*
+    Try the next project.
+    */
   }
 }
 
@@ -66,13 +70,13 @@ async function cachedClaudeFile(record: AgentRecord, root: string) {
     roots.set(key, pending);
   }
 
-  try {
+  await (async () => {
     project = await pending;
-  } finally {
+  })().finally(() => {
     if (!project) {
       roots.delete(key);
     }
-  }
+  });
 
   return (
     project &&
@@ -128,13 +132,13 @@ export async function agentRevision(record: AgentRecord) {
   let fileRevision: string | undefined;
 
   if (record.agent.harness === "claude" && record.sessionId) {
-    try {
+    await (async () => {
       fileRevision = await claudeRevision(record);
-    } catch {
+    })().catch(() => {
       /*
       The SDK read supplies the user-facing availability state.
       */
-    }
+    });
   }
 
   record.fileRevision = fileRevision;

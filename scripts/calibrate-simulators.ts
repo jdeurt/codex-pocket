@@ -44,10 +44,8 @@ async function calibrate() {
   console.log(JSON.stringify(report));
 }
 
-try {
-  await calibrate();
-} finally {
+await (async () => calibrate())().finally(async () => {
   await rpc.shutdown();
   claude.close();
   await rm(root, { recursive: true, force: true });
-}
+});

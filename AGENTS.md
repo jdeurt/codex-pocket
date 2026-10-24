@@ -1,3 +1,15 @@
+## Error handling
+
+- Do not write `try` statements. ESLint bans `TryStatement` in JavaScript and TypeScript, including scripts and tests.
+- Follow the [`try` README](https://github.com/arthurfiorette/try#usage): prefer the `t` export over `Result.try`. A local import alias is fine when `t` conflicts with a test context.
+- Prefer `t(fn, ...args)` for standalone functions: it forwards arguments and retains type inference. Use `t(() => object.method(args))` when the method needs its receiver.
+- For asynchronous work, use `await t(fn, ...args)` or `await t(() => operation())` to capture both synchronous invocation errors and promise rejections. `await t(existingPromise)` handles that promise, but cannot catch an error thrown before the promise is passed in.
+- A single operation may use `[ok, error, value]`. For several operations, keep descriptively named Result objects and inspect `.ok` before `.value` or `.error`; avoid numbered tuple variables.
+- Error handling belongs to the caller. Do not add wrappers that force every callee to return a Result, or invent a `Result.bind` abstraction. The package's `ok(value)` and `error(reason)` helpers are available when an explicit Result is needed.
+- We like Promise `.then()`, `.catch()` and `.finally()` chains. Use them when they make asynchronous recovery or cleanup clear; do not replace them merely to use `await`.
+- Preserve rejection propagation, early returns, cancellation and unconditional cleanup when changing error handling. Do not silently swallow errors unless an explicit fallback is intended.
+- Standalone installer scripts and the unbundled service worker must remain runnable without resolving application dependencies; use Promise chains at those boundaries.
+
 ## Development checks
 
 - Run only extremely focused tests during development: select the specific test cases and files that exercise the change, using a test-name filter where available. Repeat only those cases when investigating nondeterminism.

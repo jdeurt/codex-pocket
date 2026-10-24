@@ -59,7 +59,7 @@ for (const failure of ["build", "missing-output"]) {
   await test(`failed ${failure} keeps the old service running and discards the candidate`, async () => {
     const root = await fixture();
 
-    try {
+    await (async () => {
       await assert.rejects(
         installRelease(
           path.join(root, "checkout"),
@@ -77,9 +77,9 @@ for (const failure of ["build", "missing-output"]) {
       );
       await unchanged(root);
       assert.deepEqual(await readdir(path.join(root, "releases")), []);
-    } finally {
+    })().finally(async () => {
       await rm(root, { recursive: true, force: true });
-    }
+    });
   });
 }
 
@@ -87,7 +87,7 @@ await test("successful activation stops only after build and shares the original
   const root = await fixture();
   const events: string[] = [];
 
-  try {
+  await (async () => {
     await withInstallLock(root, async () => {
       await installRelease(
         path.join(root, "checkout"),
@@ -128,16 +128,16 @@ await test("successful activation stops only after build and shares the original
     assert.deepEqual(events, ["built", "stopped", "started"]);
     assert.equal(await readFile(path.join(root, ".next/BUILD_ID"), "utf8"), "old-build");
     assert.equal(await readFile(path.join(root, "data/outbox.json"), "utf8"), "durable delivery");
-  } finally {
+  })().finally(async () => {
     await rm(root, { recursive: true, force: true });
-  }
+  });
 });
 
 await test("failed startup restores configuration before restarting the old service", async () => {
   const root = await fixture();
   const events: string[] = [];
 
-  try {
+  await (async () => {
     await assert.rejects(
       installRelease(path.join(root, "checkout"), root, build, {
         stop() {
@@ -157,9 +157,9 @@ await test("failed startup restores configuration before restarting the old serv
     assert.deepEqual(events, ["stop", "stop", "restored"]);
     await unchanged(root);
     assert.deepEqual(await readdir(path.join(root, "releases")), []);
-  } finally {
+  })().finally(async () => {
     await rm(root, { recursive: true, force: true });
-  }
+  });
 });
 
 /** Check that failed recovery retains its candidate for manual diagnosis.
@@ -174,7 +174,7 @@ async function assertRetainedRelease(root: string) {
 await test("failed recovery retains candidate files and reports both errors", async () => {
   const root = await fixture();
 
-  try {
+  await (async () => {
     await assert.rejects(
       installRelease(path.join(root, "checkout"), root, build, {
         stop: () => Promise.resolve(),
@@ -194,15 +194,15 @@ await test("failed recovery retains candidate files and reports both errors", as
     );
     await unchanged(root);
     await assertRetainedRelease(root);
-  } finally {
+  })().finally(async () => {
     await rm(root, { recursive: true, force: true });
-  }
+  });
 });
 
 await test("failed first launch removes new settings and leaves no accepted release", async () => {
   const root = await fixture();
 
-  try {
+  await (async () => {
     await rm(path.join(root, ".env.local"));
     await assert.rejects(
       installRelease(path.join(root, "checkout"), root, build, {
@@ -218,7 +218,7 @@ await test("failed first launch removes new settings and leaves no accepted rele
     );
     await assert.rejects(readFile(path.join(root, "current")), { code: "ENOENT" });
     assert.deepEqual(await readdir(path.join(root, "releases")), []);
-  } finally {
+  })().finally(async () => {
     await rm(root, { recursive: true, force: true });
-  }
+  });
 });

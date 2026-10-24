@@ -117,11 +117,9 @@ async function swipeDown(page: Page) {
   const x = box.x + box.width / 2;
   const startY = box.y + box.height / START_FRACTION;
 
-  try {
-    await releasePreviewDrag(client, popup, x, startY);
-  } finally {
+  await (async () => releasePreviewDrag(client, popup, x, startY))().finally(async () => {
     await client.detach();
-  }
+  });
 }
 
 /**
@@ -249,7 +247,7 @@ export async function checkImagePreviews(page: Page, browserName: string) {
   const portrait = path.join(directory, "portrait.png");
   const landscape = path.join(directory, "landscape.png");
 
-  try {
+  await (async () => {
     await sharp({ create: { width: PORTRAIT_WIDTH, height: LONG_EDGE, channels: 3, background: "#7d9990" } })
       .png()
       .toFile(portrait);
@@ -257,7 +255,7 @@ export async function checkImagePreviews(page: Page, browserName: string) {
       .png()
       .toFile(landscape);
     await checkImagePage(page, browserName, portrait, landscape);
-  } finally {
+  })().finally(async () => {
     await rm(directory, { recursive: true, force: true });
-  }
+  });
 }

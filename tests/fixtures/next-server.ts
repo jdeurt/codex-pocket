@@ -2,6 +2,7 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { mkdir, rm, writeFile } from "node:fs/promises";
 import { once } from "node:events";
 import path from "node:path";
+import { t as attempt } from "try";
 
 const NEXT_SHUTDOWN_MS = 5000;
 
@@ -51,12 +52,18 @@ export function signalFixture(host: ChildProcess, signal: NodeJS.Signals): void 
     return;
   }
 
-  try {
+  const outcome = attempt(() => {
     process.kill(-processId, signal);
-  } catch (error) {
-    if (!(error instanceof Error && "code" in error && error.code === "ESRCH")) {
-      throw error;
-    }
+  });
+
+  if (outcome.ok) {
+    return;
+  }
+
+  const error = outcome.error;
+
+  if (!(error instanceof Error && "code" in error && error.code === "ESRCH")) {
+    throw error;
   }
 }
 
@@ -106,13 +113,11 @@ export async function runNextFixture(
   process.once("SIGTERM", stop);
   process.once("SIGINT", stop);
 
-  try {
-    await once(host, "exit");
-  } finally {
+  await (async () => once(host, "exit"))().finally(async () => {
     clearTimeout(resources.shutdown);
     process.removeListener("SIGTERM", stop);
     process.removeListener("SIGINT", stop);
     signalFixture(host, "SIGKILL");
     await rm(build.POCKET_TEST_TSCONFIG, { force: true });
-  }
+  });
 }

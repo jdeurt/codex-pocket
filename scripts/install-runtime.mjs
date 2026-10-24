@@ -46,12 +46,14 @@ async function executable(candidate) {
     : (process.env.PATH ?? "").split(path.delimiter).map((directory) => path.resolve(directory, candidate));
 
   for (const file of paths) {
-    try {
-      await access(file, constants.X_OK);
+    const resolved = await access(file, constants.X_OK)
+      .then(() => realpath(file))
+      .catch(() => {
+        // Try the next executable location.
+      });
 
-      return await realpath(file);
-    } catch {
-      // Try the next installation location.
+    if (resolved) {
+      return resolved;
     }
   }
 }

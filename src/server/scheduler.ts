@@ -1,3 +1,4 @@
+import { t as attempt } from "try";
 import type { ScheduleStore, ScheduledRun } from "./schedules";
 import type { Bridge } from "./bridge";
 import { log } from "./logging";
@@ -31,14 +32,14 @@ Claim due occurrences and disable invalid recurrences before refreshing the pare
 */
   private async collectDue(now: number) {
     for (const schedule of this.store.due(this.threadId, now)) {
-      try {
+      await (async () => {
         const next = await nextOccurrence(schedule.calendar, now);
 
         this.store.occurrences.claim(schedule, next, now);
-      } catch (error) {
+      })().catch(async (error: unknown) => {
         log().error({ id: schedule.id, error }, "schedule.recurrence_failed");
         await this.store.update(this.threadId, schedule.id, { active: false }, schedule.revision);
-      }
+      });
     }
 
     this.bridge.refreshScheduled();
@@ -67,9 +68,11 @@ Dispatch persisted pending occurrences serially through the parent's idempotent 
         continue;
       }
 
-      try {
-        await this.dispatchRun(run);
-      } catch (error) {
+      const delivered = await attempt(() => this.dispatchRun(run));
+
+      if (!delivered.ok) {
+        const error = delivered.error;
+
         // Bridge persists uncertain sends; retrying this same ID only reads that receipt.
         this.store.occurrences.setStatus(run.id, "pending", error instanceof Error ? error.message : String(error));
         break;
@@ -98,14 +101,16 @@ Run one non-overlapping due-collection and dispatch cycle, retaining diagnostic 
 
     this.running = true;
 
-    try {
+    await (async () => {
       await this.collectDue(now);
       await this.dispatch();
-    } catch (error) {
-      log().error({ error }, "schedule.tick_failed");
-    } finally {
-      this.running = false;
-    }
+    })()
+      .catch((error: unknown) => {
+        log().error({ error }, "schedule.tick_failed");
+      })
+      .finally(() => {
+        this.running = false;
+      });
   }
 
   /**

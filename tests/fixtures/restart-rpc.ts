@@ -34,15 +34,15 @@ Reads one host-controlled failure marker from this private replay directory.
 @returns Whether the nonempty marker requests a synthetic failure.
 */
 async function isFailing(stage: string) {
-  try {
+  return (async () => {
     return !!(await readFile(path.join(directory, `fail-${stage}`), "utf8"));
-  } catch (error) {
+  })().catch((error: unknown) => {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") {
       return false;
     }
 
     throw error;
-  }
+  });
 }
 
 /**

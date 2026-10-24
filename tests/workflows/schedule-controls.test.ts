@@ -179,11 +179,11 @@ await test("the bundled MCP process validates input and performs schedule CRUD o
     stderr: "pipe",
   });
 
-  try {
+  await (async () => {
     await client.connect(transport);
     await checkScheduleTools(client);
-  } finally {
+  })().finally(async () => {
     await client.close();
     await rm(directory, { recursive: true, force: true });
-  }
+  });
 });

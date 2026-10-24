@@ -191,12 +191,12 @@ Read live history from the owning socket without resuming or modifying the threa
 async function readAttachedCodex(record: AgentRecord, sessionId: string, socketPath: string) {
   const rpc = new CodexRpc();
 
-  try {
+  await (async () => {
     await rpc.connectSocket(socketPath);
     await readCodexWithClient(record, sessionId, rpc);
-  } finally {
+  })().finally(async () => {
     await rpc.shutdown();
-  }
+  });
 
   if (!["closing", "closed"].includes(record.pocket?.status ?? "")) {
     record.agent.status = nativeStatus(record.thread ?? { id: sessionId, turns: [] }, record.turns ?? []);
@@ -239,13 +239,11 @@ Retain saved data and expose availability failures when native history cannot be
 @param record - Scoped discovery record whose history and availability are updated.
 */
 export async function hydrateAgent(record: AgentRecord) {
-  try {
-    await hydrateNativeAgent(record);
-  } catch {
+  await (async () => hydrateNativeAgent(record))().catch(() => {
     record.historyError = true;
 
     if (!record.pocket || sessionAttachment(record.pocket.metadata)) {
       record.agent.status = "unknown";
     }
-  }
+  });
 }

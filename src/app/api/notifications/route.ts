@@ -1,6 +1,7 @@
 import { errorResponse, guard, noStore, readBody } from "@/server/http";
 import { pushPublicKey, saveSubscription } from "@/server/push";
 import { HTTP_FORBIDDEN } from "@/lib/constants";
+import { t as attempt } from "try";
 
 export const runtime = "nodejs";
 
@@ -10,13 +11,13 @@ Exposes the configured push public key only to an authorized host and origin.
 @returns Non-cacheable key response or authorization failure.
 */
 export async function GET(request: Request) {
-  try {
+  return (async () => {
     await guard(request);
 
     return Response.json({ publicKey: await pushPublicKey() }, { headers: noStore });
-  } catch (error) {
+  })().catch((error: unknown) => {
     return errorResponse(error, HTTP_FORBIDDEN);
-  }
+  });
 }
 
 /**
@@ -25,17 +26,21 @@ Stores a validated receiving-device subscription after mutation authorization.
 @returns Non-cacheable subscription receipt or existing validation failure.
 */
 export async function POST(request: Request) {
-  try {
+  const outcome = await attempt(async () => {
     await guard(request, true);
-  } catch (error) {
+  });
+
+  if (!outcome.ok) {
+    const error = outcome.error;
+
     return errorResponse(error, HTTP_FORBIDDEN);
   }
 
-  try {
+  return (async () => {
     await saveSubscription(await readBody(request));
 
     return Response.json({ subscribed: true }, { headers: noStore });
-  } catch (error) {
+  })().catch((error: unknown) => {
     return errorResponse(error);
-  }
+  });
 }

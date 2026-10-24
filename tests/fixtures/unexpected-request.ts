@@ -22,13 +22,13 @@ export function unexpectedRequest(method: string | undefined): never {
 export async function assertExpectedRequests(directory: string) {
   let journal = "";
 
-  try {
+  await (async () => {
     journal = await readFile(path.join(directory, JOURNAL), "utf8");
-  } catch (error) {
+  })().catch((error: unknown) => {
     if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
       throw error;
     }
-  }
+  });
 
   assert.equal(journal, "", `Unmatched native requests:\n${journal}`);
 }

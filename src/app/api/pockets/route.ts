@@ -56,14 +56,14 @@ async function mutate(request: Request) {
 @returns Durable menu entries and this tab's selected identity.
 */
 export async function GET(request: Request) {
-  try {
+  return (async () => {
     await guard(request);
     await pocketHost();
 
     return catalogResponse(request);
-  } catch (error) {
+  })().catch((error: unknown) => {
     return errorResponse(error);
-  }
+  });
 }
 
 /** Apply an explicit named-Pocket mutation with durable creation receipts.
@@ -71,12 +71,12 @@ export async function GET(request: Request) {
 @returns Updated catalog, or an actionable failure without implicit replay.
 */
 export async function POST(request: Request) {
-  try {
+  return (async () => {
     await guard(request, true);
     await pocketHost();
 
     return await mutate(request);
-  } catch (error) {
+  })().catch((error: unknown) => {
     return errorResponse(error);
-  }
+  });
 }

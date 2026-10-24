@@ -8,6 +8,7 @@ import { localDirectory } from "./local-state";
 import path from "node:path";
 import { writeFile } from "node:fs/promises";
 import { z } from "zod";
+import { t as attempt } from "try";
 
 const MAX_SAVED = 32;
 const MAX_LIBRARY_BYTES = 67_108_864;
@@ -133,11 +134,9 @@ Keep the managed file open until its read and any tone migration finish.
   private async readManagedAsset(id: string, asset: z.infer<typeof assetInfoSchema>) {
     const file = openSync(path.join(this.assets, id), constants.O_RDONLY | constants.O_NOFOLLOW);
 
-    try {
-      return await this.assetBytes(file, id, asset);
-    } finally {
+    return (async () => this.assetBytes(file, id, asset))().finally(() => {
       closeSync(file);
-    }
+    });
   }
 
   /**
@@ -170,16 +169,20 @@ Save validated original bytes and atomically select their catalog entry.
 
     await writeFile(target, raster.input, { mode: PRIVATE_FILE_MODE, flag: "wx" });
 
-    try {
+    const outcome = attempt(() => {
       this.db
         .transaction(() => {
           this.registerAsset(id, digest, raster, saved);
         })
         .immediate();
-    } finally {
-      if (!saved.used) {
-        unlinkSync(target);
-      }
+    });
+
+    if (!saved.used) {
+      unlinkSync(target);
+    }
+
+    if (!outcome.ok) {
+      throw outcome.error;
     }
 
     return this.status();
@@ -212,9 +215,13 @@ Remove a managed image and clear its selection inside the catalog transaction.
 
         this.db.prepare("UPDATE spinner_preference SET activeId=NULL WHERE singleton=1 AND activeId=?").run(id);
 
-        try {
+        const outcome1 = attempt(() => {
           unlinkSync(path.join(this.assets, id));
-        } catch (error) {
+        });
+
+        if (!outcome1.ok) {
+          const error = outcome1.error;
+
           if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
             throw new Error("Could not delete the managed spinner copy. Try again.", { cause: error });
           }

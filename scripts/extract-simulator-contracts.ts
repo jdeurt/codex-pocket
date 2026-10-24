@@ -52,7 +52,7 @@ async function extract() {
   const binary = process.env.CODEX_BINARY ?? "codex";
   const version = execFileSync(binary, ["--version"], { encoding: "utf8" }).trim();
 
-  try {
+  await (async () => {
     execFileSync(binary, ["app-server", "generate-json-schema", "--experimental", "--out", temporary]);
     await writeFile(
       new URL("codex.json", destination),
@@ -76,9 +76,9 @@ async function extract() {
         2
       ) + "\n"
     );
-  } finally {
+  })().finally(async () => {
     await rm(temporary, { recursive: true, force: true });
-  }
+  });
 }
 
 await extract();

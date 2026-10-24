@@ -1,5 +1,6 @@
 import { dataSchema } from "./protocol";
 import { z } from "zod";
+import { t as attempt } from "try";
 
 const clientRecordSchema = z.object({
   id: z.string(),
@@ -30,9 +31,11 @@ const queue: { records: ClientRecord[]; loaded: boolean; sending: boolean; timer
 Save the bounded diagnostics queue without letting storage failures interrupt chat.
 */
 function persist() {
-  try {
+  const outcome = attempt(() => {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(queue.records));
-  } catch {
+  });
+
+  if (!outcome.ok) {
     /*
     Diagnostics must not block chat.
     */
@@ -90,21 +93,23 @@ Own the in-flight flag and retry timer for one selected diagnostics batch.
 
     queue.sending = true;
 
-    try {
+    await (async () => {
       const response = await transmitClientBatch(batch);
 
       isDelivered = response.ok;
-    } catch {
-      /*
+    })()
+      .catch(() => {
+        /*
     Retain diagnostics while Pocket is restarting or unreachable.
     */
-    } finally {
-      queue.sending = false;
+      })
+      .finally(() => {
+        queue.sending = false;
 
-      if (isDelivered && queue.records.length > 0) {
-        queue.timer = setTimeout(() => void flushClientLogs(), FLUSH_DELAY_MS);
-      }
-    }
+        if (isDelivered && queue.records.length > 0) {
+          queue.timer = setTimeout(() => void flushClientLogs(), FLUSH_DELAY_MS);
+        }
+      });
   }
 
   await flushClientBatch();
@@ -144,9 +149,11 @@ export function reportClient(
   if (!queue.loaded) {
     queue.loaded = true;
 
-    try {
+    const outcome1 = attempt(() => {
       queue.records = storedClientRecords();
-    } catch {
+    });
+
+    if (!outcome1.ok) {
       /*
       An invalid diagnostics cache can be discarded.
       */

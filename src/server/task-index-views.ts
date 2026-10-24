@@ -27,11 +27,9 @@ export interface TaskIndexDocument {
 @returns The read value, or null if the file is unavailable.
 */
 export async function optionalTaskFile<T>(read: () => Promise<T>): Promise<T | null> {
-  try {
-    return await read();
-  } catch {
+  return (async () => read())().catch(() => {
     return null;
-  }
+  });
 }
 
 /** Hash the current reading view to reject stale search evidence after concurrent archive changes.
@@ -116,13 +114,13 @@ async function writeChanged(directory: string, name: string, body: string) {
 
   let previous: string | undefined;
 
-  try {
+  await (async () => {
     previous = await readFile(file, "utf8");
-  } catch (error) {
+  })().catch((error: unknown) => {
     if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
       throw error;
     }
-  }
+  });
 
   if (previous !== body) {
     await writeTaskFile(directory, name, body);

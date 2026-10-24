@@ -3,6 +3,7 @@ import { HTTP_FORBIDDEN } from "@/lib/constants";
 import { SnapshotStream } from "@/server/snapshot-stream";
 import { bridge } from "@/server/bridge";
 import { requestBridge } from "@/server/named-pockets";
+import { t as attempt } from "try";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -23,15 +24,17 @@ Subscribe an authorized browser to the existing parent's visible snapshots.
 @returns Private parent event stream, or the existing authorization error response.
 */
 export async function GET(request: Request) {
-  try {
+  const outcome = await attempt(async () => {
     await guard(request);
-  } catch (error) {
+  });
+
+  if (!outcome.ok) {
+    const error = outcome.error;
+
     return errorResponse(error, HTTP_FORBIDDEN);
   }
 
-  try {
-    return await stream(request);
-  } catch (error) {
+  return (async () => stream(request))().catch((error: unknown) => {
     return errorResponse(error);
-  }
+  });
 }

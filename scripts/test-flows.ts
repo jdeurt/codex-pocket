@@ -64,8 +64,8 @@ function completion(): Promise<number> {
   });
 }
 
-try {
+await (async () => {
   process.exitCode = await completion();
-} finally {
+})().finally(async () => {
   await rm(flowHome, { recursive: true, force: true });
-}
+});

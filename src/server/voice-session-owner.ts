@@ -16,15 +16,13 @@ Read provider configuration without allowing a storage error to echo private cre
 @returns Current key and public voice preferences.
 */
 export async function readVoiceConfiguration(owner: VoiceSessionOwner) {
-  let configuration;
-
-  try {
+  const configuration = await (async () => {
     const [key, preferences] = await Promise.all([owner.readKey(), owner.preferences()]);
 
-    configuration = { key, ...preferences };
-  } catch {
+    return { key, ...preferences };
+  })().catch(() => {
     throw new Error("Could not load realtime configuration from Settings.");
-  }
+  });
 
   if (!configuration.key) {
     throw new Error("Add an OpenAI API key in Settings to enable realtime voice.");

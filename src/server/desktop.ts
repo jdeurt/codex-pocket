@@ -5,6 +5,7 @@ import { type Snapshot } from "../lib/protocol";
 import path from "node:path";
 import { requestFile } from "./request-files";
 import { z } from "zod";
+import { t as attempt } from "try";
 
 const replySchema = z.object({
   threadId: z.string().optional(),
@@ -45,25 +46,23 @@ Apply allowlisted private desktop reply files to pending native requests.
 @param publish - Publisher called after an accepted reply is persisted.
 */
 export async function resolveDesktopReplies(snapshot: Snapshot, rpc: CodexRpc | undefined, publish: () => void) {
-  let names: string[];
+  const outcome = await attempt(() => readdir(localDirectory()));
 
-  try {
-    names = await readdir(localDirectory());
-  } catch {
+  if (!outcome.ok) {
     return;
   }
 
-  for (const name of names) {
+  for (const name of outcome.value) {
     if (!/^reply-[a-f0-9-]+\.json$/.test(name)) {
       continue;
     }
 
-    try {
-      await resolveReply(path.resolve(localDirectory(), name), snapshot, rpc, publish);
-    } catch (error) {
-      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
-        throw error;
+    await (async () => resolveReply(path.resolve(localDirectory(), name), snapshot, rpc, publish))().catch(
+      (error: unknown) => {
+        if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+          throw error;
+        }
       }
-    }
+    );
   }
 }

@@ -1,6 +1,7 @@
 import { type Data, object, string } from "../lib/protocol";
 import { type VoiceSessionOwner } from "./voice-session-owner";
 import { z } from "zod";
+import { t as attempt } from "try";
 
 const MAX_REQUEST_LENGTH = 32_000;
 const argumentsSchema = z.object({ request: z.string().trim().min(1).max(MAX_REQUEST_LENGTH) }).strict();
@@ -47,11 +48,17 @@ export class RealtimeTools {
       return;
     }
 
-    try {
+    const outcome = attempt(() => {
       this.sendResults();
-    } catch (error) {
-      this.fail(error);
+    });
+
+    if (outcome.ok) {
+      return;
     }
+
+    const error = outcome.error;
+
+    this.fail(error);
   }
 
   /**
@@ -100,15 +107,8 @@ export class RealtimeTools {
       return;
     }
 
-    let args: unknown;
-
-    try {
-      args = JSON.parse(string(call.arguments));
-    } catch {
-      args = undefined;
-    }
-
-    const input = argumentsSchema.safeParse(args);
+    const decoded = attempt(JSON.parse, string(call.arguments));
+    const input = argumentsSchema.safeParse(decoded.ok ? decoded.value : undefined);
 
     if (!input.success) {
       this.result(callId, { error: "Supply a nonempty request describing the work to do." });
@@ -120,20 +120,22 @@ export class RealtimeTools {
 
     this.pending.set(id, callId);
 
-    let result;
-
-    try {
-      result = await this.owner.handoff({
+    const delivery = await attempt(() =>
+      this.owner.handoff({
         id,
         request: input.data.request,
         source: { type: "realtime", sessionId: this.sessionId, itemId: callId },
-      });
-    } catch {
+      })
+    );
+
+    if (!delivery.ok) {
       this.pending.delete(id);
       this.result(callId, { status: "unknown", error: "Work could not be confirmed. Do not automatically retry." });
 
       return;
     }
+
+    const result = delivery.value;
 
     if (!this.pending.has(id) || result.status === "sent" || result.status === "queued") {
       return;

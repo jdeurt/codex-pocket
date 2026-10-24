@@ -118,9 +118,7 @@ await test(
     Object.assign(process.env, environment);
     await writeFile(scenarioFile, JSON.stringify(scenario(thread.id)));
 
-    try {
-      await verifyRecovery(bridge);
-    } finally {
+    await (async () => verifyRecovery(bridge))().finally(async () => {
       bridge.close();
 
       for (const [key, value] of Object.entries(previous)) {
@@ -132,6 +130,6 @@ await test(
       }
 
       await rm(root, { recursive: true, force: true });
-    }
+    });
   }
 );

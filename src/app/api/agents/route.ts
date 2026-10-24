@@ -4,6 +4,7 @@ import { type Config } from "@/server/config";
 import { agentBrowser } from "@/server/agents";
 import { renderImage } from "@/server/images";
 import { requestConfig } from "@/server/pocket-config";
+import { t as attempt } from "try";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -89,15 +90,15 @@ Serves GET-only native agent history with distinct access-denied and unavailable
 @returns Non-cacheable catalog, transcript, image or sanitized error response.
 */
 export async function GET(request: Request) {
-  try {
+  const outcome = await attempt(async () => {
     await guard(request);
-  } catch {
+  });
+
+  if (!outcome.ok) {
     return Response.json({ error: "Agent history access denied." }, { status: HTTP_FORBIDDEN, headers: noStore });
   }
 
-  try {
-    return await agentResponse(request);
-  } catch {
+  return (async () => agentResponse(request))().catch(() => {
     return errorResponse(new Error("Agent history is unavailable in this parent chat."), HTTP_NOT_FOUND);
-  }
+  });
 }

@@ -165,7 +165,12 @@ export function createConfig(options: { typed?: boolean; tsconfigRootDir?: strin
         "prefer-const": "warn",
         "sort-imports": "off",
         "unicorn/no-repeated-call-wrappers": "warn",
-        "unicorn/try-complexity": "warn",
+        "unicorn/prefer-await": "off",
+        "unicorn/no-async-promise-finally": "off",
+        "no-restricted-syntax": [
+          "error",
+          { selector: "TryStatement", message: "Use the try package or Promise .then/.catch/.finally chains." },
+        ],
         "unicorn/no-array-reduce": "off",
         // User-authorized policy: allow null values while retaining TypeScript null-safety checks.
         "unicorn/no-null": "off",
@@ -187,6 +192,7 @@ export function createConfig(options: { typed?: boolean; tsconfigRootDir?: strin
         "@typescript-eslint/no-unused-vars": ["warn", { argsIgnorePattern: "^_.*", varsIgnorePattern: "^_.*" }],
         "no-restricted-syntax": [
           "error",
+          { selector: "TryStatement", message: "Use the try package or Promise .then/.catch/.finally chains." },
           {
             selector: CHAINED_TYPE_ASSERTION_SELECTOR,
             message: CHAINED_TYPE_ASSERTION_MESSAGE,

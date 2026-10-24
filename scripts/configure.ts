@@ -91,11 +91,9 @@ async function setup() {
 
   const rpc = new CodexRpc();
 
-  try {
-    await configure(rpc);
-  } finally {
+  await (async () => configure(rpc))().finally(() => {
     rpc.close();
-  }
+  });
 }
 
 // Codex injects its own thread ID into agent shells. Pocket selects its thread explicitly.

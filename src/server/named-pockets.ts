@@ -93,15 +93,17 @@ async function materialize(rpc: CodexRpc, config: Config, id: string, name: stri
 async function createNative(config: Config, id: string, name: string) {
   const rpc = new CodexRpc();
 
-  try {
+  await (async () => {
     await rpc.connect(config, "bare");
     await materialize(rpc, config, id, name);
-  } catch (error) {
-    pocketStore().finish(id, false);
-    throw error;
-  } finally {
-    rpc.close();
-  }
+  })()
+    .catch((error: unknown) => {
+      pocketStore().finish(id, false);
+      throw error;
+    })
+    .finally(() => {
+      rpc.close();
+    });
 }
 
 /** Persist a named empty conversation before making it selectable.

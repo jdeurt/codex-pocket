@@ -2,40 +2,29 @@
 import "./focused-composer.css";
 import { ComposerError } from "./composer-error";
 import { ArrowUpIcon, MicIcon, PaperclipIcon, XIcon } from "lucide-react";
-import { type DraftAttachment, useAttachments } from "@/hooks/use-attachments";
+import { useAttachments } from "@/hooks/use-attachments";
 import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } from "@/components/ui/input-group";
-import { clientError, reportClient } from "@/lib/client-logging";
-import { isDraftSaved, useDraft, useRecoveredDraft } from "@/hooks/use-draft";
-import { stageMessage, updateDelivery, useThread } from "@/hooks/use-thread";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useDraft } from "@/hooks/use-draft";
+import { useThread } from "@/hooks/use-thread";
+import { useCallback, useRef, useState } from "react";
 import { AgentBrowser } from "./agent-browser";
 import { AgentNavigationContext } from "@/lib/agent-navigation-context";
 import { ComposerAttachments } from "./composer-attachments";
 import { Conversation } from "./conversation";
-import { type FileAttachment } from "@/lib/attachments";
 import { NotificationPrompt } from "./notification-prompt";
 import { PocketMenu } from "./pocket-menu";
 import { RealtimeSpectrum } from "./realtime-spectrum";
 import { connectionStatus } from "@/lib/connection-status";
 import { modelDescription } from "@/lib/model-description";
-import { post } from "@/lib/client-api";
 import { useAppUpdate } from "@/hooks/use-app-update";
 import { useComposerViewport } from "@/hooks/use-composer-viewport";
 import { usePocketSettings } from "@/hooks/use-pocket-settings";
 import { usePathname } from "next/navigation";
+import { useStore } from "zustand";
+import { usePocketClient } from "@/providers/pocket-state";
 import { useRealtime } from "@/hooks/use-realtime";
 import { useVoiceGesture } from "@/hooks/use-voice-gesture";
-
-/**
-Require visible text or files and wait until every selected upload has a receipt.
-@param text - Draft text proposed for sending.
-@param files - Selected draft attachments with their current upload state.
-@returns Whether the draft contains a complete sendable payload.
-*/
-function hasMessage(text: string, files: DraftAttachment[]) {
-  return (!!text.trim() || files.length > 0) && files.every((entry) => !!entry.uploaded);
-}
 
 /**
 Show the send arrow, armed microphone, or realtime stop icon in one button.
@@ -60,11 +49,11 @@ export function Chat() {
   const settings = usePocketSettings();
   const [draft, setDraft] = useDraft();
   const isViewingFile = usePathname() === "/files";
-  const [sending, setSending] = useState(false);
-  const [error, setError] = useState("");
+  const client = usePocketClient();
+  const { busy: sending, error } = useStore(client.delivery.store);
+  const draftHydration = useStore(client.draft.hydration);
   const voice = useRealtime(state.connection === "connected" ? state.threadId : undefined);
   const [voiceHeight, setVoiceHeight] = useState<number>();
-  const { stop: stopVoice } = voice;
   const isVoiceActive = voice.state !== "idle";
   const [agentsOpen, setAgentsOpen] = useState(false);
   const [pocketsOpen, setPocketsOpen] = useState(false);
@@ -75,7 +64,6 @@ export function Chat() {
     setSelectedAgent(id);
     setAgentsOpen(true);
   }, []);
-  const messageId = useRef<string | null>(null);
   const textarea = useRef<HTMLTextAreaElement>(null);
 
   const filePicker = useRef<HTMLInputElement>(null);
@@ -94,82 +82,13 @@ export function Chat() {
     />
   );
 
-  useAppUpdate(
-    () =>
-      !sending &&
-      !isVoiceActive &&
-      !pocketsOpen &&
-      state.queue.every((message) => !(message.status === "unknown" || message.status === "sending")) &&
-      isDraftSaved(draft) &&
-      attachments.canReload()
-  );
+  useAppUpdate(() => !pocketsOpen && client.canReload());
   useComposerViewport(textarea);
 
-  useRecoveredDraft(attachments.pending, draft, sending, setDraft);
-
-  useEffect(() => {
-    if (!isConnected && isVoiceActive) {
-      void stopVoice();
-    }
-  }, [isConnected, isVoiceActive, stopVoice]);
-
-  useEffect(() => {
-    if ("serviceWorker" in navigator && process.env.NODE_ENV === "production") {
-      void navigator.serviceWorker.register("/sw.js").catch(console.error);
-    }
-  }, []);
-
-  async function postPreparedDraft(id: string, text: string, files: FileAttachment[]) {
-    await attachments.rememberSend(id, text);
-    stageMessage(id, text, files);
-    setDraft("");
-
-    return post("/api/messages", { id, text, attachments: files.map((file) => file.id) });
-  }
-
-  async function completeDelivery(id: string, text: string, files: FileAttachment[]) {
-    const result = await postPreparedDraft(id, text, files);
-
-    if (result.status === "unknown") {
-      throw new Error("Delivery is uncertain. Check the conversation on your computer before sending again.");
-    }
-
-    updateDelivery(id, result.status === "sent" ? "sent" : "queued");
-    reportClient("message.acknowledged", { id, status: result.status });
-    await attachments.clear();
-    messageId.current = null;
-    textarea.current?.focus();
-  }
-
-  async function deliverDraft(text: string) {
-    const files = attachments.files.flatMap((entry) => (entry.uploaded ? [entry.uploaded] : []));
-    const id = (messageId.current ??=
-      attachments.pending?.text === text ? attachments.pending.id : crypto.randomUUID());
-
-    reportClient("message.send", { id, text, activeTurnId: state.activeTurnId });
-    setSending(true);
-    setError("");
-
-    try {
-      await completeDelivery(id, text, files);
-    } catch (error_) {
-      reportClient("message.failed", { id, ...clientError(error_) }, "error");
-      updateDelivery(id, "unknown");
-      setDraft(text);
-      setError(error_ instanceof Error ? error_.message : "Couldn't send. Try again when connected.");
-    } finally {
-      setSending(false);
-    }
-  }
-
   async function send() {
-    const text = draft.trim();
-
-    if (isVoiceActive || sending || !isConnected || !attachments.ready || !hasMessage(text, attachments.files)) {
-      return;
+    if (await client.delivery.send()) {
+      textarea.current?.focus();
     }
-
-    await deliverDraft(text);
   }
 
   const startVoice = () => {
@@ -202,7 +121,14 @@ export function Chat() {
         <footer className="composer-wrap">
           <NotificationPrompt />
           <ComposerError
-            errors={[voice.error, error, attachments.error, state.error, state.connectionRetry?.message]}
+            errors={[
+              voice.error,
+              error,
+              draftHydration.error,
+              attachments.error,
+              state.error,
+              state.connectionRetry?.message,
+            ]}
             dismissVoiceError={voice.error ? voice.dismissError : undefined}
           />
           {!isVoiceActive && (
@@ -210,7 +136,7 @@ export function Chat() {
               files={attachments.files}
               disabled={sending}
               remove={async (id) => {
-                messageId.current = null;
+                client.delivery.reset();
                 await attachments.remove(id);
               }}
               retry={attachments.retry}
@@ -243,7 +169,7 @@ export function Chat() {
                     const files = [...(event.target.files ?? [])];
 
                     event.target.value = "";
-                    messageId.current = null;
+                    client.delivery.reset();
                     void attachments.add(files);
                   }}
                 />
@@ -264,7 +190,7 @@ export function Chat() {
                       disabled={state.connection === "unconfigured" || sending}
                       onChange={(event) => {
                         setDraft(event.target.value);
-                        messageId.current = null;
+                        client.delivery.reset();
                       }}
                       onKeyDown={(event) => {
                         if (!(

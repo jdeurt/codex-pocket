@@ -77,11 +77,9 @@ function withState<T>(action: (state: PushState) => T | Promise<T>) {
   const previous = operations.serial;
 
   async function commitQueuedState() {
-    try {
-      await previous;
-    } catch {
+    await (async () => previous)().catch(() => {
       // A failed operation must not block later subscriptions or notifications.
-    }
+    });
 
     return pushTransaction(action);
   }
@@ -206,7 +204,7 @@ async function sendCompletion(
         return;
       }
 
-      try {
+      await (async () => {
         await webpush.sendNotification(subscription, payload, {
           vapidDetails: { ...delivery.keys, subject },
           TTL: PUSH_TTL_SECONDS,
@@ -214,7 +212,7 @@ async function sendCompletion(
           urgency: "normal",
         });
         log().info({ threadId, turnId: turn.id, provider: new URL(subscription.endpoint).origin }, "push.delivered");
-      } catch (error) {
+      })().catch((error: unknown) => {
         const status =
           error instanceof Error && "statusCode" in error && typeof error.statusCode === "number"
             ? error.statusCode
@@ -225,7 +223,7 @@ async function sendCompletion(
         } else {
           log().error({ status, threadId, turnId: turn.id }, "push.failed");
         }
-      }
+      });
     })
   );
 

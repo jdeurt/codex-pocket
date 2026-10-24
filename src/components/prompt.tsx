@@ -5,7 +5,8 @@ import { type PendingRequest, object, pretty, string } from "@/lib/protocol";
 import { type Question, questionsSchema } from "@/lib/questions";
 import { Button } from "@/components/ui/button";
 import { QuestionForm } from "./question-form";
-import { useState } from "react";
+import { usePocketClient } from "@/providers/pocket-state";
+import { useStore } from "zustand";
 
 /**
 Display native approval details using the shared code-block presentation.
@@ -139,23 +140,13 @@ export function Prompt({
   readOnly?: boolean;
   answer?: (id: string | number, result: unknown) => Promise<void>;
 }) {
-  const [sending, setSending] = useState(false);
-  const [error, setError] = useState("");
+  const client = usePocketClient();
+  const operation = client.operation(`answer:${String(request.id)}`);
+  const { busy: sending, error } = useStore(operation.store);
 
   async function submit(result: unknown) {
-    if (readOnly || !answer) {
-      return;
-    }
-
-    setSending(true);
-    setError("");
-
-    try {
-      await answer(request.id, result);
-    } catch (error_) {
-      setError(error_ instanceof Error ? error_.message : "Couldn't send your answer.");
-    } finally {
-      setSending(false);
+    if (!readOnly && answer) {
+      await operation.run(() => answer(request.id, result), "Couldn't send your answer.");
     }
   }
 

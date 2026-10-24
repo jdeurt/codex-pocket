@@ -1,8 +1,6 @@
-"use client";
 import { clientError, reportClient } from "@/lib/client-logging";
 import { object, string } from "@/lib/protocol";
 import { post } from "@/lib/client-api";
-import { useEffect } from "react";
 
 const HEX_RADIX = 16;
 
@@ -11,7 +9,7 @@ Own the native presence source and visibility listeners for one subscribed devic
 @param endpoint - Native push endpoint hashed into the existing device identifier.
 @returns Cleanup that closes the source and prevents late digest completion from reconnecting.
 */
-function subscribeNotificationPresence(endpoint: string) {
+export function subscribeNotificationPresence(endpoint: string) {
   let isActive = true;
   let source: EventSource | undefined;
   let deviceId = "";
@@ -77,18 +75,4 @@ function subscribeNotificationPresence(endpoint: string) {
     globalThis.removeEventListener("online", connect);
     globalThis.removeEventListener("offline", close);
   };
-}
-
-/**
-Answer native presence probes only while this subscribed device is visible.
-@param endpoint - Existing push-subscription endpoint whose digest identifies this device.
-*/
-export function useNotificationPresence(endpoint: string) {
-  useEffect(() => {
-    if (!endpoint) {
-      return;
-    }
-
-    return subscribeNotificationPresence(endpoint);
-  }, [endpoint]);
 }

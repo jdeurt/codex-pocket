@@ -2,6 +2,7 @@ import { errorResponse, guard, noStore, readBody } from "@/server/http";
 import { HTTP_FORBIDDEN } from "@/lib/constants";
 import { log } from "@/server/logging";
 import { z } from "zod";
+import { t as attempt } from "try";
 
 const MAX_EVENTS = 20;
 const MAX_EVENT_NAME = 100;
@@ -36,15 +37,17 @@ Accepts browser diagnostics only after same-origin mutation authorization.
 @returns Accepted batch receipt or distinct authorization/validation error response.
 */
 export async function POST(request: Request) {
-  try {
+  const outcome = await attempt(async () => {
     await guard(request, true);
-  } catch (error) {
+  });
+
+  if (!outcome.ok) {
+    const error = outcome.error;
+
     return errorResponse(error, HTTP_FORBIDDEN);
   }
 
-  try {
-    return await recordClientEvents(request);
-  } catch (error) {
+  return (async () => recordClientEvents(request))().catch((error: unknown) => {
     return errorResponse(error);
-  }
+  });
 }

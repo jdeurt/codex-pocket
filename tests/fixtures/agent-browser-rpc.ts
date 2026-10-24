@@ -5,6 +5,8 @@ import { createInterface } from "node:readline";
 import { fixtureRequestSchema } from "./replay-protocol";
 import { z } from "zod";
 import { unexpectedRequest } from "./unexpected-request";
+import { t as attempt } from "try";
+
 // OFFLINE JSON-RPC replay. Refuses every mutation directed at a child session.
 
 /**
@@ -233,13 +235,19 @@ Reads control state before responding and serializes native operation errors.
 function serveRequest(id: string | number, method: string, params: Record<string, unknown>) {
   const state = stage();
 
-  try {
+  const outcome = attempt(() => {
     const result = response(method, params, state);
 
     deliverResult(id, method, params, result);
-  } catch (error) {
-    emit({ id, error: { code: -32_600, message: String(error) } });
+  });
+
+  if (outcome.ok) {
+    return;
   }
+
+  const error = outcome.error;
+
+  emit({ id, error: { code: -32_600, message: String(error) } });
 }
 
 // Inject real parent notifications through JSON-RPC/SSE while a child overlay is

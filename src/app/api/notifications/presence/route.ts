@@ -2,6 +2,7 @@ import { errorResponse, guard, noStore, readBody } from "@/server/http";
 import { HTTP_FORBIDDEN } from "@/lib/constants";
 import { notificationPresence } from "@/server/notification-presence";
 import { z } from "zod";
+import { t as attempt } from "try";
 
 const HEARTBEAT_MS = 15_000;
 const deviceSchema = z.string().regex(/^[\da-f]{64}$/);
@@ -93,9 +94,13 @@ Opens a foreground-presence stream only after native host and origin authorizati
 @returns Private challenge stream or the existing authorization/device error.
 */
 export async function GET(request: Request) {
-  try {
+  const outcome = await attempt(async () => {
     await guard(request);
-  } catch (error) {
+  });
+
+  if (!outcome.ok) {
+    const error = outcome.error;
+
     return errorResponse(error, HTTP_FORBIDDEN);
   }
 
@@ -108,20 +113,24 @@ Acknowledges a device challenge after same-origin mutation authorization.
 @returns Whether the still-pending challenge belonged to that device.
 */
 export async function POST(request: Request) {
-  try {
+  const outcome1 = await attempt(async () => {
     await guard(request, true);
-  } catch (error) {
+  });
+
+  if (!outcome1.ok) {
+    const error = outcome1.error;
+
     return errorResponse(error, HTTP_FORBIDDEN);
   }
 
-  try {
+  return (async () => {
     const { deviceId, challengeId } = acknowledgementSchema.parse(await readBody(request));
 
     return Response.json(
       { acknowledged: notificationPresence.acknowledge(deviceId, challengeId) },
       { headers: noStore }
     );
-  } catch (error) {
+  })().catch((error: unknown) => {
     return errorResponse(error);
-  }
+  });
 }

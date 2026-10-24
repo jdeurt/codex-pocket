@@ -6,16 +6,16 @@ Adapt one Pocket operation to the native MCP text or error result contract.
 @returns MCP text content or the existing logged native error result.
 */
 export async function toolResult(operation: () => unknown) {
-  try {
+  return (async () => {
     const value = await operation();
 
     return { content: [{ type: "text" as const, text: JSON.stringify(value) }] };
-  } catch (error) {
+  })().catch((error: unknown) => {
     log().error({ error }, "pocket.tool_failed");
 
     return {
       isError: true,
       content: [{ type: "text" as const, text: error instanceof Error ? error.message : String(error) }],
     };
-  }
+  });
 }

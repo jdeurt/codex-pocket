@@ -27,13 +27,13 @@ export function CopyAction({ text }: { text: string }) {
       return;
     }
 
-    try {
+    await (async () => {
       // Invoke in the click handler, before any await, to retain user activation.
       await globalThis.navigator.clipboard.writeText(text);
       setStatus("copied");
-    } catch {
+    })().catch(() => {
       setStatus("error");
-    }
+    });
   }
 
   return (

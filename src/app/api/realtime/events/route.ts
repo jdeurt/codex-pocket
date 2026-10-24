@@ -79,9 +79,7 @@ async function subscribe(request: Request) {
 Read the selected call's status stream without taking ownership of its media.
 */
 export async function GET(request: Request) {
-  try {
-    return await subscribe(request);
-  } catch (error) {
+  return (async () => subscribe(request))().catch((error: unknown) => {
     return errorResponse(error, HTTP_FORBIDDEN);
-  }
+  });
 }

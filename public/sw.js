@@ -17,11 +17,9 @@ Fetch a navigation normally and use only the static offline page on network fail
 @returns {Promise<Response>} Network response or the existing offline fallback.
 */
 async function navigate(request) {
-  try {
-    return await globalThis.fetch(request);
-  } catch {
-    return (await globalThis.caches.match("/offline.html")) ?? Response.error();
-  }
+  return globalThis
+    .fetch(request)
+    .catch(async () => (await globalThis.caches.match("/offline.html")) ?? Response.error());
 }
 
 /**
@@ -54,27 +52,27 @@ function notificationText(value, fallback) {
 /**
 Decode native push JSON without letting an empty or malformed body hide the visible fallback.
 @param {PushMessageData | null} data - Browser-provided push body.
-@returns {unknown} Untrusted JSON value, or undefined when no valid JSON is present.
+@returns {Promise<unknown>} Untrusted JSON value, or undefined when no valid JSON is present.
 */
-function readPushData(data) {
-  if (!data) {
-    return;
-  }
+async function readPushData(data) {
+  return Promise.resolve(data)
+    .then((input) => {
+      const value = /** @type {unknown} */ (input?.json());
 
-  try {
-    return data.json();
-  } catch {
-    return;
-  }
+      return value;
+    })
+    .catch(() => {
+      // Malformed push JSON uses the default visible notification.
+    });
 }
 
 /**
 Validate the push JSON boundary once and retain the existing visible fallbacks.
 @param {PushMessageData | null} data - Native push data, which may be empty or malformed.
-@returns {import("../src/lib/notification-payload").NotificationPayload} Normalized completion notification.
+@returns {Promise<import("../src/lib/notification-payload").NotificationPayload>} Normalized completion notification.
 */
-function notificationPayload(data) {
-  const value = readPushData(data);
+async function notificationPayload(data) {
+  const value = await readPushData(data);
   const fields = typeof value === "object" && value !== null ? value : {};
 
   return {
@@ -120,16 +118,16 @@ function registerWorker(worker) {
     }
   });
   worker.addEventListener("push", (event) => {
-    const payload = notificationPayload(event.data);
-
     event.waitUntil(
-      worker.registration.showNotification(payload.title, {
-        body: payload.body,
-        icon: "/icon-192.png",
-        badge: "/icon-192.png",
-        tag: payload.tag,
-        data: { url: payload.url },
-      })
+      notificationPayload(event.data).then((payload) =>
+        worker.registration.showNotification(payload.title, {
+          body: payload.body,
+          icon: "/icon-192.png",
+          badge: "/icon-192.png",
+          tag: payload.tag,
+          data: { url: payload.url },
+        })
+      )
     );
   });
   worker.addEventListener("notificationclick", (event) => {

@@ -152,11 +152,9 @@ Read a lightweight Codex preview or hydrate Claude's saved history.
       return;
     }
 
-    try {
-      await refreshPreview(record);
-    } catch {
+    await (async () => refreshPreview(record))().catch(() => {
       record.historyError = true;
-    }
+    });
 
     this.remember(record, revision, false);
   }
@@ -184,13 +182,11 @@ Own a newly started cache read until its exact pending entry settles.
 
     this.pending.set(key, done);
 
-    try {
-      await done;
-    } finally {
+    await (async () => done)().finally(() => {
       if (this.pending.get(key) === done) {
         this.pending.delete(key);
       }
-    }
+    });
   }
 
   /**

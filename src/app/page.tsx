@@ -1,3 +1,6 @@
+import { headers } from "next/headers";
+import { PocketStateProvider } from "@/providers/pocket-state";
+import { readClientBootstrap } from "@/server/client-bootstrap";
 import { Chat } from "@/components/chat";
 import { pocketHost } from "@/server/pocket-config";
 import { pocketHref } from "@/lib/pockets";
@@ -35,5 +38,18 @@ export default async function Home({ searchParams }: PageProps<"/">) {
     await restoreHome();
   }
 
-  return <Chat />;
+  const requestHeaders = await headers();
+  const url = new URL("http://localhost/");
+
+  if (typeof params.pocket === "string") {
+    url.searchParams.set("pocket", params.pocket);
+  }
+
+  const initial = await readClientBootstrap(new Request(url, { headers: requestHeaders }));
+
+  return (
+    <PocketStateProvider key={initial.pocketId} initial={initial}>
+      <Chat />
+    </PocketStateProvider>
+  );
 }

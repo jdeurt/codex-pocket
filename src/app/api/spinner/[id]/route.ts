@@ -48,11 +48,11 @@ Serves private spinner bytes with the existing sanitized not-found response.
 @returns Conditional asset response or sanitized native failure.
 */
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
-  try {
+  return (async () => {
     await authorizeSpinner(request);
 
     return await spinnerAsset(request, context.params);
-  } catch {
+  })().catch(() => {
     return errorResponse(new Error("Spinner unavailable."), NOT_FOUND);
-  }
+  });
 }

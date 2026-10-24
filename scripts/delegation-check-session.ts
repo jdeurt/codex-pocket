@@ -45,13 +45,13 @@ Checks the actual child-created marker without treating a missing file as ready.
 @returns Whether the file is accessible.
 */
 async function doesFileExist(file: string) {
-  try {
+  return (async () => {
     await access(file);
 
     return true;
-  } catch {
+  })().catch(() => {
     return false;
-  }
+  });
 }
 
 /**
@@ -266,13 +266,13 @@ After both children complete this workflow and are closed, reply exactly DELEGAT
   private async archive() {
     const cleanup = new CodexRpc();
 
-    try {
+    await (async () => {
       await cleanup.connect(this.config, "bare");
       await cleanup.request("thread/archive", { threadId: this.config.threadId });
       await this.archiveChildren(cleanup);
-    } finally {
+    })().finally(async () => {
       await cleanup.shutdown();
-    }
+    });
   }
 
   /**
@@ -280,12 +280,10 @@ After both children complete this workflow and are closed, reply exactly DELEGAT
   @returns Completion of worker, parent and archive connection cleanup.
   */
   private async cleanup() {
-    try {
-      await this.worker.stop();
-    } finally {
+    await (async () => this.worker.stop())().finally(async () => {
       this.parent.close();
       await this.archive();
-    }
+    });
   }
 
   /**
@@ -293,10 +291,8 @@ After both children complete this workflow and are closed, reply exactly DELEGAT
   @returns Completion of the workflow and native cleanup; failures propagate.
   */
   async run() {
-    try {
-      await this.workflow();
-    } finally {
+    await (async () => this.workflow())().finally(async () => {
       await this.cleanup();
-    }
+    });
   }
 }

@@ -61,11 +61,9 @@ export async function workspace(t: TestContext) {
     const failures: unknown[] = [];
 
     for (const close of resources.toReversed()) {
-      try {
-        await close();
-      } catch (error) {
+      await (async () => await close())().catch((error: unknown) => {
         failures.push(error);
-      }
+      });
     }
 
     globalThis.codexPocketSchedules?.close();

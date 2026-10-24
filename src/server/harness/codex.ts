@@ -168,21 +168,21 @@ export class CodexAdapter implements HarnessAdapter {
       return this.rpc.request("thread/start", params);
     }
 
-    try {
-      return await this.rpc.request("thread/resume", { ...params, threadId: child.sessionId });
-    } catch (error) {
-      if (
-        !(error instanceof RpcError) ||
-        error.code !== INVALID_REQUEST_CODE ||
-        child.sessionStarted !== false ||
-        !error.message.startsWith("no rollout found for thread id ")
-      ) {
-        throw error;
-      }
+    return (async () => this.rpc.request("thread/resume", { ...params, threadId: child.sessionId }))().catch(
+      (error: unknown) => {
+        if (
+          !(error instanceof RpcError) ||
+          error.code !== INVALID_REQUEST_CODE ||
+          child.sessionStarted !== false ||
+          !error.message.startsWith("no rollout found for thread id ")
+        ) {
+          throw error;
+        }
 
-      // Codex does not persist an empty thread. Only replace a session known to have received no input.
-      return this.rpc.request("thread/start", params);
-    }
+        // Codex does not persist an empty thread. Only replace a session known to have received no input.
+        return this.rpc.request("thread/start", params);
+      }
+    );
   }
 
   /**
@@ -229,16 +229,16 @@ export class CodexAdapter implements HarnessAdapter {
 
     this.options.callbacks.metadata({ sessionStarted: true });
 
-    try {
+    return (async () => {
       this.started = this.startTurn(id, input);
       void this.started.catch((error: unknown) =>
         this.pending?.reject(error instanceof Error ? error : new Error("Harness request failed.", { cause: error }))
       );
 
       return await result;
-    } finally {
+    })().finally(() => {
       this.pending = undefined;
-    }
+    });
   }
 
   /**

@@ -1,4 +1,4 @@
-/* eslint-disable jsdoc/require-param, jsdoc/require-returns, unicorn/try-complexity -- Route authorization and native dispatch are sequential. */
+/* eslint-disable jsdoc/require-param, jsdoc/require-returns -- Route authorization and native dispatch are sequential. */
 import { errorResponse, guard, noStore, readBody } from "@/server/http";
 import { requestBridge } from "@/server/named-pockets";
 import { z } from "zod";
@@ -19,23 +19,23 @@ const command = z.discriminatedUnion("action", [
 Read OpenAI voices, central next-session preferences and finalized speech.
 */
 export async function GET(request: Request) {
-  try {
+  return (async () => {
     await guard(request);
 
     const bridge = await requestBridge(request);
     const info = await bridge.realtime.info();
 
     return Response.json(info, { headers: noStore });
-  } catch (error) {
+  })().catch((error: unknown) => {
     return errorResponse(error);
-  }
+  });
 }
 
 /**
 Dispatch one scoped control through the selected Pocket's OpenAI voice session.
 */
 export async function POST(request: Request) {
-  try {
+  return (async () => {
     await guard(request, true);
     const input = command.parse(await readBody(request));
     const { realtime } = await requestBridge(request);
@@ -68,7 +68,7 @@ export async function POST(request: Request) {
     }
 
     return Response.json(result, { headers: noStore });
-  } catch (error) {
+  })().catch((error: unknown) => {
     return errorResponse(error);
-  }
+  });
 }

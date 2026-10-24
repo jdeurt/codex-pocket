@@ -82,19 +82,19 @@ export async function deliverMessage(rpc: CodexRpc, config: Config, state: Snaps
     return;
   }
 
-  try {
-    await rpc.request("turn/steer", {
+  await rpc
+    .request("turn/steer", {
       threadId: config.threadId,
       expectedTurnId: state.activeTurnId,
       input,
       clientUserMessageId: receipt.id,
-    });
-  } catch (error) {
-    // An explicit rejection is safe to recover. A timeout may already have delivered.
-    if (!(error instanceof RpcError) || error.code === undefined) {
-      throw error;
-    }
+    })
+    .catch(async (error: unknown) => {
+      // An explicit rejection is safe to recover. A timeout may already have delivered.
+      if (!(error instanceof RpcError) || error.code === undefined) {
+        throw error;
+      }
 
-    await recoverRejectedSteer(rpc, config, state, input, receipt.id, error);
-  }
+      await recoverRejectedSteer(rpc, config, state, input, receipt.id, error);
+    });
 }

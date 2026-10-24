@@ -129,16 +129,16 @@ export class DelegationRun {
 
     this.ready.resolve(true);
 
-    try {
+    await (async () => {
       const outcome = await result;
 
       this.settled = true;
       await Promise.all(this.deliveries.values());
       this.complete(outcome);
-    } finally {
+    })().finally(() => {
       this.settled = true;
       this.ready.resolve(false);
-    }
+    });
   }
 
   /**
@@ -146,14 +146,14 @@ export class DelegationRun {
   @returns Completion of native cleanup and its durable outcome.
   */
   private async close() {
-    try {
+    await (async () => {
       await this.adapter.close();
       this.exitStatus = "confirmed";
-    } catch (error) {
+    })().catch((error: unknown) => {
       this.store.setStatus(this.child.parentId, this.child.id, "unknown");
       log().error({ error, childId: this.child.id }, "side_pocket.cleanup_failed");
       this.exitStatus = "uncertain";
-    }
+    });
   }
 
   /**
@@ -175,16 +175,16 @@ export class DelegationRun {
   @param command - Correction acquired by this run's worker.
   */
   private async deliver(command: DelegationCommand) {
-    try {
-      await this.deliverCurrent(command);
-    } catch (error) {
-      this.store.queue.steering.finish(command, {
-        status: "unknown",
-        detail: error instanceof Error ? error.message : String(error),
+    await this.deliverCurrent(command)
+      .catch((error: unknown) => {
+        this.store.queue.steering.finish(command, {
+          status: "unknown",
+          detail: error instanceof Error ? error.message : String(error),
+        });
+      })
+      .finally(() => {
+        this.deliveries.delete(command.id);
       });
-    } finally {
-      this.deliveries.delete(command.id);
-    }
   }
 
   /**
@@ -200,15 +200,15 @@ export class DelegationRun {
   @returns Completion of execution and cleanup; persistence failures can reject.
   */
   async execute() {
-    try {
-      await this.send();
-    } catch (error) {
-      this.failed(error);
-    } finally {
-      this.settled = true;
-      this.ready.resolve(false);
-      await Promise.all(this.deliveries.values());
-      await this.close();
-    }
+    await this.send()
+      .catch((error: unknown) => {
+        this.failed(error);
+      })
+      .finally(async () => {
+        this.settled = true;
+        this.ready.resolve(false);
+        await Promise.all(this.deliveries.values());
+        await this.close();
+      });
   }
 }

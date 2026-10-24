@@ -2,6 +2,7 @@
 import { type Data, dataSchema, object, string } from "../lib/protocol";
 import WebSocket, { type RawData } from "ws";
 import { configuration, REALTIME_MODEL } from "./realtime-configuration";
+import { t as attempt } from "try";
 
 export { REALTIME_MODEL, REALTIME_VOICES } from "./realtime-configuration";
 
@@ -76,15 +77,15 @@ export class OpenAIRealtime {
           return;
         }
 
-        let event: Data;
+        const outcome = attempt(decode, raw);
 
-        try {
-          event = decode(raw);
-        } catch {
+        if (!outcome.ok) {
           fail("OpenAI Realtime returned an invalid control event.");
 
           return;
         }
+
+        const event = outcome.value;
 
         if (event.type === "session.updated") {
           clearTimeout(timer);

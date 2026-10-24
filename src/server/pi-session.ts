@@ -19,6 +19,7 @@ import { readFile } from "node:fs/promises";
 import { taskDirectory } from "./task-archive";
 import { writeLegacyTask } from "./task-legacy";
 import { internalContext } from "./internal-context";
+import { t as attempt } from "try";
 
 /** Restore a Pi source or recreate only an empty, unflushed session pointer.
 @param config - Exact parent identity and working directory.
@@ -28,16 +29,22 @@ import { internalContext } from "./internal-context";
 */
 async function sessionManager(config: Config, saved: PiState | null, directory: string) {
   if (saved) {
-    try {
+    const outcome = await attempt(async () => {
       await readFile(saved.sessionFile, "utf8");
 
       return SessionManager.open(saved.sessionFile);
-    } catch (error) {
-      const hasPiHistory = saved.turns.some((turn) => turn.items.some((item) => item.source === "pi"));
+    });
 
-      if (hasPiHistory || !(error instanceof Error && "code" in error && error.code === "ENOENT")) {
-        throw error;
-      }
+    if (outcome.ok) {
+      return outcome.value;
+    }
+
+    const error = outcome.error;
+
+    const hasPiHistory = saved.turns.some((turn) => turn.items.some((item) => item.source === "pi"));
+
+    if (hasPiHistory || !(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+      throw error;
     }
   }
 

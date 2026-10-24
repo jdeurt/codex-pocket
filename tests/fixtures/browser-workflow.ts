@@ -46,13 +46,13 @@ async function requireFreePort(origin: string) {
 @returns Whether the application has a successful version response.
 */
 async function isReady(origin: string) {
-  try {
+  return (async () => {
     const response = await fetch(`${origin}/api/version`, { signal: AbortSignal.timeout(PROBE_MS) });
 
     return response.ok;
-  } catch {
+  })().catch(() => {
     return false;
-  }
+  });
 }
 
 /** Wait for successful application readiness and retain startup diagnostics on failure.
@@ -110,10 +110,10 @@ export const test = base.extend<object, { application: undefined }>({
         output.push(chunk.toString());
       });
 
-      try {
+      await (async () => {
         await ready(host, origin, output);
         await use(undefined);
-      } finally {
+      })().finally(async () => {
         host.kill("SIGTERM");
         const deadline = setTimeout(() => host.kill("SIGKILL"), SHUTDOWN_MS);
 
@@ -124,14 +124,12 @@ export const test = base.extend<object, { application: undefined }>({
 
         await writeFile(path.join(info.project.outputDir, logName), output.join(""));
 
-        try {
-          await assertExpectedRequests(path.join(directory, "state"));
-        } finally {
+        await (async () => assertExpectedRequests(path.join(directory, "state")))().finally(async () => {
           await rm(directory, { recursive: true, force: true });
-        }
+        });
 
         assert.equal(host.exitCode, 0, `Workflow server failed (${String(host.signalCode)}):\n${output.join("")}`);
-      }
+      });
     },
     { scope: "worker", auto: true },
   ],

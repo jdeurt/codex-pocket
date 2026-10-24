@@ -3,6 +3,7 @@ import { Writable } from "node:stream";
 import { localDirectory } from "./local-state";
 import path from "node:path";
 import pino from "pino";
+import { t as attempt } from "try";
 
 const DEFAULT_MAX_BYTES = 10_485_760;
 const DEFAULT_MAX_FILES = 20;
@@ -65,12 +66,18 @@ function pruneLogs(directory: string, maxFiles: number) {
   const expired = files.slice(0, Math.max(0, files.length - maxFiles));
 
   for (const name of expired) {
-    try {
+    const outcome = attempt(() => {
       unlinkSync(path.join(directory, name));
-    } catch (error) {
-      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
-        throw error;
-      }
+    });
+
+    if (outcome.ok) {
+      continue;
+    }
+
+    const error = outcome.error;
+
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+      throw error;
     }
   }
 }
@@ -113,16 +120,20 @@ function rotatingLogStream(directory: string, maxBytes: number, maxFiles: number
     for (;;) {
       filename = path.join(directory, `${new Date(createdAt).toISOString()}.jsonl`);
 
-      try {
-        descriptor = openSync(/* turbopackIgnore: true */ filename, "wx", PRIVATE_FILE_MODE);
-        break;
-      } catch (error) {
-        if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) {
-          throw error;
-        }
+      const opened = attempt(() => openSync(/* turbopackIgnore: true */ filename, "wx", PRIVATE_FILE_MODE));
 
-        createdAt += 1;
+      if (opened.ok) {
+        descriptor = opened.value;
+        break;
       }
+
+      const error = opened.error;
+
+      if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) {
+        throw error;
+      }
+
+      createdAt += 1;
     }
 
     bytes = 0;
@@ -145,12 +156,18 @@ function rotatingLogStream(directory: string, maxBytes: number, maxFiles: number
       }
 
       file.end(() => {
-        try {
+        const outcome1 = attempt(() => {
           file = open();
           write();
-        } catch (error) {
-          callback(error instanceof Error ? error : new Error("Could not rotate the log.", { cause: error }));
+        });
+
+        if (outcome1.ok) {
+          return;
         }
+
+        const error = outcome1.error;
+
+        callback(error instanceof Error ? error : new Error("Could not rotate the log.", { cause: error }));
       });
     },
     final(callback) {

@@ -94,17 +94,17 @@ Refresh scoped discovery while preserving known saved history through source out
 @param owner - Configured parent whose native descendants may be discovered.
 */
   private async refresh(owner: string) {
-    try {
-      await this.updateDiscovery(owner);
-    } catch (error) {
-      if (this.cached?.owner !== owner) {
-        throw error;
-      }
+    await this.updateDiscovery(owner)
+      .catch((error: unknown) => {
+        if (this.cached?.owner !== owner) {
+          throw error;
+        }
 
-      log().warn({ err: error, owner }, "agents.discovery_failed");
-    } finally {
-      this.refreshing = undefined;
-    }
+        log().warn({ err: error, owner }, "agents.discovery_failed");
+      })
+      .finally(() => {
+        this.refreshing = undefined;
+      });
   }
 
   /**

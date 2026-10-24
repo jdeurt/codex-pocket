@@ -89,9 +89,7 @@ export async function steerCodex(
     return { status: "idle", detail: "The native turn ended before steering was attempted. Nothing was sent." };
   }
 
-  try {
-    return await accepted(rpc, sessionId, expectedTurnId, id, input);
-  } catch (error) {
+  return (async () => accepted(rpc, sessionId, expectedTurnId, id, input))().catch((error: unknown) => {
     return rejected(rpc, sessionId, error);
-  }
+  });
 }

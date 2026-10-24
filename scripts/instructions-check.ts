@@ -79,15 +79,13 @@ class InstructionCheck {
 
     this.rpc.addEventListener("event", listener);
 
-    try {
-      await seedThread(
-        this.rpc,
-        this.config.threadId,
-        "Reply with the configured integration marker only. Do not use tools."
-      );
-    } finally {
+    await seedThread(
+      this.rpc,
+      this.config.threadId,
+      "Reply with the configured integration marker only. Do not use tools."
+    ).finally(() => {
       this.rpc.removeEventListener("event", listener);
-    }
+    });
 
     return replies;
   }
@@ -239,11 +237,9 @@ class InstructionCheck {
   @returns Completion of native archival and transport shutdown.
   */
   private async cleanup() {
-    try {
-      await this.archiveIfCreated();
-    } finally {
+    await (async () => this.archiveIfCreated())().finally(async () => {
       await this.rpc.shutdown();
-    }
+    });
   }
 
   /**
@@ -251,12 +247,12 @@ class InstructionCheck {
   @returns Completion of all audit stages and native cleanup; failures propagate.
   */
   async run() {
-    try {
+    await (async () => {
       await this.rpc.connect(this.config);
       await this.createThread();
-    } finally {
+    })().finally(async () => {
       await this.cleanup();
-    }
+    });
   }
 }
 

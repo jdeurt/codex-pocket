@@ -53,13 +53,13 @@ async function createSession(project: string) {
   });
   const rpc = new CodexRpc();
 
-  try {
+  return (async () => {
     await rpc.connect(config);
 
     return { config, threadId: await startThread(rpc, config) };
-  } finally {
+  })().finally(() => {
     rpc.close();
-  }
+  });
 }
 
 /**
@@ -93,12 +93,10 @@ async function hostSession(directory: string, config: Config, threadId: string) 
   process.once("SIGTERM", stop);
   process.once("SIGINT", stop);
 
-  try {
-    await once(host, "exit");
-  } finally {
+  await (async () => once(host, "exit"))().finally(() => {
     process.removeListener("SIGTERM", stop);
     process.removeListener("SIGINT", stop);
-  }
+  });
 }
 
 /**
@@ -110,12 +108,12 @@ Archives the live test conversation using a separate bounded native connection.
 async function archiveSession(config: Config, threadId: string) {
   const cleanup = new CodexRpc();
 
-  try {
+  await (async () => {
     await cleanup.connect(config);
     await cleanup.request("thread/archive", { threadId });
-  } finally {
+  })().finally(() => {
     cleanup.close();
-  }
+  });
 }
 
 /**

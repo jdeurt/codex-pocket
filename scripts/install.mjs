@@ -18,15 +18,15 @@ Reads private saved configuration, treating only a missing dotenv file as empty.
 @returns {Promise<NodeJS.ProcessEnv>} Parsed literal settings; other filesystem errors reject.
 */
 async function savedEnvironment() {
-  try {
+  return (async () => {
     return parseEnv(await readFile(path.join(home, ".env.local"), "utf8"));
-  } catch (error) {
+  })().catch((/** @type {unknown} */ error) => {
     if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
       throw error;
     }
 
     return {};
-  }
+  });
 }
 
 /**
@@ -190,13 +190,11 @@ async function install(userId, isInteractive, prompt) {
     service
   );
 
-  try {
-    await installPath();
-  } catch (error) {
+  await (async () => installPath())().catch((/** @type {unknown} */ error) => {
     console.error(
       `Pocket is running, but PATH setup failed: ${error instanceof Error ? error.message : String(error)}`
     );
-  }
+  });
 
   console.info("Open a new terminal to use: pocket update, pocket start, pocket stop, pocket restart.");
   console.info(`\nPocket is installed and starts at login. Open ${origin || `http://127.0.0.1:${String(port)}`}`);
@@ -216,17 +214,17 @@ async function guidedInstall(userId) {
   const isInteractive = !options.includes("--yes") && process.stdin.isTTY;
   const prompt = isInteractive ? createInterface({ input: process.stdin, output: process.stdout }) : undefined;
 
-  try {
-    await withInstallLock(home, () => install(userId, isInteractive, prompt));
-  } catch (error) {
-    console.error(`\nPocket installation stopped: ${error instanceof Error ? error.message : String(error)}`);
-    console.error(
-      "Your saved configuration and conversation state are preserved. Fix the reported problem and rerun ./install.sh."
-    );
-    process.exitCode = 1;
-  } finally {
-    prompt?.close();
-  }
+  await withInstallLock(home, () => install(userId, isInteractive, prompt))
+    .catch((/** @type {unknown} */ error) => {
+      console.error(`\nPocket installation stopped: ${error instanceof Error ? error.message : String(error)}`);
+      console.error(
+        "Your saved configuration and conversation state are preserved. Fix the reported problem and rerun ./install.sh."
+      );
+      process.exitCode = 1;
+    })
+    .finally(() => {
+      prompt?.close();
+    });
 }
 
 /**

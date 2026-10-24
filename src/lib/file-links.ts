@@ -1,4 +1,5 @@
 import { pocketUrl } from "@/lib/pockets";
+import { t as attempt } from "try";
 
 /**
 Resolve an already classified local source relative to the currently viewed file.
@@ -29,11 +30,15 @@ export function localFileLink(href: string, base?: string) {
     return;
   }
 
-  try {
+  const outcome = attempt(() => {
     return resolvedFileLink(href, base);
-  } catch {
-    return;
+  });
+
+  if (outcome.ok) {
+    return outcome.value;
   }
+
+  return;
 }
 
 /**

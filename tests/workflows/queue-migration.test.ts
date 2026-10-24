@@ -5,6 +5,7 @@ import Database from "better-sqlite3";
 import assert from "node:assert/strict";
 import path from "node:path";
 import test from "node:test";
+import { t as attempt } from "try";
 
 /**
 Restore the deployed queue-only table shape while retaining the fixture's original assignment rows.
@@ -13,13 +14,17 @@ Restore the deployed queue-only table shape while retaining the fixture's origin
 function queueOnlySchema(directory: string) {
   const db = new Database(path.join(directory, "delegations.sqlite"));
 
-  try {
+  const outcome = attempt(() => {
     db.exec(`ALTER TABLE delegation_commands DROP COLUMN mode;
       ALTER TABLE delegation_commands DROP COLUMN targetId;
       ALTER TABLE delegation_commands DROP COLUMN turnId;
       ALTER TABLE delegation_commands DROP COLUMN supersedes;`);
-  } finally {
-    db.close();
+  });
+
+  db.close();
+
+  if (!outcome.ok) {
+    throw outcome.error;
   }
 }
 

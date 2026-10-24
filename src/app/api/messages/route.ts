@@ -3,6 +3,7 @@ import { errorResponse, guard, noStore, readBody } from "@/server/http";
 import { MAX_ATTACHMENTS } from "@/lib/attachments";
 import { requestBridge } from "@/server/named-pockets";
 import { z } from "zod";
+import { t as attempt } from "try";
 
 export const runtime = "nodejs";
 
@@ -12,13 +13,17 @@ Validates a phone message and attachment identities before submitting it to the 
 @returns Canonical send receipt or existing authorization/validation failure.
 */
 export async function POST(request: Request) {
-  try {
+  const outcome = await attempt(async () => {
     await guard(request, true);
-  } catch (error) {
+  });
+
+  if (!outcome.ok) {
+    const error = outcome.error;
+
     return errorResponse(error, HTTP_FORBIDDEN);
   }
 
-  try {
+  return (async () => {
     const bridge = await requestBridge(request);
     const input = z
       .object({
@@ -33,7 +38,7 @@ export async function POST(request: Request) {
     return Response.json(await bridge.send(input.id, input.text, input.attachments), {
       headers: noStore,
     });
-  } catch (error) {
+  })().catch((error: unknown) => {
     return errorResponse(error);
-  }
+  });
 }

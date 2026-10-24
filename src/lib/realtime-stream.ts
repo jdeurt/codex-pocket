@@ -2,6 +2,7 @@ import { dataSchema } from "./protocol";
 import { pocketUrl } from "./pockets";
 import { type VoiceSegment, voiceSegmentSchema } from "./voice-history";
 import { HTTP_FORBIDDEN } from "./constants";
+import { t as attempt } from "try";
 
 const CONTROL_TIMEOUT_MS = 40_000;
 
@@ -139,15 +140,14 @@ export async function listenRealtime(
 @param current - Locally released connection whose negotiation may still finish.
 */
 export async function stopRealtime(current: VoiceResources) {
-  let started;
+  const outcome = await attempt(() => current.startingRequest);
 
-  try {
-    started = await current.startingRequest;
-  } catch {
+  if (!outcome.ok) {
     // Failed negotiation is cleaned up by the server and has no browser token.
     return;
   }
 
+  const started = outcome.value;
   const token = current.token ?? (typeof started?.token === "string" ? started.token : undefined);
 
   if (token) {

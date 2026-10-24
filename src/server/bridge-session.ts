@@ -51,16 +51,14 @@ export class Bridge {
   Publish connection failures after releasing hydration state and closing the child.
   */
   private async connect() {
-    try {
-      await this.openConnection();
-    } catch (error) {
+    await (async () => this.openConnection())().catch((error: unknown) => {
       this.hydration = undefined;
       this.rpc?.close();
       this.snapshot.connection = "disconnected";
       this.realtime.disconnect("Pocket disconnected. Realtime stopped.");
       this.snapshots.fail(error, this.messages.entries);
       throw error;
-    }
+    });
   }
 
   /**
@@ -216,11 +214,9 @@ export class Bridge {
   exclusive<T>(fn: () => Promise<T>): Promise<T> {
     const previous = this.serial;
     const result = (async () => {
-      try {
-        await previous;
-      } catch {
+      await (async () => previous)().catch(() => {
         // A failed operation must not block the next one.
-      }
+      });
 
       return fn();
     })();
@@ -255,11 +251,9 @@ export class Bridge {
 
     this.connecting = this.connect();
 
-    try {
-      await this.connecting;
-    } finally {
+    await (async () => this.connecting)().finally(() => {
       this.connecting = undefined;
-    }
+    });
   }
 
   /** Expose the connected transport for read-only inspection.

@@ -132,12 +132,10 @@ export async function codexConformance(rpc: CodexRpc, cwd: string, model: string
 
   rpc.addEventListener("event", observe);
 
-  try {
-    return await codexSession(rpc, cwd, model, completed.promise, events);
-  } finally {
+  return (async () => codexSession(rpc, cwd, model, completed.promise, events))().finally(() => {
     clearTimeout(timer);
     rpc.removeEventListener("event", observe);
-  }
+  });
 }
 
 /**

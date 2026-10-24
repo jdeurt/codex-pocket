@@ -1,6 +1,7 @@
 import { clientError, reportClient } from "./client-logging";
 import { object, string } from "./protocol";
 import { pocketUrl } from "@/lib/pockets";
+import { t as attempt } from "try";
 
 /**
 Fetch one request with a correlation header and a recoverable network error.
@@ -14,12 +15,10 @@ async function fetchResponse(path: string, options: RequestInit, requestId: stri
 
   headers.set("X-Pocket-Request-Id", requestId);
 
-  try {
-    return await fetch(pocketUrl(path), { ...options, headers });
-  } catch (error) {
+  return (async () => fetch(pocketUrl(path), { ...options, headers }))().catch((error: unknown) => {
     reportClient("http.network_error", { path, requestId, ...clientError(error) }, "error");
     throw new Error("Pocket is restarting or unreachable. Your message is saved here.", { cause: error });
-  }
+  });
 }
 
 /**
@@ -32,25 +31,31 @@ Consume an API response and normalize its unchecked JSON object once.
 async function responseData(response: Response, path: string, requestId: string) {
   const text = await response.text();
 
-  try {
+  const outcome = attempt(() => {
     return object(JSON.parse(text));
-  } catch (error) {
-    reportClient(
-      "http.invalid_response",
-      {
-        path,
-        requestId,
-        status: response.status,
-        contentType: response.headers.get("content-type"),
-        response: text,
-        ...clientError(error),
-      },
-      "error"
-    );
-    throw new Error("Pocket is restarting or returned an unreadable response. Your message is saved here.", {
-      cause: error,
-    });
+  });
+
+  if (outcome.ok) {
+    return outcome.value;
   }
+
+  const error = outcome.error;
+
+  reportClient(
+    "http.invalid_response",
+    {
+      path,
+      requestId,
+      status: response.status,
+      contentType: response.headers.get("content-type"),
+      response: text,
+      ...clientError(error),
+    },
+    "error"
+  );
+  throw new Error("Pocket is restarting or returned an unreadable response. Your message is saved here.", {
+    cause: error,
+  });
 }
 
 /**

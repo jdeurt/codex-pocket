@@ -59,11 +59,9 @@ Accepts an original attachment upload and converts native failures to the existi
 @returns Saved-file receipt or logged failure.
 */
 export async function PUT(request: Request) {
-  try {
-    return await uploadResponse(request);
-  } catch (error) {
+  return (async () => uploadResponse(request))().catch((error: unknown) => {
     return errorResponse(error);
-  }
+  });
 }
 
 /**
@@ -140,9 +138,7 @@ Serves a stored attachment while retaining the existing logged error response.
 @returns Private attachment bytes or JSON failure.
 */
 export async function GET(request: Request) {
-  try {
-    return await downloadResponse(request);
-  } catch (error) {
+  return (async () => downloadResponse(request))().catch((error: unknown) => {
     return errorResponse(error);
-  }
+  });
 }

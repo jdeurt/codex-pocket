@@ -116,13 +116,11 @@ export async function refreshCodexHistory(rpc: CodexRpc, thread: Thread, previou
     return loadHistory(rpc, thread);
   }
 
-  try {
-    return await loadTail(rpc, thread, previous);
-  } catch (error) {
+  return (async () => loadTail(rpc, thread, previous))().catch((error: unknown) => {
     if (!(error instanceof RpcError) || error.code !== METHOD_NOT_FOUND) {
       throw error;
     }
 
     return loadHistory(rpc, thread);
-  }
+  });
 }

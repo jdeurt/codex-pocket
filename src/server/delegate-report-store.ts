@@ -3,6 +3,7 @@ import { type Database } from "better-sqlite3";
 import { type DelegateReport } from "../lib/delegate-reports";
 import { delegationCommandSchema, delegationMailSchema } from "./delegation-data";
 import { z } from "zod";
+import { t as attempt } from "try";
 
 const completedResultSchema = z.object({ status: z.literal("completed") });
 
@@ -15,11 +16,11 @@ function hasSuccessfulResult(result: string | null) {
     return false;
   }
 
-  try {
+  const outcome = attempt(() => {
     return completedResultSchema.safeParse(JSON.parse(result)).success;
-  } catch {
-    return false;
-  }
+  });
+
+  return outcome.ok && outcome.value;
 }
 
 /**

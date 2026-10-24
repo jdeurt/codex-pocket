@@ -1,6 +1,7 @@
 import type { Code, Root } from "mdast";
 import type { VFile } from "vfile";
 import { z } from "zod";
+import { t as attempt } from "try";
 
 const copyTextSchema = z.string();
 
@@ -16,11 +17,13 @@ function annotateCopyFence(node: Code, raw: string) {
     return;
   }
 
-  try {
+  const outcome = attempt(() => {
     const text = copyTextSchema.parse(JSON.parse(marker[1]));
 
     node.data = { ...node.data, hProperties: { "data-pocket-copy-text": text } };
-  } catch {
+  });
+
+  if (!outcome.ok) {
     // Partial or malformed payloads remain ordinary code blocks.
   }
 }

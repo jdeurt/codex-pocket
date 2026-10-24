@@ -72,7 +72,7 @@ async function replayDelivery(context: TestContext, sent: { endpoint: string; bo
     }
   );
 
-  try {
+  await (async () => {
     const turn: Turn = {
       id: "turn",
       status: "completed",
@@ -95,9 +95,9 @@ async function replayDelivery(context: TestContext, sent: { endpoint: string; bo
         .toSorted((a, b) => a.localeCompare(b)),
       [phone.endpoint, tablet.endpoint].toSorted((a, b) => a.localeCompare(b))
     );
-  } finally {
+  })().finally(() => {
     disconnect();
-  }
+  });
 }
 
 await test("delivery skips only the acknowledged foreground device, keeps background delivery and deduplicates", async (t) => {
@@ -111,9 +111,7 @@ await test("delivery skips only the acknowledged foreground device, keeps backgr
   process.env.CODEX_THREAD_ID = "push-test";
   process.env.CODEX_ALLOWED_ORIGINS = "https://pocket.example";
 
-  try {
-    await replayDelivery(t, sent);
-  } finally {
+  await (async () => replayDelivery(t, sent))().finally(async () => {
     const previousEnvironment = {
       CODEX_POCKET_STATE_DIR: previousState,
       CODEX_THREAD_ID: previousThread,
@@ -129,5 +127,5 @@ await test("delivery skips only the acknowledged foreground device, keeps backgr
     }
 
     await rm(directory, { recursive: true, force: true });
-  }
+  });
 });

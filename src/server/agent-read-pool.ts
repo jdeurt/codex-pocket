@@ -63,11 +63,11 @@ export function agentRead<T>(read: () => Promise<T>, priority = 0, key?: string)
       key,
       priority,
       run: async () => {
-        try {
+        await (async () => {
           resolve(await read());
-        } catch (error) {
+        })().catch((error: unknown) => {
           reject(error instanceof Error ? error : new Error("Agent history read failed.", { cause: error }));
-        }
+        });
       },
     });
     drain();

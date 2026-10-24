@@ -106,13 +106,8 @@ async function isResponding(port) {
 */
 async function ready(port) {
   for (let attempt = 0; attempt <= RETRIES; attempt += 1) {
-    let isAvailable = false;
-
-    try {
-      isAvailable = await isResponding(port);
-    } catch {
-      // Next may briefly refuse connections while loading the completed build.
-    }
+    // Next may briefly refuse connections while loading the completed build.
+    const isAvailable = await isResponding(port).catch(() => false);
 
     if (isAvailable) {
       return;

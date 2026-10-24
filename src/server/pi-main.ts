@@ -235,14 +235,14 @@ export class PiMain {
     });
 
     void (async () => {
-      try {
+      await (async () => {
         await run;
         await this.finish();
-      } catch (error) {
+      })().catch(async (error: unknown) => {
         accepted.reject(error);
         this.onError(error);
         await this.finish(error);
-      }
+      });
     })().catch(this.onError);
     await accepted.promise;
 

@@ -57,15 +57,15 @@ export class PiQuestions {
     this.pending.set(id, { request, resolve: waiting.resolve });
     signal?.addEventListener("abort", abort, { once: true });
 
-    try {
+    return (async () => {
       this.emit(request);
 
       return await waiting.promise;
-    } finally {
+    })().finally(() => {
       signal?.removeEventListener("abort", abort);
       this.pending.delete(id);
       this.emit({ method: "serverRequest/resolved", params: { threadId: this.owner, requestId: id } });
-    }
+    });
   }
 
   /** Expose the existing interactive-question shape to Pi without inventing another phone UI.

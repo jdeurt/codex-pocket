@@ -22,7 +22,7 @@ export async function checkHeldTranscript(page: Page, request: APIRequestContext
   await page.keyboard.press("Escape");
   await control("history-held");
 
-  try {
+  await (async () => {
     const started = await test.step("Wait until the native history read is blocked", async () => {
       await expect
         .poll(async () => {
@@ -59,9 +59,9 @@ export async function checkHeldTranscript(page: Page, request: APIRequestContext
       body: JSON.stringify({ elapsedMs: Date.now() - started, nativeHistoryHeld: true }),
       contentType: "application/json",
     });
-  } finally {
+  })().finally(async () => {
     await control("updated");
-  }
+  });
 
   await expect(dialog.locator(".agent-chat").getByText("LIVE_REPLAY_UPDATE", { exact: true })).toBeVisible();
   await expect(dialog.getByRole("status", { name: "Loading latest history", exact: true })).toHaveCount(0);

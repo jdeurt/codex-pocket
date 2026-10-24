@@ -3,6 +3,7 @@ import { type Config } from "./config";
 import { type Receipt } from "./outbox";
 import { type Snapshot } from "../lib/protocol";
 import { deliverMessage } from "./delivery";
+import { t as captureResult } from "try";
 
 /**
 Dispatch one sending receipt and durably acknowledge success only after native delivery resolves.
@@ -57,9 +58,13 @@ export async function drainReceipts(
     receipt.status = "sending";
     await persist();
 
-    try {
+    const outcome1 = await captureResult(async () => {
       await dispatchReceipt(rpc, config, state, receipt, persist);
-    } catch (error) {
+    });
+
+    if (!outcome1.ok) {
+      const error = outcome1.error;
+
       receipt.status = "unknown";
       await persist();
       fail(error);

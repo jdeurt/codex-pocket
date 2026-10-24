@@ -1,8 +1,10 @@
 "use client";
 import "./pocket-settings.css";
 import { OPENAI_API_KEY_LIMIT, type PocketSettingsMutation } from "@/lib/settings";
-import { savePocketSettings, usePocketSettings } from "@/hooks/use-pocket-settings";
+import { usePocketSettings } from "@/hooks/use-pocket-settings";
 import { RealtimeSettingsFields } from "./realtime-settings-fields";
+import { usePocketClient } from "@/providers/pocket-state";
+import { useStore } from "zustand";
 import { useState } from "react";
 
 /** Keep the visibility control responsive while persisting its global preference.
@@ -48,39 +50,14 @@ function ToolCallSetting({
 }
 
 /** Present global Pocket preferences and a write-only OpenAI credential editor.
-@param props - Shared menu submission lock and lock callback preserving in-flight saves.
 @returns Central settings content, with credential values confined to the password input.
 */
-export function PocketSettingsPanel({
-  busy,
-  onBusyChange,
-}: {
-  busy: boolean;
-  onBusyChange: (isBusy: boolean) => void;
-}) {
+export function PocketSettingsPanel() {
+  const { settings } = usePocketClient();
   const { data, error: readError } = usePocketSettings();
   const [apiKey, setApiKey] = useState("");
-  const [error, setError] = useState("");
-  const [status, setStatus] = useState("");
-
-  async function didSave(change: PocketSettingsMutation) {
-    onBusyChange(true);
-    setError("");
-    setStatus("");
-
-    try {
-      await savePocketSettings(change);
-      setStatus("Settings saved.");
-
-      return true;
-    } catch (error_) {
-      setError(error_ instanceof Error ? error_.message : "Could not save Pocket settings.");
-
-      return false;
-    } finally {
-      onBusyChange(false);
-    }
-  }
+  const { busy, error, status } = useStore(settings.store);
+  const { didSave } = settings;
 
   async function saveKey(value: string | null) {
     if (await didSave({ openaiApiKey: value })) {

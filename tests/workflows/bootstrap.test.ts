@@ -69,7 +69,7 @@ await test(
   async () => {
     const home = await mkdtemp(path.join(tmpdir(), "pocket-bootstrap-"));
 
-    try {
+    await (async () => {
       const { remote, bin } = await bootstrapFixture(home);
       const run = () =>
         execFileSync("/bin/bash", [installer, "--yes"], {
@@ -95,8 +95,8 @@ await test(
       assert.throws(run, /local changes/);
       assert.equal(await readFile(path.join(home, ".pocket/source/revision"), "utf8"), "local edit");
       await assert.rejects(readFile(path.join(home, ".pocket/bootstrap.lock")), { code: "ENOENT" });
-    } finally {
+    })().finally(async () => {
       await rm(home, { recursive: true, force: true });
-    }
+    });
   }
 );

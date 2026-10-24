@@ -55,7 +55,7 @@ async function setup() {
   const logs = path.join(home, "logs");
   const compilationTarget = `${process.arch === "arm64" ? "arm64" : "x86_64"}-apple-macos13.0`;
 
-  try {
+  await (async () => {
     await mkdir(path.dirname(executable), { recursive: true });
     run("/usr/bin/xcrun", [
       "swiftc",
@@ -103,9 +103,9 @@ async function setup() {
     run("/bin/launchctl", ["enable", target]);
     run("/bin/launchctl", ["bootstrap", domain, plist]);
     console.info("Pocket Menu Bar is installed and starts at login. Click its icon to show or hide Pocket.");
-  } finally {
+  })().finally(async () => {
     await rm(stage, { recursive: true, force: true });
-  }
+  });
 }
 
 /** Apply the requested companion operation without restarting the Pocket web service.
@@ -136,9 +136,7 @@ async function main() {
   });
 }
 
-try {
-  await main();
-} catch (error) {
+await (async () => main())().catch((/** @type {unknown} */ error) => {
   console.error(error instanceof Error ? error.message : String(error));
   process.exitCode = 1;
-}
+});

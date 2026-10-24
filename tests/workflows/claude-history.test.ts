@@ -138,12 +138,10 @@ async function verifyWrites(root: string) {
   };
   const adapter = new ClaudeAdapter(options);
 
-  try {
-    await verifyReload(root, store, adapter, options, sessionId);
-  } finally {
+  await (async () => verifyReload(root, store, adapter, options, sessionId))().finally(async () => {
     await adapter.close();
     store.close();
-  }
+  });
 }
 
 await test(
@@ -165,14 +163,14 @@ await test(
 
     Object.assign(process.env, environment);
 
-    try {
+    await (async () => {
       await writeFile(
         environment.POCKET_CLAUDE_BINARY,
         '#!/bin/sh\nexec "$POCKET_SIMULATOR_NODE" --import "$POCKET_SIMULATOR_LOADER" "$POCKET_SIMULATOR_CLI" "$@"\n',
         { mode: 0o700 }
       );
       await verifyWrites(root);
-    } finally {
+    })().finally(async () => {
       for (const [key, value] of Object.entries(previous)) {
         if (value === undefined) {
           Reflect.deleteProperty(process.env, key);
@@ -182,6 +180,6 @@ await test(
       }
 
       await rm(root, { recursive: true, force: true });
-    }
+    });
   }
 );

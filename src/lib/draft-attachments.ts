@@ -1,6 +1,7 @@
 import { type FileAttachment, fileAttachmentSchema } from "./attachments";
 import { pocketUrl } from "@/lib/pockets";
 import { z } from "zod";
+import { t as attempt } from "try";
 
 const UPLOAD_TIMEOUT_MS = 180_000;
 const PERCENT = 100;
@@ -93,7 +94,7 @@ Read or replace a parent's draft and close the database on success or failure.
 export async function savedDraft(parent: string, value?: SavedDraft): Promise<SavedDraft> {
   const db = await database();
 
-  try {
+  return (async () => {
     // ArrayBuffers also work in Safari sessions that cannot persist File/Blob objects.
     const stored = await storedDraft(value);
     const result = await new Promise<StoredDraft>((resolve, reject) => {
@@ -105,11 +106,17 @@ export async function savedDraft(parent: string, value?: SavedDraft): Promise<Sa
       };
 
       transaction.oncomplete = () => {
-        try {
+        const outcome = attempt(() => {
           resolve(readStoredDraft(stored, request.result));
-        } catch (error) {
-          reject(new Error("Saved attachments could not be read.", { cause: error }));
+        });
+
+        if (outcome.ok) {
+          return;
         }
+
+        const error = outcome.error;
+
+        reject(new Error("Saved attachments could not be read.", { cause: error }));
       };
       transaction.addEventListener("error", failed);
       transaction.addEventListener("abort", failed);
@@ -122,9 +129,9 @@ export async function savedDraft(parent: string, value?: SavedDraft): Promise<Sa
         file: new File([entry.file.bytes], entry.file.name, { type: entry.file.type }),
       })),
     };
-  } finally {
+  })().finally(() => {
     db.close();
-  }
+  });
 }
 
 /**
@@ -157,15 +164,17 @@ export function uploadFile(entry: DraftAttachment, progress: (value: number) => 
       reject(new Error("Upload interrupted. Retry when connected."));
     });
     xhr.addEventListener("load", () => {
-      let result: z.infer<typeof uploadResponseSchema>;
+      const outcome1 = attempt(() => uploadResponseSchema.parse(JSON.parse(xhr.responseText)));
 
-      try {
-        result = uploadResponseSchema.parse(JSON.parse(xhr.responseText));
-      } catch (error) {
+      if (!outcome1.ok) {
+        const error = outcome1.error;
+
         reject(new Error("Upload failed. Retry when connected.", { cause: error }));
 
         return;
       }
+
+      const result = outcome1.value;
 
       if (xhr.status < HTTP_OK || xhr.status >= HTTP_REDIRECT || !result.file) {
         reject(new Error(result.error?.length ? result.error : "Upload failed. Retry or choose another file."));

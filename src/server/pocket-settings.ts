@@ -32,12 +32,12 @@ if (!globalThis.codexPocketSettings) {
 @returns Validated saved settings, using defaults only when the file is absent.
 */
 async function readSavedSettings() {
-  try {
+  return (async () => {
     return savedSettingsSchema.parse(await readLocal("settings.json", {}));
-  } catch {
+  })().catch(() => {
     // JSON parse failures can quote the credential-bearing file contents.
     throw new Error("Could not read Pocket settings.");
-  }
+  });
 }
 
 /** Resolve an optional host credential without exposing it through public settings.
@@ -94,11 +94,9 @@ export function updatePocketSettings(input: PocketSettingsMutation) {
   const previous = operations.serial;
 
   async function commit() {
-    try {
-      await previous;
-    } catch {
+    await (async () => previous)().catch(() => {
       // Later settings changes can recover after a failed write.
-    }
+    });
 
     const saved = await readSavedSettings();
 

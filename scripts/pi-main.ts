@@ -5,6 +5,7 @@ import { configSchema } from "../src/server/config";
 import { createInterface } from "node:readline";
 import { log } from "../src/server/logging";
 import { readOpenAIApiKey } from "../src/server/pocket-settings";
+import { t as attempt } from "try";
 
 const config = configSchema.parse(JSON.parse(process.env.POCKET_PI_CONFIG ?? "null"));
 const native = new CodexRpc();
@@ -54,27 +55,25 @@ async function receive(message: Data) {
     return;
   }
 
-  try {
+  await (async () => {
     const result = await dispatch(string(message.method), object(message.params));
 
     write({ id: message.id, result });
-  } catch (error) {
+  })().catch((error: unknown) => {
     const detail = error instanceof Error ? error.message : "Pi request failed.";
 
     write({ id: message.id, error: { code: -32_600, message: detail } });
-  }
+  });
 }
 
 /**
 Stop the owned Pi and native reader processes after host disconnect or termination.
 */
 async function close() {
-  try {
-    await main.close();
-  } finally {
+  await (async () => main.close())().finally(async () => {
     await native.shutdown();
     process.stdin.destroy();
-  }
+  });
 }
 
 process.once("SIGTERM", () => {
@@ -85,9 +84,15 @@ lines.once("close", () => {
 });
 
 for await (const line of lines) {
-  try {
+  const outcome = attempt(() => {
     void receive(object(JSON.parse(line))).catch(console.error);
-  } catch (error) {
-    console.error(error);
+  });
+
+  if (outcome.ok) {
+    continue;
   }
+
+  const error = outcome.error;
+
+  console.error(error);
 }

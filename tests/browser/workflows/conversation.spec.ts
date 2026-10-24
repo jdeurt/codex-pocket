@@ -78,7 +78,7 @@ test("settings keep write-only keys private and synchronize tool visibility betw
 
   await request.post("/api/settings", { headers, data: reset });
 
-  try {
+  await (async () => {
     await page.goto("/");
     await settings(page);
     await page.getByRole("checkbox", { name: "Show tool calls" }).check();
@@ -104,10 +104,10 @@ test("settings keep write-only keys private and synchronize tool visibility betw
     await expect(page.getByRole("checkbox", { name: "Show tool calls" })).not.toBeChecked();
     await page.getByRole("button", { name: "Remove saved key", exact: true }).click();
     await expect(other.getByText("No API key configured.", { exact: true })).toBeVisible();
-  } finally {
+  })().finally(async () => {
     await other.close();
     await request.post("/api/settings", { headers, data: reset });
-  }
+  });
 });
 
 test("HTTP retries create one conversation and one message while unknown identities cannot cross-deliver", async ({

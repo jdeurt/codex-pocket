@@ -53,11 +53,9 @@ ${mail.payload}`;
   @returns Completion of one delivery attempt.
   */
   private async forwardSafely() {
-    try {
-      await this.forward();
-    } catch (error) {
+    await (async () => this.forward())().catch((error: unknown) => {
       log().error({ error }, "side_pocket.forward_failed");
-    }
+    });
   }
 
   /**
@@ -78,15 +76,13 @@ ${mail.payload}`;
   private async drain() {
     await Promise.resolve();
 
-    try {
-      await this.flush();
-    } finally {
+    await (async () => this.flush())().finally(() => {
       this.forwarding = undefined;
 
       if (this.dirty && !this.stopped) {
         this.queue();
       }
-    }
+    });
   }
 
   /**

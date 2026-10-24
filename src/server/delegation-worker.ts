@@ -10,6 +10,7 @@ import { log } from "./logging";
 import { object } from "../lib/protocol";
 import path from "node:path";
 import { sessionAttachment } from "./session-adoption";
+import { t as captureResult } from "try";
 
 const RECOVERY_INTERVAL_MS = 30_000;
 
@@ -105,11 +106,9 @@ export class DelegationWorker {
     // Reserve the active slot before even a synchronous adapter can finish.
     await Promise.resolve();
 
-    try {
-      await run.execute();
-    } finally {
+    await (async () => run.execute())().finally(() => {
       this.finishRun(child, run);
-    }
+    });
   }
 
   /**
@@ -151,11 +150,9 @@ export class DelegationWorker {
   @returns Confirmed close and execution completion; adapter failures reject.
   */
   private async closeActive(running: { run: DelegationRun; done: Promise<void> }) {
-    try {
-      await running.run.adapter.interrupt();
-    } finally {
+    await (async () => running.run.adapter.interrupt())().finally(async () => {
       await running.run.adapter.close();
-    }
+    });
 
     await running.done;
   }
@@ -183,13 +180,13 @@ export class DelegationWorker {
   @returns Completion of this closure attempt.
   */
   private async closeSafely(child: SidePocket) {
-    try {
-      await this.closeRequested(child);
-    } catch (error) {
-      log().error({ error, childId: child.id }, "side_pocket.close_failed");
-    } finally {
-      this.closing.delete(child.id);
-    }
+    await this.closeRequested(child)
+      .catch((error: unknown) => {
+        log().error({ error, childId: child.id }, "side_pocket.close_failed");
+      })
+      .finally(() => {
+        this.closing.delete(child.id);
+      });
   }
 
   /**
@@ -244,13 +241,19 @@ export class DelegationWorker {
     while (this.dirty && !this.stopped) {
       this.dirty = false;
 
-      try {
+      const outcome = captureResult(() => {
         this.questions.answers();
         this.dispatch();
         this.reports.queue();
-      } catch (error) {
-        log().error({ error }, "side_pocket.worker_failed");
+      });
+
+      if (outcome.ok) {
+        continue;
       }
+
+      const error = outcome.error;
+
+      log().error({ error }, "side_pocket.worker_failed");
     }
   }
 
@@ -261,14 +264,18 @@ export class DelegationWorker {
   private async drain() {
     await Promise.resolve();
 
-    try {
+    const outcome1 = captureResult(() => {
       this.flush();
-    } finally {
-      this.ticking = undefined;
+    });
 
-      if (this.dirty && !this.stopped) {
-        void this.tick();
-      }
+    this.ticking = undefined;
+
+    if (this.dirty && !this.stopped) {
+      void this.tick();
+    }
+
+    if (!outcome1.ok) {
+      throw outcome1.error;
     }
   }
 

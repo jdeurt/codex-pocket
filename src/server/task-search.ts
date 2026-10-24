@@ -71,9 +71,7 @@ function indexWorker(request: z.infer<typeof taskIndexRequest>): Promise<z.infer
 export async function searchTaskArchivePage(owner: string, query: string, offset = 0) {
   const request = taskIndexRequest.parse({ owner, query, offset });
 
-  try {
-    return await indexWorker(request);
-  } catch (error) {
+  return (async () => indexWorker(request))().catch(async (error: unknown) => {
     const page = await indexWorker({ ...request, isKeywordOnly: true });
 
     page.retrieval.reasons.push(
@@ -81,7 +79,7 @@ export async function searchTaskArchivePage(owner: string, query: string, offset
     );
 
     return page;
-  }
+  });
 }
 
 /** Preserve the original array-returning search interface for existing internal callers.

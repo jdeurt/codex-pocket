@@ -180,13 +180,11 @@ Retain native discovery outages as catalog warnings without revoking saved owner
 @param owner - Verified parent owning the native reader.
 */
 async function availableCodexThreads(warnings: string[], owner: string) {
-  try {
-    return await codexThreads(owner);
-  } catch {
+  return (async () => codexThreads(owner))().catch(() => {
     warnings.push("Codex discovery is unavailable. Reconnecting automatically.");
 
     return [];
-  }
+  });
 }
 
 /**
@@ -226,11 +224,9 @@ async function discoverClaude(tree: DiscoveryTree, previous: Map<string, AgentRe
       continue;
     }
 
-    try {
-      await attachClaudeChildren(record, previous, tree.records);
-    } catch {
+    await (async () => attachClaudeChildren(record, previous, tree.records))().catch(() => {
       warnings.push("Claude Code agent discovery is unavailable.");
-    }
+    });
   }
 }
 

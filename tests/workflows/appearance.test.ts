@@ -22,7 +22,7 @@ await test("spinner selection survives an MCP restart and deletes only its manag
   let side: Awaited<ReturnType<typeof spinnerClient>> | undefined;
   let main = await spinnerClient(directory);
 
-  try {
+  await (async () => {
     await mkdir(path.dirname(uploaded));
     await copyFile(fixture, uploaded);
     const selected = await main.call("spinner_set", { path: uploaded });
@@ -71,10 +71,10 @@ await test("spinner selection survives an MCP restart and deletes only its manag
     assert.deepEqual(empty.saved, []);
     await assert.rejects(stat(managed), { code: "ENOENT" });
     assert.equal(await readFile(uploaded, "utf8"), "The source can change after selection.");
-  } finally {
+  })().finally(async () => {
     await side?.client.close();
     store.close();
     await main.client.close();
     await rm(directory, { recursive: true, force: true });
-  }
+  });
 });

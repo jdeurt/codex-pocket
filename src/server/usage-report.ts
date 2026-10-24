@@ -5,6 +5,7 @@ import { createReadStream } from "node:fs";
 import { object } from "../lib/protocol";
 import path from "node:path";
 import { readdir } from "node:fs/promises";
+import { t as attempt } from "try";
 
 const HARNESSES = ["codex", "claude"] as const;
 
@@ -21,7 +22,7 @@ Enumerate saved local JSONL records without traversing symlinks or assuming clou
 @returns Saved files under this root, or an empty list for a missing optional source.
 */
 async function sessionFiles(directory: string): Promise<string[]> {
-  try {
+  return (async () => {
     const entries = await readdir(directory, { withFileTypes: true });
     const nested = await Promise.all(
       entries.map((entry) => {
@@ -34,13 +35,13 @@ async function sessionFiles(directory: string): Promise<string[]> {
     );
 
     return nested.flat().toSorted((left, right) => left.localeCompare(right));
-  } catch (error) {
+  })().catch((error: unknown) => {
     if (error instanceof Error && "code" in error && error.code === "ENOENT") {
       return [];
     }
 
     throw error;
-  }
+  });
 }
 
 /**
@@ -76,11 +77,11 @@ Decode a saved record without treating normalization failures as malformed JSON.
 @returns Parsed native object or null for a truncated or malformed line.
 */
 function parseUsageLine(line: string) {
-  try {
+  const outcome = attempt(() => {
     return object(JSON.parse(line));
-  } catch {
-    return null;
-  }
+  });
+
+  return outcome.ok ? outcome.value : null;
 }
 
 /**

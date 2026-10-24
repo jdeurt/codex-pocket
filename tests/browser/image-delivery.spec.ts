@@ -125,9 +125,7 @@ test("real Codex shares each requested image once and preserves deliberate repea
   });
   const file = path.join(directory, "logo.png");
 
-  try {
-    await checkImageDelivery(page, file);
-  } finally {
+  await (async () => checkImageDelivery(page, file))().finally(async () => {
     await rm(directory, { recursive: true, force: true });
-  }
+  });
 });

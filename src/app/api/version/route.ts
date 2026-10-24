@@ -10,11 +10,11 @@ Identify the deployed UI without waiting for a native Codex connection.
 @returns The build identity with caching disabled, or an authorization error.
 */
 export async function GET(request: Request) {
-  try {
+  return (async () => {
     await guard(request);
 
     return Response.json({ version: BUILD_VERSION }, { headers: noStore });
-  } catch (error) {
+  })().catch((error: unknown) => {
     return errorResponse(error, HTTP_FORBIDDEN);
-  }
+  });
 }

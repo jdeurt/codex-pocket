@@ -125,11 +125,9 @@ export class AttachedCodexAdapter implements HarnessAdapter {
       pending.reject(error);
     });
 
-    try {
-      return await pending.promise;
-    } finally {
+    return (async () => pending.promise)().finally(() => {
       this.pending = undefined;
-    }
+    });
   }
 
   /**

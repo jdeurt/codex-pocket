@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import { contextEntrySchema, type ContextEntry } from "./task-archive";
 import { nativeText } from "./harness/transcript";
 import { object, string } from "../lib/protocol";
+import { t as attempt } from "try";
 
 /** Project imported canonical history while keeping each native ID and chronological turn membership.
 @param value - Exact retained migration envelope.
@@ -70,14 +71,20 @@ export async function readTaskArchive(file: string) {
   const rawFile = file.replace(/\.md$/u, ".json");
   const markdown = await readFile(file, "utf8");
 
-  try {
+  const outcome = await attempt(async () => {
     const rawContent = await readFile(rawFile, "utf8");
 
     return { entries: coherentEntries(markdown, rawContent), rawFile };
-  } catch (error) {
-    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
-      throw error;
-    }
+  });
+
+  if (outcome.ok) {
+    return outcome.value;
+  }
+
+  const error = outcome.error;
+
+  if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+    throw error;
   }
 
   for (const match of markdown.matchAll(/^```json\n([\s\S]*?)\n```/gmu)) {
