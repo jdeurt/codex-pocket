@@ -6,8 +6,7 @@ import {
   measureTranscriptRow,
   scrollTranscript,
   attachTranscriptRow,
-  beginTranscriptGesture,
-  endTranscriptGesture,
+  pauseTranscriptFollow,
   maintainTranscriptEnd,
   preserveTranscriptOffset,
   connectTranscriptBookmark,
@@ -192,14 +191,13 @@ function MeasuredTranscript({
   const messages = measuredMessages(items, rows.length);
   const footerRow = items.at(LAST_ITEM);
   const blockStart = messages.at(0)?.start ?? footerRow?.start ?? 0;
-  const beginGesture = useBoundCallback(beginTranscriptGesture, suspended, followStore);
-  const endGesture = useBoundCallback(endTranscriptGesture, followStore);
+  const pauseFollow = useBoundCallback(pauseTranscriptFollow, suspended, followStore);
   const maintainEnd = useBoundCallback(maintainTranscriptEnd, virtualizer, followStore, suspended);
   const connectBookmark = useBoundCallback(connectTranscriptBookmark, storageKey, virtualizer, expanded);
   const trackScroll = useBoundCallback(trackTranscriptScroll, followStore);
   const preserveOffset = useBoundCallback(preserveTranscriptOffset, virtualizer, viewport, savedOffset, suspended);
 
-  useLayoutEffect(maintainEnd, [maintainEnd, layout.size, layout.height, follow.isFollowing, follow.interacting]);
+  useLayoutEffect(maintainEnd, [maintainEnd, layout.size, layout.height, follow.isFollowing]);
   useEffect(connectBookmark, [connectBookmark]);
   useLayoutEffect(preserveOffset, [preserveOffset]);
 
@@ -214,15 +212,15 @@ function MeasuredTranscript({
             data-scroll-suspended={suspended || undefined}
             preserveScrollOnPrepend={false}
             style={{ overflowAnchor: "none", overflowY: suspended ? "hidden" : undefined }}
-            onWheel={beginGesture}
-            onTouchStart={beginGesture}
-            onPointerDown={beginGesture}
-            onKeyDown={beginGesture}
+            onWheel={pauseFollow}
+            onTouchMove={pauseFollow}
+            onPointerDown={pauseFollow}
+            onKeyDown={pauseFollow}
             onScroll={trackScroll}
-            onScrollEnd={endGesture}
-            onPointerUp={endGesture}
-            onTouchEnd={endGesture}
-            onKeyUp={endGesture}
+            onScrollEnd={trackScroll}
+            onPointerUp={trackScroll}
+            onTouchEnd={trackScroll}
+            onKeyUp={trackScroll}
           >
             <div className="transcript" style={{ paddingBlock: 0, minHeight: "100%", justifyContent: "flex-end" }}>
               <div style={{ height: layout.size, position: "relative", flexShrink: 0 }}>

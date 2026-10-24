@@ -1,5 +1,5 @@
 import { type StoreApi } from "zustand/vanilla";
-import { finishedTranscriptGesture, scrolledTranscript, type TranscriptFollow } from "../state/transcript-follow";
+import { scrolledTranscript, type TranscriptFollow } from "../state/transcript-follow";
 import { type RefObject, type UIEvent } from "react";
 import { elementScroll, measureElement, type Virtualizer } from "@tanstack/react-virtual";
 import { END_THRESHOLD } from "../lib/transcript-virtualization";
@@ -54,25 +54,14 @@ export function attachTranscriptRow(instance: Instance, isSuspended: boolean, el
   }
 }
 
-/** Mark the native scroll gestures that may change the reader's follow preference.
+/** Pause following as soon as the reader interacts with transcript scrolling.
 @param isSuspended - Whether a child view covers this transcript.
 @param store - Transcript-owned follow state.
 */
-export function beginTranscriptGesture(isSuspended: boolean, store: StoreApi<TranscriptFollow>) {
+export function pauseTranscriptFollow(isSuspended: boolean, store: StoreApi<TranscriptFollow>) {
   if (!isSuspended) {
-    store.setState({ interacting: true });
+    store.setState({ isFollowing: false });
   }
-}
-
-/** Release gesture ownership after the browser finishes scrolling.
-@param store - Transcript-owned follow state.
-@param event - Viewport whose final geometry decides whether to resume following.
-*/
-export function endTranscriptGesture(store: StoreApi<TranscriptFollow>, event: UIEvent<HTMLDivElement>) {
-  const target = event.currentTarget;
-  const isAtEnd = target.scrollHeight - target.clientHeight - target.scrollTop <= END_THRESHOLD;
-
-  store.setState(finishedTranscriptGesture(store.getState(), isAtEnd));
 }
 
 /** Follow committed content growth while the reader remains at the latest message.
@@ -81,9 +70,7 @@ export function endTranscriptGesture(store: StoreApi<TranscriptFollow>, event: U
 @param isSuspended - Whether a child view covers this transcript.
 */
 export function maintainTranscriptEnd(instance: Instance, store: StoreApi<TranscriptFollow>, isSuspended: boolean) {
-  const follow = store.getState();
-
-  if (!isSuspended && follow.isFollowing && !follow.interacting) {
+  if (!isSuspended && store.getState().isFollowing) {
     instance.scrollToEnd();
   }
 }
@@ -119,7 +106,7 @@ export function connectTranscriptBookmark(key: string | undefined, instance: Ins
   return key ? subscribeTranscriptBookmark(key, instance, expanded) : undefined;
 }
 
-/** Update following from user scrolling without treating content growth as user input.
+/** Resume following when the reader reaches the bottom; content growth cannot disable it.
 @param store - Transcript-owned follow state.
 @param event - Native viewport scroll.
 */
@@ -135,6 +122,6 @@ export function trackTranscriptScroll(store: StoreApi<TranscriptFollow>, event: 
 @param instance - Native scroll owner.
 */
 export function jumpToLatest(store: StoreApi<TranscriptFollow>, instance: Instance) {
-  store.setState({ isFollowing: true, interacting: false });
+  store.setState({ isFollowing: true });
   instance.scrollToEnd();
 }

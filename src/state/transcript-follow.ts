@@ -1,6 +1,5 @@
 export interface TranscriptFollow {
   isFollowing: boolean;
-  interacting: boolean;
 }
 
 /** Create one transcript's follow preference from its restored bookmark.
@@ -8,25 +7,16 @@ export interface TranscriptFollow {
 @returns Initial follow state before native interaction.
 */
 export function transcriptFollow(isFollowing: boolean): TranscriptFollow {
-  return { isFollowing, interacting: false };
+  return { isFollowing };
 }
 
-/** Adopt the end position only when scrolling belongs to a user gesture.
-@param state - Current follow preference and gesture ownership.
+/** Resume following only when the reader reaches the end.
+@param state - Current follow preference.
 @param isAtEnd - Whether the native viewport is at the end.
-@returns Follow state, unchanged for programmatic layout adjustments.
+@returns Following at the end, otherwise the unchanged reader preference.
 */
 export function scrolledTranscript(state: TranscriptFollow, isAtEnd: boolean): TranscriptFollow {
-  return state.interacting ? { ...state, isFollowing: isAtEnd } : state;
-}
-
-/** Finish a user gesture from actual viewport geometry, including momentum scrolling.
-@param state - Current follow preference and gesture ownership.
-@param isAtEnd - Whether the viewport has reached the latest message.
-@returns Preference after user input, preserving automatic following for unrelated layout events.
-*/
-export function finishedTranscriptGesture(state: TranscriptFollow, isAtEnd: boolean): TranscriptFollow {
-  return { isFollowing: state.interacting || !state.isFollowing ? isAtEnd : state.isFollowing, interacting: false };
+  return isAtEnd && !state.isFollowing ? { isFollowing: true } : state;
 }
 
 /** Select native anchoring from the transcript's single follow preference.
@@ -40,5 +30,5 @@ export function transcriptAnchor(
   state: TranscriptFollow,
   anchor: "start" | "end" | undefined
 ) {
-  return shouldOwnFollow && (state.interacting || !state.isFollowing) ? "start" : anchor;
+  return shouldOwnFollow && !state.isFollowing ? "start" : anchor;
 }
