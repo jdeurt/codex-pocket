@@ -1,90 +1,105 @@
+import { operationState } from "../state/resource";
+import { type ThreadStore, type VoiceStore, stageMessage, updateDelivery, observable } from "../runtime/stores";
 import { t } from "try";
-import { type ThreadStore, stageMessage, updateDelivery } from "../state/thread";
-import { type VoiceStore } from "../state/voice";
-import { createOperationStore } from "../state/resource";
-import { type createDraftController } from "./draft";
-import { type createAttachmentController } from "./attachments";
-import { post } from "../lib/client-api";
-import { clientError, reportClient } from "../lib/client-logging";
+import { type DraftController } from "./draft";
+import { type AttachmentController } from "./attachments";
+import { post } from "../runtime/client-api";
+import { clientError, reportClient } from "../runtime/client-logging";
+import { attachmentId, messageInput, type MessageInput } from "../state/delivery";
 
-/** Own composer delivery and retries outside rendering, preserving the durable client identity.
-@param thread - Canonical and optimistic conversation projection.
-@param voice - Voice lifecycle used to enforce text/voice exclusivity.
-@param draft - Persisted text owner.
-@param attachments - Original-file upload owner.
-@param url - Selected Pocket's message endpoint.
-@returns Observable mutation state and stable submit/reset operations.
+type Draft = DraftController;
+type Attachments = AttachmentController;
+
+/**
+Runtime owner of composer delivery, durable receipts and retry identity.
 */
-export function createDeliveryController(
-  thread: ThreadStore,
-  voice: VoiceStore,
-  draft: ReturnType<typeof createDraftController>,
-  attachments: ReturnType<typeof createAttachmentController>,
-  url: string
-) {
-  const store = createOperationStore();
+export class DeliveryController {
+  private messageId: string | null = null;
 
-  let messageId: string | null = null;
+  /** Persist the send receipt before publishing or submitting the message.
+  @param id - Durable idempotency identity.
+  @param input - Purely prepared send input.
+  */
+  private submit = async (id: string, input: MessageInput) => {
+    await this.attachments.rememberSend(id, input.text);
+    stageMessage(this.thread, id, input.text, input.attachments);
+    this.draft.setText("");
+    const result = await post(this.url, {
+      id,
+      text: input.text,
+      attachments: Array.from(input.attachments, attachmentId),
+    });
 
-  const didSend = async () => {
-    const current = thread.getState();
-    const files = attachments.store.getState();
-    const text = draft.store.getState().text.trim();
+    if (result.status === "unknown") {
+      throw new Error("Delivery is uncertain. Check the conversation on your computer before sending again.");
+    }
 
-    if (
-      store.getState().busy ||
-      voice.getState().state !== "idle" ||
-      !current.connected ||
-      current.state.connection !== "connected" ||
-      !files.ready ||
-      (!text && files.draft.files.length === 0) ||
-      files.draft.files.some((entry) => !entry.uploaded)
-    ) {
+    updateDelivery(this.thread, id, result.status === "sent" ? "sent" : "queued");
+    reportClient("message.acknowledged", { id, status: result.status });
+    await this.attachments.clear();
+    this.messageId = null;
+  };
+
+  readonly store = observable(operationState());
+
+  /** Perform the prepared send and recover its original text after a failure.
+  @returns Whether the server acknowledged this delivery.
+  */
+  send = async () => {
+    const current = this.thread.getState();
+    const input = messageInput(
+      current,
+      this.voice.getState().state,
+      this.attachments.store.getState(),
+      this.draft.store.getState().text,
+      this.store.getState().busy
+    );
+
+    if (!input) {
       return false;
     }
 
-    const uploaded = files.draft.files.flatMap((entry) => entry.uploaded ?? []);
-    const id = (messageId ??= files.draft.pending?.text === text ? files.draft.pending.id : crypto.randomUUID());
+    const id = (this.messageId ??= input.receiptId ?? crypto.randomUUID());
 
-    store.setState({ busy: true, error: "", status: "" });
-    reportClient("message.send", { id, text, activeTurnId: current.state.activeTurnId });
-    const submit = async () => {
-      await attachments.rememberSend(id, text);
-      stageMessage(thread, id, text, uploaded);
-      draft.setText("");
-      const result = await post(url, { id, text, attachments: uploaded.map((file) => file.id) });
+    this.store.setState({ busy: true, error: "", status: "" });
+    reportClient("message.send", { id, text: input.text, activeTurnId: current.state.activeTurnId });
+    const delivered = await t(this.submit, id, input);
 
-      if (result.status === "unknown") {
-        throw new Error("Delivery is uncertain. Check the conversation on your computer before sending again.");
-      }
-
-      updateDelivery(thread, id, result.status === "sent" ? "sent" : "queued");
-      reportClient("message.acknowledged", { id, status: result.status });
-      await attachments.clear();
-      messageId = null;
-    };
-
-    const delivered = await t(submit);
-
-    store.setState({ busy: false });
+    this.store.setState({ busy: false });
 
     if (!delivered.ok) {
       const error = delivered.error;
 
       reportClient("message.failed", { id, ...clientError(error) }, "error");
-      updateDelivery(thread, id, "unknown");
-      draft.setText(text);
-      store.setState({ error: error instanceof Error ? error.message : "Couldn't send. Try again when connected." });
+      updateDelivery(this.thread, id, "unknown");
+      this.draft.setText(input.text);
+      this.store.setState({
+        error: error instanceof Error ? error.message : "Couldn't send. Try again when connected.",
+      });
     }
 
     return delivered.ok;
   };
 
-  return {
-    store,
-    send: didSend,
-    reset: () => {
-      messageId = null;
-    },
+  /**
+  Clear a prior retry identity after the user changes their input.
+  */
+  reset = () => {
+    this.messageId = null;
   };
+
+  /** Bind effectful collaborators without starting work.
+  @param thread - Conversation runtime.
+  @param voice - Voice lifecycle runtime.
+  @param draft - Durable text owner.
+  @param attachments - Original-file owner.
+  @param url - Scoped message endpoint.
+  */
+  constructor(
+    private readonly thread: ThreadStore,
+    private readonly voice: VoiceStore,
+    private readonly draft: Draft,
+    private readonly attachments: Attachments,
+    private readonly url: string
+  ) {}
 }

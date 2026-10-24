@@ -1,9 +1,7 @@
+import { type ActivityState } from "../state/activity";
 import { type Data, type Item, type RpcEvent, type Snapshot, type Turn, object, string } from "../lib/protocol";
 
 const LAST_ITEM_INDEX = -1;
-const executions = new WeakMap<Turn, Map<string, string>>();
-const nativeActivity = new WeakSet<Turn>();
-const reasoning = new WeakSet<Turn>();
 const TOOL_ITEMS = new Set([
   "toolTrace",
   "commandExecution",
@@ -204,13 +202,16 @@ function eventActivity(event: RpcEvent, isReasoning: boolean) {
 @param turn - Canonical native history, replaced on reconciliation.
 @returns Active calls keyed by their stable invocation identities.
 */
-function restoredExecutions(turn: Turn) {
-  return new Map(
-    turn.items
-      .filter((item) => item.source !== "pi" && TOOL_ITEMS.has(item.type))
-      .filter((item) => ["running", "inProgress"].includes(string(item.status)))
-      .map((item) => [item.id, itemActivity(item) ?? "Calling tools"])
-  );
+function restoredExecutions(turn: Turn): [string, string][] {
+  const calls: [string, string][] = [];
+
+  for (const item of turn.items) {
+    if (item.source !== "pi" && TOOL_ITEMS.has(item.type) && ["running", "inProgress"].includes(string(item.status))) {
+      calls.push([item.id, itemActivity(item) ?? "Calling tools"]);
+    }
+  }
+
+  return calls;
 }
 
 /** Normalize human activity text without touching native tool names, paths or transcript payloads.
@@ -221,19 +222,19 @@ function activityLabel(label: string) {
   return label.charAt(0).toLowerCase() + label.slice(1);
 }
 
-/** Retain invocation state independently of message projection and thinking/token events.
-@param turn - Exact active turn, replaced when history is reconciled.
+/** Reconcile native execution identities without changing the previous bookkeeping.
+@param previous - Explicit prior activity state.
 @param event - Native lifecycle or authoritative adapter activity event.
-@returns Current executing calls for this turn.
+@returns New executing call entries and authoritative-source flag.
 */
-function updateExecutions(turn: Turn, event: RpcEvent) {
-  const calls = executions.get(turn) ?? restoredExecutions(turn);
+function updatedExecutions(previous: ActivityState, event: RpcEvent): ActivityState {
+  const calls = new Map(previous.calls);
   const item = event.params.item;
-
-  executions.set(turn, calls);
+  const hasNativeActivity =
+    previous.hasNativeActivity ||
+    (event.method === "thread/activity/updated" && Array.isArray(event.params.activeTools));
 
   if (event.method === "thread/activity/updated" && Array.isArray(event.params.activeTools)) {
-    nativeActivity.add(turn);
     calls.clear();
 
     for (const entry of event.params.activeTools) {
@@ -249,86 +250,101 @@ function updateExecutions(turn: Turn, event: RpcEvent) {
     }
   }
 
-  return calls;
+  return { ...previous, calls: [...calls], hasNativeActivity };
 }
 
-/** Track explicit reasoning separately from concurrent tool completion.
-@param turn - Current canonical turn.
+/** Track reasoning separately from concurrent execution.
+@param wasReasoning - Previous explicit reasoning phase.
 @param event - Native reasoning or assistant lifecycle event.
+@returns Whether reasoning remains active.
 */
-function updateReasoning(turn: Turn, event: RpcEvent) {
+function isReasoningAfter(wasReasoning: boolean, event: RpcEvent) {
   if (
     event.method.startsWith("item/reasoning/") ||
     (event.method === "item/started" && event.params.item?.type === "reasoning")
   ) {
-    reasoning.add(turn);
-  } else if (
+    return true;
+  }
+
+  const hasFinished =
     event.method === "item/agentMessage/delta" ||
     (event.method === "item/completed" && event.params.item?.type === "reasoning") ||
-    event.params.item?.type === "agentMessage"
-  ) {
-    reasoning.delete(turn);
-  }
+    event.params.item?.type === "agentMessage";
+
+  return wasReasoning && !hasFinished;
 }
 
-/** Update activity only for the current turn; terminal errors invalidate its executing calls.
-@param state - Canonical mutable parent snapshot.
+/** Derive initial bookkeeping from native history when no explicit state exists.
+@param state - Snapshot carrying host-owned execution state.
+@param turn - Active native turn.
+@returns Existing state for this turn or a newly hydrated projection.
+*/
+function activityState(state: Snapshot, turn: Turn): ActivityState {
+  return state.activityState?.turnId === turn.id
+    ? state.activityState
+    : {
+        turnId: turn.id,
+        calls: restoredExecutions(turn),
+        hasNativeActivity: false,
+        isReasoning: false,
+      };
+}
+
+/** Update activity only for the current turn, leaving both snapshot and event unchanged.
+@param state - Canonical snapshot with explicit execution bookkeeping.
 @param event - Validated native notification.
 @param turn - Canonical turn resolved for this event.
+@returns Next snapshot and activity projection.
 */
-export function updateActivity(state: Snapshot, event: RpcEvent, turn: Turn | undefined) {
-  if (turn && event.method === "turn/completed") {
-    executions.delete(turn);
-    nativeActivity.delete(turn);
-    reasoning.delete(turn);
+export function updatedActivity(state: Snapshot, event: RpcEvent, turn: Turn | undefined): Snapshot {
+  if (turn && event.method === "turn/completed" && state.activityState?.turnId === turn.id) {
+    return { ...state, activityState: undefined };
   }
 
   if (!state.activeTurnId || turn?.id !== state.activeTurnId) {
-    return;
+    return state;
   }
 
-  const calls = updateExecutions(turn, event);
+  const next = updatedExecutions(activityState(state, turn), event);
 
   if (event.method === "error" && event.params.willRetry !== true) {
-    calls.clear();
-    reasoning.delete(turn);
-    state.activity = "";
-
-    return;
+    return { ...state, activity: "", activityState: { ...next, calls: [], isReasoning: false } };
   }
 
-  // Pi transcript updates describe generated calls and saved results, not execution.
-  if (event.params.item?.source === "pi" || (nativeActivity.has(turn) && event.method !== "thread/activity/updated")) {
-    return;
+  // Pi transcript records describe generated calls, not authoritative execution state.
+  if (event.params.item?.source === "pi" || (next.hasNativeActivity && event.method !== "thread/activity/updated")) {
+    return { ...state, activityState: next };
   }
 
-  updateReasoning(turn, event);
+  const isReasoning = isReasoningAfter(next.isReasoning, event);
 
-  state.activity = eventActivity(event, reasoning.has(turn)) ?? state.activity;
+  return {
+    ...state,
+    activity: eventActivity(event, isReasoning) ?? state.activity,
+    activityState: { ...next, isReasoning },
+  };
 }
 
-/** Select live calls before reasoning; history reconciliation replaces transient invocation state.
+/** Select live calls before reasoning using only explicit snapshot data.
 @param state - Snapshot whose active turn owns the displayed activity.
-@returns Comma-separated active descriptions, current reasoning, or no active status.
+@returns Active descriptions, reasoning phase, or no active status.
 */
 export function currentActivity(state: Snapshot) {
   if (!state.activeTurnId || state.connection === "disconnected") {
     return;
   }
 
-  const turn = state.turns.find((entry) => entry.id === state.activeTurnId);
+  for (const turn of state.turns) {
+    if (turn.id !== state.activeTurnId || turn.status !== "inProgress") {
+      continue;
+    }
 
-  if (turn?.status !== "inProgress") {
-    return;
+    const labels: string[] = [];
+
+    for (const [, label] of activityState(state, turn).calls) {
+      labels.push(activityLabel(label));
+    }
+
+    return labels.length > 0 ? labels.join(", ") : activityLabel(state.activity ?? "");
   }
-
-  const calls = executions.get(turn) ?? restoredExecutions(turn);
-
-  return calls.size > 0
-    ? calls
-        .values()
-        .map((label) => activityLabel(label))
-        .toArray()
-        .join(", ")
-    : activityLabel(state.activity ?? "");
 }

@@ -1,32 +1,62 @@
 import { t as captureResult } from "try";
 import { dataSchema } from "../lib/protocol";
 import { voiceHistorySchema } from "../lib/voice-history";
-import { mergeCaptions, type VoiceStore } from "../state/voice";
+import { mergeCaptions, type VoiceStore } from "../runtime/stores";
 
 const HISTORY_TIMEOUT_MS = 10_000;
 
-/** Restore persisted captions without coupling their availability to live audio.
-@param store - Current Pocket's caption state.
-@param url - Explicitly scoped history API.
-@returns Refresh and lifecycle methods, with stale responses ignored after disposal.
+/**
+Runtime owner of the caption connection, independent of the audio connection.
 */
-export function createCaptionHistory(store: VoiceStore, url: string) {
-  let generation = 0;
-  let isActive = false;
-  let pending: AbortController | undefined;
+export class CaptionHistory {
+  private generation = 0;
+  private isActive = false;
+  private pending: AbortController | undefined;
 
-  const isCurrent = (attempt: number) => isActive && generation === attempt;
-  const refresh = async () => {
-    if (!isActive) {
+  /** Capture a background history failure only while its request is still owned.
+  @returns Completion after accepted history or its error is published.
+  */
+  private reload = async () => {
+    const task = this.refresh();
+    const attempt = this.generation;
+    const result = await captureResult(task);
+
+    if (!result.ok && this.isCurrent(attempt) && !this.pending?.signal.aborted) {
+      this.store.setState({ historyError: "Voice history could not load. Reconnect Pocket and try again." });
+    }
+  };
+
+  /**
+  Schedule an independent caption refresh from a browser notification.
+  */
+  private onHistory = () => {
+    void this.reload();
+  };
+
+  /**
+  Invalidate in-flight history and release the native listener.
+  */
+  private disconnect = () => {
+    this.isActive = false;
+    this.generation++;
+    this.pending?.abort();
+    globalThis.removeEventListener("pocket-voice-history", this.onHistory);
+  };
+
+  /** Read durable captions without pausing or owning live media.
+  @returns Completion after fresh history is published.
+  */
+  refresh = async () => {
+    if (!this.isActive) {
       return;
     }
 
-    const attempt = ++generation;
+    const attempt = ++this.generation;
     const controller = new AbortController();
 
-    pending?.abort();
-    pending = controller;
-    const response = await fetch(url, {
+    this.pending?.abort();
+    this.pending = controller;
+    const response = await fetch(this.url, {
       cache: "no-store",
       signal: AbortSignal.any([controller.signal, AbortSignal.timeout(HISTORY_TIMEOUT_MS)]),
     });
@@ -37,38 +67,39 @@ export function createCaptionHistory(store: VoiceStore, url: string) {
 
     const result = dataSchema.parse(await response.json());
 
-    if (!isCurrent(attempt)) {
+    if (!this.isCurrent(attempt)) {
       return;
     }
 
-    mergeCaptions(store, voiceHistorySchema.parse(result.history));
-    store.setState({ historyError: "" });
+    mergeCaptions(this.store, voiceHistorySchema.parse(result.history));
+    this.store.setState({ historyError: "" });
   };
-  const reload = async () => {
-    const task = refresh();
-    const attempt = generation;
 
-    const result = await captureResult(task);
+  /** Begin caption observation after mount.
+  @returns Cleanup for this owner's history lifetime.
+  */
+  connect = () => {
+    this.isActive = true;
+    void this.reload();
+    globalThis.addEventListener("pocket-voice-history", this.onHistory);
 
-    if (!result.ok && isCurrent(attempt) && !pending?.signal.aborted) {
-      store.setState({ historyError: "Voice history could not load. Reconnect Pocket and try again." });
-    }
+    return this.disconnect;
   };
-  const onHistory = () => void reload();
 
-  return {
-    refresh,
-    connect: () => {
-      isActive = true;
-      void reload();
-      globalThis.addEventListener("pocket-voice-history", onHistory);
+  /** Allocate explicit history dependencies without opening requests.
+  @param store - Scoped caption state owner.
+  @param url - Scoped history endpoint.
+  */
+  constructor(
+    private readonly store: VoiceStore,
+    private readonly url: string
+  ) {}
 
-      return () => {
-        isActive = false;
-        generation++;
-        pending?.abort();
-        globalThis.removeEventListener("pocket-voice-history", onHistory);
-      };
-    },
-  };
+  /** Read ownership again after asynchronous work.
+  @param attempt - Generation that initiated the request.
+  @returns Whether the mounted owner still accepts this result.
+  */
+  private isCurrent(attempt: number) {
+    return this.isActive && this.generation === attempt;
+  }
 }

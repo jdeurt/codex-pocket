@@ -25,16 +25,20 @@ export type ModelCatalogQuery = z.infer<typeof modelCatalogQuerySchema>;
 */
 export function readModelCatalogQuery(params: URLSearchParams) {
   const fields = ["provider", "model", "view", "offset", "limit"];
-  const entries = fields
-    .filter((field) => params.has(field))
-    .map((field) => {
-      const value = params.get(field) ?? "";
-      const numeric = value.length > 0 ? Number(value) : NaN;
+  const values: Record<string, string | number> = {};
 
-      return [field, field === "offset" || field === "limit" ? numeric : value];
-    });
+  for (const field of fields) {
+    if (!params.has(field)) {
+      continue;
+    }
 
-  return modelCatalogQuerySchema.parse(Object.fromEntries(entries));
+    const value = params.get(field) ?? "";
+    const numeric = value.length > 0 ? Number(value) : NaN;
+
+    values[field] = field === "offset" || field === "limit" ? numeric : value;
+  }
+
+  return modelCatalogQuerySchema.parse(values);
 }
 
 interface CatalogProvider {
@@ -71,13 +75,79 @@ function compare(left: string, right: string) {
   return left < right ? BEFORE : 1;
 }
 
+/** Supply an initial edit-distance column value.
+@param _value - Unused array slot.
+@param index - Column index.
+@returns Initial edit distance.
+*/
+function indexValue(_value: unknown, index: number) {
+  return index;
+}
+
+interface RankedProvider {
+  provider: CatalogProvider;
+  score: number;
+}
+
+/** Order equally plausible providers deterministically.
+@param first - First candidate.
+@param second - Second candidate.
+@returns Score then exact-ID order.
+*/
+function compareRankedProviders(first: RankedProvider, second: RankedProvider) {
+  return first.score - second.score || compare(first.provider.id, second.provider.id);
+}
+
+/** Extract the catalog identity from a ranked candidate.
+@param candidate - Ranked provider.
+@returns Catalog provider.
+*/
+function rankedProvider(candidate: RankedProvider) {
+  return candidate.provider;
+}
+
+/** Copy only public provider identity fields.
+@param provider - Configured provider.
+@returns Detached public identity.
+*/
+function providerIdentity(provider: CatalogProvider) {
+  return { id: provider.id, name: provider.name };
+}
+
+/** Order provider identities without host locale dependence.
+@param first - First provider.
+@param second - Second provider.
+@returns Exact-ID order.
+*/
+function compareProviders(first: CatalogProvider, second: CatalogProvider) {
+  return compare(first.id, second.id);
+}
+
+/** Filter models to an explicit provider identity.
+@param provider - Selected provider.
+@param model - Candidate model.
+@returns Whether this model belongs to the selected provider.
+*/
+function isProviderModel(provider: string, model: CatalogModel) {
+  return model.provider === provider;
+}
+
+/** Order models by provider then exact model ID.
+@param first - First model.
+@param second - Second model.
+@returns Deterministic selection order.
+*/
+function compareModels(first: CatalogModel, second: CatalogModel) {
+  return compare(first.provider, second.provider) || compare(first.id, second.id);
+}
+
 /** Compute edit distance for short provider-name typo searches.
 @param left - Normalized query.
 @param right - Normalized provider identity.
 @returns Number of insertions, deletions, or substitutions.
 */
 function distance(left: string, right: string) {
-  let row = Array.from({ length: right.length + 1 }, (_, index) => index);
+  let row = Array.from({ length: right.length + 1 }, indexValue);
 
   for (let i = 1; i <= left.length; i++) {
     const next = [i];
@@ -98,28 +168,44 @@ function distance(left: string, right: string) {
 @returns Deterministically ordered candidate choices, without silently resolving ambiguity.
 */
 function providerMatches(providers: readonly CatalogProvider[], search: string) {
-  const exact = providers.filter((provider) => provider.id === search);
+  const exact: CatalogProvider[] = [];
+  const names: RankedProvider[] = [];
+  const partial: RankedProvider[] = [];
+  const fuzzy: RankedProvider[] = [];
   const query = normalized(search);
+  const threshold = Math.max(1, Math.floor(query.length / TYPO_LENGTH_DIVISOR));
+
+  for (const provider of providers) {
+    if (provider.id === search) {
+      exact.push(provider);
+    }
+
+    const id = normalized(provider.id);
+    const name = normalized(provider.name);
+    const score = Math.min(distance(query, id), distance(query, name));
+    const ranked = { provider, score };
+
+    if (id === query || name === query) {
+      names.push(ranked);
+    }
+
+    if (id.includes(query) || name.includes(query)) {
+      partial.push(ranked);
+    }
+
+    if (score <= threshold) {
+      fuzzy.push(ranked);
+    }
+  }
 
   if (!query || exact.length > 0) {
     return exact;
   }
 
-  const ranked = providers.map((provider) => {
-    const keys = [normalized(provider.id), normalized(provider.name)];
-    const score = Math.min(...keys.map((key) => distance(query, key)));
-
-    return { provider, keys, score };
-  });
-  const exactNames = ranked.filter(({ keys }) => keys.includes(query));
-  const partial = ranked.filter(({ keys }) => keys.some((key) => key.includes(query)));
-  const fuzzy = ranked.filter(({ score }) => score <= Math.max(1, Math.floor(query.length / TYPO_LENGTH_DIVISOR)));
-  const candidates = exactNames.length > 0 ? exactNames : partial;
+  const candidates = names.length > 0 ? names : partial;
   const matches = candidates.length > 0 ? candidates : fuzzy;
 
-  return matches
-    .toSorted((a, b) => a.score - b.score || compare(a.provider.id, b.provider.id))
-    .map(({ provider }) => provider);
+  return Array.from(matches.toSorted(compareRankedProviders), rankedProvider);
 }
 
 /** Bound every queried list, retaining an explicit continuation even for ambiguous choices.
@@ -152,21 +238,44 @@ function details(model: CatalogModel) {
   };
 }
 
+/** Project the requested model view.
+@param shouldShowDetails - Whether capability details were requested.
+@param model - Configured catalog model.
+@returns Exact details or the concise model name.
+*/
+function modelValue(shouldShowDetails: boolean, model: CatalogModel) {
+  return shouldShowDetails ? details(model) : model.name;
+}
+
 /** Resolve exact selection IDs before bare IDs and display names, retaining cross-provider ambiguity.
 @param models - Provider-filtered catalog.
 @param search - Exact ID or model display name.
 @returns Matching catalog entries.
 */
 function modelMatches(models: readonly CatalogModel[], search: string) {
-  const qualified = models.filter((model) => `${model.provider}/${model.id}` === search);
+  const qualified: CatalogModel[] = [];
+  const ids: CatalogModel[] = [];
+  const names: CatalogModel[] = [];
+
+  for (const model of models) {
+    if (`${model.provider}/${model.id}` === search) {
+      qualified.push(model);
+    }
+
+    if (model.id === search) {
+      ids.push(model);
+    }
+
+    if (model.name.toLowerCase() === search.toLowerCase()) {
+      names.push(model);
+    }
+  }
 
   if (qualified.length > 0) {
     return qualified;
   }
 
-  const ids = models.filter((model) => model.id === search);
-
-  return ids.length > 0 ? ids : models.filter((model) => model.name.toLowerCase() === search.toLowerCase());
+  return ids.length > 0 ? ids : names;
 }
 
 /** Query the installed catalog without changing session selections or consulting credentials.
@@ -180,10 +289,8 @@ export function queryModelCatalog(
   providers: readonly CatalogProvider[],
   query: ModelCatalogQuery
 ) {
-  const identities = providers.map(({ id, name }) => ({ id, name }));
-  const matches = query.provider
-    ? providerMatches(identities, query.provider)
-    : identities.toSorted((a, b) => compare(a.id, b.id));
+  const identities = Array.from(providers, providerIdentity);
+  const matches = query.provider ? providerMatches(identities, query.provider) : identities.toSorted(compareProviders);
 
   if (query.view === "providers" || (query.provider && matches.length !== 1)) {
     const { values, ...pagination } = page(matches, query);
@@ -199,9 +306,9 @@ export function queryModelCatalog(
     return { status, providers: values, ...pagination };
   }
 
-  const scoped = query.provider ? models.filter((model) => model.provider === matches[0].id) : [...models];
+  const scoped = query.provider ? models.filter(isProviderModel.bind(undefined, matches[0].id)) : [...models];
   const selected = query.model ? modelMatches(scoped, query.model) : scoped;
-  const ordered = selected.toSorted((a, b) => compare(a.provider, b.provider) || compare(a.id, b.id));
+  const ordered = selected.toSorted(compareModels);
 
   if (query.model && ordered.length === 1) {
     return { status: "ok", model: details(ordered[0]) };
@@ -218,7 +325,7 @@ export function queryModelCatalog(
   return {
     status,
     ...(query.provider && { provider: matches[0] }),
-    models: values.map((model) => (query.model || query.view === "details" ? details(model) : model.name)),
+    models: Array.from(values, modelValue.bind(undefined, !!query.model || query.view === "details")),
     ...pagination,
   };
 }

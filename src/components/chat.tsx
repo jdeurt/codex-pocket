@@ -7,7 +7,7 @@ import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } from "@/components/ui/input-group";
 import { useDraft } from "@/hooks/use-draft";
 import { useThread } from "@/hooks/use-thread";
-import { useCallback, useRef, useState } from "react";
+import { useRef, useState } from "react";
 import { AgentBrowser } from "./agent-browser";
 import { AgentNavigationContext } from "@/lib/agent-navigation-context";
 import { ComposerAttachments } from "./composer-attachments";
@@ -24,6 +24,21 @@ import { usePathname } from "next/navigation";
 import { useStore } from "zustand";
 import { usePocketClient } from "@/providers/pocket-state";
 import { useRealtime } from "@/hooks/use-realtime";
+import { useBoundCallback } from "@/hooks/use-bound-callback";
+import {
+  openChatAgent,
+  canReloadChat,
+  requestMessage,
+  startChatVoice,
+  stopChatVoice,
+  removeChatAttachment,
+  submitChat,
+  chooseChatAttachments,
+  editChatDraft,
+  chatKeyDown,
+  openFilePicker,
+} from "@/runtime/chat-composer";
+import { hasUploadedAttachment } from "@/state/attachments";
 import { useVoiceGesture } from "@/hooks/use-voice-gesture";
 
 /**
@@ -47,7 +62,7 @@ Compose the active parent conversation, durable draft, uploads and message deliv
 export function Chat() {
   const { state, connected: streamConnected } = useThread();
   const settings = usePocketSettings();
-  const [draft, setDraft] = useDraft();
+  const [draft] = useDraft();
   const isViewingFile = usePathname() === "/files";
   const client = usePocketClient();
   const { busy: sending, error } = useStore(client.delivery.store);
@@ -59,16 +74,12 @@ export function Chat() {
   const [pocketsOpen, setPocketsOpen] = useState(false);
   const [selectedAgent, setSelectedAgent] = useState<string | null>(null);
   const agentReturnFocus = useRef<HTMLElement | null>(null);
-  const openAgent = useCallback((id: string, trigger: HTMLButtonElement) => {
-    agentReturnFocus.current = trigger;
-    setSelectedAgent(id);
-    setAgentsOpen(true);
-  }, []);
+  const openAgent = useBoundCallback(openChatAgent, agentReturnFocus, setSelectedAgent, setAgentsOpen);
   const textarea = useRef<HTMLTextAreaElement>(null);
 
   const filePicker = useRef<HTMLInputElement>(null);
   const attachments = useAttachments(state.threadId);
-  const canSendAttachments = attachments.ready && attachments.files.every((file) => !!file.uploaded);
+  const canSendAttachments = attachments.ready && attachments.files.every(hasUploadedAttachment);
   const isConnected = streamConnected && state.connection === "connected";
   const status = connectionStatus(state, streamConnected);
 
@@ -82,29 +93,20 @@ export function Chat() {
     />
   );
 
-  useAppUpdate(() => !pocketsOpen && client.canReload());
+  const canReload = useBoundCallback(canReloadChat, client, pocketsOpen);
+
+  useAppUpdate(canReload);
   useComposerViewport(textarea);
 
-  async function send() {
-    if (await client.delivery.send()) {
-      textarea.current?.focus();
-    }
-  }
-
-  const startVoice = () => {
-    setVoiceHeight(textarea.current?.closest(".composer")?.getBoundingClientRect().height);
-    void voice.start();
-  };
+  const send = useBoundCallback(requestMessage, client, textarea);
+  const startVoice = useBoundCallback(startChatVoice, client, textarea, setVoiceHeight);
+  const openPicker = useBoundCallback(openFilePicker, filePicker);
   const voiceGesture = useVoiceGesture({
     active: isVoiceActive,
     enabled: isConnected,
-    onTap: () => {
-      void send();
-    },
+    onTap: send,
     onStart: startVoice,
-    onStop: () => {
-      void voice.stop();
-    },
+    onStop: stopChatVoice.bind(undefined, client),
   });
 
   return (
@@ -135,22 +137,11 @@ export function Chat() {
             <ComposerAttachments
               files={attachments.files}
               disabled={sending}
-              remove={async (id) => {
-                client.delivery.reset();
-                await attachments.remove(id);
-              }}
+              remove={removeChatAttachment.bind(undefined, client)}
               retry={attachments.retry}
             />
           )}
-          <form
-            onSubmit={(event) => {
-              event.preventDefault();
-
-              if (!isVoiceActive) {
-                void send();
-              }
-            }}
-          >
+          <form onSubmit={submitChat.bind(undefined, send, isVoiceActive)}>
             {!isVoiceActive && (
               <button type="button" className="voice-keyboard-control" onClick={startVoice} disabled={!isConnected}>
                 Start realtime voice
@@ -165,13 +156,7 @@ export function Chat() {
                   hidden
                   aria-label="Choose attachments"
                   disabled={isVoiceActive || sending || !attachments.ready || state.connection === "unconfigured"}
-                  onChange={(event) => {
-                    const files = [...(event.target.files ?? [])];
-
-                    event.target.value = "";
-                    client.delivery.reset();
-                    void attachments.add(files);
-                  }}
+                  onChange={chooseChatAttachments.bind(undefined, client)}
                 />
                 <FieldLabel className="sr-only" htmlFor="message">
                   Message Pocket
@@ -188,23 +173,8 @@ export function Chat() {
                       rows={1}
                       maxLength={32_000}
                       disabled={state.connection === "unconfigured" || sending}
-                      onChange={(event) => {
-                        setDraft(event.target.value);
-                        client.delivery.reset();
-                      }}
-                      onKeyDown={(event) => {
-                        if (!(
-                          event.key === "Enter" &&
-                          !event.shiftKey &&
-                          !event.nativeEvent.isComposing &&
-                          globalThis.matchMedia("(pointer: fine)").matches
-                        )) {
-                          return;
-                        }
-
-                        event.preventDefault();
-                        void send();
-                      }}
+                      onChange={editChatDraft.bind(undefined, client)}
+                      onKeyDown={chatKeyDown.bind(undefined, send)}
                     />
                   )}
                   <InputGroupAddon align="inline-end">
@@ -217,7 +187,7 @@ export function Chat() {
                           aria-label="Attach images or files"
                           title="Attach images or files"
                           disabled={sending || !attachments.ready || state.connection === "unconfigured"}
-                          onClick={() => filePicker.current?.click()}
+                          onClick={openPicker}
                         >
                           <PaperclipIcon aria-hidden="true" />
                         </InputGroupButton>

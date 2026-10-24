@@ -1,4 +1,5 @@
 "use client";
+import { useDerivedValue } from "@/hooks/use-bound-callback";
 import * as React from "react";
 import { ToggleGroup as ToggleGroupPrimitive } from "@base-ui/react/toggle-group";
 import { Toggle as TogglePrimitive } from "@base-ui/react/toggle";
@@ -17,6 +18,22 @@ const ToggleGroupContext = React.createContext<
   spacing: 2,
   orientation: "horizontal",
 });
+
+/** Collect explicit native configuration into an immutable context value.
+@param variant - Native configuration value.
+@param size - Native configuration value.
+@param spacing - Native configuration value.
+@param orientation - Native configuration value.
+@returns Shared native configuration.
+*/
+function configuration(
+  variant: React.ContextType<typeof ToggleGroupContext>["variant"],
+  size: React.ContextType<typeof ToggleGroupContext>["size"],
+  spacing: React.ContextType<typeof ToggleGroupContext>["spacing"],
+  orientation: React.ContextType<typeof ToggleGroupContext>["orientation"]
+): React.ContextType<typeof ToggleGroupContext> {
+  return { variant, size, spacing, orientation };
+}
 
 /**
 Provide shared toggle appearance and spacing while preserving native selection behavior.
@@ -37,7 +54,7 @@ function ToggleGroup({
     orientation?: "horizontal" | "vertical";
   }) {
   const gap: React.CSSProperties & { "--gap": number } = { "--gap": spacing };
-  const context = React.useMemo(() => ({ variant, size, spacing, orientation }), [variant, size, spacing, orientation]);
+  const context = useDerivedValue(configuration, variant, size, spacing, orientation);
 
   return (
     <ToggleGroupPrimitive

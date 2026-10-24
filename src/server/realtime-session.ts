@@ -1,16 +1,15 @@
-/* eslint-disable jsdoc/require-param, jsdoc/require-returns -- Realtime controls share the selected Bridge and central settings owner. */
-import { REALTIME_MODEL, REALTIME_VOICES } from "./openai-realtime";
-import { readOpenAIApiKey, readPocketSettings, updatePocketSettings } from "./pocket-settings";
+import { REALTIME_VOICES } from "./openai-realtime";
+import { readPocketSettings, updatePocketSettings } from "./pocket-settings";
 import type { Bridge } from "./bridge-session";
 import { OpenAIVoiceSession } from "./openai-voice-session";
-import { realtimeContext } from "./realtime-context";
+import { BridgeVoiceOwner, voicePreferences } from "./bridge-voice-owner";
+import { voiceWorkerResult } from "../state/voice-context";
 import { settingsSchema } from "./realtime-schema";
-import { visibleSnapshot } from "./visible-snapshot";
-import { hasMessageText, messageText } from "../lib/turn-messages";
-import { type Turn, string } from "../lib/protocol";
+import { type Turn } from "../lib/protocol";
 
 /**
 Select an explicitly enabled loopback provider fixture; production always uses OpenAI.
+@returns Authorized loopback URL, or the production default.
 */
 function fixtureEndpoint() {
   const endpoint = process.env.POCKET_REALTIME_TEST_URL;
@@ -29,73 +28,51 @@ function fixtureEndpoint() {
 }
 
 /**
-Read public preferences fresh when each provider session starts.
-*/
-async function preferences() {
-  const saved = await readPocketSettings();
-
-  return { voice: saved.realtimeVoice ?? "marin", model: saved.realtimeModel ?? REALTIME_MODEL };
-}
-
-/**
 Bind independent OpenAI speech to the main session's durable, source-aware handoff path.
 */
 export class RealtimeSession extends OpenAIVoiceSession {
+  /** Start media controls only after the current native parent is connected.
+  @param sdp - Browser offer.
+  @returns Provider answer after negotiation.
+  */
+  private startConnected = async (sdp: string) => {
+    await this.bridge.ensureConnected();
+
+    if (this.bridge.snapshot.connection !== "connected") {
+      throw new Error("Pocket is not connected.");
+    }
+
+    return super.start(sdp, fixtureEndpoint());
+  };
+
   /**
   Retain Bridge serialization for lifecycle controls without routing audio through its native RPC.
+  @param bridge - Main-agent runtime.
   */
   constructor(private bridge: Bridge) {
-    super({
-      threadId: () => {
-        if (!bridge.snapshot.threadId) {
-          throw new Error("Pocket is not connected.");
-        }
-
-        return bridge.snapshot.threadId;
-      },
-      lastItemId: () =>
-        visibleSnapshot(bridge.snapshot)
-          .turns.flatMap((turn) => turn.items)
-          .findLast(hasMessageText)?.id ?? null,
-      readKey: readOpenAIApiKey,
-      context: (history) => realtimeContext(bridge.snapshot, history),
-      preferences,
-      handoff: (input) => bridge.handoff(input),
-    });
+    super(new BridgeVoiceOwner(bridge));
   }
 
   /** Return worker results to the realtime agent as tool outputs, never as a read-aloud user message.
   @param completed - Parent-scoped native turn supplied by the bridge.
   */
   completed(completed?: Turn) {
-    if (!completed) {
-      return;
-    }
+    const result = voiceWorkerResult(this.bridge.snapshot, completed);
 
-    const turn = this.bridge.snapshot.turns.find((entry) => entry.id === completed.id) ?? completed;
-
-    if (turn.status === "inProgress") {
-      return;
-    }
-
-    const text = turn.items
-      .filter((item) => item.type === "agentMessage" && item.phase !== "commentary")
-      .map((item) => messageText(item))
-      .join("\n");
-
-    for (const item of turn.items) {
-      if (item.type === "userMessage") {
-        this.answer(string(item.clientId) || item.id, text, turn.status);
+    if (result) {
+      for (const id of result.ids) {
+        this.answer(id, result.text, result.status);
       }
     }
   }
 
   /**
   Return central next-session preferences and finalized conversation history without credentials.
+  @returns Public configuration and finalized history.
   */
   async info() {
     await this.bridge.ensureConnected();
-    const saved = await preferences();
+    const saved = await voicePreferences();
     const central = await readPocketSettings();
 
     return {
@@ -122,6 +99,8 @@ export class RealtimeSession extends OpenAIVoiceSession {
 
   /**
   Update only the central settings fields; existing per-thread native voice files are no longer read.
+  @param input - Untrusted settings mutation.
+  @returns Confirmed public configuration.
   */
   async update(input: unknown) {
     const change = settingsSchema.parse(input);
@@ -141,16 +120,10 @@ export class RealtimeSession extends OpenAIVoiceSession {
 
   /**
   Start speech on an independent provider connection after the owning main session is ready.
+  @param sdp - Browser offer.
+  @returns Provider answer after negotiation.
   */
   override start(sdp: string) {
-    return this.bridge.exclusive(async () => {
-      await this.bridge.ensureConnected();
-
-      if (this.bridge.snapshot.connection !== "connected") {
-        throw new Error("Pocket is not connected.");
-      }
-
-      return super.start(sdp, fixtureEndpoint());
-    });
+    return this.bridge.exclusive(this.startConnected, sdp);
   }
 }

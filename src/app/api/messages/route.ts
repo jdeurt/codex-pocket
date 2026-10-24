@@ -7,6 +7,23 @@ import { t as attempt } from "try";
 
 export const runtime = "nodejs";
 
+/** Validate meaningful message content independently of request handling.
+@param value - Normalized text and attachment identities.
+@returns Whether the submission contains text or a file.
+*/
+function hasSubmissionContent(value: { text: string; attachments: string[] }) {
+  return value.text.length > 0 || value.attachments.length > 0;
+}
+
+const messageInput = z
+  .object({
+    id: z.uuid(),
+    text: z.string().trim().max(MAX_MESSAGE_LENGTH),
+    attachments: z.array(z.uuid()).max(MAX_ATTACHMENTS).default([]),
+  })
+  .strict()
+  .refine(hasSubmissionContent, "Write a message or attach a file.");
+
 /**
 Validates a phone message and attachment identities before submitting it to the native bridge.
 @param request - Unread same-origin JSON mutation request.
@@ -20,15 +37,7 @@ export const POST = endpoint(async (request: Request) => {
   }
 
   const bridge = await requestBridge(request);
-  const input = z
-    .object({
-      id: z.uuid(),
-      text: z.string().trim().max(MAX_MESSAGE_LENGTH),
-      attachments: z.array(z.uuid()).max(MAX_ATTACHMENTS).default([]),
-    })
-    .strict()
-    .refine((value) => value.text.length > 0 || value.attachments.length > 0, "Write a message or attach a file.")
-    .parse(await readBody(request));
+  const input = messageInput.parse(await readBody(request));
 
   return Response.json(await bridge.send(input.id, input.text, input.attachments), {
     headers: noStore,

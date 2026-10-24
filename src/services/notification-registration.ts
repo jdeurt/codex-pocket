@@ -1,3 +1,4 @@
+import { areNotificationKeysEqual } from "../state/notifications";
 import { t as captureResult } from "try";
 
 const PREPARATION_TIMEOUT_MS = 5000;
@@ -18,18 +19,13 @@ Bound native worker preparation and clear its timeout after either outcome.
 @throws {Error} When worker preparation fails or exceeds the existing deadline.
 */
 export async function prepareRegistration() {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-
-  const completed = await captureResult(
-    Promise.race([
-      readyRegistration(),
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(() => {
-          reject(new Error("Open the installed Pocket app to enable notifications."));
-        }, PREPARATION_TIMEOUT_MS);
-      }),
-    ])
+  const deadline = Promise.withResolvers<never>();
+  const timer = setTimeout(
+    deadline.reject,
+    PREPARATION_TIMEOUT_MS,
+    new Error("Open the installed Pocket app to enable notifications.")
   );
+  const completed = await captureResult(Promise.race([readyRegistration(), deadline.promise]));
 
   clearTimeout(timer);
 
@@ -38,23 +34,6 @@ export async function prepareRegistration() {
   }
 
   return completed.value;
-}
-
-/**
-Decode the configured VAPID key at the notification boundary.
-@param value - Public key from the server's notification configuration.
-@returns Native key bytes accepted by PushManager.
-@throws {TypeError} When the server has no configured public key.
-*/
-export function notificationPublicKey(value: unknown) {
-  if (typeof value !== "string") {
-    throw new TypeError("Notification configuration is unavailable.");
-  }
-
-  return Uint8Array.from(
-    atob(value.replaceAll("-", "+").replaceAll("_", "/")),
-    (character) => character.codePointAt(0) ?? 0
-  );
 }
 
 /**
@@ -70,12 +49,7 @@ export async function matchingSubscription(
   const subscription = await registration.pushManager.getSubscription();
   const key = subscription?.options.applicationServerKey;
 
-  if (
-    subscription &&
-    (!key ||
-      new Uint8Array(key).some((value, index) => value !== publicKey[index]) ||
-      key.byteLength !== publicKey.byteLength)
-  ) {
+  if (subscription && !areNotificationKeysEqual(key, publicKey)) {
     await subscription.unsubscribe();
 
     return null;

@@ -1,5 +1,5 @@
 import { readFile, writeFile } from "node:fs/promises";
-import { RECOVERY_PROMPT } from "../../src/server/recovery";
+import { RECOVERY_PROMPT } from "../../src/state/recovery";
 import type { RestartHost } from "./restart-host";
 import { type Snapshot } from "../../src/lib/protocol";
 import { outboxSchema } from "../../src/server/outbox";

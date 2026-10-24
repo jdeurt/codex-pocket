@@ -155,16 +155,19 @@ async function inspectSession(rpc: CodexRpc, input: AdoptionInput) {
   return readAdoption(rpc, input);
 }
 
-/**
-Inspect a session before adding tracking, without sending input or resuming a saved copy.
+/** Own a temporary native client for one explicit query, including failure cleanup.
 @param config - Native account configuration.
-@param input - Validated exact session and optional owner endpoint.
-@returns Canonical native adoption metadata.
+@param input - Query data and optional owning socket.
+@param query - Module-scope query implementation.
+@returns Query result after the client has shut down.
 */
-export async function inspectAdoption(config: Config, input: AdoptionInput) {
+async function adoptionQuery<Input extends { socketPath?: string }, Output>(
+  config: Config,
+  input: Input,
+  query: (rpc: CodexRpc, input: Input) => Promise<Output>
+) {
   const rpc = await sessionClient(config, input.socketPath);
-
-  const completed = await captureResult(inspectSession(rpc, input));
+  const completed = await captureResult(query, rpc, input);
 
   await rpc.shutdown();
 
@@ -173,6 +176,16 @@ export async function inspectAdoption(config: Config, input: AdoptionInput) {
   }
 
   return completed.value;
+}
+
+/**
+Inspect a session before adding tracking, without sending input or resuming a saved copy.
+@param config - Native account configuration.
+@param input - Validated exact session and optional owner endpoint.
+@returns Canonical native adoption metadata.
+*/
+export async function inspectAdoption(config: Config, input: AdoptionInput) {
+  return adoptionQuery(config, input, inspectSession);
 }
 
 /**
@@ -221,17 +234,7 @@ Discover saved sessions with previews, or only sessions loaded by a selected ser
 @returns One bounded page of native session summaries.
 */
 export async function listAdoptableSessions(config: Config, input: z.infer<typeof sessionListInput>) {
-  const rpc = await sessionClient(config, input.socketPath);
-
-  const completed = await captureResult(sessionPage(rpc, input));
-
-  await rpc.shutdown();
-
-  if (!completed.ok) {
-    throw completed.error;
-  }
-
-  return completed.value;
+  return adoptionQuery(config, input, sessionPage);
 }
 
 /**

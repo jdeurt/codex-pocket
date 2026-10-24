@@ -1,13 +1,27 @@
 "use client";
 import "./pocket-menu.css";
 import { ArrowLeftIcon, MenuIcon, PencilIcon, PlusIcon, SettingsIcon, Trash2Icon, XIcon } from "lucide-react";
-import { POCKET_NAME_LIMIT, type Pocket, pocketHref, pocketsSchema, selectedPocketId } from "@/lib/pockets";
-import { useEffect, useRef, useState } from "react";
+import { POCKET_NAME_LIMIT, type Pocket, pocketHref, pocketsSchema } from "@/lib/pockets";
+import { usePocketId } from "../providers/pocket-navigation-context";
+import { useEffect, useRef, useReducer } from "react";
 import { Dialog } from "@base-ui/react/dialog";
 import { PocketSettingsPanel } from "./pocket-settings";
 import { usePocketClient } from "@/providers/pocket-state";
 import { useStore } from "zustand";
 import { type PocketEdit as Edit } from "@/services/pockets";
+import { useBoundCallback } from "@/hooks/use-bound-callback";
+import { findById } from "@/lib/identity";
+import { isOperationBusy } from "@/state/resource";
+import { initialPocketMenu, pocketMenuChanged } from "@/state/pocket-menu";
+import {
+  createPocketEdit,
+  renamePocketEdit,
+  selectPocketEdit,
+  cancelPocketEdit,
+  savePocketEdit,
+  openPocketMenu,
+} from "@/runtime/pocket-menu";
+import { focusControl, submitOperation, updateInput } from "@/runtime/form-events";
 import { useAgentRead } from "@/hooks/use-agents";
 
 /** Show a saved name, current work preview, and explicit management controls.
@@ -36,24 +50,30 @@ function PocketEntry({ pocket, selected, edit }: { pocket: Pocket; selected: boo
         <button
           type="button"
           aria-label={`Rename ${pocket.name}`}
-          onClick={() => {
-            edit({ action: "rename", id: pocket.id, name: pocket.name });
-          }}
+          onClick={edit.bind(undefined, { action: "rename", id: pocket.id, name: pocket.name })}
         >
           <PencilIcon aria-hidden="true" />
         </button>
         <button
           type="button"
           aria-label={`Delete ${pocket.name}`}
-          onClick={() => {
-            edit({ action: "delete", id: pocket.id, name: pocket.name });
-          }}
+          onClick={edit.bind(undefined, { action: "delete", id: pocket.id, name: pocket.name })}
         >
           <Trash2Icon aria-hidden="true" />
         </button>
       </div>
     </li>
   );
+}
+
+/** Render an explicitly selected catalog entry.
+@param selected - Current Pocket identity.
+@param edit - Local editor action.
+@param entry - Catalog entry.
+@returns Stable Pocket row.
+*/
+function pocketEntry(selected: string, edit: (value: Edit) => void, entry: Pocket) {
+  return <PocketEntry key={entry.id} pocket={entry} selected={entry.id === selected} edit={edit} />;
 }
 
 /** Keep editing and deletion confirmation local to the menu with recoverable errors.
@@ -76,18 +96,12 @@ function PocketEditor({
   const labels = { create: "Create Pocket", rename: "Save name", delete: "Delete Pocket" };
   const input = useRef<HTMLInputElement>(null);
 
-  useEffect(() => {
-    input.current?.focus();
-  }, [edit.id]);
+  const focus = useBoundCallback(focusControl, input);
+
+  useEffect(focus, [focus, edit.id]);
 
   return (
-    <form
-      className="pocket-editor"
-      onSubmit={(event) => {
-        event.preventDefault();
-        void submit();
-      }}
-    >
+    <form className="pocket-editor" onSubmit={submitOperation.bind(undefined, submit)}>
       {edit.action === "delete" ? (
         <p>Delete “{edit.name}” from Pocket? Its saved Codex history stays on your computer.</p>
       ) : (
@@ -100,9 +114,7 @@ function PocketEditor({
             maxLength={POCKET_NAME_LIMIT}
             required
             disabled={busy}
-            onChange={(event) => {
-              change(event.target.value);
-            }}
+            onChange={updateInput.bind(undefined, change)}
           />
         </label>
       )}
@@ -158,48 +170,22 @@ export function PocketMenu({
   status: string;
   onOpenChange: (isOpen: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const [edit, setEdit] = useState<Edit | null>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [{ isOpen: open, isSettingsOpen: settingsOpen, edit }, dispatch] = useReducer(
+    pocketMenuChanged,
+    initialPocketMenu
+  );
   const { pockets, settings } = usePocketClient();
   const operation = useStore(pockets.store);
-  const isSavingSettings = useStore(settings.store, (state) => state.busy);
+  const isSavingSettings = useStore(settings.store, isOperationBusy);
   const isBusy = operation.busy || isSavingSettings;
   const error = operation.error;
   const { data, error: readError } = useAgentRead("/api/pockets", pocketsSchema);
-  const selected = selectedPocketId();
-  const current = data?.pockets.find((entry) => entry.id === selected);
-
-  async function submit() {
-    if (!edit || isBusy) {
-      return;
-    }
-
-    const result = await pockets.save(edit);
-
-    if (result.ok) {
-      setEdit(null);
-    }
-  }
+  const selected = usePocketId();
+  const current = findById(data?.pockets ?? [], selected);
 
   return (
     <header className="chat-header pocket-header">
-      <Dialog.Root
-        open={open}
-        onOpenChange={(value, details) => {
-          if (isBusy) {
-            details.cancel();
-
-            return;
-          }
-
-          setOpen(value);
-          onOpenChange(value);
-          pockets.clearError();
-          setEdit(null);
-          setSettingsOpen(false);
-        }}
-      >
+      <Dialog.Root open={open} onOpenChange={openPocketMenu.bind(undefined, pockets, dispatch, onOpenChange, isBusy)}>
         <Dialog.Trigger className="pocket-menu-trigger" aria-label="Open Pockets">
           <MenuIcon aria-hidden="true" />
         </Dialog.Trigger>
@@ -209,9 +195,7 @@ export function PocketMenu({
             <MenuHeading
               isSettings={settingsOpen}
               busy={isBusy}
-              back={() => {
-                setSettingsOpen(false);
-              }}
+              back={dispatch.bind(undefined, { type: "settings", isOpen: false })}
             />
             <div className="pockets-content">
               {(error || readError) && <p role="alert">{error || readError}</p>}
@@ -221,14 +205,9 @@ export function PocketMenu({
                 <PocketEditor
                   edit={edit}
                   busy={isBusy}
-                  change={(name) => {
-                    setEdit({ ...edit, name });
-                  }}
-                  cancel={() => {
-                    setEdit(null);
-                    pockets.clearError();
-                  }}
-                  submit={submit}
+                  change={renamePocketEdit.bind(undefined, dispatch)}
+                  cancel={cancelPocketEdit.bind(undefined, pockets, dispatch)}
+                  submit={savePocketEdit.bind(undefined, pockets, dispatch, edit, isBusy)}
                 />
               )}
               {!edit && !settingsOpen && (
@@ -236,27 +215,20 @@ export function PocketMenu({
                   <button
                     className="pocket-create"
                     type="button"
-                    onClick={() => {
-                      setSettingsOpen(true);
-                    }}
+                    onClick={dispatch.bind(undefined, { type: "settings", isOpen: true })}
                   >
                     <SettingsIcon aria-hidden="true" />
                     Settings
                   </button>
-                  <button
-                    className="pocket-create"
-                    type="button"
-                    onClick={() => {
-                      setEdit({ action: "create", id: crypto.randomUUID(), name: "" });
-                    }}
-                  >
+                  <button className="pocket-create" type="button" onClick={createPocketEdit.bind(undefined, dispatch)}>
                     <PlusIcon aria-hidden="true" />
                     New Pocket
                   </button>
                   <ul aria-label="Your Pockets">
-                    {data?.pockets.map((entry) => (
-                      <PocketEntry key={entry.id} pocket={entry} selected={entry.id === selected} edit={setEdit} />
-                    ))}
+                    {Array.from(
+                      data?.pockets ?? [],
+                      pocketEntry.bind(undefined, selected, selectPocketEdit.bind(undefined, dispatch))
+                    )}
                   </ul>
                 </>
               )}

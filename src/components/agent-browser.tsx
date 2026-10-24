@@ -1,57 +1,21 @@
 "use client";
-import { type AgentCatalog, type AgentEntry, agentCatalogSchema, isActiveAgent } from "@/lib/agents";
-import { type RefObject, useCallback, useContext, useEffect, useRef, useState } from "react";
+import { useAgentCatalog } from "@/hooks/use-agent-catalog";
+import { useBoundCallback } from "@/hooks/use-bound-callback";
+import { type AgentVisit, retainedAgents, compareAgents } from "@/state/agent-browser";
+import {
+  retainAgentTrigger,
+  agentFinalFocus,
+  backFromAgent,
+  focusAgentRow,
+  openAgentBrowser,
+  selectAgent,
+} from "@/runtime/agent-navigation";
+import { type RefObject, useContext, useEffect, useRef, useState } from "react";
 import { ActivityIndicatorContext } from "@/lib/activity-indicator-context";
 import { ActivityRow } from "./activity-row";
 import { AgentChat } from "./agent-chat";
 import { AgentList } from "./agent-list";
 import { Dialog } from "@base-ui/react/dialog";
-import { useAgentRead } from "@/hooks/use-agents";
-
-/**
-Restore focus to the parent activity trigger, falling back to its composer when absent.
-@returns The existing parent control, or null when neither control is mounted.
-*/
-function agentTriggerFocus() {
-  return (
-    document.querySelector<HTMLElement>(".agents-trigger") ?? document.querySelector<HTMLTextAreaElement>("#message")
-  );
-}
-
-/** Keep keyboard focus in the parent when the last active agent removes its focused trigger.
-@returns Stable ref callback that transfers focus only when the removed trigger owns it.
-*/
-function useAgentTriggerFocus() {
-  const current = useRef<HTMLButtonElement | null>(null);
-
-  return useCallback((trigger: HTMLButtonElement | null) => {
-    const previous = current.current;
-
-    current.current = trigger;
-
-    if (!trigger && previous && previous === document.activeElement) {
-      document.querySelector<HTMLTextAreaElement>("#message")?.focus({ preventScroll: true });
-    }
-  }, []);
-}
-
-/**
-Keep overview polling active and request full catalog details only while the browser is open.
-@param isOpen - Whether the list needs the complete scoped catalog.
-@returns The newest catalog, its current read error and the active-agent count.
-*/
-function useAgentCatalog(isOpen: boolean) {
-  const overview = useAgentRead("/api/agents", agentCatalogSchema);
-  const detail = useAgentRead("/api/agents?view=list", agentCatalogSchema, isOpen);
-  const data =
-    overview.data && (!detail.data || overview.data.updatedAt > detail.data.updatedAt) ? overview.data : detail.data;
-
-  return {
-    data,
-    error: isOpen ? (detail.error ?? overview.error) : overview.error,
-    count: overview.error ? 0 : (data?.agents.filter(isActiveAgent).length ?? 0),
-  };
-}
 
 /**
 Browse scoped read-only agents while retaining row focus and parent navigation.
@@ -73,67 +37,29 @@ export function AgentBrowser({
 }) {
   const indicator = useContext(ActivityIndicatorContext);
   const { data, error, count } = useAgentCatalog(open);
-  const triggerFocus = useAgentTriggerFocus();
+  const trigger = useRef<HTMLButtonElement | null>(null);
+  const triggerFocus = useBoundCallback(retainAgentTrigger, trigger);
   const rows = useRef(new Map<string, HTMLButtonElement>());
-  const [visit, setVisit] = useState<{ data?: AgentCatalog; entries: Map<string, AgentEntry> }>({ entries: new Map() });
+  const [visit, setVisit] = useState<AgentVisit>({ entries: new Map() });
   const lastSelected = useRef<string | null>(null);
   // Finished agents stay available throughout this visit, even if discovery stops
   // returning an archived session. Closing clears this visit's retained entries.
-  const entries = new Map(
-    open
-      ? visit.entries
-          .entries()
-          .map(([id, agent]) => [id, isActiveAgent(agent) ? { ...agent, status: "unknown" as const } : agent])
-      : []
-  );
-  const agents = data?.agents ?? [];
-
-  for (const agent of agents) {
-    entries.set(agent.id, agent);
-  }
+  const entries = retainedAgents(visit.entries, data, open);
 
   if (data !== visit.data) {
     setVisit({ data, entries });
   }
 
-  function back() {
-    if (returnFocusRef.current) {
-      onOpenChange(false);
-      onSelect(null);
+  const back = useBoundCallback(backFromAgent, returnFocusRef, lastSelected, selectedId, onOpenChange, onSelect);
+  const restoreRow = useBoundCallback(focusAgentRow, rows, lastSelected, selectedId, open);
+  const finalFocus = useBoundCallback(agentFinalFocus, returnFocusRef);
 
-      return;
-    }
-
-    lastSelected.current = selectedId;
-    onSelect(null);
-  }
-
-  useEffect(() => {
-    if (!selectedId && open && lastSelected.current) {
-      rows.current.get(lastSelected.current)?.focus();
-    }
-  }, [open, selectedId]);
+  useEffect(restoreRow, [restoreRow]);
 
   return (
     <Dialog.Root
       open={open}
-      onOpenChange={(next, details) => {
-        if (!next && selectedId && details.reason === "escape-key") {
-          details.cancel();
-          back();
-
-          return;
-        }
-
-        onOpenChange(next);
-
-        if (next) {
-          return;
-        }
-
-        onSelect(null);
-        setVisit({ data, entries: new Map() });
-      }}
+      onOpenChange={openAgentBrowser.bind(undefined, back, onOpenChange, onSelect, setVisit, selectedId, data)}
     >
       <ActivityRow>
         {indicator}
@@ -147,33 +73,19 @@ export function AgentBrowser({
       </ActivityRow>
       <Dialog.Portal>
         <Dialog.Backdrop className="agents-backdrop" />
-        <Dialog.Popup
-          className="agents-panel"
-          finalFocus={() => {
-            const target = returnFocusRef.current;
-
-            returnFocusRef.current = null;
-
-            return target?.isConnected ? target : agentTriggerFocus();
-          }}
-        >
+        <Dialog.Popup className="agents-panel" finalFocus={finalFocus}>
           <Dialog.Title className="sr-only">Agents</Dialog.Title>
           <Dialog.Description className="sr-only">
             Agents working in this parent chat. Open an agent to read its conversation.
           </Dialog.Description>
           <AgentList
-            entries={entries
-              .values()
-              .toArray()
-              .toSorted((a, b) => Number(isActiveAgent(b)) - Number(isActiveAgent(a)) || a.name.localeCompare(b.name))}
+            entries={entries.values().toArray().toSorted(compareAgents)}
             hidden={!!selectedId}
             isLoading={!data && !error}
             error={error}
             warnings={data?.warnings ?? []}
             rows={rows}
-            select={(agent) => {
-              onSelect(agent.id);
-            }}
+            select={selectAgent.bind(undefined, onSelect)}
           />
           {selectedId && <AgentChat key={selectedId} id={selectedId} agent={entries.get(selectedId)} back={back} />}
         </Dialog.Popup>

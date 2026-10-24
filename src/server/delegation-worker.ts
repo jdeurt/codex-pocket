@@ -1,3 +1,13 @@
+export { parentToolServer } from "./delegation-lifecycle";
+import { requireResults, requireSettled } from "../lib/results";
+import {
+  closeDelegation,
+  parentToolServer,
+  interruptDelegation,
+  observeDelegation,
+  recordDelegationOutput,
+  type RunningDelegation,
+} from "./delegation-lifecycle";
 import { type DelegationCommand, type DelegationStore, MAX_CONCURRENT_CHILDREN, type SidePocket } from "./delegations";
 import { type ParentDelivery, ParentReports } from "./delegation-reports";
 import { type Config } from "./config";
@@ -5,10 +15,8 @@ import { DelegationQuestions } from "./delegation-questions";
 import { DelegationRun } from "./delegation-run";
 import { type HarnessAdapter } from "./harness/types";
 import { createAdapter } from "./harness";
-import { localDirectory } from "./local-state";
 import { log } from "./logging";
 import { object } from "../lib/protocol";
-import path from "node:path";
 import { sessionAttachment } from "./session-adoption";
 import { t as captureResult } from "try";
 
@@ -17,24 +25,6 @@ const RECOVERY_INTERVAL_MS = 30_000;
 interface WorkerOptions {
   createAdapter?: (harness: SidePocket["harness"], options: Parameters<typeof createAdapter>[1]) => HarnessAdapter;
   recoveryIntervalMs?: number;
-}
-
-/**
-Builds the scoped native MCP command used by one delegated assignment.
-@param childId - Child identity used to authorize parent tools.
-@param commandId - Claimed command whose requests and reports are attributed.
-@returns Native stdio command and narrowly scoped environment.
-*/
-export function parentToolServer(childId: string, commandId: string) {
-  return {
-    command: process.execPath,
-    args: [
-      "--import",
-      path.join(process.cwd(), "node_modules/tsx/dist/loader.mjs"),
-      path.join(process.cwd(), "scripts/side-pocket-mcp.ts"),
-    ],
-    env: { CODEX_POCKET_STATE_DIR: localDirectory(), POCKET_CHILD_ID: childId, POCKET_COMMAND_ID: commandId },
-  };
 }
 
 /**
@@ -55,11 +45,18 @@ export class DelegationWorker {
 
   private stopped = false;
 
-  private active = new Map<string, { run: DelegationRun; done: Promise<void> }>();
+  private active = new Map<string, RunningDelegation>();
 
   private closing = new Map<string, Promise<void>>();
 
   private questions: DelegationQuestions;
+
+  /**
+  Wake the native owner from a synchronous timer or persistence notification.
+  */
+  private changed = () => {
+    void this.wake();
+  };
 
   /**
   Binds one worker to its durable queue and native harness adapters.
@@ -79,6 +76,26 @@ export class DelegationWorker {
   }
 
   /**
+  Report native wakeup failures at the background resource boundary.
+  */
+  private async wake() {
+    const completed = await captureResult(this.tick.bind(this));
+
+    if (!completed.ok) {
+      log().error({ error: completed.error }, "side_pocket.worker_failed");
+    }
+  }
+
+  /**
+  Apply one native wakeup to questions, dispatch and parent reports.
+  */
+  private reconcile() {
+    this.questions.answers();
+    this.dispatch();
+    this.reports.queue();
+  }
+
+  /**
   Releases only confirmed process slots before cancelling stale questions and waking dispatch.
   @param child - Child whose command settled.
   @param run - Native resource carrying its cleanup outcome.
@@ -93,7 +110,7 @@ export class DelegationWorker {
     }
 
     this.store.mail.cancelRequests(child.id);
-    void this.tick();
+    void this.wake();
   }
 
   /**
@@ -133,36 +150,17 @@ export class DelegationWorker {
       },
       parentTools: parentToolServer(child.id, command.id),
       callbacks: {
-        request: (request) => this.questions.request(child, request),
-        output: (text) =>
-          this.store.mail.record(child.parentId, child.id, `output:${crypto.randomUUID()}`, "output", { text }, false),
-        metadata: (data) => {
-          this.store.metadata(child.parentId, child.id, data);
-        },
+        request: this.questions.request.bind(this.questions, child),
+        output: recordDelegationOutput.bind(undefined, this.store, child),
+        metadata: this.store.metadata.bind(this.store, child.parentId, child.id),
       },
     });
     const run = new DelegationRun(this.store, child, command, adapter);
     const done = this.execute(child, run);
 
     this.active.set(child.id, { run, done });
-    void this.tick();
-  }
-
-  /**
-  Interrupts a running child, confirms native close and joins its command.
-  @param running - Active native resource and execution promise.
-  @returns Confirmed close and execution completion; adapter failures reject.
-  */
-  private async closeActive(running: { run: DelegationRun; done: Promise<void> }) {
-    const interrupted = await captureResult(() => running.run.adapter.interrupt());
-
-    await running.run.adapter.close();
-
-    if (!interrupted.ok) {
-      throw interrupted.error;
-    }
-
-    await running.done;
+    void observeDelegation(done, child.id);
+    void this.wake();
   }
 
   /**
@@ -174,7 +172,7 @@ export class DelegationWorker {
     const running = this.active.get(child.id);
 
     if (running) {
-      await this.closeActive(running);
+      await interruptDelegation(running);
     }
 
     this.active.delete(child.id);
@@ -188,7 +186,7 @@ export class DelegationWorker {
   @returns Completion of this closure attempt.
   */
   private async closeSafely(child: SidePocket) {
-    const closed = await captureResult(() => this.closeRequested(child));
+    const closed = await captureResult(this.closeRequested.bind(this), child);
 
     this.closing.delete(child.id);
 
@@ -249,11 +247,7 @@ export class DelegationWorker {
     while (this.dirty && !this.stopped) {
       this.dirty = false;
 
-      const outcome = captureResult(() => {
-        this.questions.answers();
-        this.dispatch();
-        this.reports.queue();
-      });
+      const outcome = captureResult(this.reconcile.bind(this));
 
       if (outcome.ok) {
         continue;
@@ -270,14 +264,12 @@ export class DelegationWorker {
   private async drain() {
     await Promise.resolve();
 
-    const flushed = captureResult(() => {
-      this.flush();
-    });
+    const flushed = captureResult(this.flush.bind(this));
 
     this.ticking = undefined;
 
     if (this.dirty && !this.stopped) {
-      void this.tick();
+      void this.wake();
     }
 
     if (!flushed.ok) {
@@ -290,14 +282,10 @@ export class DelegationWorker {
   @returns Completion of native process and closure settlement.
   */
   private async closeAll() {
-    const running = this.active.values().toArray();
+    const pending = Array.from(this.active.values(), closeDelegation);
+    const closed = await Promise.allSettled([...pending, ...this.closing.values()]);
 
-    for (const entry of running) {
-      await entry.run.adapter.close();
-    }
-
-    await Promise.allSettled(running.map((entry) => entry.done));
-    await Promise.allSettled(this.closing.values());
+    requireSettled(closed, "One or more delegated resources failed to stop.");
   }
 
   /**
@@ -323,13 +311,13 @@ export class DelegationWorker {
     }
 
     this.started = true;
-    this.unsubscribe = this.store.subscribe(() => void this.tick());
+    this.unsubscribe = this.store.subscribe(this.changed);
     this.store.recover(this.config.threadId);
     // fs.watch can lose events, and a writer can crash after commit but before
     // publishing. This bounded reconciliation also retries parent delivery.
-    this.timer = setInterval(() => void this.tick(), this.options.recoveryIntervalMs ?? RECOVERY_INTERVAL_MS);
+    this.timer = setInterval(this.changed, this.options.recoveryIntervalMs ?? RECOVERY_INTERVAL_MS);
     this.timer.unref();
-    void this.tick();
+    void this.wake();
   }
 
   /**
@@ -343,8 +331,10 @@ export class DelegationWorker {
     clearInterval(this.timer);
 
     this.questions.stop();
-    await this.ticking;
-    await this.closeAll();
-    await this.reports.settled();
+    const ticked = await captureResult(this.ticking ?? Promise.resolve());
+    const closed = await captureResult(this.closeAll.bind(this));
+    const reported = await captureResult(this.reports.settled.bind(this.reports));
+
+    requireResults([ticked, closed, reported], "Delegation worker shutdown failed.");
   }
 }

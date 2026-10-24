@@ -1,20 +1,23 @@
-import assert from "node:assert/strict";
-import test from "node:test";
+import { voiceState } from "../../src/state/voice";
+import { threadState } from "../../src/state/thread";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import path from "node:path";
-import os from "node:os";
 import { type StorageValue } from "zustand/middleware";
-import { createDraftStore, type DraftData } from "../../src/state/draft";
-import { createSavedVoiceStore, savedVoiceSchema } from "../../src/state/saved-voice";
-import { createThreadStore, stageMessage, publishThread } from "../../src/state/thread";
-import { createVoiceStore, mergeCaptions } from "../../src/state/voice";
+import { createDraftStore, editDraft } from "../../src/runtime/draft";
+import { type DraftData } from "../../src/state/draft";
+import { SavedVoiceRuntime } from "../../src/runtime/saved-voice";
+import { savedVoiceSchema } from "../../src/state/saved-voice";
+import { stageMessage, publishThread, mergeCaptions, observable } from "../../src/runtime/stores";
 import { initialSnapshot } from "../../src/lib/protocol";
 import { type VoiceSegment } from "../../src/lib/voice-history";
 import { sqliteStorage } from "../../src/server/zustand-storage";
 import { VoiceHistory } from "../../src/server/voice-history";
 import { writeLocal } from "../../src/server/local-state";
 import { workspace } from "../fixtures/workflow";
+import assert from "node:assert/strict";
+import test from "node:test";
+import path from "node:path";
+import os from "node:os";
 
 const caption: VoiceSegment = {
   id: "realtime:call:item:user",
@@ -27,8 +30,8 @@ const caption: VoiceSegment = {
 };
 
 await test("Zustand stores isolate requests and reconcile optimistic messages without duplicate rows", () => {
-  const first = createThreadStore({ ...initialSnapshot, threadId: "first" });
-  const second = createThreadStore({ ...initialSnapshot, threadId: "second" });
+  const first = observable(threadState({ ...initialSnapshot, threadId: "first" }));
+  const second = observable(threadState({ ...initialSnapshot, threadId: "second" }));
 
   stageMessage(first, "receipt", "Keep my message.");
   assert.equal(second.getState().state.queue.length, 0);
@@ -61,7 +64,7 @@ await test("Zustand stores isolate requests and reconcile optimistic messages wi
   assert.equal(first.getState().state.turns[0].items.length, 1);
   assert.equal(second.getState().state.threadId, "second");
 
-  const voice = createVoiceStore([caption]);
+  const voice = observable(voiceState([caption]));
 
   mergeCaptions(voice, [{ ...caption, done: false, text: "Keep" }]);
   assert.deepEqual(voice.getState().segments, [caption]);
@@ -89,7 +92,7 @@ await test("Zustand manual hydration keeps SSR deterministic and preserves edits
   assert.equal(store.getInitialState().text, "");
   const hydration = store.persist.rehydrate();
 
-  store.getState().edit("New typing while storage is loading.");
+  editDraft(store, "New typing while storage is loading.");
   pending.resolve({ state: { text: "Older saved draft." }, version: 1 });
   await hydration;
   assert.equal(store.getState().text, "New typing while storage is loading.");
@@ -111,12 +114,12 @@ await test("Zustand SQLite hydration survives reopening and keeps conversation k
 
   t.after(() => rm(directory, { recursive: true, force: true }));
   const filename = path.join(directory, "state.sqlite");
-  const first = createSavedVoiceStore("first", sqliteStorage(filename, savedVoiceSchema));
+  const first = new SavedVoiceRuntime("first", sqliteStorage(filename, savedVoiceSchema));
 
   await first.hydrate();
   first.store.setState({ segments: [caption] });
-  const reopened = createSavedVoiceStore("first", sqliteStorage(filename, savedVoiceSchema));
-  const other = createSavedVoiceStore("other", sqliteStorage(filename, savedVoiceSchema));
+  const reopened = new SavedVoiceRuntime("first", sqliteStorage(filename, savedVoiceSchema));
+  const other = new SavedVoiceRuntime("other", sqliteStorage(filename, savedVoiceSchema));
 
   assert.deepEqual(reopened.store.getInitialState().segments, []);
   await reopened.hydrate();
@@ -148,7 +151,7 @@ await test("Zustand voice history restores legacy JSON and persists new captions
 await test("Zustand voice hydration rejects incompatible persisted versions without replacing saved data", async () => {
   let writes = 0;
 
-  const history = createSavedVoiceStore("future", {
+  const history = new SavedVoiceRuntime("future", {
     getItem: () => ({ state: { segments: [caption] }, version: 99 }),
     setItem: () => {
       writes++;

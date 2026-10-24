@@ -1,173 +1,163 @@
-import { t as captureResult } from "try";
-import { type VoiceResources, listenRealtime, stopRealtime, receiveRealtime } from "../lib/realtime-stream";
-import { createVoiceResources, connectVoice, playRemoteAudio, releaseVoiceResources } from "../lib/realtime-capture";
-import { type VoiceStore, type VoicePhase, mergeCaptions } from "../state/voice";
-import { createCaptionHistory } from "./voice-history";
+import { t } from "try";
+import { type VoiceResources, stopRealtime } from "../runtime/realtime-stream";
+import { createVoiceResources, releaseVoiceResources } from "../runtime/realtime-capture";
+import { type VoiceStore } from "../runtime/stores";
+import { CaptionHistory } from "./voice-history";
+import { VoiceCall } from "./voice-call";
 
-const MEDIA_CONNECT_TIMEOUT_MS = 45_000;
-
-/** Own browser media resources separately from observable lifecycle and caption state.
-@param store - Scoped voice state.
-@param url - Scoped lifecycle API URL.
-@param eventsUrl - Scoped passive caption feed.
-@returns Actions and resource accessors; construction has no browser side effects.
+/**
+Runtime owner of media resource allocation and the single in-flight stop operation.
 */
-export function createVoiceController(store: VoiceStore, url: string, eventsUrl: string) {
-  const history = createCaptionHistory(store, url);
-  const { refresh } = history;
-  const transcript = (entry: Parameters<typeof mergeCaptions>[1][number]) => {
-    mergeCaptions(store, [entry]);
-  };
-  const setState = (state: VoicePhase) => {
-    store.setState({ state });
-  };
-  const setError = (error: string) => {
-    store.setState({ error });
-  };
+export class VoiceController {
+  private call: VoiceCall | null = null;
+  private stopTask: Promise<void> | null = null;
 
-  let resources: VoiceResources | null = null;
-  let stopTask: Promise<void> | null = null;
-
-  async function refreshHistory() {
-    const refreshed = await captureResult(refresh);
+  /**
+  Refresh captions after shutdown without making audio wait on storage.
+  */
+  private refreshHistory = async () => {
+    const refreshed = await t(this.history.refresh);
 
     if (!refreshed.ok) {
-      setError("Voice history could not be refreshed.");
+      this.store.setState({ error: "Voice history could not be refreshed." });
     }
-  }
-
-  async function finishStop(current: VoiceResources) {
-    const stopped = await captureResult(stopRealtime, current);
-
-    stopTask = null;
-    setState("idle");
-
-    if (!stopped.ok) {
-      setError("Realtime closure could not be confirmed.");
-    }
-
-    void refreshHistory();
-  }
-
-  const stop = async () => {
-    if (stopTask) {
-      return stopTask;
-    }
-
-    const current = resources;
-
-    if (!current) {
-      return;
-    }
-
-    resources = null;
-    releaseVoiceResources(current);
-    setState("stopping");
-    stopTask = finishStop(current);
-    await stopTask;
   };
 
-  const start = async () => {
-    if (resources || stopTask) {
-      return;
+  /** Confirm remote shutdown after local media has already been released.
+  @param current - Released media resources for the closing call.
+  */
+  private finishStop = async (current: VoiceResources) => {
+    const stopped = await t(stopRealtime, current);
+
+    this.stopTask = null;
+    this.store.setState({ state: "idle" });
+
+    if (!stopped.ok) {
+      this.store.setState({ error: "Realtime closure could not be confirmed." });
     }
 
-    setError("");
-    setState("starting");
+    void this.refreshHistory();
+  };
 
+  /**
+  Schedule shutdown from a synchronous browser callback.
+  */
+  private cancel = () => {
+    void this.stop();
+  };
+
+  /**
+  Allocate media before asynchronous negotiation.
+  @returns Newly allocated runtime call.
+  */
+  private createCall = () => {
     if (
       !("RTCPeerConnection" in globalThis) ||
       !("AudioContext" in globalThis) ||
       !("mediaDevices" in navigator) ||
       !("getUserMedia" in navigator.mediaDevices)
     ) {
-      setError("Realtime audio is unavailable in this browser.");
-      setState("idle");
+      throw new Error("Realtime audio is unavailable in this browser.");
+    }
 
+    const resources = createVoiceResources(new AudioContext());
+
+    resources.commandUrl = this.url;
+    resources.eventsUrl = this.eventsUrl;
+
+    return new VoiceCall(resources, this.store, this.cancel);
+  };
+
+  readonly history;
+
+  /** Release local playback immediately, then confirm remote closure.
+  @returns Shared completion for simultaneous stop requests.
+  */
+  stop = async () => {
+    if (this.stopTask) {
+      return this.stopTask;
+    }
+
+    const current = this.call?.resources;
+
+    if (!current) {
       return;
     }
 
-    const context = new AudioContext();
-    const current = createVoiceResources(context);
+    this.call = null;
+    releaseVoiceResources(current);
+    this.store.setState({ state: "stopping" });
+    this.stopTask = this.finishStop(current);
+    await this.stopTask;
+  };
 
-    current.commandUrl = url;
-    current.eventsUrl = eventsUrl;
-
-    resources = current;
-    const fail = (message: string) => {
-      if (!current.active) {
-        return;
-      }
-
-      setError(message);
-      void stop();
-    };
-
-    current.connectionTimer = setTimeout(() => {
-      fail("Realtime audio could not connect. Start voice again to continue.");
-    }, MEDIA_CONNECT_TIMEOUT_MS);
-    current.peer.addEventListener("connectionstatechange", () => {
-      if (!current.active) {
-        return;
-      }
-
-      if (current.peer.connectionState === "connected") {
-        clearTimeout(current.connectionTimer);
-        setState("active");
-      } else if (["failed", "closed"].includes(current.peer.connectionState)) {
-        fail("Realtime audio disconnected. Start voice again to continue.");
-      }
-    });
-
-    async function play(event: RTCTrackEvent) {
-      const played = await captureResult(playRemoteAudio, current, event);
-
-      if (!played.ok) {
-        fail("Audio playback could not start. Start voice again to continue.");
-      }
+  /**
+  Start a single native media connection and capture allocation/negotiation failures.
+  */
+  start = async () => {
+    if (this.hasConnection()) {
+      return;
     }
 
-    current.peer.addEventListener("track", (event) => void play(event));
-    current.channel.addEventListener("close", () => {
-      fail("Realtime disconnected. Start voice again to continue.");
-    });
+    this.store.setState({ error: "", state: "starting" });
+    const allocated = t(this.createCall);
 
-    async function followCaptions(token: string) {
-      const listened = await captureResult(listenRealtime, current, token, (message) => {
-        receiveRealtime(current, message, { stop: () => void stop(), error: setError, transcript });
+    if (!allocated.ok) {
+      this.store.setState({
+        state: "idle",
+        error: allocated.error instanceof Error ? allocated.error.message : "Realtime could not start.",
       });
 
-      if (!listened.ok && current.active) {
-        setError("Reply text disconnected. Your live audio is still connected.");
-      }
-    }
-
-    const connect = async () => {
-      await connectVoice(current, fail);
-
-      if (current.active && current.token) {
-        void followCaptions(current.token);
-      }
-    };
-
-    const completed = await captureResult(connect());
-
-    if (completed.ok) {
       return;
     }
 
-    const error_ = completed.error;
+    const current = allocated.value;
 
-    fail(error_ instanceof Error ? error_.message : "Realtime could not start.");
+    this.call = current;
+    const connected = await t(current.connect);
+
+    if (connected.ok || !current.resources.active) {
+      return;
+    }
+
+    this.store.setState({
+      error: connected.error instanceof Error ? connected.error.message : "Realtime could not start.",
+    });
+    await this.stop();
   };
 
-  return {
-    start,
-    stop,
-    history,
-    dismissError: () => {
-      store.setState({ error: "", historyError: "" });
-    },
-    analysers: () => ({ inputAnalyser: resources?.inputAnalyser, outputAnalyser: resources?.outputAnalyser }),
+  /**
+  Clear user-visible voice warnings.
+  */
+  dismissError = () => {
+    this.store.setState({ error: "", historyError: "" });
   };
+
+  /** Expose browser analysers to the rendering boundary.
+  @returns Current input and output analyser handles.
+  */
+  analysers = () => ({
+    inputAnalyser: this.call?.resources.inputAnalyser,
+    outputAnalyser: this.call?.resources.outputAnalyser,
+  });
+
+  /** Allocate independent media and caption owners without opening a connection.
+  @param store - Scoped voice projection.
+  @param url - Lifecycle API endpoint.
+  @param eventsUrl - Independent transcript endpoint.
+  */
+  constructor(
+    private readonly store: VoiceStore,
+    private readonly url: string,
+    private readonly eventsUrl: string
+  ) {
+    this.history = new CaptionHistory(store, url);
+  }
+
+  /** Read live ownership without assuming asynchronous operations preserve field values.
+  @returns Whether a call or pending stop owns the media runtime.
+  */
+  private hasConnection() {
+    return this.call !== null || this.stopTask !== null;
+  }
 }

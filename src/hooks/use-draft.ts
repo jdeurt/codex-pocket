@@ -1,4 +1,5 @@
 "use client";
+import { draftText } from "../state/draft";
 import { useStore } from "zustand";
 import { usePocketClient } from "../providers/pocket-state";
 
@@ -7,7 +8,7 @@ import { usePocketClient } from "../providers/pocket-state";
 */
 export function useDraft() {
   const { draft } = usePocketClient();
-  const text = useStore(draft.store, (state) => state.text);
+  const text = useStore(draft.store, draftText);
 
   return [text, draft.setText] as const;
 }

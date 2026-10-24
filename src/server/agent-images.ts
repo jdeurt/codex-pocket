@@ -1,41 +1,47 @@
 import { type Item, string } from "../lib/protocol";
-import Markdown from "react-markdown";
+import { type RootContent } from "hast";
 import { imageUrl } from "../lib/images";
+import { unified } from "unified";
+import remarkParse from "remark-parse";
+import remarkRehype from "remark-rehype";
 
-// Use the same Markdown parser as the chat, including reference images and paths
-// with spaces. A scoped image request must occur in this owned message's AST.
-/**
-Collect permitted image sources using the same Markdown AST parser as the chat.
-@param text - Exact assistant Markdown, including reference definitions and paths with spaces.
-@returns The distinct image sources found by native Markdown URL transformation.
+const imageParser = unified().use(remarkParse).use(remarkRehype).freeze();
+
+/** Find a permitted image in the same resolved Markdown AST used by rendering.
+@param children - Parsed HTML nodes, left unchanged.
+@param requested - Exact source requested by the read-only endpoint.
+@returns Whether the source occurs as an image in this tree.
 */
-function markdownImageSources(text: string) {
-  const sources = new Set<string>();
+function hasImageSource(children: readonly RootContent[], requested: string): boolean {
+  for (const node of children) {
+    if (node.type !== "element") {
+      continue;
+    }
 
-  Markdown({
-    children: text,
-    urlTransform: (url, key) => {
-      if (key === "src" && imageUrl(url)) {
-        sources.add(url);
-      }
+    if (node.tagName === "img" && node.properties.src === requested) {
+      return true;
+    }
 
-      return "";
-    },
-  });
+    if (hasImageSource(node.children, requested)) {
+      return true;
+    }
+  }
 
-  return sources;
+  return false;
 }
 
-/**
-Authorize a requested image only when the owned assistant message's Markdown AST contains it.
+/** Authorize a requested image against its owned assistant message's Markdown AST.
 @param item - Already scoped native item from this agent's saved transcript.
 @param requested - Exact image source requested by the read-only endpoint.
-@returns The owned source, or undefined when it is not part of the assistant message.
+@returns Owned source, or undefined when it is not a permitted image in this message.
 */
 export function markdownImageSource(item: Item, requested: string) {
-  if (item.type !== "agentMessage") {
+  if (item.type !== "agentMessage" || !imageUrl(requested)) {
     return;
   }
 
-  return markdownImageSources(string(item.text)).has(requested) ? requested : undefined;
+  const text = string(item.text);
+  const tree = imageParser.runSync(imageParser.parse(text), text);
+
+  return hasImageSource(tree.children, requested) ? requested : undefined;
 }

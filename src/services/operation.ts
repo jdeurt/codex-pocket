@@ -1,32 +1,35 @@
+import { operationState, completedOperation } from "../state/resource";
 import { t } from "try";
-import { createOperationStore } from "../state/resource";
+import { observable } from "../runtime/stores";
 
-/** Own a single mutation's lock and result without coupling it to a mounted form.
-@returns Observable mutation state and a guarded runner; no operation is automatically retried.
+/**
+Runtime owner of one operation lock and its observable result.
 */
-export function createOperation() {
-  const store = createOperationStore();
+export class Operation {
+  readonly store = observable(operationState());
 
-  return {
-    store,
-    run: async <T>(job: () => Promise<T>, fallback: string, status = "") => {
-      if (store.getState().busy) {
-        return { ok: false as const };
-      }
+  /** Execute an explicitly parameterized effect and publish its pure completion projection.
+  @param job - Module-scope effect implementation.
+  @param fallback - User-facing failure text.
+  @param status - Success confirmation.
+  @param args - Explicit arguments passed to the effect.
+  @returns Whether work completed and its successful value.
+  */
+  run = async <T, Args extends unknown[]>(
+    job: (...args: Args) => Promise<T>,
+    fallback: string,
+    status = "",
+    ...args: Args
+  ) => {
+    if (this.store.getState().busy) {
+      return { ok: false as const };
+    }
 
-      store.setState({ busy: true, error: "", status: "" });
+    this.store.setState({ busy: true, error: "", status: "" });
+    const result = await t(job, ...args);
 
-      const result = await t(job);
+    this.store.setState(completedOperation(result.ok, result.error, fallback, status));
 
-      const error = result.error instanceof Error ? result.error.message : fallback;
-
-      store.setState({
-        busy: false,
-        status: result.ok ? status : "",
-        error: result.ok ? "" : error,
-      });
-
-      return result.ok ? { ok: true as const, value: result.value } : { ok: false as const };
-    },
+    return result.ok ? { ok: true as const, value: result.value } : { ok: false as const };
   };
 }

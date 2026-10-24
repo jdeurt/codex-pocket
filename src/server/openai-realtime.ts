@@ -1,34 +1,19 @@
-/* eslint-disable jsdoc/require-param, jsdoc/require-returns -- Transport methods share one authenticated call owner. */
-import { type Data, dataSchema, object, string } from "../lib/protocol";
-import WebSocket, { type RawData } from "ws";
+import { type Data } from "../lib/protocol";
+import { RealtimeControl, REALTIME_TIMEOUT_MS } from "./realtime-control";
 import { configuration, REALTIME_MODEL } from "./realtime-configuration";
-import { t as attempt } from "try";
 
 export { REALTIME_MODEL, REALTIME_VOICES } from "./realtime-configuration";
 
-const CONNECT_TIMEOUT_MS = 15_000;
-const MAX_EVENT_BYTES = 1_000_000;
-const MAX_CONTROL_BYTES = 128_000;
 const CALLS_URL = "https://api.openai.com/v1/realtime/calls";
 const LAST = -1;
 const HTTP_NOT_FOUND = 404;
 const SOCKET_URL = "wss://api.openai.com/v1/realtime";
 
 /**
-Decode control events without interpreting media frames.
-*/
-function decode(raw: RawData) {
-  const buffer = Array.isArray(raw) ? Buffer.concat(raw) : raw;
-  const bytes = buffer instanceof ArrayBuffer ? Buffer.from(buffer) : buffer;
-
-  return dataSchema.parse(JSON.parse(bytes.toString("utf8")));
-}
-
-/**
 Create a WebRTC call and own only its server control connection. Audio bypasses Pocket.
 */
 export class OpenAIRealtime {
-  private socket?: WebSocket;
+  private control?: RealtimeControl;
   private stopped = false;
   private callId?: string;
   private key?: string;
@@ -37,82 +22,9 @@ export class OpenAIRealtime {
 
   /**
   Bind the session's control event consumer.
+  @param receive - Owning session's provider event consumer.
   */
   constructor(private receive: (event: Data) => void) {}
-
-  /**
-  Confirm server control ownership before returning the browser's SDP answer.
-  */
-  private attach(url: URL, key: string, voice: string, context: string) {
-    const socket = new WebSocket(url, {
-      headers: { Authorization: `Bearer ${key}` },
-      maxPayload: MAX_EVENT_BYTES,
-      handshakeTimeout: CONNECT_TIMEOUT_MS,
-    });
-
-    this.socket = socket;
-
-    return new Promise<void>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        const message = "OpenAI Realtime did not confirm its control connection.";
-
-        reject(new Error(message));
-        this.receive({ type: "error", error: { message } });
-      }, CONNECT_TIMEOUT_MS);
-
-      const fail = (message: string) => {
-        clearTimeout(timer);
-        reject(new Error(message));
-
-        if (!this.stopped) {
-          this.receive({ type: "error", error: { message } });
-        }
-      };
-
-      socket.on("open", () => {
-        socket.send(JSON.stringify(configuration(voice, context)));
-      });
-      socket.on("message", (raw) => {
-        if (this.stopped) {
-          return;
-        }
-
-        const outcome = attempt(decode, raw);
-
-        if (!outcome.ok) {
-          fail("OpenAI Realtime returned an invalid control event.");
-
-          return;
-        }
-
-        const event = outcome.value;
-
-        if (event.type === "session.updated") {
-          clearTimeout(timer);
-          resolve();
-        } else if (event.type === "error") {
-          const code = string(object(event.error).code).replaceAll(/[^a-z_]/g, "");
-
-          fail(`OpenAI Realtime failed${code ? ` (${code})` : ""}. Start voice again to continue.`);
-
-          return;
-        }
-
-        this.receive(event);
-      });
-      socket.on("error", () => {
-        fail("OpenAI Realtime control connection failed.");
-      });
-      socket.on("close", () => {
-        clearTimeout(timer);
-        reject(new Error("OpenAI Realtime control connection closed."));
-
-        if (!this.stopped) {
-          this.receive({ type: "closed" });
-        }
-      });
-    });
-  }
 
   /**
   End the provider call, including a call created after local cancellation.
@@ -125,7 +37,7 @@ export class OpenAIRealtime {
     const response = await fetch(`${this.callsUrl}/${this.callId}/hangup`, {
       method: "POST",
       headers: { Authorization: `Bearer ${this.key}` },
-      signal: AbortSignal.timeout(CONNECT_TIMEOUT_MS),
+      signal: AbortSignal.timeout(REALTIME_TIMEOUT_MS),
     });
 
     if (!response.ok && response.status !== HTTP_NOT_FOUND) {
@@ -135,6 +47,13 @@ export class OpenAIRealtime {
 
   /**
   Negotiate SDP with OpenAI, then attach server tools before the browser starts sending media.
+  @param key - Private provider credential.
+  @param voice - Configured provider voice.
+  @param sdp - Browser media offer.
+  @param model - Configured Realtime model.
+  @param endpoint - Optional test provider endpoint.
+  @param context - Explicit startup conversation context.
+  @returns Provider media answer after control setup succeeds.
   */
   async connect(key: string, voice: string, sdp: string, model = REALTIME_MODEL, endpoint?: string, context = "") {
     this.key = key;
@@ -147,7 +66,7 @@ export class OpenAIRealtime {
       method: "POST",
       headers: { Authorization: `Bearer ${key}` },
       body,
-      signal: AbortSignal.timeout(CONNECT_TIMEOUT_MS),
+      signal: AbortSignal.timeout(REALTIME_TIMEOUT_MS),
     });
 
     if (!response.ok) {
@@ -173,34 +92,31 @@ export class OpenAIRealtime {
 
     url.protocol = url.protocol === "http:" ? "ws:" : "wss:";
     url.searchParams.set("call_id", callId);
-    await this.attach(url, key, voice, context);
+    this.control = new RealtimeControl(url, key, voice, context, this.receive);
+    await this.control.ready;
 
     return answer;
   }
 
   /**
   Send tool results and session controls; microphone and playback never use this socket.
+  @param event - Provider control event.
   */
   send(event: Data) {
-    if (this.stopped || this.socket?.readyState !== WebSocket.OPEN) {
+    if (this.stopped || !this.control) {
       throw new Error("Realtime has stopped.");
     }
 
-    const encoded = JSON.stringify(event);
-
-    if (this.socket.bufferedAmount + Buffer.byteLength(encoded) > MAX_CONTROL_BYTES) {
-      throw new Error("Realtime control connection is too slow.");
-    }
-
-    this.socket.send(encoded);
+    this.control.send(event);
   }
 
   /**
   Revoke controls immediately and release the provider's media session once.
+  @returns Completion of provider hangup.
   */
   close() {
     this.stopped = true;
-    this.socket?.terminate();
+    this.control?.close();
     this.closing ??= this.hangup();
 
     return this.closing;

@@ -11,12 +11,17 @@ const SAME_TASK_THRESHOLD = 0.5;
 
 /** Classify only user text using OpenAI's documented predicate endpoint.
 @param apiKey - Server-only key resolved at the start of this pass.
+@param signal - Optional cancellation when new user input preempts background grouping.
 @param candidate - Next user message to classify.
 @param matched - Full set of user messages provisionally matched to this task.
-@param signal - Optional cancellation when new user input preempts background grouping.
 @returns Whether the candidate continues the task; refusals and invalid responses throw.
 */
-export async function isSameTask(apiKey: string, candidate: string, matched: string[], signal?: AbortSignal) {
+export async function isSameTask(
+  apiKey: string,
+  signal: AbortSignal | undefined,
+  candidate: string,
+  matched: string[]
+) {
   const timeout = AbortSignal.timeout(DECISION_TIMEOUT_MS);
   const response = await fetch("https://api.openai.com/v1/decisions", {
     method: "POST",

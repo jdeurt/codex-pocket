@@ -103,7 +103,7 @@ export function itemImageSources(item: Item): string[] {
 
     default: {
       const content = imageContent(item);
-      const sources = Array.isArray(content) ? content.map((part) => contentImageSource(part)).filter(Boolean) : [];
+      const sources = Array.isArray(content) ? Array.from(content, contentImageSource).filter(Boolean) : [];
 
       return [...new Set(sources)];
     }
@@ -120,6 +120,14 @@ export function itemImageUrl(itemId: string, index: number) {
   return `/api/images?item=${encodeURIComponent(itemId)}&index=${String(index)}`;
 }
 
+/** Identify local endpoints with guarded image and thumbnail representations.
+@param source - Candidate display URL.
+@returns Whether Pocket owns the image representation.
+*/
+function isLocalImageUrl(source: string) {
+  return source.startsWith("/api/images?") || source.startsWith("/api/uploads?") || source.startsWith("/api/agents?");
+}
+
 /**
 Allow supported image URLs and route local paths through Pocket's guarded image endpoint.
 @param source - Native image path or candidate URL.
@@ -133,7 +141,7 @@ export function imageUrl(source: string) {
   if (
     /^data:image\/(?:png|jpe?g|webp|gif|avif);base64,/i.test(source) ||
     /^https?:\/\//i.test(source) ||
-    ["/api/images?", "/api/uploads?", "/api/agents?"].some((prefix) => source.startsWith(prefix))
+    isLocalImageUrl(source)
   ) {
     return source;
   }
@@ -148,7 +156,4 @@ Select a thumbnail only for Pocket endpoints that implement that representation.
 @param source - Already normalized display URL.
 @returns The thumbnail URL for local endpoints, otherwise the original URL.
 */
-export const thumbnailUrl = (source: string) =>
-  ["/api/images?", "/api/uploads?", "/api/agents?"].some((prefix) => source.startsWith(prefix))
-    ? `${source}&thumbnail=1`
-    : source;
+export const thumbnailUrl = (source: string) => (isLocalImageUrl(source) ? `${source}&thumbnail=1` : source);

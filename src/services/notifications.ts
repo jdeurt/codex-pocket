@@ -1,130 +1,153 @@
+import { notificationState, notificationPublicKey } from "../state/notifications";
 import { t } from "try";
-import { createNotificationStore, type NotificationStatus } from "../state/notifications";
-import { clientError, reportClient } from "../lib/client-logging";
-import { get, post } from "../lib/client-api";
-import { matchingSubscription, notificationPublicKey, prepareRegistration } from "./notification-registration";
+import { observable } from "../runtime/stores";
+import { clientError, reportClient } from "../runtime/client-logging";
+import { get, post } from "../runtime/client-api";
+import { matchingSubscription, prepareRegistration } from "./notification-registration";
 import { subscribeNotificationPresence } from "./notification-presence";
 
-/** Own notification permission, registration and device presence outside rendering.
-@returns Shared observable state and browser lifecycle actions.
+/** Invoke PushManager synchronously in the user's activation task.
+@param registration - Ready native worker registration.
+@param key - Validated VAPID public key.
+@returns Native subscription completion.
 */
-export function createNotificationController() {
-  const store = createNotificationStore();
-  const setStatus = (status: NotificationStatus) => {
-    store.setState({ status });
-  };
-  const setError = (error: string) => {
-    store.setState({ error });
-  };
-  const setEndpoint = (endpoint: string) => {
-    store.setState({ endpoint });
-  };
+function subscribePush(registration: ServiceWorkerRegistration, key: Uint8Array<ArrayBuffer>) {
+  return registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key });
+}
 
-  let registration: ServiceWorkerRegistration | null = null;
-  let publicKey: Uint8Array<ArrayBuffer> | null = null;
-  let stopPresence: (() => void) | undefined;
+/**
+Runtime owner of native notification permission, subscription and device presence.
+*/
+export class NotificationController {
+  private registration: ServiceWorkerRegistration | null = null;
+  private publicKey: Uint8Array<ArrayBuffer> | null = null;
+  private stopPresence: (() => void) | undefined;
+  private controller: AbortController | undefined;
+  private unsubscribe: (() => void) | undefined;
 
-  async function recordSubscription(subscription: PushSubscription | null, signal?: AbortSignal) {
+  /** Persist the native subscription before publishing its endpoint.
+  @param subscription - Existing or newly allocated native subscription.
+  @param signal - Optional mounted-lifetime cancellation.
+  */
+  private recordSubscription = async (subscription: PushSubscription | null, signal?: AbortSignal) => {
     if (subscription) {
       await post("/api/notifications", subscription.toJSON());
     }
 
     signal?.throwIfAborted();
-    setEndpoint(subscription?.endpoint ?? "");
-    setStatus(subscription ? "enabled" : "ready");
-  }
-
-  const connect = () => {
-    const controller = new AbortController();
-    const unsubscribe = store.subscribe((state, previous) => {
-      if (state.endpoint === previous.endpoint) {
-        return;
-      }
-
-      stopPresence?.();
-      stopPresence = state.endpoint ? subscribeNotificationPresence(state.endpoint) : undefined;
-    });
-
-    async function prepare() {
-      const config = await get("/api/notifications", controller.signal);
-
-      controller.signal.throwIfAborted();
-
-      if (!("Notification" in globalThis) || !("PushManager" in globalThis) || !("serviceWorker" in navigator)) {
-        setStatus("unsupported");
-
-        return;
-      }
-
-      if (Notification.permission === "denied") {
-        setStatus("blocked");
-
-        return;
-      }
-
-      registration = await prepareRegistration();
-
-      publicKey = notificationPublicKey(config.publicKey);
-      await recordSubscription(await matchingSubscription(registration, publicKey), controller.signal);
-    }
-
-    async function initialize() {
-      const prepared = await t(prepare);
-
-      if (prepared.ok) {
-        return;
-      }
-
-      reportClient("notifications.prepare_failed", clientError(prepared.error), "error");
-
-      if (controller.signal.aborted) {
-        return;
-      }
-
-      setError(prepared.error instanceof Error ? prepared.error.message : "Couldn't prepare notifications.");
-      setStatus("unsupported");
-    }
-
-    void initialize();
-
-    return () => {
-      controller.abort();
-      unsubscribe();
-      stopPresence?.();
-    };
+    this.store.setState({ endpoint: subscription?.endpoint ?? "", status: subscription ? "enabled" : "ready" });
   };
 
-  async function enable() {
-    const current = registration;
-    const key = publicKey;
-
-    if (!current || !key) {
+  /** Replace device presence when a published native endpoint changes.
+  @param current - Current endpoint projection.
+  @param previous - Previous endpoint projection.
+  */
+  private endpointChanged = (current: { endpoint: string }, previous: { endpoint: string }) => {
+    if (current.endpoint === previous.endpoint) {
       return;
     }
 
-    setStatus("subscribing");
-    setError("");
-    // Invoke on the tap, before awaiting, so Safari retains user activation.
-    const subscribed = await t(() =>
-      current.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: key })
-    );
-    const saved = subscribed.ok ? await t(recordSubscription, subscribed.value) : subscribed;
+    this.stopPresence?.();
+    this.stopPresence = current.endpoint ? subscribeNotificationPresence(current.endpoint) : undefined;
+  };
+
+  /** Check native capabilities and restore the existing subscription.
+  @param controller - Exact lifetime owning this asynchronous preparation.
+  */
+  private prepare = async (controller: AbortController) => {
+    const config = await get("/api/notifications", controller.signal);
+
+    controller.signal.throwIfAborted();
+
+    if (!("Notification" in globalThis) || !("PushManager" in globalThis) || !("serviceWorker" in navigator)) {
+      this.store.setState({ status: "unsupported" });
+
+      return;
+    }
+
+    if (Notification.permission === "denied") {
+      this.store.setState({ status: "blocked" });
+
+      return;
+    }
+
+    const registration = await prepareRegistration();
+
+    controller.signal.throwIfAborted();
+    this.registration = registration;
+    this.publicKey = notificationPublicKey(config.publicKey);
+    await this.recordSubscription(await matchingSubscription(registration, this.publicKey), controller.signal);
+  };
+
+  /** Capture preparation errors without publishing after disposal.
+  @param controller - Exact mounted lifetime.
+  */
+  private initialize = async (controller: AbortController) => {
+    const prepared = await t(this.prepare, controller);
+
+    if (prepared.ok) {
+      return;
+    }
+
+    reportClient("notifications.prepare_failed", clientError(prepared.error), "error");
+
+    if (!controller.signal.aborted) {
+      this.store.setState({
+        error: prepared.error instanceof Error ? prepared.error.message : "Couldn't prepare notifications.",
+        status: "unsupported",
+      });
+    }
+  };
+
+  /**
+  Release preparation, state subscription and device presence.
+  */
+  private disconnect = () => {
+    this.controller?.abort();
+    this.unsubscribe?.();
+    this.stopPresence?.();
+  };
+
+  readonly store = observable(notificationState());
+
+  /** Start the notification lifetime after mount.
+  @returns Cleanup for native preparation and presence.
+  */
+  connect = () => {
+    this.controller = new AbortController();
+    this.unsubscribe = this.store.subscribe(this.endpointChanged);
+    void this.initialize(this.controller);
+
+    return this.disconnect;
+  };
+
+  /**
+  Request permission on the user's tap and persist the resulting subscription.
+  */
+  enable = async () => {
+    if (!this.registration || !this.publicKey) {
+      return;
+    }
+
+    this.store.setState({ status: "subscribing", error: "" });
+    const subscribed = await t(subscribePush, this.registration, this.publicKey);
+    const saved = subscribed.ok ? await t(this.recordSubscription, subscribed.value) : subscribed;
 
     if (saved.ok) {
       return;
     }
 
     reportClient("notifications.subscribe_failed", clientError(saved.error), "error");
-    setStatus(Notification.permission === "denied" ? "blocked" : "ready");
-    setError("Couldn't enable notifications. Try again from the installed Pocket app.");
-  }
+    this.store.setState({
+      status: Notification.permission === "denied" ? "blocked" : "ready",
+      error: "Couldn't enable notifications. Try again from the installed Pocket app.",
+    });
+  };
 
-  return {
-    store,
-    connect,
-    enable,
-    dismiss: () => {
-      setStatus("dismissed");
-    },
+  /**
+  Dismiss the local permission prompt without changing native permission.
+  */
+  dismiss = () => {
+    this.store.setState({ status: "dismissed" });
   };
 }

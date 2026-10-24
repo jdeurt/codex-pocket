@@ -1,7 +1,9 @@
 import { localDirectory, writeLocal } from "./local-state";
-import { readFile, readdir, rm } from "node:fs/promises";
+import { readFile, rm } from "node:fs/promises";
 import { type CodexRpc } from "./rpc";
-import { type Snapshot } from "../lib/protocol";
+import { type BridgeSnapshots } from "./bridge-snapshots";
+import { findById, withoutId } from "../lib/identity";
+import { optionalFile, directoryNames } from "./optional-file";
 import path from "node:path";
 import { requestFile } from "./request-files";
 import { z } from "zod";
@@ -16,21 +18,22 @@ const replySchema = z.object({
 /**
 Apply one validated desktop answer to its still-pending native request, then remove the reply file.
 @param file - Private reply file selected by the filename allowlist.
-@param snapshot - Current request state updated only after native response dispatch.
+@param owner - Canonical snapshot runtime.
 @param rpc - Existing native client, absent while disconnected.
 @param publish - Snapshot publisher called after the answer is persisted.
 */
-async function resolveReply(file: string, snapshot: Snapshot, rpc: CodexRpc | undefined, publish: () => void) {
+async function resolveReply(file: string, owner: BridgeSnapshots, rpc: CodexRpc | undefined, publish: () => void) {
   const reply = replySchema.parse(JSON.parse(await readFile(file, "utf8")));
+  const snapshot = owner.state;
   const request =
     (reply.threadId ?? process.env.CODEX_THREAD_ID) === snapshot.threadId
-      ? snapshot.requests.find((r) => r.id === reply.id)
+      ? findById(snapshot.requests, reply.id)
       : undefined;
 
   if (request && rpc?.running) {
     rpc.respond(request.id, reply.result);
-    snapshot.requests = snapshot.requests.filter((r) => r.id !== request.id);
-    await writeLocal(requestFile(snapshot.threadId), snapshot.requests);
+    owner.state = { ...owner.state, requests: withoutId(owner.state.requests, request.id) };
+    await writeLocal(requestFile(owner.state.threadId), owner.state.requests);
     publish();
   }
 
@@ -41,24 +44,24 @@ async function resolveReply(file: string, snapshot: Snapshot, rpc: CodexRpc | un
 
 /**
 Apply allowlisted private desktop reply files to pending native requests.
-@param snapshot - Current request state updated after accepted answers.
+@param owner - Canonical snapshot runtime.
 @param rpc - Connected native client, when available.
 @param publish - Publisher called after an accepted reply is persisted.
 */
-export async function resolveDesktopReplies(snapshot: Snapshot, rpc: CodexRpc | undefined, publish: () => void) {
-  const outcome = await attempt(() => readdir(localDirectory()));
+export async function resolveDesktopReplies(owner: BridgeSnapshots, rpc: CodexRpc | undefined, publish: () => void) {
+  const names = await optionalFile(directoryNames, localDirectory());
 
-  if (!outcome.ok) {
+  if (!names) {
     return;
   }
 
-  for (const name of outcome.value) {
+  for (const name of names) {
     if (!/^reply-[a-f0-9-]+\.json$/.test(name)) {
       continue;
     }
 
     const filename = path.resolve(localDirectory(), name);
-    const completed = await attempt(resolveReply, filename, snapshot, rpc, publish);
+    const completed = await attempt(resolveReply, filename, owner, rpc, publish);
 
     if (completed.ok) {
       continue;

@@ -1,10 +1,10 @@
-import { type Item, type Snapshot, type Turn, object, string } from "../lib/protocol";
+import { type Item, type Snapshot, type Turn, string, isTextContent } from "../lib/protocol";
 import { itemImageSources, itemImageUrl } from "../lib/images";
 import { type DelegateReport } from "../lib/delegate-reports";
 import { currentActivity } from "./activity";
 import { delegationMessagePrefix } from "./delegation-mail";
-import { isRecoveryMessageId } from "./recovery";
-import { projectRestarts } from "./restart-events";
+import { isRecoveryMessageId } from "../state/recovery";
+import { projectRestarts } from "../state/restarts";
 import { REALTIME_TOOL_PREFIX } from "./realtime-tools";
 import { toolTrace } from "./tool-trace";
 
@@ -50,6 +50,25 @@ function visibleTool(item: Item, images: NonNullable<Item["images"]>, hasTools: 
   return images.length > 0 ? { id: item.id, type: "imageOutput", images } : [];
 }
 
+/** Route one image without exposing local paths.
+@param itemId - Owning native item.
+@param source - Normalized image source.
+@param index - Image index within the item.
+@returns Guarded image metadata.
+*/
+function visibleImage(itemId: string, source: string, index: number) {
+  return { source: /^https?:\/\//i.test(source) ? source : itemImageUrl(itemId, index), alt: "Image from Pocket" };
+}
+
+/** Exclude scheduled and internal work from the visible delivery queue.
+@param scheduled - Hidden scheduled identities.
+@param message - Canonical queued delivery.
+@returns Whether this delivery belongs in the public transcript.
+*/
+function isVisibleQueuedMessage(scheduled: ReadonlySet<string>, message: Snapshot["queue"][number]) {
+  return !scheduled.has(message.id) && !isInternal(message.id);
+}
+
 /**
 Route native image sources once and retain message text or explicit tool output.
 @param item - Native visible message or output item.
@@ -57,19 +76,14 @@ Route native image sources once and retain message text or explicit tool output.
 @returns Normalized phone display item, or no row for output without visible content.
 */
 function visibleOutput(item: Item, hasTools: boolean): Item | Item[] {
-  const images = itemImageSources(item).map((source, index) => ({
-    source: /^https?:\/\//i.test(source) ? source : itemImageUrl(item.id, index),
-    alt: "Image from Pocket",
-  }));
+  const images = Array.from(itemImageSources(item), visibleImage.bind(undefined, item.id));
 
   if (["userMessage", "agentMessage"].includes(item.type)) {
     return {
       ...item,
       ...(images.length > 0 && {
         images,
-        content: Array.isArray(item.content)
-          ? item.content.filter((part) => object(part).type === "text")
-          : item.content,
+        content: Array.isArray(item.content) ? item.content.filter(isTextContent) : item.content,
       }),
     };
   }
@@ -82,23 +96,9 @@ Exclude internal work and preserve explicit restart and original-file rows befor
 @param item - Canonical native or restart item.
 @param scheduled - Hidden scheduled message identities for this snapshot.
 @param hasTools - Whether native tool traces belong in this read-only view.
-@param reports - Pending display projections consumed by their original delivery identity.
 @returns The existing phone display projection, including deliberate empty output.
 */
-function displayItem(
-  item: Item,
-  scheduled: Set<string>,
-  hasTools: boolean,
-  reports: Map<string, DelegateReport>
-): Item | Item[] {
-  const report = reports.get(string(item.clientId));
-
-  if (report && item.type === "userMessage") {
-    reports.delete(report.id);
-
-    return { id: report.id, type: "delegateReport", delegateReport: report };
-  }
-
+function displayItem(item: Item, scheduled: ReadonlySet<string>, hasTools: boolean): Item | Item[] {
   if (item.type === "pocketRestart") {
     return { id: item.id, type: item.type };
   }
@@ -112,6 +112,48 @@ function displayItem(
     : visibleOutput(item, hasTools);
 }
 
+/** Project a turn and report consumed delivery IDs without mutating caller-owned maps.
+@param turn - Native turn.
+@param scheduled - Hidden scheduled identities.
+@param hasTools - Whether tool details are visible.
+@param reports - Available report projections.
+@returns Turn and explicit consumed-report identities.
+*/
+function projectedTurn(
+  turn: Turn,
+  scheduled: ReadonlySet<string>,
+  hasTools: boolean,
+  reports: ReadonlyMap<string, DelegateReport>
+) {
+  const items: Item[] = [];
+  const consumed = new Set<string>();
+
+  let isWorker = false;
+
+  for (const item of turn.items) {
+    if (item.type === "userMessage") {
+      isWorker = item.id.startsWith(REALTIME_TOOL_PREFIX) || string(item.clientId).startsWith(REALTIME_TOOL_PREFIX);
+    }
+
+    if (isWorker && ["userMessage", "agentMessage"].includes(item.type)) {
+      continue;
+    }
+
+    const report = reports.get(string(item.clientId));
+
+    if (report && item.type === "userMessage" && !consumed.has(report.id)) {
+      consumed.add(report.id);
+      items.push({ id: report.id, type: "delegateReport", delegateReport: report });
+    } else {
+      const projected = displayItem(item, scheduled, hasTools);
+
+      items.push(...(Array.isArray(projected) ? projected : [projected]));
+    }
+  }
+
+  return { turn: { ...turn, items }, consumed };
+}
+
 /**
 Project one native turn through the shared visible-message and image boundary.
 @param turn - Canonical native or restart-projected turn.
@@ -122,24 +164,7 @@ export function visibleTurn(
   turn: Turn,
   options: { scheduled?: Set<string>; tools?: boolean; reports?: Map<string, DelegateReport> } = {}
 ): Turn {
-  const scheduled = options.scheduled ?? new Set<string>();
-
-  let isWorker = false;
-
-  const items = turn.items.filter((item) => {
-    if (item.type === "userMessage") {
-      isWorker = [item.id, string(item.clientId)].some((id) => id.startsWith(REALTIME_TOOL_PREFIX));
-    }
-
-    return !isWorker || !["userMessage", "agentMessage"].includes(item.type);
-  });
-
-  return {
-    ...turn,
-    items: items.flatMap<Item>((item) =>
-      displayItem(item, scheduled, options.tools === true, options.reports ?? new Map<string, DelegateReport>())
-    ),
-  };
+  return projectedTurn(turn, options.scheduled ?? new Set(), options.tools === true, options.reports ?? new Map()).turn;
 }
 
 /**
@@ -153,9 +178,27 @@ export function visibleSnapshot(
   state: Snapshot,
   options: { tools?: boolean; reports?: DelegateReport[] } = {}
 ): Snapshot {
+  const { activityState: _hostActivity, ...publicState } = state;
   const scheduled = new Set(Object.keys(state.scheduled));
-  const reports = new Map((options.reports ?? []).map((report) => [report.id, report]));
-  const turns = projectRestarts(state).map((turn) => visibleTurn(turn, { scheduled, tools: options.tools, reports }));
+  const reports = new Map<string, DelegateReport>();
+
+  const reportEntries = options.reports ?? [];
+
+  for (const report of reportEntries) {
+    reports.set(report.id, report);
+  }
+
+  const turns: Turn[] = [];
+
+  for (const turn of projectRestarts(state)) {
+    const projected = projectedTurn(turn, scheduled, options.tools === true, reports);
+
+    turns.push(projected.turn);
+
+    for (const id of projected.consumed) {
+      reports.delete(id);
+    }
+  }
 
   for (const report of reports.values()) {
     turns.push({
@@ -166,12 +209,12 @@ export function visibleSnapshot(
   }
 
   return {
-    ...state,
+    ...publicState,
     activity: currentActivity(state),
     notices: [],
     scheduled: {},
     restartEvents: undefined,
-    queue: state.queue.filter((message) => !scheduled.has(message.id) && !isInternal(message.id)),
+    queue: state.queue.filter(isVisibleQueuedMessage.bind(undefined, scheduled)),
     turns,
   };
 }

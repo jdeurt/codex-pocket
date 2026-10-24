@@ -1,4 +1,5 @@
 "use client";
+import { inactiveSubscription } from "../runtime/events";
 import { useEffect } from "react";
 import { useStore } from "zustand";
 import { usePocketClient } from "../providers/pocket-state";
@@ -11,7 +12,9 @@ export function useRealtime(threadId?: string) {
   const { voice, realtime } = usePocketClient();
   const state = useStore(voice);
 
-  useEffect(() => (threadId ? realtime.history.connect() : undefined), [realtime, threadId]);
+  const connect = threadId ? realtime.history.connect : inactiveSubscription;
+
+  useEffect(connect, [connect, threadId]);
 
   return {
     ...state,

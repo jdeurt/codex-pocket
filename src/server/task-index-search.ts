@@ -1,133 +1,78 @@
-import { extractSnippet, type HybridQueryResult, type QMDStore } from "@tobilu/qmd";
+import { passage } from "../state/task-passage";
+import { optionalFile, fileText } from "./optional-file";
+import { type QMDStore } from "@tobilu/qmd";
 import path from "node:path";
-import { readFile } from "node:fs/promises";
-import { type TaskIndexDocument, isParentTaskFile, optionalTaskFile, taskViewHash } from "./task-index-views";
+import { type TaskIndexDocument, isParentTaskFile, taskViewHash } from "./task-index-views";
 import { t as attempt } from "try";
 
 const RESULT_LIMIT = 5;
 const CANDIDATE_LIMIT = 100;
-const EXCERPT_LENGTH = 800;
 const CONTEXT_LENGTH = 240;
-const PASSAGE_CONTEXT = 120;
 
-export interface RetrievalMode {
-  engine: "@tobilu/qmd";
-  mode: "keyword" | "hybrid";
-  reranked: boolean;
-  reasons: string[];
-}
+import {
+  type RetrievalMode,
+  type RankedDocument,
+  keywordRetrieval,
+  retrievalEvidence,
+  completedRetrieval,
+  rankedHybridDocument,
+  rankedLexicalDocument,
+} from "../state/task-retrieval";
 
-interface RankedDocument {
-  file: string;
-  score: number;
-  chunkPos?: number;
-  explain?: unknown;
-}
+export type { RetrievalMode } from "../state/task-retrieval";
 
-/** Report the backends present in QMD's returned score traces.
-@param results - Explained fused results.
-@param retrieval - Mode to update when QMD produced no vector contribution.
+/** Execute a native QMD model search with explicit capabilities.
+@param store - Parent-only native index.
+@param query - Literal user query.
+@param retrieval - Available local capabilities.
+@returns Native explained engine results.
 */
-function reportRetrievalEvidence(results: HybridQueryResult[], retrieval: RetrievalMode) {
-  if (!(
-    retrieval.mode === "hybrid" &&
-    results.length > 0 &&
-    results.every((hit) => !hit.explain?.vectorScores.length)
-  )) {
-    return;
-  }
+function searchModels(store: QMDStore, query: string, retrieval: RetrievalMode) {
+  const queries = [{ type: "lex" as const, query }];
+  const expanded = retrieval.mode === "hybrid" ? [...queries, { type: "vec" as const, query }] : queries;
 
-  retrieval.mode = "keyword";
-  retrieval.reasons.push(
-    "QMD returned keyword contributions only for this query; no vector contribution was available."
-  );
+  return store.search({
+    queries: expanded,
+    collections: ["tasks"],
+    rerank: retrieval.reranked,
+    explain: true,
+    limit: CANDIDATE_LIMIT,
+    candidateLimit: CANDIDATE_LIMIT,
+    minScore: 0,
+  });
 }
 
 /** Use QMD's actual BM25 or fused lex/vector retrieval, without implicit query expansion/model downloads.
 @param store - Private parent store with local-only model configuration.
 @param query - User's literal query.
-@param retrieval - Actual available capabilities; failures downgrade this object explicitly.
+@param retrieval - Actual available capabilities, left unchanged.
 @returns QMD-ranked documents with engine scores and explanations.
 */
-async function retrieve(store: QMDStore, query: string, retrieval: RetrievalMode): Promise<RankedDocument[]> {
+async function retrieve(store: QMDStore, query: string, retrieval: RetrievalMode) {
+  let mode = retrieval;
+
   if (retrieval.mode === "hybrid" || retrieval.reranked) {
-    const queries = [{ type: "lex" as const, query }];
-    const expanded = retrieval.mode === "hybrid" ? [...queries, { type: "vec" as const, query }] : queries;
+    const result = await attempt(searchModels, store, query, retrieval);
 
-    const outcome = await attempt(() =>
-      store.search({
-        queries: expanded,
-        collections: ["tasks"],
-        rerank: retrieval.reranked,
-        explain: true,
-        limit: CANDIDATE_LIMIT,
-        candidateLimit: CANDIDATE_LIMIT,
-        minScore: 0,
-      })
-    );
-
-    if (outcome.ok) {
-      reportRetrievalEvidence(outcome.value, retrieval);
-
-      return outcome.value.map((hit) => ({
-        file: hit.file,
-        score: hit.score,
-        chunkPos: hit.bestChunkPos,
-        explain: hit.explain,
-      }));
+    if (result.ok) {
+      return {
+        ranked: Array.from(result.value, rankedHybridDocument),
+        retrieval: retrievalEvidence(result.value, retrieval),
+      };
     }
 
-    const error = outcome.error;
+    const error = result.error;
 
-    retrieval.reasons.push(`Local model search unavailable: ${error instanceof Error ? error.message : String(error)}`);
-    retrieval.mode = "keyword";
-    retrieval.reranked = false;
+    mode = keywordRetrieval(
+      retrieval,
+      `Local model search unavailable: ${error instanceof Error ? error.message : String(error)}`,
+      true
+    );
   }
 
   const lexical = await store.searchLex(query, { collection: "tasks", limit: CANDIDATE_LIMIT });
 
-  return lexical.map((hit) => ({
-    file: hit.filepath,
-    score: hit.score,
-    explain: { backend: "QMD BM25", score: hit.score },
-  }));
-}
-
-/** Select a passage from the actual indexed Markdown and expose exact line/character positions.
-@param document - Current Markdown page and native source mapping.
-@param query - Supplied query used by QMD's snippet selector.
-@param chunkPos - QMD's best chunk position when vector/fused retrieval supplies one.
-@returns Bounded excerpt, real offsets and honest literal match evidence.
-*/
-function passage(document: TaskIndexDocument, query: string, chunkPos?: number) {
-  const snippet = extractSnippet(document.body, query, EXCERPT_LENGTH, chunkPos);
-  const lines = document.body.split("\n");
-  const selectedLine = Math.max(1, snippet.line);
-  const lineStart = lines.slice(0, selectedLine - 1).reduce((length, line) => length + line.length + 1, 0);
-  const terms = [...new Set(query.toLowerCase().match(/[\p{L}\p{N}_]+/gu))];
-  const selected = (lines[selectedLine - 1] ?? "").toLowerCase();
-  const positions = terms.map((term) => selected.indexOf(term)).filter((position) => position >= 0);
-  const allPositions = terms
-    .map((term) => document.body.toLowerCase().indexOf(term))
-    .filter((position) => position >= 0);
-  const fallback = allPositions.length > 0 ? Math.min(...allPositions) : lineStart;
-  const match = positions.length > 0 ? lineStart + Math.min(...positions) : fallback;
-  const start = Math.max(0, match - PASSAGE_CONTEXT);
-  const text = document.body.slice(start, start + EXCERPT_LENGTH);
-  const end = start + text.length;
-  const startLine = document.body.slice(0, start).split("\n").length;
-
-  return {
-    text,
-    start,
-    end,
-    startLine,
-    endLine: startLine + text.split("\n").length - 1,
-    offsetUnit: "UTF-16 code units in the Markdown file",
-    omittedBefore: start,
-    omittedAfter: document.body.length - end,
-    matchedTerms: terms.filter((term) => text.toLowerCase().includes(term)),
-  };
+  return { ranked: Array.from(lexical, rankedLexicalDocument), retrieval: mode };
 }
 
 /** Reject stale, deleted or cross-parent documents before exposing indexed content or references.
@@ -137,17 +82,123 @@ function passage(document: TaskIndexDocument, query: string, chunkPos?: number) 
 */
 async function isCurrentDocument(owner: string, document: TaskIndexDocument) {
   const valid = await Promise.all(
-    [document.file, document.taskFile, document.sourceFile].map((file) => isParentTaskFile(owner, file))
+    Array.from([document.file, document.taskFile, document.sourceFile], isParentTaskFile.bind(undefined, owner))
   );
 
   if (valid.includes(false)) {
     return false;
   }
 
-  const task = await optionalTaskFile(() => readFile(document.taskFile, "utf8"));
-  const body = await optionalTaskFile(() => readFile(document.file, "utf8"));
+  const task = await optionalFile(fileText, document.taskFile);
+  const body = await optionalFile(fileText, document.file);
 
   return task !== null && taskViewHash(task) === document.taskHash && body === document.body;
+}
+
+interface Candidate {
+  document: TaskIndexDocument;
+  hit: RankedDocument;
+}
+
+/** Resolve an engine identity against the explicitly reconciled documents.
+@param documents - Authorized parent documents.
+@param file - Engine result identity.
+@returns Matching current document.
+*/
+function findDocument(documents: readonly TaskIndexDocument[], file: string) {
+  for (const document of documents) {
+    if (`qmd://tasks/${path.basename(document.file)}` === file) {
+      return document;
+    }
+  }
+}
+
+/** Order validated results by engine score then stable source path.
+@param first - First candidate.
+@param second - Second candidate.
+@returns Stable ranking order.
+*/
+function compareCandidates(first: Candidate, second: Candidate) {
+  return second.hit.score - first.hit.score || first.document.file.localeCompare(second.document.file);
+}
+
+/** Order adjacent source evidence in its canonical sequence.
+@param first - First document.
+@param second - Second document.
+@returns Source sequence order.
+*/
+function compareSequence(first: TaskIndexDocument, second: TaskIndexDocument) {
+  return first.sequence - second.sequence;
+}
+
+/** Select adjacent records, retaining the first page of each source sequence.
+@param documents - Reconciled source pages.
+@param document - Selected search hit.
+@returns Adjacent source records in native order.
+*/
+function neighboringDocuments(documents: readonly TaskIndexDocument[], document: TaskIndexDocument) {
+  const neighbors = new Map<number, TaskIndexDocument>();
+
+  for (const entry of documents) {
+    if (
+      entry.taskFile === document.taskFile &&
+      Math.abs(entry.sequence - document.sequence) === 1 &&
+      !neighbors.has(entry.sequence)
+    ) {
+      neighbors.set(entry.sequence, entry);
+    }
+  }
+
+  return neighbors.values().toArray().toSorted(compareSequence);
+}
+
+/** Validate neighboring evidence and assemble one readable search result.
+@param owner - Authorized parent.
+@param documents - Reconciled readable pages.
+@param query - Literal query.
+@param retrieval - Actual completed capabilities.
+@param candidate - Validated ranked hit.
+@returns Readable result with exact source positions.
+*/
+async function searchResult(
+  owner: string,
+  documents: TaskIndexDocument[],
+  query: string,
+  retrieval: RetrievalMode,
+  candidate: Candidate
+) {
+  const { document, hit } = candidate;
+  const excerpt = passage(document, query, hit.chunkPos);
+  const context = [];
+
+  for (const entry of neighboringDocuments(documents, document)) {
+    if (await isCurrentDocument(owner, entry)) {
+      context.push({
+        sourceId: entry.sourceId,
+        sequence: entry.sequence,
+        file: entry.file,
+        excerpt: entry.text.slice(0, CONTEXT_LENGTH),
+        truncated: entry.text.length > CONTEXT_LENGTH,
+      });
+    }
+  }
+
+  return {
+    file: document.file,
+    taskFile: document.taskFile,
+    score: hit.score,
+    excerpt: excerpt.text,
+    passage: excerpt,
+    context,
+    source: {
+      id: document.sourceId,
+      sequence: document.sequence,
+      file: document.sourceFile,
+      timestamp: document.timestamp,
+    },
+    ranking: hit.explain,
+    retrieval,
+  };
 }
 
 /** Search a reconciled parent index and map QMD evidence back to immutable native records.
@@ -167,73 +218,32 @@ export async function searchTaskIndex(
   offset: number,
   retrieval: RetrievalMode
 ) {
-  const ranked = /[\p{L}\p{N}]/u.test(query) ? await retrieve(store, query, retrieval) : [];
-
-  retrieval.reranked &&= ranked.length > 0;
-
-  if (!/[\p{L}\p{N}]/u.test(query)) {
-    retrieval.reasons.push("Empty or punctuation-only query; no retrieval was run.");
-  }
+  const hasQuery = /[\p{L}\p{N}]/u.test(query);
+  const search = hasQuery ? await retrieve(store, query, retrieval) : { ranked: [], retrieval };
+  const ranked = search.ranked;
+  const mode = completedRetrieval(search.retrieval, ranked.length, hasQuery);
 
   const candidates = [];
 
   for (const hit of ranked) {
-    const document = documents.find((entry) => `qmd://tasks/${path.basename(entry.file)}` === hit.file);
+    const document = findDocument(documents, hit.file);
 
     if (document && (await isCurrentDocument(owner, document))) {
       candidates.push({ document, hit });
     }
   }
 
-  const ordered = candidates.toSorted(
-    (a, b) => b.hit.score - a.hit.score || a.document.file.localeCompare(b.document.file)
-  );
+  const ordered = candidates.toSorted(compareCandidates);
   const results = await Promise.all(
-    ordered.slice(offset, offset + RESULT_LIMIT).map(async ({ document, hit }) => {
-      const excerpt = passage(document, query, hit.chunkPos);
-      const nearby = documents.filter(
-        (entry) => entry.taskFile === document.taskFile && Math.abs(entry.sequence - document.sequence) === 1
-      );
-      const neighbors = new Map(nearby.toReversed().map((entry) => [entry.sequence, entry]))
-        .values()
-        .toArray()
-        .toSorted((a, b) => a.sequence - b.sequence);
-      const context = [];
-
-      for (const entry of neighbors) {
-        if (await isCurrentDocument(owner, entry)) {
-          context.push({
-            sourceId: entry.sourceId,
-            sequence: entry.sequence,
-            file: entry.file,
-            excerpt: entry.text.slice(0, CONTEXT_LENGTH),
-            truncated: entry.text.length > CONTEXT_LENGTH,
-          });
-        }
-      }
-
-      return {
-        file: document.file,
-        taskFile: document.taskFile,
-        score: hit.score,
-        excerpt: excerpt.text,
-        passage: excerpt,
-        context,
-        source: {
-          id: document.sourceId,
-          sequence: document.sequence,
-          file: document.sourceFile,
-          timestamp: document.timestamp,
-        },
-        ranking: hit.explain,
-        retrieval,
-      };
-    })
+    Array.from(
+      ordered.slice(offset, offset + RESULT_LIMIT),
+      searchResult.bind(undefined, owner, documents, query, mode)
+    )
   );
 
   return {
     results,
-    retrieval,
+    retrieval: mode,
     pagination: {
       offset,
       limit: RESULT_LIMIT,

@@ -1,4 +1,4 @@
-import { type AgentRecord } from "./agent-sources";
+import { type AgentRecord, observedMetadata } from "./agent-sources";
 import { type Turn } from "../lib/protocol";
 import { sessionAttachment } from "./session-adoption";
 
@@ -56,17 +56,78 @@ Capture native read metadata after updating its preview availability.
 @param record - Agent whose read has completed.
 @param revision - Discovery and file revision associated with the read.
 @param isFull - Whether complete turns belong in the snapshot.
-@returns The normalized cached read at its original completion time.
+@param completedAt - Explicit completion timestamp supplied by the runtime.
+@returns The normalized cached read without changing the discovery record.
 */
-export function completedRead(record: AgentRecord, revision: string, isFull: boolean): CachedRead {
-  record.agent.previewState = previewState(record);
-
+export function completedRead(record: AgentRecord, revision: string, isFull: boolean, completedAt: number): CachedRead {
   return {
     identity: agentReadIdentity(record),
     revision,
-    at: Date.now(),
-    agent: { ...record.agent },
+    at: completedAt,
+    agent: { ...record.agent, previewState: previewState(record) },
     historyError: record.historyError,
     ...(isFull && { turns: record.turns ?? [] }),
+  };
+}
+
+/** Decide whether a completed read can be reused from explicit age and revision inputs.
+@param record - Current scoped discovery record.
+@param saved - Previous completed read, if present.
+@param revision - Current discovery and file revision.
+@param isImage - Whether this lookup only needs existing image metadata.
+@param now - Runtime-supplied clock value.
+@param maximumAge - Maximum age for live or failed reads.
+@returns Whether the saved read remains valid.
+*/
+export function isFreshRead(
+  record: AgentRecord,
+  saved: CachedRead | undefined,
+  revision: string,
+  isImage: boolean,
+  now: number,
+  maximumAge: number
+) {
+  if (saved?.identity !== agentReadIdentity(record) || saved.revision !== revision) {
+    return false;
+  }
+
+  const isRecent = now - saved.at < maximumAge;
+
+  return (
+    (!saved.historyError || isRecent) &&
+    (isImage ||
+      (record.agent.harness === "claude" && Boolean(record.fileRevision)) ||
+      (!isAttached(record) && ["idle", "completed", "failed", "closed"].includes(record.agent.status)) ||
+      isRecent)
+  );
+}
+
+/** Merge a verified cached read without changing either source.
+@param record - Current authoritative ownership record.
+@param saved - Optional completed native read.
+@returns Record with reusable history and metadata.
+*/
+export function applyRead(record: AgentRecord, saved?: CachedRead): AgentRecord {
+  if (saved?.identity !== agentReadIdentity(record)) {
+    return record;
+  }
+
+  const canSettle =
+    !record.pocket &&
+    ["idle", "unknown"].includes(record.agent.status) &&
+    ["completed", "failed", "closed"].includes(saved.agent.status);
+  const isLive = isAttached(record) && !["closing", "closed"].includes(record.pocket?.status ?? "");
+
+  return {
+    ...record,
+    agent: {
+      ...record.agent,
+      ...observedMetadata({ model: saved.agent.model, effort: saved.agent.reasoningEffort }),
+      preview: saved.agent.preview,
+      previewState: saved.agent.previewState,
+      status: canSettle || isLive ? saved.agent.status : record.agent.status,
+    },
+    turns: saved.turns ?? record.turns,
+    historyError: record.discoveryError === true || saved.historyError,
   };
 }

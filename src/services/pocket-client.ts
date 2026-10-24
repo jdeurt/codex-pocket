@@ -1,124 +1,180 @@
+import { ContentReveals } from "../runtime/content-reveal";
+import { voiceState } from "../state/voice";
+import { threadState, type ThreadState } from "../state/thread";
+import { observable } from "../runtime/stores";
 import { t } from "try";
 import { type ClientBootstrap } from "../state/bootstrap";
-import { createThreadStore } from "../state/thread";
-import { createVoiceStore } from "../state/voice";
-import { createDraftController } from "./draft";
-import { createAttachmentController } from "./attachments";
-import { createResources } from "./resources";
-import { createVoiceController } from "./voice";
-import { createDeliveryController } from "./delivery";
-import { createSettingsController } from "./settings";
-import { createPocketsController } from "./pockets";
-import { createOperation } from "./operation";
-import { post } from "../lib/client-api";
-import { createNotificationController } from "./notifications";
+import { canReloadPocket, scopedPocketUrl } from "../state/pocket";
+import { DraftController } from "./draft";
+import { AttachmentController } from "./attachments";
+import { Resources } from "./resources";
+import { VoiceController } from "./voice";
+import { DeliveryController } from "./delivery";
+import { SettingsController } from "./settings";
+import { PocketsController } from "./pockets";
+import { Operation } from "./operation";
+import { post } from "../runtime/client-api";
+import { NotificationController } from "./notifications";
 import { connectThread } from "./thread";
 
+/** Register the production worker at the browser boundary.
+@returns Native registration completion.
+*/
+function registerServiceWorker() {
+  return navigator.serviceWorker.register("/sw.js");
+}
+
 /**
-Register the production worker and report registration failures.
+Register the production worker and report failures without rejecting the provider lifecycle.
 */
 async function registerWorker() {
-  const registered = await t(() => navigator.serviceWorker.register("/sw.js"));
+  const registered = await t(registerServiceWorker);
 
   if (!registered.ok) {
     console.error(registered.error);
   }
 }
 
-/** Create one request/tab's state owners without opening sockets or accessing browser storage.
-@param initial - Serialized public data loaded by the server for the selected Pocket.
-@returns Separate stores and service controllers with an explicit mounted lifetime.
+/**
+Explicit runtime root for one rendered Pocket; never shared between SSR requests or providers.
 */
-export function createPocketClient(initial: ClientBootstrap) {
-  const scope = (url: string) =>
-    initial.pocketId === "main" || /[?&]pocket=/.test(url)
-      ? url
-      : `${url}${url.includes("?") ? "&" : "?"}pocket=${encodeURIComponent(initial.pocketId)}`;
-  const thread = createThreadStore(initial.snapshot);
-  const voice = createVoiceStore(initial.captions);
-  const draft = createDraftController(initial.pocketId);
-  const attachments = createAttachmentController();
-  const resources = createResources(scope, initial.resources);
-  const realtime = createVoiceController(voice, scope("/api/realtime"), scope("/api/realtime/events"));
+export class PocketClient {
+  private readonly pocketId: string;
+  private readonly operations = new Map<string, Operation>();
+  private cleanups: (() => void)[] = [];
+  private recovered: string | undefined;
 
-  const delivery = createDeliveryController(thread, voice, draft, attachments, scope("/api/messages"));
+  /**
+  Recover an unacknowledged attachment send without overwriting current typing.
+  */
+  private recoverDraft = () => {
+    const pending = this.attachments.store.getState().draft.pending;
 
-  const settings = createSettingsController(resources, scope("/api/settings"));
-  const pockets = createPocketsController(resources, initial.pocketId, scope("/api/pockets"));
-  const notifications = createNotificationController();
-  const operations = new Map<string, ReturnType<typeof createOperation>>();
-
-  let recovered: string | undefined;
-
-  const recoverDraft = () => {
-    const pending = attachments.store.getState().draft.pending;
-
-    if (!pending || recovered === pending.id) {
+    if (!pending || this.recovered === pending.id) {
       return;
     }
 
-    recovered = pending.id;
+    this.recovered = pending.id;
 
-    if (!draft.store.getState().text && !delivery.store.getState().busy) {
-      draft.setText(pending.text);
+    if (!this.draft.store.getState().text && !this.delivery.store.getState().busy) {
+      this.draft.setText(pending.text);
     }
   };
-  const canReload = () =>
-    !delivery.store.getState().busy &&
-    voice.getState().state === "idle" &&
-    thread.getState().state.queue.every((message) => message.status !== "unknown" && message.status !== "sending") &&
-    draft.isSaved() &&
-    attachments.canReload();
 
-  return {
-    canReload,
-    notifications,
-    settings,
-    pockets,
-    operation: (id: string) => {
-      const operation = operations.get(id) ?? createOperation();
-
-      operations.set(id, operation);
-
-      return operation;
-    },
-    answer: async (id: string | number, result: unknown) => {
-      await post(scope("/api/answers"), { id, result });
-    },
-    delivery,
-    scope,
-    thread,
-    voice,
-    draft,
-    attachments,
-    resources,
-    realtime,
-    connect: () => {
-      const stopRecovery = attachments.store.subscribe(recoverDraft);
-      const stopVoiceOnDisconnect = thread.subscribe(({ connected, state }) => {
-        if ((!connected || state.connection !== "connected") && voice.getState().state !== "idle") {
-          void realtime.stop();
-        }
-      });
-
-      if ("serviceWorker" in navigator && process.env.NODE_ENV === "production") {
-        void registerWorker();
-      }
-
-      const stopNotifications = notifications.connect();
-      const stopDraft = draft.connect();
-      const stopThread = connectThread(thread, scope("/api/events"));
-
-      return () => {
-        stopRecovery();
-        stopVoiceOnDisconnect();
-        stopNotifications();
-        stopDraft();
-        stopThread();
-        void realtime.stop();
-      };
-    },
+  /** Release media when its owning conversation disconnects.
+  @param current - Published thread projection.
+  */
+  private threadChanged = (current: ThreadState) => {
+    if ((!current.connected || current.state.connection !== "connected") && this.voice.getState().state !== "idle") {
+      void this.realtime.stop();
+    }
   };
-}
 
-export type PocketClient = ReturnType<typeof createPocketClient>;
+  /**
+  Release every mounted subscription and begin media shutdown.
+  */
+  private disconnect = () => {
+    for (const stop of this.cleanups) {
+      stop();
+    }
+
+    this.cleanups = [];
+    void this.realtime.stop();
+  };
+
+  readonly reveals = new ContentReveals();
+  readonly thread;
+  readonly voice;
+  readonly draft;
+  readonly attachments = new AttachmentController();
+  readonly resources;
+  readonly realtime;
+  readonly delivery;
+  readonly settings;
+  readonly pockets;
+  readonly notifications = new NotificationController();
+
+  /** Resolve an endpoint for this owner's fixed Pocket identity.
+  @param url - Endpoint path.
+  @returns Explicitly scoped endpoint.
+  */
+  scope = (url: string) => scopedPocketUrl(this.pocketId, url);
+
+  /** Read durable/runtime status and apply the pure reload decision.
+  @returns Whether navigation can preserve ongoing work.
+  */
+  canReload = () =>
+    canReloadPocket(
+      this.delivery.store.getState().busy,
+      this.voice.getState().state,
+      this.thread.getState().state.queue,
+      this.draft.isSaved(),
+      this.attachments.canReload()
+    );
+
+  /** Retain one operation lock per explicitly named UI action.
+  @param id - Operation identity.
+  @returns Shared runtime operation owner.
+  */
+  operation = (id: string) => {
+    const operation = this.operations.get(id) ?? new Operation();
+
+    this.operations.set(id, operation);
+
+    return operation;
+  };
+
+  /** Submit a response to a pending native question.
+  @param id - Native request identity.
+  @param result - User-provided response.
+  */
+  answer = async (id: string | number, result: unknown) => {
+    await this.operation(`answer:${String(id)}`).run(
+      post,
+      "Couldn't send your answer.",
+      "",
+      this.scope("/api/answers"),
+      { id, result }
+    );
+  };
+
+  /** Start browser services after hydration.
+  @returns Cleanup for this provider lifetime.
+  */
+  connect = () => {
+    this.cleanups = [
+      this.attachments.store.subscribe(this.recoverDraft),
+      this.thread.subscribe(this.threadChanged),
+      this.notifications.connect(),
+      this.draft.connect(),
+      connectThread(this.thread, this.scope("/api/events")),
+    ];
+
+    if ("serviceWorker" in navigator && process.env.NODE_ENV === "production") {
+      void registerWorker();
+    }
+
+    return this.disconnect;
+  };
+
+  /** Allocate state and dependency owners without opening sockets or reading browser storage.
+  @param initial - Matching server/client bootstrap for this Pocket.
+  */
+  constructor(initial: ClientBootstrap) {
+    this.pocketId = initial.pocketId;
+    this.thread = observable(threadState(initial.snapshot));
+    this.voice = observable(voiceState(initial.captions));
+    this.draft = new DraftController(initial.pocketId);
+    this.resources = new Resources(this.scope, initial.resources);
+    this.realtime = new VoiceController(this.voice, this.scope("/api/realtime"), this.scope("/api/realtime/events"));
+    this.delivery = new DeliveryController(
+      this.thread,
+      this.voice,
+      this.draft,
+      this.attachments,
+      this.scope("/api/messages")
+    );
+    this.settings = new SettingsController(this.resources, this.scope("/api/settings"));
+    this.pockets = new PocketsController(this.resources, initial.pocketId, this.scope("/api/pockets"));
+  }
+}

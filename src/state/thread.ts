@@ -1,61 +1,68 @@
-import { createStore } from "zustand/vanilla";
-import { type QueuedMessage, type Snapshot, initialSnapshot } from "../lib/protocol";
+import { type QueuedMessage, type Snapshot } from "../lib/protocol";
 import { type FileAttachment } from "../lib/attachments";
 import { markNewContent } from "../lib/new-content";
+import { findById, upsertById, withoutId } from "../lib/identity";
 import { reconcileDeliveries } from "../lib/deliveries";
 
-/** Create an isolated conversation projection, shared by server hydration and client subscriptions.
-@param initial - Public server snapshot for this Pocket only.
-@returns Store with reconciliation and delivery actions; no network or browser resources.
-*/
-export function createThreadStore(initial: Snapshot = structuredClone(initialSnapshot)) {
-  return createStore(() => ({
-    state: initial,
-    latestState: initial,
-    connected: false,
-    pending: [] as QueuedMessage[],
-  }));
+export interface ThreadState {
+  state: Snapshot;
+  latestState: Snapshot;
+  connected: boolean;
+  pending: QueuedMessage[];
+  revision: number;
 }
 
-export type ThreadStore = ReturnType<typeof createThreadStore>;
-
-/** Reconcile canonical messages with optimistic deliveries before publishing one atomic snapshot.
-@param store - Scoped conversation store.
-@param state - Latest server snapshot.
-@param isConnected - Transport liveness independent of native agent connection.
+/** Create conversation data without opening a connection.
+@param initial - Public server snapshot for this Pocket.
+@returns Initial canonical and optimistic projection.
 */
-export function publishThread(store: ThreadStore, state: Snapshot, isConnected: boolean) {
-  const current = store.getState();
-  const reconciled = reconcileDeliveries(markNewContent(current.latestState, state), current.pending);
+export function threadState(initial: Snapshot): ThreadState {
+  return { state: initial, latestState: initial, connected: false, pending: [], revision: 0 };
+}
 
-  store.setState({ latestState: state, state: reconciled.state, pending: reconciled.pending, connected: isConnected });
+/** Reconcile an incoming snapshot and delivery receipts in one pure transition.
+@param current - Current projection, left unchanged.
+@param state - Latest server snapshot.
+@param isConnected - Transport liveness independent of agent connection.
+@returns New conversation state with deterministic reveal identities.
+*/
+export function receivedThread(current: ThreadState, state: Snapshot, isConnected: boolean): ThreadState {
+  const revision = current.revision + 1;
+  const reconciled = reconcileDeliveries(markNewContent(current.latestState, state, revision), current.pending);
+
+  return { latestState: state, state: reconciled.state, pending: reconciled.pending, connected: isConnected, revision };
 }
 
 /** Retain an optimistic message until its canonical user item becomes visible.
-@param store - Scoped conversation store.
+@param current - Current conversation projection.
 @param id - Durable delivery identity.
 @param text - Original message.
 @param attachments - Original uploaded file receipts.
+@returns Next reconciled projection without publishing it.
 */
-export function stageMessage(store: ThreadStore, id: string, text: string, attachments?: FileAttachment[]) {
-  store.setState(({ pending }) => ({
-    pending: [...pending.filter((message) => message.id !== id), { id, text, attachments, status: "sending" }],
-  }));
-  const current = store.getState();
+export function stagedMessage(current: ThreadState, id: string, text: string, attachments?: FileAttachment[]) {
+  const pending = [...withoutId(current.pending, id), { id, text, attachments, status: "sending" as const }];
 
-  publishThread(store, current.latestState, current.connected);
+  return receivedThread({ ...current, pending }, current.latestState, current.connected);
 }
 
-/** Record delivery acknowledgment without discarding the optimistic row prematurely.
-@param store - Scoped conversation store.
-@param id - Original delivery identity.
+/** Record acknowledgment without discarding an optimistic row prematurely.
+@param current - Current conversation projection.
+@param id - Durable delivery identity.
 @param status - Confirmed or uncertain delivery status.
+@returns Next reconciled projection without publishing it.
 */
-export function updateDelivery(store: ThreadStore, id: string, status: QueuedMessage["status"]) {
-  store.setState(({ pending }) => ({
-    pending: pending.map((entry) => (entry.id === id ? { ...entry, status } : entry)),
-  }));
-  const current = store.getState();
+export function acknowledgedDelivery(current: ThreadState, id: string, status: QueuedMessage["status"]) {
+  const message = findById(current.pending, id);
+  const pending = message ? upsertById(current.pending, { ...message, status }) : current.pending;
 
-  publishThread(store, current.latestState, current.connected);
+  return receivedThread({ ...current, pending }, current.latestState, current.connected);
+}
+
+/** Select public conversation state without internal delivery bookkeeping.
+@param current - Current projection.
+@returns Stable-shape rendering selection.
+*/
+export function visibleThread(current: ThreadState) {
+  return { state: current.state, connected: current.connected };
 }

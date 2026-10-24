@@ -1,230 +1,191 @@
-import { type Item, type RpcEvent, type Snapshot, type Turn, object, pretty, string } from "../lib/protocol";
-import { updateActivity } from "./activity";
+import { type RpcEvent, type Snapshot, type Turn, object, pretty, string } from "../lib/protocol";
+import { findById, upsertById, withoutId } from "../lib/identity";
+import { updatedActivity } from "./activity";
 
-const MISSING_INDEX = -1;
-
-/**
-Apply native model and reasoning-effort updates without discarding absent settings.
-@param state - Mutable current parent snapshot.
-@param settings - Normalized native thread settings.
+/** Replace one canonical turn without changing the previous snapshot.
+@param state - Previous parent projection.
+@param turn - Updated turn.
+@returns Snapshot containing the updated turn in its original position.
 */
-function updateSettings(state: Snapshot, settings: Record<string, unknown>) {
-  state.model = string(settings.model) || state.model;
-
-  if (typeof settings.effort === "string" || settings.effort === null) {
-    state.reasoningEffort = settings.effort;
-  }
+function withTurn(state: Snapshot, turn: Turn): Snapshot {
+  return { ...state, turns: upsertById(state.turns, turn) };
 }
 
-/**
-Start a native turn without replacing an already hydrated canonical turn.
-@param state - Mutable parent snapshot receiving native lifecycle state.
-@param incoming - Native started turn, absent for a malformed lifecycle event.
+/** Apply native model and reasoning settings without discarding absent values.
+@param state - Current parent projection.
+@param settings - Normalized native settings.
+@returns Updated parent projection.
+*/
+function updatedSettings(state: Snapshot, settings: Record<string, unknown>): Snapshot {
+  return {
+    ...state,
+    model: string(settings.model) || state.model,
+    reasoningEffort:
+      typeof settings.effort === "string" || settings.effort === null ? settings.effort : state.reasoningEffort,
+  };
+}
+
+/** Start a native turn while retaining previously hydrated items.
+@param state - Current projection.
+@param incoming - Started native turn, if supplied.
 @param current - Canonical turn already present under this identity.
-@returns The canonical started turn, or the prior value when no native turn was supplied.
+@returns Updated projection or unchanged state for malformed events.
 */
-function startNativeTurn(state: Snapshot, incoming: Turn | undefined, current: Turn | undefined) {
-  let turn = current;
-
+function startedTurn(state: Snapshot, incoming: Turn | undefined, current: Turn | undefined): Snapshot {
   if (!incoming) {
-    return turn;
+    return state;
   }
 
-  if (!turn) {
-    turn = { ...incoming, items: incoming.items };
-    state.turns.push(turn);
-  }
+  const turn = { ...(current ?? incoming), status: "inProgress" };
 
-  turn.status = "inProgress";
-  state.activeTurnId = turn.id;
-  state.activity = "";
-  state.error = undefined;
-  state.connectionRetry = undefined;
-
-  return turn;
+  return {
+    ...withTurn(state, turn),
+    activeTurnId: turn.id,
+    activity: "",
+    error: undefined,
+    connectionRetry: undefined,
+  };
 }
 
-/**
-Apply completion metadata and clear activity only for the exact active native turn.
-@param state - Mutable parent snapshot receiving lifecycle state.
-@param incoming - Completed native turn when supplied by the event.
-@param current - Existing canonical turn whose status and error may change.
+/** Clear activity only for the exact completed native turn.
+@param state - Current projection.
+@param incoming - Completed native turn, if supplied.
+@param current - Existing canonical turn.
+@returns Updated completion metadata without changing existing items.
 */
-function completeNativeTurn(state: Snapshot, incoming: Turn | undefined, current: Turn | undefined) {
+function completedTurn(state: Snapshot, incoming: Turn | undefined, current: Turn | undefined): Snapshot {
   if (!incoming) {
-    return;
+    return state;
   }
 
-  if (current) {
-    current.status = incoming.status;
-    current.error = incoming.error;
-  }
+  const next = current ? withTurn(state, { ...current, status: incoming.status, error: incoming.error }) : state;
+  const isActive = state.activeTurnId === incoming.id;
 
-  if (state.activeTurnId === incoming.id) {
-    state.activeTurnId = undefined;
-    state.activity = undefined;
-  }
-
-  if (incoming.error) {
-    state.error = incoming.error.message;
-  }
+  return {
+    ...next,
+    activeTurnId: isActive ? undefined : state.activeTurnId,
+    activity: isActive ? undefined : state.activity,
+    error: incoming.error?.message ?? state.error,
+  };
 }
 
-/**
-Merge a native item into its canonical position without duplicating a started item.
-@param turn - Canonical turn receiving the item.
-@param item - Validated native item from a started or completed notification.
+/** Merge item lifecycle or text deltas without mutating native event objects.
+@param state - Current projection.
+@param event - Item lifecycle or delta event.
+@param turnId - Native turn identity.
+@param current - Existing canonical turn.
+@returns Updated transcript projection.
 */
-function mergeItem(turn: Turn, item: Item) {
-  const index = turn.items.findIndex((entry) => entry.id === item.id);
+function updatedItem(state: Snapshot, event: RpcEvent, turnId: string, current: Turn | undefined): Snapshot {
+  if (event.method === "item/agentMessage/delta") {
+    const item = current && findById(current.items, event.params.itemId);
 
-  if (index === MISSING_INDEX) {
-    turn.items.push(item);
-  } else {
-    turn.items[index] = { ...turn.items[index], ...item };
+    return current && item
+      ? withTurn(state, {
+          ...current,
+          items: upsertById(current.items, { ...item, text: string(item.text) + string(event.params.delta) }),
+        })
+      : state;
   }
-}
 
-/**
-Create an observed native turn when necessary and merge its supplied item in place.
-@param state - Canonical parent snapshot that owns the turn list.
-@param item - Native item, absent when the event carries no item data.
-@param turnId - Native turn identity derived by the shared protocol adapter.
-@param current - Existing canonical turn under that identity.
-@returns The canonical turn, including the existing empty-turn behavior for missing item data.
-*/
-function updateNativeItem(state: Snapshot, item: Item | undefined, turnId: string, current: Turn | undefined) {
   const turn = current ?? { id: turnId, status: "inProgress", items: [] };
+  const item = event.params.item;
 
-  if (!current) {
-    state.turns.push(turn);
-  }
-
-  if (item) {
-    mergeItem(turn, item);
-  }
-
-  return turn;
+  return withTurn(
+    state,
+    item
+      ? {
+          ...turn,
+          items: upsertById(turn.items, { ...findById(turn.items, item.id), ...item }),
+        }
+      : turn
+  );
 }
 
-/**
-Clear a transient native retry only after assistant output resumes for its exact turn.
-@param state - Owning parent snapshot.
-@param event - Native progress or completion event, already scoped to the parent.
-@param turnId - Native turn that produced this event.
+/** Separate retrying native connection errors from persistent turn failures.
+@param state - Current projection.
+@param event - Native error notification.
+@param turnId - Associated native turn identity.
+@returns Explicit retry or terminal error state.
 */
-function clearRecoveredRetry(state: Snapshot, event: RpcEvent, turnId: string) {
+function recordedError(state: Snapshot, event: RpcEvent, turnId: string): Snapshot {
+  const params = event.params;
+  const message = string(object(params.error).message) || string(params.message) || pretty(params);
+
+  return turnId && params.willRetry === true
+    ? { ...state, connectionRetry: { turnId, message } }
+    : { ...state, error: message, connectionRetry: undefined };
+}
+
+/** Apply a native event using immutable state transformations.
+@param state - Scoped parent projection.
+@param event - Validated native event.
+@param turnId - Associated turn identity.
+@returns Next canonical snapshot.
+*/
+function scopedEvent(state: Snapshot, event: RpcEvent, turnId: string): Snapshot {
+  const params = event.params;
+  const turn = findById(state.turns, turnId);
+
+  switch (event.method) {
+    case "turn/started": {
+      return startedTurn(state, params.turn, turn);
+    }
+
+    case "turn/completed": {
+      return completedTurn(state, params.turn, turn);
+    }
+
+    case "item/started":
+    case "item/completed":
+    case "item/agentMessage/delta": {
+      return updatedItem(state, event, turnId, turn);
+    }
+
+    case "serverRequest/resolved": {
+      return { ...state, requests: withoutId(state.requests, params.requestId) };
+    }
+
+    case "thread/name/updated": {
+      return { ...state, title: string(params.threadName) || string(params.name) || "Codex" };
+    }
+
+    case "thread/settings/updated": {
+      return updatedSettings(state, object(params.threadSettings));
+    }
+
+    case "model/rerouted": {
+      return { ...state, model: string(params.toModel) || state.model };
+    }
+
+    case "error": {
+      return recordedError(state, event, turnId);
+    }
+
+    default: {
+      return state;
+    }
+  }
+}
+
+/** Reject foreign events and return the next state without hidden caches or input mutation.
+@param state - Current parent snapshot, left unchanged.
+@param event - Validated native notification, left unchanged.
+@returns Next snapshot including explicit activity bookkeeping.
+*/
+export function reduceEvent(state: Snapshot, event: RpcEvent): Snapshot {
+  if (event.params.threadId && event.params.threadId !== state.threadId) {
+    return state;
+  }
+
+  const turnId = string(event.params.turnId) || string(object(event.params.turn).id);
   const isResumed =
     event.method === "item/agentMessage/delta" ||
     event.method === "turn/completed" ||
     (event.method === "item/completed" && event.params.item?.type === "agentMessage");
+  const previous =
+    isResumed && state.connectionRetry?.turnId === turnId ? { ...state, connectionRetry: undefined } : state;
+  const next = scopedEvent(previous, event, turnId);
 
-  if (isResumed && state.connectionRetry?.turnId === turnId) {
-    state.connectionRetry = undefined;
-  }
-}
-
-/**
-Separate explicitly retrying native connection errors from persistent turn failures.
-@param state - Owning parent snapshot.
-@param event - Scoped native error with its explicit retry flag.
-@param turnId - Turn associated with the native error.
-*/
-function recordError(state: Snapshot, event: RpcEvent, turnId: string) {
-  const params = event.params;
-  const message = string(object(params.error).message) || string(params.message) || pretty(params);
-
-  if (turnId && params.willRetry === true) {
-    state.connectionRetry = { turnId, message };
-  } else {
-    state.error = message;
-    state.connectionRetry = undefined;
-  }
-}
-
-/**
-Apply an already scoped native event and then update its canonical activity projection.
-@param state - Mutable current parent snapshot.
-@param event - Validated native notification scoped before mutation.
-*/
-function reduceScopedEvent(state: Snapshot, event: RpcEvent) {
-  const params = event.params;
-  const turnId = string(params.turnId) || string(object(params.turn).id);
-
-  clearRecoveredRetry(state, event, turnId);
-
-  let turn = state.turns.find((entry) => entry.id === turnId);
-
-  switch (event.method) {
-    case "turn/started": {
-      turn = startNativeTurn(state, params.turn, turn);
-      break;
-    }
-
-    case "turn/completed": {
-      completeNativeTurn(state, params.turn, turn);
-      break;
-    }
-
-    case "item/started":
-    case "item/completed": {
-      turn = updateNativeItem(state, params.item, turnId, turn);
-      break;
-    }
-
-    case "item/agentMessage/delta": {
-      const item = turn?.items.find((entry) => entry.id === params.itemId);
-
-      if (item) {
-        item.text = string(item.text) + string(params.delta);
-      }
-
-      break;
-    }
-
-    case "serverRequest/resolved": {
-      state.requests = state.requests.filter((request) => request.id !== params.requestId);
-      break;
-    }
-
-    case "thread/name/updated": {
-      state.title = string(params.threadName) || string(params.name) || "Codex";
-      break;
-    }
-
-    case "thread/settings/updated": {
-      updateSettings(state, object(params.threadSettings));
-      break;
-    }
-
-    case "model/rerouted": {
-      state.model = string(params.toModel) || state.model;
-      break;
-    }
-
-    case "error": {
-      recordError(state, event, turnId);
-
-      break;
-    }
-
-    default: {
-      break;
-    }
-  }
-
-  updateActivity(state, event, turn);
-}
-
-/**
-Reject foreign-thread notifications before mutating canonical state or activity.
-@param state - Current parent snapshot owned by this bridge.
-@param event - Validated native notification received from the transport.
-*/
-export function reduceEvent(state: Snapshot, event: RpcEvent) {
-  if (event.params.threadId && event.params.threadId !== state.threadId) {
-    return;
-  }
-
-  reduceScopedEvent(state, event);
+  return updatedActivity(next, event, findById(next.turns, turnId));
 }

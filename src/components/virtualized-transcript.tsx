@@ -1,106 +1,131 @@
 "use client";
-import { type ActivityMeasurements, VirtualizedActivity } from "./virtualized-activity";
+import { useBoundCallback } from "../hooks/use-bound-callback";
+import { measuredMessages, type TranscriptLayout } from "../state/transcript-layout";
+import {
+  transcriptViewport,
+  measureTranscriptRow,
+  scrollTranscript,
+  attachTranscriptRow,
+  resumeTranscriptFollow,
+  maintainTranscriptEnd,
+  preserveTranscriptOffset,
+  connectTranscriptBookmark,
+  trackTranscriptScroll,
+  jumpToLatest,
+} from "../runtime/transcript-view";
+import { type ActivityMeasurements } from "./virtualized-activity";
 import {
   Children,
   type ReactNode,
   type RefObject,
-  useCallback,
+  useReducer,
   useEffect,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
 import {
   END_THRESHOLD,
   ESTIMATED_MESSAGE_HEIGHT,
-  FORWARD_MESSAGES,
-  INITIAL_MESSAGE_WINDOW,
   type TranscriptRow as Row,
   type TranscriptTurn,
-  messageRange,
+  transcriptRange,
+  transcriptRowKey,
+  estimatedTranscriptRow,
+  toggledTranscriptActivity,
   rowsForTurns,
 } from "@/lib/transcript-virtualization";
 import { MessageScroller, MessageScrollerProvider, MessageScrollerViewport } from "@/components/ui/message-scroller";
-import { type Range, type VirtualItem, elementScroll, measureElement } from "@tanstack/react-virtual";
-import {
-  type TranscriptBookmark,
-  readTranscriptBookmark,
-  subscribeTranscriptBookmark,
-} from "@/lib/transcript-bookmark";
-import { type TranscriptLayout, useTranscriptVirtualizer } from "@/hooks/use-transcript-virtualizer";
+import { type VirtualItem } from "@tanstack/react-virtual";
+import { type TranscriptBookmark, readTranscriptBookmark } from "../runtime/transcript-bookmark";
+import { useTranscriptVirtualizer } from "@/hooks/use-transcript-virtualizer";
 import { ArrowDownIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { ChatMessage } from "./chat-message";
+import { TranscriptEntry } from "./transcript-entry";
 import { TranscriptFooter } from "./transcript-footer";
 
 const PADDING_START = 24;
 const PADDING_END = 10;
 const LAST_ITEM = -1;
-const ACTIVITY_LOOKAHEAD_VIEWPORTS = 3;
 
-/**
-Render and measure one canonical transcript row with its native virtual position.
-@param props - Canonical row, TanStack measurement and the existing viewport/activity callbacks.
-@returns The matching measured message or activity row.
-*/
-function TranscriptEntry({
-  row,
-  virtualRow,
-  open,
-  toggle,
-  viewport,
-  layout,
-  measurements,
-  suspended,
-}: {
-  row: Row;
-  virtualRow: VirtualItem;
-  open: boolean;
-  toggle: () => void;
+interface RowContext {
+  rows: Row[];
+  expanded: Set<string>;
+  toggle: (id: string) => void;
+  measure: (element: HTMLElement | null) => void;
   viewport: RefObject<HTMLDivElement | null>;
   layout: TranscriptLayout;
   measurements: ActivityMeasurements;
   suspended: boolean;
-}) {
-  if (row.entry.kind === "message") {
-    return <ChatMessage item={row.entry.item} />;
-  }
+}
+
+/** Render one native measurement with explicitly supplied transcript data and event bindings.
+@param context - Immutable rendering inputs and runtime callbacks.
+@param virtualRow - Native measured row.
+@returns One stable keyed message or activity row.
+*/
+function transcriptRow(context: RowContext, virtualRow: VirtualItem) {
+  const { rows, expanded, toggle, measure, viewport, layout, measurements: activityMeasurements, suspended } = context;
+
+  const row = rows[virtualRow.index];
+  const next = rows.at(virtualRow.index + 1);
 
   return (
-    <VirtualizedActivity
-      id={row.id}
-      turnId={row.turnId}
-      items={row.entry.items}
-      open={open}
-      onOpenChange={toggle}
-      viewport={viewport}
-      origin={virtualRow.start}
-      end={virtualRow.end}
-      scrollOffset={layout.offset}
-      nearby={
-        virtualRow.end >= layout.offset - layout.height * 2 &&
-        virtualRow.start <= layout.offset + layout.height * ACTIVITY_LOOKAHEAD_VIEWPORTS
-      }
-      measurements={measurements}
-      suspended={suspended}
-    />
+    <li
+      key={virtualRow.key}
+      ref={measure}
+      data-index={virtualRow.index}
+      data-slot="message-scroller-item"
+      data-transcript-row={row.id}
+      data-activity-row={row.entry.kind === "activity" || undefined}
+      aria-posinset={virtualRow.index + 1}
+      aria-setsize={rows.length}
+      className="message-flow min-w-0"
+      style={{ paddingBottom: next ? "var(--message-block-gap)" : 0 }}
+    >
+      <TranscriptEntry
+        row={row}
+        virtualRow={virtualRow}
+        open={expanded.has(row.id)}
+        toggle={toggle.bind(undefined, row.id)}
+        viewport={viewport}
+        layout={layout}
+        measurements={activityMeasurements}
+        suspended={suspended}
+      />
+    </li>
   );
 }
 
-/**
-Keep the existing bounded range when an expanded nested activity panel is nearby.
-@param rows - Canonical transcript rows owned by the outer list.
-@param expanded - IDs of currently expanded activity groups.
-@param range - Native TanStack range to extend.
-@returns Buffered message indices with the interactive footer retained.
+/** Render measured rows while forwarding native refs only as React props.
+@param props - Detached measurements and explicit rendering context.
+@returns Keyed transcript rows.
 */
-function transcriptRange(rows: Row[], expanded: Set<string>, range: Range) {
-  const isNested = rows
-    .slice(Math.max(range.startIndex - 1, 0), range.endIndex + 1)
-    .some((row) => row.entry.kind === "activity" && expanded.has(row.id) && row.entry.items.length > FORWARD_MESSAGES);
+function TranscriptRows({ messages, ...context }: RowContext & { messages: VirtualItem[] }) {
+  return <>{Array.from(messages, transcriptRow.bind(undefined, context))}</>;
+}
 
-  return messageRange(range, isNested ? FORWARD_MESSAGES : INITIAL_MESSAGE_WINDOW);
+/** Allocate a measurement cache owned by one mounted transcript.
+@returns Empty native activity measurement cache.
+*/
+function createActivityMeasurements(): ActivityMeasurements {
+  return new Map();
+}
+
+/** Retain the initial saved bookmark for this keyed transcript.
+@param bookmark - Initial restored bookmark.
+@returns The same saved geometry.
+*/
+function retainBookmark(bookmark: TranscriptBookmark | undefined) {
+  return bookmark;
+}
+
+/** Create disclosure data from the saved bookmark without changing it.
+@param bookmark - Initial saved geometry and disclosure identities.
+@returns Independent expanded-activity state.
+*/
+function expandedActivities(bookmark: TranscriptBookmark | undefined) {
+  return new Set(bookmark?.expanded);
 }
 
 /**
@@ -117,6 +142,7 @@ function MeasuredTranscript({
   expanded,
   toggle,
   suspended,
+  ready,
 }: {
   bookmark?: TranscriptBookmark;
   storageKey?: string;
@@ -126,31 +152,27 @@ function MeasuredTranscript({
   expanded: Set<string>;
   toggle: (id: string) => void;
   suspended: boolean;
+  ready: boolean;
 }) {
   const viewport = useRef<HTMLDivElement>(null);
   const savedOffset = useRef<number | undefined>(undefined);
   const initialEnd = useRef(!bookmark || bookmark.atEnd);
   const [follow, setFollow] = useState(bookmark?.atEnd ?? true);
 
-  const [activityMeasurements] = useState<ActivityMeasurements>(() => new Map());
-  const rangeExtractor = useCallback((range: Range) => transcriptRange(rows, expanded, range), [rows, expanded]);
-
-  // Keep the ordinary content row mounted so pending answer drafts survive recycling.
-  const getItemKey = useCallback(
-    (index: number) => (index === rows.length ? "transcript-footer" : rows[index].id),
-    [rows]
-  );
+  const [activityMeasurements] = useState(createActivityMeasurements);
+  const rangeExtractor = useBoundCallback(transcriptRange, rows, expanded);
+  const getItemKey = useBoundCallback(transcriptRowKey, rows);
+  const getScrollElement = useBoundCallback(transcriptViewport, viewport);
+  const estimateSize = useBoundCallback(estimatedTranscriptRow, rows.length);
+  const scrollToFn = useBoundCallback(scrollTranscript, suspended);
   const { virtualizer, layout } = useTranscriptVirtualizer({
+    enabled: ready || rows.length > 0,
     count: rows.length + 1,
-    getScrollElement: () => viewport.current,
+    getScrollElement,
     getItemKey,
-    estimateSize: (index) => (index === rows.length ? 0 : ESTIMATED_MESSAGE_HEIGHT),
-    // Rounded row heights accumulate error against the naturally flowing DOM block.
-    measureElement: (element, entry, instance) =>
-      instance.options.useCachedMeasurements
-        ? measureElement(element, entry, instance)
-        : (entry?.borderBoxSize[0]?.blockSize ?? element.getBoundingClientRect().height),
-    initialOffset: () => bookmark?.offset ?? rows.length * ESTIMATED_MESSAGE_HEIGHT,
+    estimateSize,
+    measureElement: measureTranscriptRow,
+    initialOffset: bookmark?.offset ?? rows.length * ESTIMATED_MESSAGE_HEIGHT,
     initialMeasurementsCache: bookmark?.measurements,
     anchorTo: suspended || !follow ? "start" : "end",
     followOnAppend: !suspended && follow,
@@ -160,53 +182,22 @@ function MeasuredTranscript({
     rangeExtractor,
     overscan: rows.length + 1,
     useCachedMeasurements: suspended,
-    scrollToFn: (offset, options, instance) => {
-      if (!suspended) {
-        elementScroll(offset, options, instance);
-      }
-    },
+    scrollToFn,
   });
-  // Reattach the documented measurement ref when cached measurements resume.
-  const measure = useCallback(
-    (element: HTMLElement | null) => {
-      if (!suspended) {
-        virtualizer.measureElement(element);
-      }
-    },
-    [virtualizer, suspended]
-  );
+  const measure = useBoundCallback(attachTranscriptRow, virtualizer, suspended);
   const items = layout.rows;
-  const messages = items.filter((item) => item.index < rows.length);
+  const messages = measuredMessages(items, rows.length);
   const footerRow = items.at(LAST_ITEM);
   const blockStart = messages.at(0)?.start ?? footerRow?.start ?? 0;
-  const resumeFollow = () => {
-    if (suspended) {
-      return;
-    }
+  const resumeFollow = useBoundCallback(resumeTranscriptFollow, suspended, initialEnd, setFollow);
+  const maintainEnd = useBoundCallback(maintainTranscriptEnd, virtualizer, initialEnd, suspended);
+  const connectBookmark = useBoundCallback(connectTranscriptBookmark, storageKey, virtualizer, expanded);
+  const trackScroll = useBoundCallback(trackTranscriptScroll, initialEnd);
+  const preserveOffset = useBoundCallback(preserveTranscriptOffset, virtualizer, viewport, savedOffset, suspended);
 
-    initialEnd.current = false;
-    setFollow(true);
-  };
-
-  useLayoutEffect(() => {
-    // Initial footer and viewport measurements can arrive after the first end command.
-    if (!suspended && initialEnd.current) {
-      virtualizer.scrollToEnd();
-    }
-  }, [virtualizer, layout.size, layout.height, suspended]);
-  useEffect(
-    () => (storageKey ? subscribeTranscriptBookmark(storageKey, virtualizer, expanded) : undefined),
-    [storageKey, virtualizer, expanded]
-  );
-  useLayoutEffect(() => {
-    if (suspended) {
-      savedOffset.current = viewport.current?.scrollTop;
-      virtualizer.cancelScroll();
-    } else if (savedOffset.current !== undefined) {
-      virtualizer.scrollToOffset(savedOffset.current);
-      savedOffset.current = undefined;
-    }
-  }, [suspended, virtualizer]);
+  useLayoutEffect(maintainEnd, [maintainEnd, layout.size, layout.height]);
+  useEffect(connectBookmark, [connectBookmark]);
+  useLayoutEffect(preserveOffset, [preserveOffset]);
 
   return (
     <MessageScrollerProvider autoScroll={false} defaultScrollPosition="start">
@@ -223,9 +214,7 @@ function MeasuredTranscript({
             onTouchStart={resumeFollow}
             onPointerDown={resumeFollow}
             onKeyDown={resumeFollow}
-            onScroll={({ currentTarget: target }) => {
-              initialEnd.current &&= target.scrollTop + target.clientHeight >= target.scrollHeight - END_THRESHOLD;
-            }}
+            onScroll={trackScroll}
           >
             <div className="transcript" style={{ paddingBlock: 0, minHeight: "100%", justifyContent: "flex-end" }}>
               <div style={{ height: layout.size, position: "relative", flexShrink: 0 }}>
@@ -234,38 +223,17 @@ function MeasuredTranscript({
                   style={{ transform: `translateY(${String(blockStart)}px)` }}
                 >
                   <ul aria-label="Conversation" className="w-full min-w-0">
-                    {messages.map((virtualRow) => {
-                      const row = rows[virtualRow.index];
-                      const next = rows.at(virtualRow.index + 1);
-
-                      return (
-                        <li
-                          key={virtualRow.key}
-                          ref={measure}
-                          data-index={virtualRow.index}
-                          data-slot="message-scroller-item"
-                          data-transcript-row={row.id}
-                          data-activity-row={row.entry.kind === "activity" || undefined}
-                          aria-posinset={virtualRow.index + 1}
-                          aria-setsize={rows.length}
-                          className="message-flow min-w-0"
-                          style={{ paddingBottom: next ? "var(--message-block-gap)" : 0 }}
-                        >
-                          <TranscriptEntry
-                            row={row}
-                            virtualRow={virtualRow}
-                            open={expanded.has(row.id)}
-                            toggle={() => {
-                              toggle(row.id);
-                            }}
-                            viewport={viewport}
-                            layout={layout}
-                            measurements={activityMeasurements}
-                            suspended={suspended}
-                          />
-                        </li>
-                      );
-                    })}
+                    <TranscriptRows
+                      messages={messages}
+                      rows={rows}
+                      expanded={expanded}
+                      toggle={toggle}
+                      measure={measure}
+                      viewport={viewport}
+                      layout={layout}
+                      measurements={activityMeasurements}
+                      suspended={suspended}
+                    />
                   </ul>
                   <TranscriptFooter
                     count={rows.length}
@@ -287,10 +255,7 @@ function MeasuredTranscript({
               size="icon-xl"
               className="absolute bottom-4 left-1/2 -translate-x-1/2 rounded-full border-border bg-background"
               aria-label="Jump to latest message"
-              onClick={() => {
-                setFollow(true);
-                virtualizer.scrollToEnd();
-              }}
+              onClick={jumpToLatest.bind(undefined, setFollow, virtualizer)}
             >
               <ArrowDownIcon />
             </Button>
@@ -312,19 +277,22 @@ export function VirtualizedTranscript({
   children,
   status,
   suspended = false,
+  ready = true,
 }: {
   storageKey?: string;
   turns: TranscriptTurn[];
   children: ReactNode;
   status?: ReactNode;
   suspended?: boolean;
+  ready?: boolean;
 }) {
-  const [bookmark] = useState(() => readTranscriptBookmark(storageKey));
-  const [expanded, setExpanded] = useState<Set<string>>(() => new Set(bookmark?.expanded));
-  const rows = useMemo(() => rowsForTurns(turns), [turns]);
+  const [bookmark] = useReducer(retainBookmark, storageKey, readTranscriptBookmark);
+  const [expanded, toggle] = useReducer(toggledTranscriptActivity, bookmark, expandedActivities);
+  const rows = rowsForTurns(turns);
 
   return (
     <MeasuredTranscript
+      ready={ready}
       bookmark={bookmark}
       storageKey={storageKey}
       rows={rows}
@@ -332,19 +300,7 @@ export function VirtualizedTranscript({
       status={status}
       expanded={expanded}
       suspended={suspended}
-      toggle={(id) => {
-        setExpanded((previous) => {
-          const next = new Set(previous);
-
-          if (next.has(id)) {
-            next.delete(id);
-          } else {
-            next.add(id);
-          }
-
-          return next;
-        });
-      }}
+      toggle={toggle}
     />
   );
 }

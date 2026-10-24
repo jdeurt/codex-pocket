@@ -1,3 +1,4 @@
+import { nativeSlot } from "./native-slot";
 import * as React from "react";
 import { cn } from "cn";
 
@@ -22,20 +23,12 @@ function Message({ className, align = "start", ...props }: React.ComponentProps<
 
 /**
 Keep message children within the existing flexible, bounded content column.
-@param props - Native attributes, children and the declared appearance or composition options.
-@returns The composed element with caller props and classes preserved.
 */
-function MessageContent({ className, ...props }: React.ComponentProps<"div">) {
-  return (
-    <div
-      data-slot="message-content"
-      className={cn(
-        "flex w-full min-w-0 flex-col gap-2.5 wrap-break-word group-data-[align=end]/message:*:data-slot:self-end",
-        className
-      )}
-      {...props}
-    />
-  );
-}
+const MessageContent = (nativeSlot<"div">).bind(
+  undefined,
+  "div",
+  "message-content",
+  "flex w-full min-w-0 flex-col gap-2.5 wrap-break-word group-data-[align=end]/message:*:data-slot:self-end"
+);
 
 export { Message, MessageContent };

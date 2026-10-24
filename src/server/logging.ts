@@ -1,192 +1,186 @@
-import { type WriteStream, createWriteStream, mkdirSync, openSync, readdirSync, unlinkSync } from "node:fs";
+import { type WriteStream, createWriteStream, closeSync, mkdirSync, openSync, readdirSync, unlinkSync } from "node:fs";
 import { Writable } from "node:stream";
 import { localDirectory } from "./local-state";
 import path from "node:path";
 import pino from "pino";
-import { t as attempt } from "try";
+import { t } from "try";
+import { redactLog } from "../lib/log-redaction";
+
+export { redactLog } from "../lib/log-redaction";
 
 const DEFAULT_MAX_BYTES = 10_485_760;
 const DEFAULT_MAX_FILES = 20;
 const PRIVATE_FILE_MODE = 0o600;
 const PRIVATE_DIRECTORY_MODE = 0o700;
 const LOG_NAME = /^\d{4}-\d{2}-\d{2}T[\d:.]+Z\.jsonl$/;
-const SECRET_KEY =
-  /^(?:authorization|cookie|set-cookie|password|secret|token|access_token|refresh_token|api[_-]?key|privateKey|auth|p256dh)$/i;
 
-/**
-Recursively redact private fields and native image bytes while preserving structured diagnostics.
-@param value - Arbitrary diagnostic data, including native errors and nested arrays or objects.
-@returns The same diagnostic structure with secret and binary payload fields replaced.
+type WriteCallback = (error?: Error | null) => void;
+
+/** Order timestamped files deterministically.
+@param left - First filename.
+@param right - Second filename.
+@returns Chronological filename order.
 */
-export function redactLog(value: Record<string, unknown>): Record<string, unknown>;
-export function redactLog(value: unknown): unknown;
-export function redactLog(value: unknown): unknown {
-  function redactImageField(key: string, entry: unknown, image: unknown): unknown {
-    const isBinary =
-      typeof entry === "string" &&
-      ((image === "imageGeneration" && key === "result") || (image === "image" && key === "data"));
-
-    return isBinary ? { imageBytesBase64Length: entry.length } : redactLog(entry);
-  }
-
-  function redactField(key: string, entry: unknown, image: unknown): unknown {
-    return SECRET_KEY.test(key) ? "[REDACTED]" : redactImageField(key, entry, image);
-  }
-
-  function redactObject(value_: object) {
-    const image = "type" in value_ ? value_.type : undefined;
-
-    return Object.fromEntries<unknown>(
-      Object.entries(value_).map(([key, entry]: [string, unknown]) => [key, redactField(key, entry, image)])
-    );
-  }
-
-  const normalized = value instanceof Error ? pino.stdSerializers.err(value) : value;
-
-  if (typeof normalized === "string" && normalized.startsWith("data:image/")) {
-    return { inlineImageLength: normalized.length };
-  }
-
-  if (Array.isArray(normalized)) {
-    return normalized.map((entry) => redactLog(entry));
-  }
-
-  return normalized && typeof normalized === "object" ? redactObject(normalized) : normalized;
+function compareLogFiles(left: string, right: string) {
+  return left.localeCompare(right);
 }
 
-/**
-Prune only owned timestamped log files after a new exclusive file has been acquired.
-@param directory - Private log directory whose native entries are inspected.
-@param maxFiles - Maximum retained owned log files, including the newly acquired file.
+/** Prune only owned files after acquiring a new exclusive log file.
+@param directory - Private log directory.
+@param maxFiles - Maximum owned file count.
 */
 function pruneLogs(directory: string, maxFiles: number) {
-  const files = readdirSync(directory)
-    .filter((name) => LOG_NAME.test(name))
-    .toSorted((a, b) => a.localeCompare(b));
+  const names: string[] = [];
+
+  for (const name of readdirSync(directory)) {
+    if (LOG_NAME.test(name)) {
+      names.push(name);
+    }
+  }
+
+  const files = names.toSorted(compareLogFiles);
   const expired = files.slice(0, Math.max(0, files.length - maxFiles));
 
   for (const name of expired) {
-    const outcome = attempt(() => {
-      unlinkSync(path.join(directory, name));
-    });
+    const removed = t(unlinkSync, path.join(directory, name));
 
-    if (outcome.ok) {
-      continue;
-    }
-
-    const error = outcome.error;
-
-    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
-      throw error;
+    if (
+      !removed.ok &&
+      !(removed.error instanceof Error && "code" in removed.error && removed.error.code === "ENOENT")
+    ) {
+      throw removed.error;
     }
   }
 }
 
-/**
-Attach an acquired private descriptor to its native stream and route errors to the owning sink.
-@param filename - Timestamped log filename already opened exclusively.
-@param descriptor - Owned native descriptor transferred to the auto-closing stream.
-@param reference - Concrete sink reference receiving asynchronous file-stream failures.
-@returns Native write stream owning this descriptor.
+/** Acquire a timestamped descriptor exclusively with private permissions.
+@param filename - Explicit host-generated pathname.
+@returns Owned native descriptor.
 */
-function ownedLogFile(filename: string, descriptor: number, reference: { stream?: Writable }) {
-  const output = createWriteStream(filename, { fd: descriptor, autoClose: true });
-
-  output.on("error", (error) => reference.stream?.destroy(error));
-
-  return output;
+function openLogDescriptor(filename: string) {
+  return openSync(/* turbopackIgnore: true */ filename, "wx", PRIVATE_FILE_MODE);
 }
 
 /**
-Own serialized native writes, exclusive file creation and bounded log rotation.
-@param directory - Existing private log directory.
-@param maxBytes - Existing per-file byte threshold; a single oversized record stays intact.
-@param maxFiles - Maximum retained owned timestamped files.
-@returns Backpressure-aware native writable sink that rotates only between records.
+Runtime owner of serialized native writes and bounded file rotation.
 */
-function rotatingLogStream(directory: string, maxBytes: number, maxFiles: number) {
-  let bytes = 0;
-  let createdAt = 0;
-  let file: WriteStream;
+class RotatingLogStream extends Writable {
+  private bytes = 0;
+  private createdAt = 0;
+  private file: WriteStream;
 
-  const reference: { stream?: Writable } = {};
+  /** Route asynchronous file errors through the owning native sink.
+  @param error - Native file failure.
+  */
+  private fail = (error: Error) => {
+    this.destroy(error);
+  };
 
-  function open() {
-    let filename: string;
-    let descriptor: number;
-
-    createdAt = Math.max(Date.now(), createdAt + 1);
+  /** Acquire an exclusive native file and prune owned expired logs.
+  @returns Native stream owning the descriptor.
+  */
+  private open = () => {
+    this.createdAt = Math.max(Date.now(), this.createdAt + 1);
 
     for (;;) {
-      filename = path.join(directory, `${new Date(createdAt).toISOString()}.jsonl`);
+      const filename = path.join(this.directory, `${new Date(this.createdAt).toISOString()}.jsonl`);
+      const opened = t(openLogDescriptor, filename);
 
-      const opened = attempt(() => openSync(/* turbopackIgnore: true */ filename, "wx", PRIVATE_FILE_MODE));
-
-      if (opened.ok) {
-        descriptor = opened.value;
-        break;
-      }
-
-      const error = opened.error;
-
-      if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) {
-        throw error;
-      }
-
-      createdAt += 1;
-    }
-
-    bytes = 0;
-    pruneLogs(directory, maxFiles);
-
-    return ownedLogFile(filename, descriptor, reference);
-  }
-
-  const stream = new Writable({
-    write(chunk: Buffer, encoding, callback) {
-      const write = () => {
-        bytes += chunk.length;
-        file.write(chunk, encoding, callback);
-      };
-
-      if (bytes === 0 || bytes + chunk.length <= maxBytes) {
-        write();
-
-        return;
-      }
-
-      file.end(() => {
-        const rotated = attempt(() => {
-          file = open();
-          write();
-        });
-
-        if (rotated.ok) {
-          return;
+      if (!opened.ok) {
+        if (!(opened.error instanceof Error && "code" in opened.error && opened.error.code === "EEXIST")) {
+          throw opened.error;
         }
 
-        const error = rotated.error;
+        this.createdAt++;
+        continue;
+      }
 
-        callback(error instanceof Error ? error : new Error("Could not rotate the log.", { cause: error }));
-      });
-    },
-    final(callback) {
-      file.end(callback);
-    },
-  });
+      const pruned = t(pruneLogs, this.directory, this.maxFiles);
 
-  reference.stream = stream;
-  file = open();
+      if (!pruned.ok) {
+        closeSync(opened.value);
+        throw pruned.error;
+      }
 
-  return stream;
+      const output = createWriteStream(filename, { fd: opened.value, autoClose: true });
+
+      output.on("error", this.fail);
+      this.bytes = 0;
+
+      return output;
+    }
+  };
+
+  /** Start one sink with validated retention limits.
+  @param directory - Existing private directory.
+  @param maxBytes - Per-file byte threshold.
+  @param maxFiles - Maximum retained files.
+  */
+  constructor(
+    private readonly directory: string,
+    private readonly maxBytes: number,
+    private readonly maxFiles: number
+  ) {
+    super();
+    this.file = this.open();
+  }
+
+  /** Write one complete record to the current file.
+  @param chunk - Native record bytes.
+  @param encoding - Native write encoding.
+  @param callback - Native backpressure completion.
+  */
+  private writeRecord(chunk: Buffer, encoding: BufferEncoding, callback: WriteCallback) {
+    this.bytes += chunk.length;
+    this.file.write(chunk, encoding, callback);
+  }
+
+  /** Complete rotation after the previous file finishes.
+  @param chunk - Pending native record bytes.
+  @param encoding - Native write encoding.
+  @param callback - Native backpressure completion.
+  */
+  private rotated(chunk: Buffer, encoding: BufferEncoding, callback: WriteCallback) {
+    const opened = t(this.open);
+
+    if (!opened.ok) {
+      callback(
+        opened.error instanceof Error ? opened.error : new Error("Could not rotate the log.", { cause: opened.error })
+      );
+
+      return;
+    }
+
+    this.file = opened.value;
+    this.writeRecord(chunk, encoding, callback);
+  }
+
+  /** Preserve record boundaries and native backpressure during rotation.
+  @param chunk - Complete serialized log record.
+  @param encoding - Native write encoding.
+  @param callback - Native backpressure completion.
+  */
+  override _write(chunk: Buffer, encoding: BufferEncoding, callback: WriteCallback) {
+    if (this.bytes === 0 || this.bytes + chunk.length <= this.maxBytes) {
+      this.writeRecord(chunk, encoding, callback);
+    } else {
+      this.file.end(this.rotated.bind(this, chunk, encoding, callback));
+    }
+  }
+
+  /** Finish the current native file before completing the sink.
+  @param callback - Native finalization completion.
+  */
+  override _final(callback: WriteCallback) {
+    this.file.end(callback);
+  }
 }
 
-/**
-Validate retention limits and create the private directory before acquiring the rotating sink.
-@param directory - Private directory used only for this logger's owned files.
+/** Validate retention and acquire a private rotating sink.
+@param directory - Private log directory.
 @param maxBytes - Positive per-file byte threshold.
 @param maxFiles - Positive retained file count.
-@returns Native rotating log sink with private file and directory permissions.
+@returns Native backpressure-aware rotating sink.
 */
 export function createRotatingLogStream(directory: string, maxBytes = DEFAULT_MAX_BYTES, maxFiles = DEFAULT_MAX_FILES) {
   if (!Number.isSafeInteger(maxBytes) || maxBytes <= 0 || !Number.isSafeInteger(maxFiles) || maxFiles <= 0) {
@@ -195,37 +189,22 @@ export function createRotatingLogStream(directory: string, maxBytes = DEFAULT_MA
 
   mkdirSync(directory, { recursive: true, mode: PRIVATE_DIRECTORY_MODE });
 
-  return rotatingLogStream(directory, maxBytes, maxFiles);
+  return new RotatingLogStream(directory, maxBytes, maxFiles);
 }
 
 declare global {
   var codexPocketLogger: pino.Logger | undefined;
 }
 
-/**
-Create the native structured logger and register its existing process singleton descriptor.
-@param stream - Owned rotating writable sink whose error listener is already installed.
-@returns Registered native Pino logger.
+/** Report a failed sink through stderr, independent of the failed logger.
+@param error - Native sink failure.
 */
-function registerLogger(stream: Writable) {
-  const logger = pino(
-    {
-      name: "pocket",
-      level: process.env.CODEX_POCKET_LOG_LEVEL ?? "debug",
-      timestamp: pino.stdTimeFunctions.isoTime,
-      formatters: { log: (fields) => redactLog(fields) },
-    },
-    stream
-  );
-
-  Object.defineProperty(globalThis, "codexPocketLogger", { value: logger, configurable: true });
-
-  return logger;
+function reportLogError(error: Error) {
+  process.stderr.write(`Pocket log writer failed: ${error.message}\n`);
 }
 
-/**
-Acquire the configured private log sink and route sink failures before registering Pino.
-@returns New process logger with the existing level, timestamps and recursive redaction.
+/** Acquire the configured process logger and register its explicit singleton lifetime.
+@returns Native structured logger.
 */
 function createLogger() {
   const directory = process.env.CODEX_POCKET_LOG_DIR ?? path.join(localDirectory(), "logs");
@@ -235,13 +214,23 @@ function createLogger() {
     Number(process.env.CODEX_POCKET_LOG_MAX_FILES ?? DEFAULT_MAX_FILES)
   );
 
-  stream.on("error", (error) => process.stderr.write(`Pocket log writer failed: ${error.message}\n`));
+  stream.on("error", reportLogError);
+  const logger = pino(
+    {
+      name: "pocket",
+      level: process.env.CODEX_POCKET_LOG_LEVEL ?? "debug",
+      timestamp: pino.stdTimeFunctions.isoTime,
+      formatters: { log: redactLog },
+    },
+    stream
+  );
 
-  return registerLogger(stream);
+  Object.defineProperty(globalThis, "codexPocketLogger", { value: logger, configurable: true });
+
+  return logger;
 }
 
-/**
-Reuse the process logger or acquire its configured private sink on first use.
+/** Reuse the process-owned logger or acquire its configured sink.
 @returns Process-local structured logger.
 */
 export function log() {

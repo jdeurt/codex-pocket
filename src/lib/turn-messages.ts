@@ -13,12 +13,19 @@ export function messageText(item: Item) {
     return string(item.text);
   }
 
-  return Array.isArray(item.content)
-    ? item.content
-        .map((part) => string(object(part).text))
-        .filter(Boolean)
-        .join("\n")
-    : "";
+  const parts: string[] = [];
+
+  if (Array.isArray(item.content)) {
+    for (const part of item.content) {
+      const text = string(object(part).text);
+
+      if (text) {
+        parts.push(text);
+      }
+    }
+  }
+
+  return parts.join("\n");
 }
 
 /**
@@ -39,30 +46,45 @@ Group only completed post-steering progress while retaining the final answer as 
 @returns Messages and at most one activity group, without changing the input items.
 */
 function completedEntries(turn: Turn, messages: Item[]): TurnEntry[] {
-  const final = messages.findLast((item) => item.type === "agentMessage" && item.phase !== "commentary");
-  // A steering message keeps earlier updates in the timeline, including after history reload.
-  const boundary = messages.findLastIndex((item) => item.type === "userMessage");
-  const activity = messages.filter(
-    (item, index) =>
-      index > boundary && item.type === "agentMessage" && item.phase !== "final_answer" && item.id !== final?.id
-  );
-  const ids = new Set(activity.map((item) => item.id));
+  let final: Item | undefined;
+  let boundary = -1;
+
+  for (const [index, item] of messages.entries()) {
+    if (item.type === "agentMessage" && item.phase !== "commentary") {
+      final = item;
+    }
+
+    if (item.type === "userMessage") {
+      boundary = index;
+    }
+  }
+
+  const activity: Item[] = [];
+  const ids = new Set<string>();
+
+  for (const [index, item] of messages.entries()) {
+    if (!(index > boundary && item.type === "agentMessage") || item.phase === "final_answer" || item.id === final?.id) {
+      continue;
+    }
+
+    activity.push(item);
+    ids.add(item.id);
+  }
+
+  const entries: TurnEntry[] = [];
 
   let isGrouped = false;
 
-  return messages.flatMap<TurnEntry>((item) => {
+  for (const item of messages) {
     if (!ids.has(item.id)) {
-      return { kind: "message", item };
+      entries.push({ kind: "message", item });
+    } else if (!isGrouped) {
+      entries.push({ kind: "activity", id: `activity-${turn.id}`, items: activity });
+      isGrouped = true;
     }
+  }
 
-    if (isGrouped) {
-      return [];
-    }
-
-    isGrouped = true;
-
-    return { kind: "activity", id: `activity-${turn.id}`, items: activity };
-  });
+  return entries;
 }
 
 /**
@@ -72,19 +94,27 @@ Filter silent messages and select live or completed activity presentation.
 @returns The canonical entries used by every transcript renderer.
 */
 function messageEntries(turn: Turn, isActive: boolean): TurnEntry[] {
-  const messages = turn.items.filter(
-    (item) =>
+  const messages: Item[] = [];
+  const entries: TurnEntry[] = [];
+
+  for (const item of turn.items) {
+    const isVisible =
       item.type === "toolTrace" ||
       item.type === "delegateReport" ||
       (["userMessage", "agentMessage", "imageOutput"].includes(item.type) &&
         ((Array.isArray(item.images) && item.images.length > 0) ||
           (Array.isArray(item.attachments) && item.attachments.length > 0) ||
-          hasMessageText(item)))
-  );
+          hasMessageText(item)));
 
-  return isActive || turn.status === "interrupted"
-    ? messages.map((item) => ({ kind: "message", item }))
-    : completedEntries(turn, messages);
+    if (!isVisible) {
+      continue;
+    }
+
+    messages.push(item);
+    entries.push({ kind: "message", item });
+  }
+
+  return isActive || turn.status === "interrupted" ? entries : completedEntries(turn, messages);
 }
 
 /**

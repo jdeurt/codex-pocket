@@ -13,7 +13,18 @@ export function useAttachments(parent?: string) {
   const { attachments } = usePocketClient();
   const state = useStore(attachments.store);
 
-  useEffect(() => (parent ? attachments.connect(parent) : undefined), [attachments, parent]);
+  const connect = attachments.connection(parent);
 
-  return { ...attachments, ...state.draft, ready: state.ready && !!parent, error: state.error };
+  useEffect(connect, [connect]);
+
+  return {
+    ...state.draft,
+    ready: state.ready && !!parent,
+    error: state.error,
+    add: attachments.add,
+    remove: attachments.remove,
+    retry: attachments.retry,
+    rememberSend: attachments.rememberSend,
+    clear: attachments.clear,
+  };
 }

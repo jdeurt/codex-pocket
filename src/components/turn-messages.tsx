@@ -11,7 +11,15 @@ import { ChatMessage } from "./chat-message";
 import type { Item } from "@/lib/protocol";
 import type { TurnEntry } from "@/lib/turn-messages";
 import { useState } from "react";
-import { collapseDetail } from "@/lib/disclosure-click";
+import { collapseDetail } from "../runtime/disclosure-click";
+
+/** Render a canonical message with its stable native identity.
+@param item - Normalized transcript item.
+@returns One keyed message row.
+*/
+function messageRow(item: Item) {
+  return <ChatMessage item={item} key={item.id} />;
+}
 
 /**
 Keep completed commentary in the existing animated activity disclosure.
@@ -31,20 +39,24 @@ function CompletedActivity({ items }: { items: Item[] }) {
         </TraceCollapsibleTrigger>
         <TraceCollapsibleContent
           variant="messages"
-          onClick={(event) => {
-            collapseDetail(event, () => {
-              setOpen(false);
-            });
-          }}
+          onClick={collapseDetail.bind(undefined, setOpen.bind(undefined, false))}
         >
-          <div className="activity-messages">
-            {items.map((item) => (
-              <ChatMessage item={item} key={item.id} />
-            ))}
-          </div>
+          <div className="activity-messages">{Array.from(items, messageRow)}</div>
         </TraceCollapsibleContent>
       </TraceCollapsible>
     </Trace>
+  );
+}
+
+/** Render one canonical message or completed activity group.
+@param entry - Already projected transcript entry.
+@returns Matching keyed message or activity disclosure.
+*/
+function turnEntry(entry: TurnEntry) {
+  return entry.kind === "activity" ? (
+    <CompletedActivity key={entry.id} items={entry.items} />
+  ) : (
+    <ChatMessage key={entry.item.id} item={entry.item} />
   );
 }
 
@@ -54,19 +66,5 @@ Render canonical message and activity entries without applying a second source f
 @returns The matching rows, or null when no entry is renderable.
 */
 export function TurnMessages({ entries }: { entries: TurnEntry[] }) {
-  if (entries.length === 0) {
-    return null;
-  }
-
-  return (
-    <div className="turn-messages">
-      {entries.map((entry) =>
-        entry.kind === "activity" ? (
-          <CompletedActivity key={entry.id} items={entry.items} />
-        ) : (
-          <ChatMessage key={entry.item.id} item={entry.item} />
-        )
-      )}
-    </div>
-  );
+  return entries.length === 0 ? null : <div className="turn-messages">{Array.from(entries, turnEntry)}</div>;
 }

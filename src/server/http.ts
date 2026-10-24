@@ -40,6 +40,25 @@ function authorizeOrigin(request: Request, allowed: string[], isMutation: boolea
   }
 }
 
+/** Match an explicit request host against configured origins.
+@param allowed - Configured origin URLs.
+@param host - Incoming host header.
+@returns Whether an exact configured host matches.
+*/
+function hasAllowedHost(allowed: readonly string[], host: string | null) {
+  if (!host) {
+    return false;
+  }
+
+  for (const origin of allowed) {
+    if (new URL(origin).host === host) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 /**
 Load configured origins and authorize the host before checking the origin.
 @param request - Incoming native HTTP request.
@@ -51,7 +70,7 @@ async function authorizeRequest(request: Request, isMutation: boolean, contentTy
   const allowed = config?.allowedOrigins ?? ["http://localhost:3000", "http://127.0.0.1:3000"];
   const host = request.headers.get("host");
 
-  if (!host || allowed.every((origin) => new URL(origin).host !== host)) {
+  if (!hasAllowedHost(allowed, host)) {
     throw new Error("Host is not allowed. Set CODEX_ALLOWED_ORIGINS on the computer.");
   }
 
@@ -131,6 +150,22 @@ export function errorResponse(error: unknown, status = HTTP_BAD_REQUEST) {
   );
 }
 
+/** Execute one request at the explicit route failure boundary.
+@param handler - Authorized route operation.
+@param failure - Route failure presentation.
+@param args - Native route arguments.
+@returns Successful response or recorded failure response.
+*/
+async function handleEndpoint<Args extends unknown[]>(
+  handler: (...args: Args) => Promise<Response>,
+  failure: (error: unknown) => Response,
+  ...args: Args
+) {
+  const result = await t(handler, ...args);
+
+  return result.ok ? result.value : failure(result.error);
+}
+
 /** Bind an HTTP handler to the shared error response boundary.
 @param handler - Authorized route work, including any route-specific guards.
 @param failure - Existing status or sanitized error response policy.
@@ -140,9 +175,5 @@ export function endpoint<Args extends unknown[]>(
   handler: (...args: Args) => Promise<Response>,
   failure: (error: unknown) => Response = errorResponse
 ) {
-  return async (...args: Args) => {
-    const result = await t(handler, ...args);
-
-    return result.ok ? result.value : failure(result.error);
-  };
+  return (handleEndpoint<Args>).bind(undefined, handler, failure);
 }

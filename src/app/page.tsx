@@ -1,3 +1,4 @@
+import { homeDestination } from "@/state/pockets";
 import { headers } from "next/headers";
 import { PocketStateProvider } from "@/providers/pocket-state";
 import { readClientBootstrap } from "@/server/client-bootstrap";
@@ -12,10 +13,10 @@ Pick a surviving saved Pocket without changing any other browser tab.
 */
 function selectHome() {
   const entries = pocketStore().list();
-  const next = entries.find((entry) => entry.state === "ready");
+  const next = homeDestination(entries);
 
-  if (next && entries.every((entry) => entry.id !== "main")) {
-    redirect(pocketHref(next.id));
+  if (next) {
+    redirect(pocketHref(next));
   }
 }
 

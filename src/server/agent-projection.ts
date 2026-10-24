@@ -1,5 +1,16 @@
 import { type AgentTranscript, isActiveAgent } from "../lib/agents";
-import { type Snapshot, initialSnapshot, object, string } from "../lib/protocol";
+import {
+  type Snapshot,
+  type Turn,
+  type Item,
+  initialSnapshot,
+  object,
+  string,
+  isTextContent,
+  findItem,
+  hasHistory,
+  isTurnInProgress,
+} from "../lib/protocol";
 import { type AgentRecord } from "./agent-sources";
 import { itemImageSources } from "../lib/images";
 import { markdownImageSource } from "./agent-images";
@@ -16,16 +27,64 @@ function historyAvailability(record: AgentRecord, state: Snapshot): AgentTranscr
     return "unavailable";
   }
 
-  return state.turns.some((turn) => turn.items.length > 0) ? "available" : "empty";
+  return hasHistory(state.turns) ? "available" : "empty";
+}
+
+/** Select only native text content for read-only output.
+@param part - Native text part.
+@returns Detached text representation.
+*/
+function textPart(part: unknown) {
+  return { type: "text", text: string(object(part).text) };
+}
+
+/** Route one image through its owned agent and native item.
+@param base - Authorized item route.
+@param _image - Source metadata, never exposed directly.
+@param index - Native image index.
+@returns Guarded image metadata.
+*/
+function agentImage(base: string, _image: unknown, index: number) {
+  return { alt: "Image from Pocket", source: `${base}&index=${String(index)}` };
+}
+
+/** Project only public fields from one owned native item.
+@param id - Agent identity.
+@param item - Owned native item.
+@returns Read-only display item.
+*/
+function agentItem(id: string, item: Item): Item {
+  const base = `/api/agents?agent=${encodeURIComponent(id)}&item=${encodeURIComponent(item.id)}`;
+
+  return {
+    id: item.id,
+    type: item.type,
+    ...(typeof item.text === "string" && { text: item.text }),
+    ...(item.type === "agentMessage" && { imageBase: base }),
+    ...(typeof item.phase === "string" && { phase: item.phase }),
+    ...(Array.isArray(item.content) && { content: Array.from(item.content.filter(isTextContent), textPart) }),
+    ...(item.type === "toolTrace" && { tool: item.tool, toolLabels: item.toolLabels, status: item.status }),
+    ...(Array.isArray(item.images) && { images: Array.from(item.images, agentImage.bind(undefined, base)) }),
+  };
+}
+
+/** Project one owned native turn with explicit agent identity.
+@param id - Agent identity.
+@param turn - Owned native turn.
+@returns Detached read-only turn.
+*/
+function agentTurn(id: string, turn: Turn): Turn {
+  return { id: turn.id, status: turn.status, items: Array.from(turn.items, agentItem.bind(undefined, id)) };
 }
 
 /**
 Project a scoped native transcript with guarded image routes and no writable parent APIs.
 @param record - Owned fully hydrated native agent record.
 @param id - Scoped catalog identity encoded into guarded image routes.
+@param now - Explicit projection timestamp.
 @returns Read-only transcript using canonical turn and tool projections.
 */
-export function projectAgentTranscript(record: AgentRecord, id: string): AgentTranscript {
+export function projectAgentTranscript(record: AgentRecord, id: string, now: number): AgentTranscript {
   const raw: Snapshot = {
     ...structuredClone(initialSnapshot),
     connection: "connected",
@@ -35,38 +94,10 @@ export function projectAgentTranscript(record: AgentRecord, id: string): AgentTr
     turns: record.turns ?? [],
     requests: record.requests ?? [],
     activeTurnId:
-      !record.historyError && isActiveAgent(record.agent)
-        ? record.turns?.findLast((turn) => turn.status === "inProgress")?.id
-        : undefined,
+      !record.historyError && isActiveAgent(record.agent) ? record.turns?.findLast(isTurnInProgress)?.id : undefined,
   };
-  const state = visibleSnapshot(raw, { tools: true });
-
-  // Images use scoped item IDs, never caller-supplied paths or another chat's cache.
-  state.turns = state.turns.map((turn) => ({
-    id: turn.id,
-    status: turn.status,
-    items: turn.items.map((item) => ({
-      id: item.id,
-      type: item.type,
-      ...(typeof item.text === "string" && { text: item.text }),
-      ...(item.type === "agentMessage" && {
-        imageBase: `/api/agents?agent=${encodeURIComponent(id)}&item=${encodeURIComponent(item.id)}`,
-      }),
-      ...(typeof item.phase === "string" && { phase: item.phase }),
-      ...(Array.isArray(item.content) && {
-        content: item.content
-          .filter((part) => object(part).type === "text")
-          .map((part) => ({ type: "text", text: string(object(part).text) })),
-      }),
-      ...(item.type === "toolTrace" && { tool: item.tool, toolLabels: item.toolLabels, status: item.status }),
-      ...(Array.isArray(item.images) && {
-        images: item.images.map((_, index) => ({
-          alt: "Image from Pocket",
-          source: `/api/agents?agent=${encodeURIComponent(id)}&item=${encodeURIComponent(item.id)}&index=${String(index)}`,
-        })),
-      }),
-    })),
-  }));
+  const visible = visibleSnapshot(raw, { tools: true });
+  const state = { ...visible, turns: Array.from(visible.turns, agentTurn.bind(undefined, id)) };
 
   return {
     agent: record.agent,
@@ -75,7 +106,7 @@ export function projectAgentTranscript(record: AgentRecord, id: string): AgentTr
     ...(record.historyError && {
       warning: "Saved history is unavailable. Check harness access on your computer. Reconnecting automatically.",
     }),
-    updatedAt: Date.now(),
+    updatedAt: now,
   };
 }
 
@@ -93,7 +124,7 @@ export function agentImageSource(
   index: number,
   markdownSource: string | undefined
 ) {
-  const item = record.turns?.flatMap((turn) => turn.items).find((entry) => entry.id === itemId);
+  const item = findItem(record.turns ?? [], itemId);
   const source = item && (markdownSource ? markdownImageSource(item, markdownSource) : itemImageSources(item)[index]);
 
   if (!source || !Number.isSafeInteger(index) || index < 0) {

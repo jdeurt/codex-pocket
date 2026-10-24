@@ -8,5 +8,5 @@ import { subscribeAppUpdates } from "../services/app-update";
 export function useAppUpdate(canReload: () => boolean) {
   const isSafe = useEffectEvent(canReload);
 
-  useEffect(() => subscribeAppUpdates(isSafe), []);
+  useEffect(subscribeAppUpdates.bind(undefined, isSafe), []);
 }

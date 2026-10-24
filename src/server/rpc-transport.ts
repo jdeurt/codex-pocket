@@ -2,7 +2,7 @@ import { type ChildProcessWithoutNullStreams, spawn } from "node:child_process";
 import { RpcDiagnosticEvent, RpcDisconnectEvent } from "./rpc-events";
 import WebSocket, { type RawData } from "ws";
 import { type Config } from "./config";
-import { createInterface } from "node:readline";
+import { createInterface, type Interface } from "node:readline";
 import { log } from "./logging";
 import { once } from "node:events";
 import { pocketServerArgs } from "./pocket-runtime";
@@ -45,6 +45,53 @@ export class RpcTransport extends EventTarget {
   private socket?: WebSocket;
   private disconnected = false;
 
+  /** Forward a complete native frame.
+  @param line - Native JSON text.
+  */
+  private frame(line: string) {
+    this.dispatchEvent(new RpcLineEvent(line));
+  }
+
+  /** Decode a native WebSocket frame.
+  @param data - Native frame representation.
+  */
+  private message(data: RawData) {
+    this.frame(socketText(data));
+  }
+
+  /** Forward native stderr.
+  @param data - Native diagnostic chunk.
+  */
+  private diagnostic(data: unknown) {
+    this.dispatchEvent(new RpcDiagnosticEvent(String(data)));
+  }
+
+  /** Ignore terminal signals belonging to a replaced connection.
+  @param resource - Resource that produced this signal.
+  @param error - Native connection failure.
+  */
+  private failed(resource: ChildProcessWithoutNullStreams | WebSocket, error: Error) {
+    if (resource === this.child || resource === this.socket) {
+      this.disconnect(error);
+    }
+  }
+
+  /** Release the native line reader before publishing process exit.
+  @param child - Process that exited.
+  @param lines - Its owned line reader.
+  @param code - Native exit code.
+  @param signal - Native terminating signal.
+  */
+  private exited(
+    child: ChildProcessWithoutNullStreams,
+    lines: Interface,
+    code: number | null,
+    signal: NodeJS.Signals | null
+  ) {
+    lines.close();
+    this.failed(child, new Error(`Codex disconnected: ${JSON.stringify({ code, signal })}`));
+  }
+
   /**
   Publish terminal failure once, regardless of overlapping error and close events.
   @param error - Original connection failure.
@@ -66,15 +113,10 @@ export class RpcTransport extends EventTarget {
   private observe(child: ChildProcessWithoutNullStreams) {
     const lines = createInterface({ input: child.stdout });
 
-    lines.on("line", (line) => this.dispatchEvent(new RpcLineEvent(line)));
-    child.stderr.on("data", (data: unknown) => this.dispatchEvent(new RpcDiagnosticEvent(String(data))));
-    child.once("error", (error) => {
-      this.disconnect(error);
-    });
-    child.once("exit", (code, signal) => {
-      lines.close();
-      this.disconnect(new Error(`Codex disconnected: ${JSON.stringify({ code, signal })}`));
-    });
+    lines.on("line", this.frame.bind(this));
+    child.stderr.on("data", this.diagnostic.bind(this));
+    child.once("error", this.failed.bind(this, child));
+    child.once("exit", this.exited.bind(this, child, lines));
   }
 
   /**
@@ -125,13 +167,9 @@ export class RpcTransport extends EventTarget {
     this.disconnected = false;
     this.child = undefined;
     this.socket = socket;
-    socket.on("message", (data) => this.dispatchEvent(new RpcLineEvent(socketText(data))));
-    socket.on("error", (error) => {
-      this.disconnect(error);
-    });
-    socket.once("close", () => {
-      this.disconnect(new Error("The owning Codex server disconnected."));
-    });
+    socket.on("message", this.message.bind(this));
+    socket.on("error", this.failed.bind(this, socket));
+    socket.once("close", this.failed.bind(this, socket, new Error("The owning Codex server disconnected.")));
     await once(socket, "open");
   }
 

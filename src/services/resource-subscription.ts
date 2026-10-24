@@ -1,3 +1,4 @@
+import { EventBindings } from "../runtime/events";
 import { t } from "try";
 import { HTTP_FORBIDDEN } from "../lib/constants";
 import { type ZodType } from "zod";
@@ -44,61 +45,91 @@ function agentReadError(error: unknown) {
 }
 
 /**
-Own request timeouts, polling and wake listeners for one enabled agent view.
-@param url - Stable scoped endpoint for this subscription.
-@param schema - Shared schema whose output is retained by React.
-@param store - Observable state owned by this URL and Pocket.
-@returns Cleanup that cancels the request, timer and exact registered listeners.
+Explicit runtime owner of polling, cancellation and wake listeners.
 */
-export function subscribeResource<T>(url: string, schema: ZodType<T>, store: StoreApi<ResourceState<T>>) {
-  let isStopped = false;
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  let controller: AbortController | undefined;
+class ResourceSubscription<T> {
+  private readonly events: EventBindings;
+  private isStopped = false;
+  private timer: ReturnType<typeof setTimeout> | undefined;
+  private controller: AbortController | undefined;
 
-  async function read() {
+  /** Read and publish one resource while rejecting stale requests.
+  @returns Completion after the next poll is scheduled.
+  */
+  private read = async () => {
     const active = new AbortController();
-    const timeout = setTimeout(() => {
-      active.abort();
-    }, REQUEST_TIMEOUT_MS);
 
-    controller = active;
-    store.setState({ isLoading: true });
+    this.controller = active;
+    this.store.setState({ isLoading: true });
+    const signal = AbortSignal.any([active.signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]);
+    const result = await t(readAgentResponse<T>, this.url, this.schema, signal);
 
-    const result = await t(readAgentResponse<T>, url, schema, active.signal);
-
-    clearTimeout(timeout);
-
-    if (isStopped || controller !== active) {
+    if (this.isStopped || this.controller !== active) {
       return;
     }
 
-    store.setState(
+    this.store.setState(
       result.ok
         ? { data: result.value, error: undefined, isLoading: false }
         : { error: agentReadError(result.error), isLoading: false }
     );
-    timer = setTimeout(() => void read(), POLL_MS);
-  }
+    this.timer = setTimeout(this.reload, POLL_MS);
+  };
 
-  function wake() {
+  /**
+  Schedule a read from a native timer callback.
+  */
+  private reload = () => {
+    void this.read();
+  };
+
+  /**
+  Refresh visible consumers after a browser wake or reconnect.
+  */
+  private wake = () => {
     if (document.visibilityState !== "visible") {
       return;
     }
 
-    clearTimeout(timer);
-    controller?.abort();
-    void read();
-  }
-
-  void read();
-  globalThis.addEventListener("online", wake);
-  document.addEventListener("visibilitychange", wake);
-
-  return () => {
-    isStopped = true;
-    clearTimeout(timer);
-    controller?.abort();
-    globalThis.removeEventListener("online", wake);
-    document.removeEventListener("visibilitychange", wake);
+    clearTimeout(this.timer);
+    this.controller?.abort();
+    this.reload();
   };
+
+  /**
+  Release the request, poll timer and exact registered callbacks.
+  */
+  stop = () => {
+    this.isStopped = true;
+    clearTimeout(this.timer);
+    this.controller?.abort();
+    this.events.stop();
+  };
+
+  /** Open the runtime subscription after its consumer mounts.
+  @param url - Scoped resource endpoint.
+  @param schema - Response validator.
+  @param store - Explicit observable resource owner.
+  */
+  constructor(
+    private readonly url: string,
+    private readonly schema: ZodType<T>,
+    private readonly store: StoreApi<ResourceState<T>>
+  ) {
+    this.reload();
+    this.events = new EventBindings([
+      [globalThis, "online", this.wake],
+      [document, "visibilitychange", this.wake],
+    ]);
+  }
+}
+
+/** Open polling at the service boundary with explicit state and network dependencies.
+@param url - Scoped API endpoint.
+@param schema - Response validator.
+@param store - Observable resource owner.
+@returns Cleanup for this subscription.
+*/
+export function subscribeResource<T>(url: string, schema: ZodType<T>, store: StoreApi<ResourceState<T>>) {
+  return new ResourceSubscription(url, schema, store).stop;
 }

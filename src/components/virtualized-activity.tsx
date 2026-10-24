@@ -1,7 +1,7 @@
 "use client";
-import { ESTIMATED_MESSAGE_HEIGHT, bufferedMessages } from "@/lib/transcript-virtualization";
+import { ESTIMATED_MESSAGE_HEIGHT, activityRange } from "@/lib/transcript-virtualization";
 import { type Item, string } from "@/lib/protocol";
-import { type RefObject, useCallback, useLayoutEffect, useRef, useState } from "react";
+import { type RefObject, useLayoutEffect, useRef, useState } from "react";
 import {
   Trace,
   TraceCollapsible,
@@ -10,12 +10,62 @@ import {
   TraceLine,
   TraceTitle,
 } from "@/components/ui/trace";
-import { type VirtualItem, elementScroll } from "@tanstack/react-virtual";
+import { type VirtualItem } from "@tanstack/react-virtual";
 import { ChatMessage } from "./chat-message";
 import { useTranscriptVirtualizer } from "@/hooks/use-transcript-virtualizer";
-import { collapseDetail } from "@/lib/disclosure-click";
+import { collapseDetail } from "../runtime/disclosure-click";
 
-export type ActivityMeasurements = Map<string, VirtualItem[]>;
+import { useBoundCallback } from "../hooks/use-bound-callback";
+import { transcriptViewport, scrollTranscript, attachTranscriptRow } from "../runtime/transcript-view";
+import {
+  type ActivityMeasurements,
+  activityInitialOffset,
+  shouldAdjustActivityItem,
+  measureActivityMargin,
+  retainActivityMeasurements,
+} from "../runtime/activity-view";
+
+export type { ActivityMeasurements } from "../runtime/activity-view";
+
+/** Select a native item's stable client or source identity.
+@param items - Canonical nested items.
+@param index - Native requested index.
+@returns Stable message identity.
+*/
+function activityItemKey(items: Item[], index: number) {
+  return string(items[index].clientId) || items[index].id;
+}
+
+/** Supply the existing message estimate before measurement.
+@returns Initial message height.
+*/
+function estimatedActivityHeight() {
+  return ESTIMATED_MESSAGE_HEIGHT;
+}
+
+/** Render one nested message using explicit native geometry.
+@param items - Canonical activity items.
+@param turnId - Owning native turn.
+@param measure - Runtime measurement ref callback.
+@param row - Detached native row measurement.
+@returns Keyed nested message row.
+*/
+function activityRow(items: Item[], turnId: string, measure: (element: HTMLElement | null) => void, row: VirtualItem) {
+  return (
+    <li
+      key={row.key}
+      data-index={row.index}
+      data-transcript-row={`${turnId}/${String(row.key)}`}
+      aria-posinset={row.index + 1}
+      aria-setsize={items.length}
+      ref={measure}
+      className="message-flow min-w-0"
+      style={{ paddingBottom: row.index < items.length - 1 ? "var(--message-block-gap)" : 0 }}
+    >
+      <ChatMessage item={items[row.index]} />
+    </li>
+  );
+}
 
 /**
 Measure nested activity messages while the outer TanStack list owns navigation and following.
@@ -46,66 +96,40 @@ function ActivityMessages({
   suspended: boolean;
 }) {
   const content = useRef<HTMLDivElement>(null);
-  const [margin, setMargin] = useState(origin);
-  const getItemKey = useCallback((index: number) => string(items[index].clientId) || items[index].id, [items]);
+  const [measuredMargin, setMargin] = useState<number>();
+  const margin = measuredMargin ?? origin;
+  const getItemKey = useBoundCallback(activityItemKey, items);
+  const getScrollElement = useBoundCallback(transcriptViewport, viewport);
+  const initialOffset = useBoundCallback(activityInitialOffset, viewport);
+  const rangeExtractor = useBoundCallback(activityRange, nearby);
+  const scrollToFn = useBoundCallback(scrollTranscript, suspended);
+  const shouldAdjust = useBoundCallback(shouldAdjustActivityItem, suspended, margin);
   const { virtualizer, layout } = useTranscriptVirtualizer(
     {
       count: items.length,
-      getScrollElement: () => viewport.current,
+      getScrollElement,
       getItemKey,
-      initialOffset: () => viewport.current?.scrollTop ?? 0,
-      estimateSize: () => ESTIMATED_MESSAGE_HEIGHT,
+      initialOffset,
+      estimateSize: estimatedActivityHeight,
       anchorTo: !suspended && scrollOffset >= margin && scrollOffset < end ? "end" : "start",
       followOnAppend: false,
       scrollEndThreshold: -1,
       initialMeasurementsCache: measurements.get(id),
       scrollMargin: margin,
-      rangeExtractor: (range) => (nearby ? bufferedMessages(range) : []),
+      rangeExtractor,
       overscan: items.length,
       useCachedMeasurements: suspended,
-      // Inner writes only preserve a reader's keyed/measurement anchor.
-      // The outer TanStack list owns navigation and append following.
-      scrollToFn: (offset, options, instance) => {
-        if (!suspended) {
-          elementScroll(offset, options, instance);
-        }
-      },
+      scrollToFn,
     },
-    (item, _delta, instance) => {
-      const offset = instance.scrollOffset ?? 0;
-
-      // A fully preceding panel is anchored by the outer list. While reading
-      // inside it, only its inner message list can identify the visible anchor.
-      return !suspended && offset < margin + instance.getTotalSize() && item.end <= offset;
-    }
+    shouldAdjust
   );
-
-  const measure = useCallback(
-    (element: HTMLElement | null) => {
-      if (!suspended) {
-        virtualizer.measureElement(element);
-      }
-    },
-    [virtualizer, suspended]
-  );
+  const measure = useBoundCallback(attachTranscriptRow, virtualizer, suspended);
+  const measureMargin = useBoundCallback(measureActivityMargin, content, viewport, suspended, setMargin);
+  const retainMeasurements = useBoundCallback(retainActivityMeasurements, measurements, id, virtualizer);
   const rows = layout.rows;
 
-  useLayoutEffect(() => {
-    const element = content.current;
-    const scroller = viewport.current;
-
-    if (element && scroller && !suspended) {
-      // The outer sizer can move this panel without changing its virtual origin.
-      // Refresh scrollMargin when either list changes its geometry or offset.
-      setMargin(element.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop);
-    }
-  }, [origin, end, scrollOffset, layout.size, viewport, suspended]);
-
-  useLayoutEffect(() => {
-    return () => {
-      measurements.set(id, virtualizer.takeSnapshot());
-    };
-  }, [virtualizer, id, measurements]);
+  useLayoutEffect(measureMargin, [measureMargin, origin, end, scrollOffset, layout.size]);
+  useLayoutEffect(retainMeasurements, [retainMeasurements]);
 
   return (
     <div ref={content} data-activity-virtualizer={id} style={{ height: layout.size, position: "relative" }}>
@@ -114,20 +138,7 @@ function ActivityMessages({
         className="absolute top-0 left-0 w-full min-w-0"
         style={{ transform: `translateY(${String((rows[0]?.start ?? margin) - margin)}px)` }}
       >
-        {rows.map((row) => (
-          <li
-            key={row.key}
-            data-index={row.index}
-            data-transcript-row={`${turnId}/${String(row.key)}`}
-            aria-posinset={row.index + 1}
-            aria-setsize={items.length}
-            ref={measure}
-            className="message-flow min-w-0"
-            style={{ paddingBottom: row.index < items.length - 1 ? "var(--message-block-gap)" : 0 }}
-          >
-            <ChatMessage item={items[row.index]} />
-          </li>
-        ))}
+        {Array.from(rows, activityRow.bind(undefined, items, turnId, measure))}
       </ul>
     </div>
   );
@@ -173,12 +184,7 @@ export function VirtualizedActivity({
             <TraceTitle>{open ? "Hide activity" : "Show activity"}</TraceTitle>
           </TraceLine>
         </TraceCollapsibleTrigger>
-        <TraceCollapsibleContent
-          variant="messages"
-          onClick={(event) => {
-            collapseDetail(event, onOpenChange);
-          }}
-        >
+        <TraceCollapsibleContent variant="messages" onClick={collapseDetail.bind(undefined, onOpenChange)}>
           <div className="activity-messages">
             <ActivityMessages
               id={id}

@@ -59,8 +59,7 @@ export class SessionControls {
       ...parent,
       policy: { ...parent.policy, model: nativeModel, effort: nativeEffort },
     });
-    this.owner.snapshot.model = model;
-    this.owner.snapshot.reasoningEffort = effort || null;
+    this.owner.snapshot = { ...this.owner.snapshot, model, reasoningEffort: effort || null };
     this.publish();
 
     return this.info();
@@ -72,6 +71,7 @@ export class SessionControls {
   @returns Native readback after durable local persistence.
   */
   private async updateConnected(settings: z.infer<typeof sessionSettingsSchema>) {
+    await this.owner.ensureConnected();
     const rpc = this.owner.agentReader();
     const threadId = this.owner.snapshot.threadId;
 
@@ -111,11 +111,7 @@ export class SessionControls {
   @returns Native readback after persistence.
   */
   update(settings: z.infer<typeof sessionSettingsSchema>) {
-    return this.exclusive(async () => {
-      await this.owner.ensureConnected();
-
-      return this.updateConnected(settings);
-    });
+    return this.exclusive(this.updateConnected.bind(this, settings));
   }
 
   /** Read Pi's native provider/model catalog over the existing parent connection.

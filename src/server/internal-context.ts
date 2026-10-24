@@ -1,7 +1,7 @@
 import type { Receipt } from "./outbox";
 import type { Snapshot } from "../lib/protocol";
 import { delegationMessagePrefix } from "./delegation-mail";
-import { isRecoveryMessageId } from "./recovery";
+import { isRecoveryMessageId } from "../state/recovery";
 
 const INTERNAL_MARKER = "[POCKET_INTERNAL_CONTEXT]";
 

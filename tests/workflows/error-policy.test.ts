@@ -7,8 +7,8 @@ import { createConfig } from "../../eslint.config";
 import { t as attempt } from "try";
 import { toolResult } from "../../src/server/mcp-result";
 import { workspace } from "../fixtures/workflow";
-import { createSerialQueue } from "../../src/lib/serial-queue";
-import { createOperation } from "../../src/services/operation";
+import { SerialQueue } from "../../src/runtime/serial-queue";
+import { Operation } from "../../src/services/operation";
 
 await test("error policy bans try statements and async IIFEs and Promise handlers while requiring await", async () => {
   const lint = new ESLint({ overrideConfigFile: true, overrideConfig: createConfig() });
@@ -73,7 +73,7 @@ await test("Result handling exposes parse failures and mutation cleanup releases
   const result = attempt(JSON.parse, "bad");
 
   assert.equal(result.ok, false);
-  const operation = createOperation();
+  const operation = new Operation();
   const outcome = await operation.run(() => {
     throw new Error("Synchronous invocation failed.");
   }, "Fallback");
@@ -153,7 +153,7 @@ await test("MCP results await asynchronous tools and report invocation and seria
 });
 
 await test("serialized work waits for its predecessor and recovers after that caller's failure", async () => {
-  const enqueue = createSerialQueue();
+  const enqueue = new SerialQueue().run;
   const started = Promise.withResolvers<undefined>();
   const release = Promise.withResolvers<undefined>();
   const events: string[] = [];

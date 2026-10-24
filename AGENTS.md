@@ -1,10 +1,11 @@
 ## Function purity and structure — hard rules
 
-- All functions must be pure: the same explicit inputs produce the same outputs, without observable side effects. Return new values instead of mutating arguments or shared objects.
-- A function may use its parameters and locally derived values. Do not read or write state captured from an enclosing scope, mutable module state, globals, environment variables, or implicit instance state. Pass required state explicitly. Pure helper calls must obey the same rule.
-- No functions within functions. This includes nested declarations, arrow functions, function expressions, inline callbacks, and closures inside methods, React components, hooks, factories, and tests. Define callable implementations at module scope and pass their inputs explicitly; do not hide captured state behind binding or another wrapper.
-- Network requests, filesystem/database access, logging, DOM or store mutation, clocks, and randomness are effects. Injecting these dependencies does not make a function pure. Represent requested effects as returned data rather than executing them inside functions. Do not silently exempt adapters, callbacks, or lifecycle functions from this rule.
-- Existing code is not evidence of an exception. These are mandatory design constraints; adding this policy does not mean the existing application already complies. Resolve conflicting architecture when changing the affected code rather than reproducing the old pattern.
+- Application logic must be pure: identical explicit inputs produce identical outputs without observable side effects. Return new values instead of mutating arguments or shared objects. Locally constructed collections may be populated before being returned.
+- Pass state, timestamps, generated identities and configuration explicitly. Pure functions may call other pure functions and read immutable constants; they must not read captured mutable state, globals, environment variables or implicit instance state.
+- No functions within functions. Define implementations at module scope, including callbacks and test helpers. Do not disguise a closure with a wrapper or describe dependency-injected I/O as pure.
+- Preserve an explicit effectful runtime: React lifecycle bindings, Zustand publication, network/media connections, persistence, logging, clocks and randomness execute there. Runtime owners may hold resource state; label that boundary honestly. A runtime callback may bind explicit arguments to a module-scope implementation when its framework requires a callback with a fixed signature.
+- Keep decisions and transformations out of effectful runtime owners. Pure transitions return next state or effect descriptions; the runtime executes them. `src/state/` contains pure state values, selectors and transitions only; `src/runtime/` owns their Zustand and persistence integration. Services and server adapters are effect boundaries, not exemptions for business logic.
+- Existing code is not evidence of compliance. Audit transitive calls as well as function bodies; moving an effect or wrapping it does not remove it. Record remaining violations honestly while migrating existing boundaries.
 
 ## Error handling
 
@@ -17,6 +18,7 @@
 - A single operation may use `[ok, error, value]`. For several operations, keep descriptively named Result objects and inspect `.ok` before `.value` or `.error`; avoid numbered tuple variables.
 - Error handling belongs to the caller. Do not add wrappers that force every callee to return a Result, or invent a `Result.bind` abstraction. The package's `ok(value)` and `error(reason)` helpers are available when an explicit Result is needed.
 - Do not use `.then()`, `.catch()` or `.finally()`, including computed-property or optional-chain variants. ESLint bans these members and enables `unicorn/prefer-await`. Use `await` and inspect `try` Results; capture the operation, perform unconditional cleanup, then propagate an unhandled failure. Do not disguise rejection handlers in another chaining helper.
+- Never discard a captured Result. Queues must track completion separately from operation results: release the next job after completion and propagate the original failure to its caller.
 - Preserve rejection propagation, early returns, cancellation and unconditional cleanup when changing error handling. Do not silently swallow errors unless an explicit fallback is intended.
 - Standalone installer scripts, the unbundled service worker and browser-evaluated test fixtures must remain runnable without resolving application dependencies; use native `Promise.allSettled` at those boundaries and inspect its outcome. Application code uses the installed `try` package.
 
@@ -25,6 +27,7 @@
 - Run only extremely focused tests during development: select the specific test cases and files that exercise the change, using a test-name filter where available. Repeat only those cases when investigating nondeterminism.
 - Never run the full test suite yourself, including `npm test`, unfiltered Playwright runs, or an equivalent collection of commands. CI owns full-suite validation; inspect its results and report any outstanding failures.
 - Run ESLint on the files you edit after each small batch of changes, before continuing to other files. Do not wait until the end. For example: `npx eslint path/to/changed.ts --max-warnings=0`.
+- Never add ESLint suppression comments or disable rules in configuration. Fix the code that violates the rule.
 - Apply lint rules and violations encountered during editing to future edits so that you do not repeat the same mistakes. Preserve unrelated lint rules; do not weaken them to make checks pass.
 
 <!-- BEGIN:nextjs-agent-rules -->

@@ -1,18 +1,13 @@
-import { cn } from "cn";
+import { nativeSlot } from "./native-slot";
 
 /**
 Render the existing animated placeholder while forwarding native container attributes.
-@param props - Native attributes, children and the declared appearance or composition options.
-@returns The composed element with caller props and classes preserved.
 */
-function Skeleton({ className, ...props }: React.ComponentProps<"div">) {
-  return (
-    <div
-      data-slot="skeleton"
-      className={cn("animate-pulse rounded-md bg-muted motion-reduce:animate-none", className)}
-      {...props}
-    />
-  );
-}
+const Skeleton = (nativeSlot<"div">).bind(
+  undefined,
+  "div",
+  "skeleton",
+  "animate-pulse rounded-md bg-muted motion-reduce:animate-none"
+);
 
 export { Skeleton };

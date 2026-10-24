@@ -1,3 +1,4 @@
+import { type ActivityState } from "../state/activity";
 import { type ContextUsage, contextUsageSchema } from "./usage";
 import { type DelegateReport, delegateReportSchema } from "./delegate-reports";
 import { type FileAttachment, fileAttachmentSchema } from "./attachments";
@@ -50,6 +51,10 @@ export interface RestartEvent {
   after: { turnId: string; itemId: string };
 }
 export interface Snapshot {
+  /**
+  Host-only activity bookkeeping; excluded from public snapshot projection.
+  */
+  activityState?: ActivityState;
   connection: "unconfigured" | "connecting" | "connected" | "disconnected";
   executionBoundary?: string;
   title: string;
@@ -186,3 +191,70 @@ export const snapshotSchema: z.ZodType<Snapshot> = z.object({
   error: z.string().optional(),
   connectionRetry: z.object({ turnId: z.string(), message: z.string() }).optional(),
 });
+
+/** Identify text content without depending on a transport or rendering owner.
+@param part - Untrusted native content part.
+@returns Whether the part contains native text.
+*/
+export function isTextContent(part: unknown) {
+  return object(part).type === "text";
+}
+
+/** Find a native item by identity without allocating a flattened history.
+@param turns - Native turn sequence.
+@param id - Requested native identity.
+@returns Matching item, if present.
+*/
+export function findItem(turns: readonly Turn[], id: string | null) {
+  for (const turn of turns) {
+    for (const item of turn.items) {
+      if (item.id === id) {
+        return item;
+      }
+    }
+  }
+}
+
+/** Check whether a native turn has visible source items.
+@param turn - Native turn.
+@returns Whether any item is present.
+*/
+export function hasTurnItems(turn: Turn) {
+  return turn.items.length > 0;
+}
+
+/** Identify an active native turn.
+@param turn - Native turn.
+@returns Whether the native status is in progress.
+*/
+export function isTurnInProgress(turn: Turn) {
+  return turn.status === "inProgress";
+}
+
+/** Check canonical history without constructing an intermediate item array.
+@param turns - Native turns.
+@returns Whether any turn contains source items.
+*/
+export function hasHistory(turns: readonly Turn[]) {
+  for (const turn of turns) {
+    if (hasTurnItems(turn)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+/** Inspect explicit turn state for active work.
+@param turns - Native turns.
+@returns Whether a native turn remains in progress.
+*/
+export function hasActiveTurn(turns: readonly Turn[]) {
+  for (const turn of turns) {
+    if (isTurnInProgress(turn)) {
+      return true;
+    }
+  }
+
+  return false;
+}

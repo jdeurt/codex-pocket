@@ -4,7 +4,7 @@ import { type Snapshot, string } from "../src/lib/protocol";
 import { Bridge } from "../src/server/bridge";
 import { CodexRpc } from "../src/server/rpc";
 import assert from "node:assert/strict";
-import { isRecoveryMessageId } from "../src/server/recovery";
+import { isRecoveryMessageId } from "../src/state/recovery";
 import { mkdir } from "node:fs/promises";
 import nextEnv from "@next/env";
 import path from "node:path";

@@ -1,4 +1,5 @@
 "use client";
+import { useDerivedValue } from "@/hooks/use-bound-callback";
 import * as React from "react";
 import { type VariantProps, cva } from "class-variance-authority";
 import { Drawer as DrawerPrimitive } from "@base-ui/react/drawer";
@@ -28,6 +29,22 @@ function useDrawer() {
   return context;
 }
 
+/** Collect explicit native configuration into an immutable context value.
+@param hasSnapPoints - Native configuration value.
+@param modal - Native configuration value.
+@param showSwipeHandle - Native configuration value.
+@param swipeDirection - Native configuration value.
+@returns Shared native configuration.
+*/
+function configuration(
+  hasSnapPoints: boolean,
+  modal: DrawerContextProps["modal"],
+  showSwipeHandle: DrawerContextProps["showSwipeHandle"],
+  swipeDirection: DrawerContextProps["swipeDirection"]
+): DrawerContextProps {
+  return { hasSnapPoints, modal, showSwipeHandle, swipeDirection };
+}
+
 /**
 Provide shared swipe configuration while retaining native modal and snap-point behavior.
 @param props - Native attributes, children and the declared appearance or composition options.
@@ -43,10 +60,7 @@ function Drawer({
   showSwipeHandle?: boolean;
 }) {
   const hasSnapPoints = snapPoints !== undefined && snapPoints.length > 0;
-  const contextValue = React.useMemo(
-    () => ({ hasSnapPoints, modal, showSwipeHandle, swipeDirection }),
-    [hasSnapPoints, modal, showSwipeHandle, swipeDirection]
-  );
+  const contextValue = useDerivedValue(configuration, hasSnapPoints, modal, showSwipeHandle, swipeDirection);
 
   return (
     <DrawerContext.Provider value={contextValue}>

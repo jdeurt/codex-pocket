@@ -8,7 +8,8 @@ import { useContext, useState } from "react";
 import { AgentNavigationContext } from "@/lib/agent-navigation-context";
 import { Button } from "./ui/button";
 import { type DelegateReport as Report } from "@/lib/delegate-reports";
-import { collapseDetail } from "@/lib/disclosure-click";
+import { openAgentFromButton } from "../runtime/form-events";
+import { collapseDetail } from "../runtime/disclosure-click";
 
 /**
 Preview one line of the original report, with an optional full report and read-only agent history.
@@ -51,13 +52,7 @@ export function DelegateReport({ report }: { report: Report }) {
                 <span className="min-w-0 flex-1 truncate">{report.text.trim() || "Agent report"}</span>
                 <ChevronDownIcon aria-hidden="true" className="delegate-report-chevron" />
               </CollapsibleTrigger>
-              <CollapsibleContent
-                onClick={(event) => {
-                  collapseDetail(event, () => {
-                    setIsOpen(false);
-                  });
-                }}
-              >
+              <CollapsibleContent onClick={collapseDetail.bind(undefined, setIsOpen.bind(undefined, false))}>
                 <div className="delegate-report-details">
                   <div className="whitespace-pre-wrap">{report.text.trimEnd()}</div>
                   {openAgent && (
@@ -65,9 +60,7 @@ export function DelegateReport({ report }: { report: Report }) {
                       variant="ghost"
                       size="sm"
                       className="delegate-report-open"
-                      onClick={(event) => {
-                        openAgent(report.agentId, event.currentTarget);
-                      }}
+                      onClick={openAgentFromButton.bind(undefined, openAgent, report.agentId)}
                     >
                       <ArrowRightIcon aria-hidden="true" />
                       Open Side Pocket

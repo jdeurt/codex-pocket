@@ -1,4 +1,5 @@
 import { BUILD_VERSION, CONNECTION_LOST_EVENT } from "@/lib/build-version";
+import { EventBindings } from "../runtime/events";
 import { z } from "zod";
 import { t as attempt } from "try";
 
@@ -57,7 +58,7 @@ Treat a restart or offline response as temporary unavailability, preserving the 
 @returns Confirmed build version when the server is available.
 */
 async function fetchVersion(signal: AbortSignal) {
-  const completed = await attempt(readVersion(signal));
+  const completed = await attempt(readVersion, signal);
 
   if (completed.ok) {
     return completed.value;
@@ -67,80 +68,107 @@ async function fetchVersion(signal: AbortSignal) {
 }
 
 /**
-Adopt a new UI after a host update without interrupting a send or losing unsaved input.
-@param isSafe - Reads current composer and durable attachment state synchronously.
-@returns Cleanup for the update probe and browser event subscriptions.
+Runtime owner of update probes, user-input timing and navigation effects.
 */
-export function subscribeAppUpdates(isSafe: () => boolean) {
-  let request: AbortController | undefined;
-  let isStopped = false;
-  let isComposing = false;
-  let lastInput = 0;
+class AppUpdates {
+  private request: AbortController | undefined;
+  private isStopped = false;
+  private isComposing = false;
+  private lastInput = 0;
+  private readonly interval: ReturnType<typeof setInterval>;
+  private readonly events: EventBindings;
 
-  const input = () => {
-    lastInput = Date.now();
+  /**
+  Record browser input at the clock boundary.
+  */
+  private input = () => {
+    this.lastInput = Date.now();
   };
-  const composition = (event: Event) => {
-    isComposing = event.type === "compositionstart";
-    input();
+
+  /** Track IME composition so a refresh cannot interrupt it.
+  @param event - Native composition lifecycle event.
+  */
+  private composition = (event: Event) => {
+    this.isComposing = event.type === "compositionstart";
+    this.input();
   };
 
-  async function probe(controller: AbortController) {
-    const timeout = setTimeout(() => {
-      controller.abort();
-    }, REQUEST_TIMEOUT_MS);
-
-    const version = await fetchVersion(controller.signal);
-
-    clearTimeout(timeout);
-    request = undefined;
-
-    if (
-      !isStopped &&
-      !isComposing &&
-      version &&
-      version !== BUILD_VERSION &&
-      document.visibilityState === "visible" &&
-      Date.now() - lastInput >= INPUT_IDLE_MS &&
-      isSafe()
-    ) {
-      refresh(version);
-    }
-  }
-
-  const check = async () => {
-    if (request || document.visibilityState !== "visible") {
+  /**
+  Probe the host and refresh only after confirming durable work and user inactivity.
+  */
+  private check = async () => {
+    if (this.request || document.visibilityState !== "visible") {
       return;
     }
 
-    request = new AbortController();
-    await probe(request);
+    const controller = new AbortController();
+
+    this.request = controller;
+    const signal = AbortSignal.any([controller.signal, AbortSignal.timeout(REQUEST_TIMEOUT_MS)]);
+    const version = await fetchVersion(signal);
+
+    this.request = undefined;
+
+    if (this.canRefresh(version)) {
+      refresh(version);
+    }
   };
 
-  const wake = () => {
-    void check();
+  /**
+  Schedule a probe from a timer or native lifecycle callback.
+  */
+  private wake = () => {
+    void this.check();
   };
-  const interval = setInterval(wake, CHECK_INTERVAL_MS);
 
-  wake();
-  globalThis.addEventListener("online", wake);
-  globalThis.addEventListener("pageshow", wake);
-  globalThis.addEventListener(CONNECTION_LOST_EVENT, wake);
-  document.addEventListener("visibilitychange", wake);
-  document.addEventListener("input", input);
-  document.addEventListener("compositionstart", composition);
-  document.addEventListener("compositionend", composition);
-
-  return () => {
-    isStopped = true;
-    request?.abort();
-    clearInterval(interval);
-    globalThis.removeEventListener("online", wake);
-    globalThis.removeEventListener("pageshow", wake);
-    globalThis.removeEventListener(CONNECTION_LOST_EVENT, wake);
-    document.removeEventListener("visibilitychange", wake);
-    document.removeEventListener("input", input);
-    document.removeEventListener("compositionstart", composition);
-    document.removeEventListener("compositionend", composition);
+  /**
+  Cancel outstanding requests and release all native listeners.
+  */
+  stop = () => {
+    this.isStopped = true;
+    this.request?.abort();
+    clearInterval(this.interval);
+    this.events.stop();
   };
+
+  /** Begin observing input and host versions after mount.
+  @param isSafe - Explicit runtime read of current durable-work status.
+  */
+  constructor(private readonly isSafe: () => boolean) {
+    this.interval = setInterval(this.wake, CHECK_INTERVAL_MS);
+    this.events = new EventBindings([
+      [globalThis, "online", this.wake],
+      [globalThis, "pageshow", this.wake],
+      [globalThis, CONNECTION_LOST_EVENT, this.wake],
+      [document, "visibilitychange", this.wake],
+      [document, "input", this.input],
+      [document, "compositionstart", this.composition],
+      [document, "compositionend", this.composition],
+    ]);
+    this.wake();
+  }
+
+  /** Read current runtime conditions after a possibly delayed version response.
+  @param version - Version returned by the host, if reachable.
+  @returns Whether this response can safely trigger navigation.
+  */
+  private canRefresh(version: string | undefined): version is string {
+    return (
+      !this.isStopped &&
+      !this.isComposing &&
+      !!version &&
+      version !== BUILD_VERSION &&
+      document.visibilityState === "visible" &&
+      Date.now() - this.lastInput >= INPUT_IDLE_MS &&
+      this.isSafe()
+    );
+  }
+}
+
+/** Start the effectful update lifetime using an explicit current-state reader.
+@param isSafe - Runtime read of current durable-work status.
+@returns Cleanup for probes, cancellation and input listeners.
+*/
+export function subscribeAppUpdates(isSafe: () => boolean) {
+  return new AppUpdates(isSafe).stop;
 }

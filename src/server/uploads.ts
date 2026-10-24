@@ -3,7 +3,6 @@ import { type FileAttachment, MAX_ATTACHMENTS, MAX_ATTACHMENT_BYTES, fileAttachm
 import { localDirectory, readLocal, writeLocal } from "./local-state";
 import { readFile, rename, rm, stat } from "node:fs/promises";
 import { type Receipt } from "./outbox";
-import { type Snapshot } from "../lib/protocol";
 import { createHash } from "node:crypto";
 import path from "node:path";
 import sharp from "sharp";
@@ -310,28 +309,6 @@ export function attachmentInput(parent: string, files: FileAttachment[]) {
       text_elements: [],
     },
   ]);
-}
-
-/**
-Restore receipt-backed attachment metadata on canonical user messages.
-@param state - Canonical thread snapshot to update.
-@param receipts - Persisted submissions containing attachment metadata.
-*/
-export function projectAttachments(state: Snapshot, receipts: Receipt[]) {
-  const attached = new Map(receipts.filter((entry) => entry.attachments?.length).map((entry) => [entry.id, entry]));
-
-  for (const turn of state.turns) {
-    for (const item of turn.items) {
-      const receipt = attached.get(String(item.clientId));
-
-      if (!(receipt && item.type === "userMessage")) {
-        continue;
-      }
-
-      item.attachments = receipt.attachments;
-      item.pocketAttachmentText = receipt.text;
-    }
-  }
 }
 
 /**

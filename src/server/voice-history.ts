@@ -1,6 +1,8 @@
 /* eslint-disable jsdoc/require-param, jsdoc/require-returns -- History operations are bound to the constructor's thread identity. */
+import { findById } from "../lib/identity";
+import { finalizedCaptions } from "../state/saved-voice";
 import { type VoiceSegment } from "../lib/voice-history";
-import { createSavedVoiceStore } from "../state/saved-voice";
+import { SavedVoiceRuntime } from "../runtime/saved-voice";
 import { voiceStorage } from "./voice-storage";
 import { type Data, string } from "../lib/protocol";
 import { createHash } from "node:crypto";
@@ -9,7 +11,7 @@ import { createHash } from "node:crypto";
 Persist finalized captions and retain legacy handoff status; never store raw microphone audio.
 */
 export class VoiceHistory {
-  private persisted: ReturnType<typeof createSavedVoiceStore>;
+  private persisted: SavedVoiceRuntime;
   private hydration?: Promise<void>;
 
   /** Bind a vanilla persisted store to one conversation and this host's storage adapter.
@@ -18,7 +20,7 @@ export class VoiceHistory {
   constructor(threadId: string) {
     const key = createHash("sha256").update(threadId).digest("hex");
 
-    this.persisted = createSavedVoiceStore(key, voiceStorage());
+    this.persisted = new SavedVoiceRuntime(key, voiceStorage());
   }
 
   /** Restore saved speech once without replaying work or sharing state across conversations.
@@ -43,7 +45,7 @@ export class VoiceHistory {
 
     const id = `realtime:${sessionId}:${itemId}:${role}`;
     const entries = await this.read();
-    const existing = entries.find((entry) => entry.id === id);
+    const existing = findById(entries, id);
     const entry: VoiceSegment = {
       ...existing,
       id,
@@ -65,16 +67,7 @@ export class VoiceHistory {
   */
   async save(entry: VoiceSegment) {
     const entries = await this.read();
-    const existing = entries.find((candidate) => candidate.id === entry.id);
 
-    if (existing && existing.text !== entry.text) {
-      throw new Error("Finalized caption changed for an existing item.");
-    }
-
-    const segments = existing
-      ? entries.map((candidate) => (candidate.id === entry.id ? entry : candidate))
-      : [...entries, entry];
-
-    this.persisted.store.setState({ segments });
+    this.persisted.store.setState({ segments: finalizedCaptions(entries, entry) });
   }
 }

@@ -1,4 +1,5 @@
 "use client";
+import { retainButton } from "../runtime/form-events";
 import { type AgentEntry, agentSource, agentStatus } from "@/lib/agents";
 import { ArrowLeftIcon, ChevronRightIcon } from "lucide-react";
 import { Button } from "./ui/button";
@@ -10,6 +11,48 @@ const previewLabels: Record<Exclude<NonNullable<AgentEntry["previewState"]>, "lo
   unavailable: "Preview unavailable.",
   empty: "No visible messages saved yet.",
 };
+
+/** Render one agent with explicit navigation and focus bindings.
+@param rows - Runtime focus-handle registry.
+@param select - Owning navigation action.
+@param agent - Validated agent row.
+@returns One keyed selectable agent row.
+*/
+function agentRow(
+  rows: RefObject<Map<string, HTMLButtonElement>>,
+  select: (agent: AgentEntry) => void,
+  agent: AgentEntry
+) {
+  return (
+    <button
+      type="button"
+      key={agent.id}
+      className="agent-row"
+      ref={retainButton.bind(undefined, rows, agent.id)}
+      onClick={select.bind(undefined, agent)}
+    >
+      <div className="agent-row-content">
+        <span className="agent-row-title">
+          <span className="agent-name" title={agent.name}>
+            {agent.name}
+          </span>
+          <span className="agent-status">{agentStatus(agent.status)}</span>
+        </span>
+        <span className="agent-source">{agentSource(agent)}</span>
+        {agent.previewState === "loading" && !agent.preview ? (
+          <div className="agent-preview" role="status" aria-label="Loading preview" aria-busy="true">
+            <Skeleton className="h-3 w-3/4" />
+          </div>
+        ) : (
+          <span className="agent-preview">
+            {agent.preview || previewLabels[agent.previewState === "unavailable" ? "unavailable" : "empty"]}
+          </span>
+        )}
+      </div>
+      <ChevronRightIcon aria-hidden="true" />
+    </button>
+  );
+}
 
 /**
 Render scoped agent rows with retained focus handles and discovery warnings.
@@ -49,43 +92,7 @@ export function AgentList({
             {error && " Showing the last update; statuses may be stale."}
           </p>
         ) : null}
-        {entries.map((agent) => (
-          <button
-            type="button"
-            key={agent.id}
-            className="agent-row"
-            ref={(node) => {
-              if (node) {
-                rows.current.set(agent.id, node);
-              } else {
-                rows.current.delete(agent.id);
-              }
-            }}
-            onClick={() => {
-              select(agent);
-            }}
-          >
-            <div className="agent-row-content">
-              <span className="agent-row-title">
-                <span className="agent-name" title={agent.name}>
-                  {agent.name}
-                </span>
-                <span className="agent-status">{agentStatus(agent.status)}</span>
-              </span>
-              <span className="agent-source">{agentSource(agent)}</span>
-              {agent.previewState === "loading" && !agent.preview ? (
-                <div className="agent-preview" role="status" aria-label="Loading preview" aria-busy="true">
-                  <Skeleton className="h-3 w-3/4" />
-                </div>
-              ) : (
-                <span className="agent-preview">
-                  {agent.preview || previewLabels[agent.previewState === "unavailable" ? "unavailable" : "empty"]}
-                </span>
-              )}
-            </div>
-            <ChevronRightIcon aria-hidden="true" />
-          </button>
-        ))}
+        {Array.from(entries, agentRow.bind(undefined, rows, select))}
         {isLoading && (
           <div role="status" aria-label="Loading agents" className="flex flex-col gap-4 py-4">
             <Skeleton className="h-20 w-full" />

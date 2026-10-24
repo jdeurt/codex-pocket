@@ -1,4 +1,5 @@
 "use client";
+import { visibleThread } from "../state/thread";
 import { useStore } from "zustand";
 import { useShallow } from "zustand/react/shallow";
 import { usePocketClient } from "../providers/pocket-state";
@@ -9,8 +10,5 @@ import { usePocketClient } from "../providers/pocket-state";
 export function useThread() {
   const { thread } = usePocketClient();
 
-  return useStore(
-    thread,
-    useShallow(({ state, connected }) => ({ state, connected }))
-  );
+  return useStore(thread, useShallow(visibleThread));
 }

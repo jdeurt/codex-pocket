@@ -1,7 +1,7 @@
 import path from "node:path";
 import { legacyEntries } from "./task-archive-read";
 import { taskDirectory, writeTaskFile } from "./task-archive";
-import { sourceLink, taskTimeline } from "./task-record-view";
+import { sourceLink, taskTimeline } from "../state/task-record";
 import { scheduleTaskIndex } from "./task-search";
 
 /** Write a readable imported timeline beside the complete unchanged native migration envelope.
@@ -24,7 +24,7 @@ export async function writeLegacyTask(owner: string, original: string) {
       "",
       `[Full exact native history](${sourceLink(rawFile)})`,
       "",
-      taskTimeline(entries, () => rawFile),
+      taskTimeline(entries, { file: rawFile }),
     ].join("\n")
   );
   scheduleTaskIndex(owner);

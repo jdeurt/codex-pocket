@@ -1,3 +1,4 @@
+import { nativeSlot } from "./native-slot";
 import * as React from "react";
 import { type VariantProps, cva } from "class-variance-authority";
 import { cn } from "cn";
@@ -29,38 +30,22 @@ function Alert({ className, variant, ...props }: React.ComponentProps<"div"> & V
 
 /**
 Keep an alert heading aligned with its surrounding severity treatment.
-@param props - Native attributes, children and the declared appearance or composition options.
-@returns The composed element with caller props and classes preserved.
 */
-function AlertTitle({ className, ...props }: React.ComponentProps<"div">) {
-  return (
-    <div
-      data-slot="alert-title"
-      className={cn(
-        "font-medium group-has-[>svg]/alert:col-start-2 [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground",
-        className
-      )}
-      {...props}
-    />
-  );
-}
+const AlertTitle = (nativeSlot<"div">).bind(
+  undefined,
+  "div",
+  "alert-title",
+  "font-medium group-has-[>svg]/alert:col-start-2 [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground"
+);
 
 /**
 Lay out alert details with the shared muted text and link treatment.
-@param props - Native attributes, children and the declared appearance or composition options.
-@returns The composed element with caller props and classes preserved.
 */
-function AlertDescription({ className, ...props }: React.ComponentProps<"div">) {
-  return (
-    <div
-      data-slot="alert-description"
-      className={cn(
-        "text-sm text-balance text-muted-foreground md:text-pretty [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground [&_p:not(:last-child)]:mb-4",
-        className
-      )}
-      {...props}
-    />
-  );
-}
+const AlertDescription = (nativeSlot<"div">).bind(
+  undefined,
+  "div",
+  "alert-description",
+  "text-sm text-balance text-muted-foreground md:text-pretty [&_a]:underline [&_a]:underline-offset-3 [&_a]:hover:text-foreground [&_p:not(:last-child)]:mb-4"
+);
 
 export { Alert, AlertDescription, AlertTitle };

@@ -1,3 +1,5 @@
+import { SerialQueue } from "../runtime/serial-queue";
+import { valueAfterCleanup } from "../lib/results";
 import { t as captureResult } from "try";
 import { type AgentSession, type SessionEntry, type SessionManager } from "@earendil-works/pi-coding-agent";
 import { type TaskContextState, groupTaskContext, ingestTaskEntry, readTaskState, saveTaskState } from "./task-context";
@@ -17,6 +19,7 @@ export class PiTaskContext {
   private state?: TaskContextState;
   private timer?: NodeJS.Timeout;
   private serial: Promise<void> = Promise.resolve();
+  private queue = new SerialQueue();
   private passController?: AbortController;
 
   /** Bind one parent and report private background failures without losing source context.
@@ -30,28 +33,74 @@ export class PiTaskContext {
     private onError: (error: unknown) => void
   ) {}
 
+  /** Read only entries committed after the durable ingestion cursor.
+  @param manager - Authoritative native session source.
+  */
+  private async ingestTail(manager: SessionManager) {
+    if (!this.state) {
+      throw new Error("Task context has not been initialized.");
+    }
+
+    const cursor = this.state.sourceCursor;
+
+    if (cursor && !manager.getEntry(cursor)) {
+      throw new Error("Task ingestion cursor is missing from the Pi source; inspect before replaying history.");
+    }
+
+    const arrived: SessionEntry[] = [];
+
+    let tail = cursor ? manager.getChildren(cursor) : manager.getEntries();
+
+    while (tail.length > 0) {
+      arrived.push(...tail);
+      tail = cursor ? manager.getChildren(tail.at(LAST_ENTRY)?.id ?? "") : [];
+    }
+
+    for (const entry of arrived) {
+      await this.ingest(entry);
+    }
+  }
+
+  /** Reconcile background work only while the native session is idle.
+  @param session - Native model session.
+  */
+  private poll(session: AgentSession) {
+    scheduleTaskIndex(this.owner);
+
+    if (session.isIdle) {
+      void this.passWhenIdle(session);
+    }
+  }
+
+  /** Classify changed active context after checking current provider availability.
+  @param session - Native model session.
+  */
+  private async classify(session: AgentSession) {
+    if (
+      !this.state ||
+      !session.isIdle ||
+      (this.state.revision === this.state.lastSeen && !this.state.compactionPending)
+    ) {
+      return;
+    }
+
+    const key = await this.readKey();
+
+    if (!key) {
+      return;
+    }
+
+    await this.process(session, key);
+  }
+
   /** Serialize ingestion, grouping and persistence without poisoning later operations after errors.
   @param operation - Next private-state mutation.
   @returns Completion of this operation.
   */
   private enqueue(operation: () => Promise<void>) {
-    this.serial = this.runQueued(this.serial, operation);
+    this.serial = this.queue.run(operation);
 
     return this.serial;
-  }
-
-  /** Wait for the preceding archive write before executing the next mutation.
-  @param previous - Completion reserved by the preceding owner.
-  @param operation - Next private-state mutation.
-  */
-  private async runQueued(previous: Promise<void>, operation: () => Promise<void>) {
-    const prior = await captureResult(previous);
-
-    if (!prior.ok) {
-      this.onError(prior.error);
-    }
-
-    await operation();
   }
 
   /** Group a changed active set while allowing incoming user work to preempt the provider call.
@@ -63,7 +112,7 @@ export class PiTaskContext {
 
     this.passController = controller;
 
-    const grouped = await captureResult(() => this.groupAndCompact(session, key, controller.signal));
+    const grouped = await captureResult(this.groupAndCompact.bind(this), session, key, controller.signal);
 
     this.passController = undefined;
 
@@ -89,7 +138,26 @@ export class PiTaskContext {
       return;
     }
 
-    await groupTaskContext(this.owner, this.state, (candidate, matched) => isSameTask(key, candidate, matched, signal));
+    const grouped = await captureResult(
+      groupTaskContext,
+      this.owner,
+      this.state,
+      isSameTask.bind(undefined, key, signal)
+    );
+
+    if (!grouped.ok) {
+      const restored = await captureResult(readTaskState, this.owner);
+
+      if (restored.ok) {
+        this.state = restored.value;
+      }
+
+      valueAfterCleanup(grouped, restored);
+
+      return;
+    }
+
+    this.state = grouped.value.state;
 
     if (!this.state.compactionPending || session.isStreaming || signal.aborted) {
       return;
@@ -104,7 +172,7 @@ export class PiTaskContext {
           "Include archive references for completed tasks and silently read originals when prior work is referenced."
       )
     );
-    this.state.compactionPending = false;
+    this.state = { ...this.state, compactionPending: false };
     await saveTaskState(this.owner, this.state);
   }
 
@@ -126,10 +194,10 @@ export class PiTaskContext {
       };
 
       await saveTaskSource(this.owner, source);
-      ingestTaskEntry(this.state, source);
+      this.state = ingestTaskEntry(this.state, source);
     }
 
-    this.state.sourceCursor = entry.id;
+    this.state = { ...this.state, sourceCursor: entry.id };
     await saveTaskState(this.owner, this.state);
   }
 
@@ -137,7 +205,7 @@ export class PiTaskContext {
   @param session - Session whose idle state controls grouping.
   */
   private async passWhenIdle(session: AgentSession) {
-    const passed = await captureResult(() => this.pass(session));
+    const passed = await captureResult(this.pass.bind(this), session);
 
     if (!passed.ok) {
       this.onError(passed.error);
@@ -150,32 +218,7 @@ export class PiTaskContext {
   async sync(manager: SessionManager) {
     // enqueue awaits the preceding write before reading. message_end's listener returns
     // to Pi so it can append the native entry before this queued operation observes it.
-    const synced = await captureResult(() =>
-      this.enqueue(async () => {
-        if (!this.state) {
-          throw new Error("Task context has not been initialized.");
-        }
-
-        const cursor = this.state.sourceCursor;
-
-        if (cursor && !manager.getEntry(cursor)) {
-          throw new Error("Task ingestion cursor is missing from the Pi source; inspect before replaying history.");
-        }
-
-        const arrived: SessionEntry[] = [];
-
-        let tail = cursor ? manager.getChildren(cursor) : manager.getEntries();
-
-        while (tail.length > 0) {
-          arrived.push(...tail);
-          tail = cursor ? manager.getChildren(tail.at(LAST_ENTRY)?.id ?? "") : [];
-        }
-
-        for (const entry of arrived) {
-          await this.ingest(entry);
-        }
-      })
-    );
+    const synced = await captureResult(this.enqueue.bind(this), this.ingestTail.bind(this, manager));
 
     if (!synced.ok) {
       this.onError(synced.error);
@@ -191,13 +234,7 @@ export class PiTaskContext {
     scheduleTaskIndex(this.owner);
     void this.sync(manager);
     await this.serial;
-    this.timer = setInterval(() => {
-      scheduleTaskIndex(this.owner);
-
-      if (session.isIdle) {
-        void this.passWhenIdle(session);
-      }
-    }, PASS_INTERVAL_MS);
+    this.timer = setInterval(this.poll.bind(this, session), PASS_INTERVAL_MS);
     this.timer.unref();
   }
 
@@ -206,23 +243,7 @@ export class PiTaskContext {
   @returns Completion of one serialized changed-chat pass.
   */
   pass(session: AgentSession) {
-    return this.enqueue(async () => {
-      if (
-        !this.state ||
-        !session.isIdle ||
-        (this.state.revision === this.state.lastSeen && !this.state.compactionPending)
-      ) {
-        return;
-      }
-
-      const key = await this.readKey();
-
-      if (!key) {
-        return;
-      }
-
-      await this.process(session, key);
-    });
+    return this.enqueue(this.classify.bind(this, session));
   }
 
   /**

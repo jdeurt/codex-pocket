@@ -1,4 +1,5 @@
 "use client";
+import { requestNotifications } from "../runtime/notification-actions";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "./ui/button";
 import { XIcon } from "lucide-react";
@@ -17,7 +18,7 @@ const statusMessages: Partial<Record<Status, string>> = {
 export function NotificationPrompt() {
   const { notifications } = usePocketClient();
   const { status, error } = useStore(notifications.store);
-  const { enable, dismiss } = notifications;
+  const { dismiss } = notifications;
 
   if (["loading", "enabled", "dismissed"].includes(status)) {
     return null;
@@ -31,20 +32,13 @@ export function NotificationPrompt() {
           <Button
             size="touch"
             disabled={status === "subscribing"}
-            onClick={() => void enable()}
+            onClick={requestNotifications.bind(undefined, notifications)}
             aria-label="Enable notifications"
           >
             Enable
           </Button>
         )}
-        <Button
-          variant="ghost"
-          size="icon-xl"
-          aria-label="Dismiss notification prompt"
-          onClick={() => {
-            dismiss();
-          }}
-        >
+        <Button variant="ghost" size="icon-xl" aria-label="Dismiss notification prompt" onClick={dismiss}>
           <XIcon />
         </Button>
       </AlertDescription>

@@ -17,15 +17,29 @@ Merge local deliveries with server state and remove messages confirmed in the tr
 @returns A new snapshot and pending list with confirmed client IDs removed.
 */
 export function reconcileDeliveries(state: Snapshot, pending: QueuedMessage[]) {
-  const confirmed = new Set(
-    state.turns.flatMap((turn) =>
-      turn.items.filter((item) => isVisibleUserItem(item)).map((item) => string(item.clientId))
-    )
-  );
-  const remaining = pending.filter((message) => !confirmed.has(message.id));
-  const queue = new Map(
-    state.queue.filter((message) => !confirmed.has(message.id)).map((message) => [message.id, message])
-  );
+  const confirmed = new Set<string>();
+  const remaining: QueuedMessage[] = [];
+  const queue = new Map<string, QueuedMessage>();
+
+  for (const turn of state.turns) {
+    for (const item of turn.items) {
+      if (isVisibleUserItem(item)) {
+        confirmed.add(string(item.clientId));
+      }
+    }
+  }
+
+  for (const message of pending) {
+    if (!confirmed.has(message.id)) {
+      remaining.push(message);
+    }
+  }
+
+  for (const message of state.queue) {
+    if (!confirmed.has(message.id)) {
+      queue.set(message.id, message);
+    }
+  }
 
   for (const message of remaining) {
     if (!queue.has(message.id) || message.status === "sent") {

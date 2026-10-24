@@ -1,53 +1,60 @@
 import { pocketHref, pocketsSchema } from "../lib/pockets";
-import { post } from "../lib/client-api";
-import { createOperation } from "./operation";
-import { type createResources } from "./resources";
+import { post } from "../runtime/client-api";
+import { Operation } from "./operation";
+import { type Resources } from "./resources";
+import { pocketDestination, type PocketEdit } from "../state/pockets";
 
-export interface PocketEdit {
-  action: "create" | "rename" | "delete";
-  id: string;
-  name: string;
-}
+export type { PocketEdit } from "../state/pockets";
 
-/** Own durable catalog mutations independently of the menu's local editor state.
-@param resources - Shared catalog and read owners.
-@param selectedId - Selected Pocket whose deletion requires navigation.
-@param url - Explicit catalog endpoint.
-@returns Mutation state and a save action preserving the caller's idempotency identity.
+/**
+Runtime owner of catalog persistence and explicit browser navigation effects.
 */
-export function createPocketsController(
-  resources: ReturnType<typeof createResources>,
-  selectedId: string,
-  url: string
-) {
-  const operation = createOperation();
-  const resource = resources.read("/api/pockets", pocketsSchema);
+export class PocketsController {
+  private readonly operation = new Operation();
 
-  return {
-    store: operation.store,
-    clearError: () => {
-      operation.store.setState({ error: "" });
-    },
-    save: (change: PocketEdit) =>
-      operation.run(async () => {
-        const result = await post(url, change.action === "delete" ? { action: change.action, id: change.id } : change);
-        const entries = pocketsSchema.shape.pockets.parse(result.pockets);
-        const created = entries.find((entry) => entry.id === change.id);
+  /** Persist a catalog edit before executing its pure navigation decision.
+  @param change - Explicit user-requested mutation.
+  */
+  private persist = async (change: PocketEdit) => {
+    const body = change.action === "delete" ? { action: change.action, id: change.id } : change;
+    const result = await post(this.url, body);
+    const entries = pocketsSchema.shape.pockets.parse(result.pockets);
 
-        resource.store.setState({ data: { pockets: entries, selectedId }, error: undefined, isLoading: false });
+    this.resources.read("/api/pockets", pocketsSchema).store.setState({
+      data: { pockets: entries, selectedId: this.selectedId },
+      error: undefined,
+      isLoading: false,
+    });
+    const destination = pocketDestination(change, this.selectedId, entries);
 
-        if (change.action === "create" && created?.state !== "ready") {
-          throw new Error("Setup did not finish. Delete this entry before trying a new Pocket.");
-        }
-
-        if (!(change.action === "create" || (change.action === "delete" && change.id === selectedId))) {
-          return;
-        }
-
-        const destination =
-          change.action === "create" ? change.id : (entries.find((entry) => entry.state === "ready")?.id ?? "main");
-
-        location.assign(pocketHref(destination));
-      }, "Could not save this Pocket."),
+    if (destination !== undefined) {
+      location.assign(pocketHref(destination));
+    }
   };
+
+  readonly store = this.operation.store;
+
+  /**
+  Clear the prior mutation error when the user edits the form.
+  */
+  clearError = () => {
+    this.store.setState({ error: "" });
+  };
+
+  /** Serialize one catalog mutation while retaining its user-provided idempotency identity.
+  @param change - Requested catalog mutation.
+  @returns Operation outcome after persistence and any required navigation.
+  */
+  save = (change: PocketEdit) => this.operation.run(this.persist, "Could not save this Pocket.", "", change);
+
+  /** Retain explicit catalog dependencies without starting network work.
+  @param resources - Shared runtime cache.
+  @param selectedId - Selected Pocket whose deletion requires navigation.
+  @param url - Scoped catalog endpoint.
+  */
+  constructor(
+    private readonly resources: Resources,
+    private readonly selectedId: string,
+    private readonly url: string
+  ) {}
 }

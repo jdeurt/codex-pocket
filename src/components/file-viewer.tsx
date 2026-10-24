@@ -1,31 +1,23 @@
 "use client";
-import { t as captureResult } from "try";
-
 import "./file-viewer.css";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useReducer } from "react";
+import { useStore } from "zustand";
 import { ArrowLeftIcon } from "lucide-react";
 import { Button } from "./ui/button";
 import { Markdown } from "./markdown";
-import { pocketUrl } from "@/lib/pockets";
 import { useRouter } from "next/navigation";
-import { z } from "zod";
+import { PocketNavigationContext } from "../providers/pocket-navigation-context";
+import { FileViewerRuntime, type FileViewerOptions } from "../runtime/file-viewer";
+import { type FileMetadata } from "../state/file-viewer";
 
-const fileSchema = z.object({
-  filename: z.string(),
-  name: z.string(),
-  type: z.string(),
-  markdown: z.string().nullable(),
-});
-const SWIPE_DIVISOR = 3;
 const LAST_COMPONENT = -1;
-const EDGE_WIDTH = 32;
 
 /**
 Render loaded Markdown with chat semantics or let the browser handle a native file.
 @param props - Validated file metadata, load error and same-origin content URL.
 @returns Content appropriate to the current loading state.
 */
-function FileContent({ file, error, url }: { file: z.infer<typeof fileSchema> | null; error: string; url: string }) {
+function FileContent({ file, error, url }: { file: FileMetadata | null; error: string; url: string }) {
   if (error) {
     return <p role="alert">{error}</p>;
   }
@@ -53,138 +45,66 @@ function FileContent({ file, error, url }: { file: z.infer<typeof fileSchema> | 
   );
 }
 
-/**
-Show a native file or the exact chat Markdown renderer while retaining the covered parent route.
-@param props - Original local path and whether navigation intercepted an existing chat.
-@returns Accessible full-screen file surface with native history and deliberate edge swipe-back.
+/** Create the runtime for one explicitly keyed file route.
+@param options - Initial route and navigation dependencies.
+@returns Unmounted file-view owner.
 */
-export function FileViewer({ filename, overlay = false }: { filename: string; overlay?: boolean }) {
+function createFileView(options: FileViewerOptions) {
+  return new FileViewerRuntime(options);
+}
+
+/** Retain the runtime until the keyed route remounts.
+@param runtime - Mounted view owner.
+@returns The same runtime.
+*/
+function retainFileView(runtime: FileViewerRuntime) {
+  return runtime;
+}
+
+/** Render validated file state and bind explicit runtime event handlers.
+@param props - Original path, conversation scope and overlay navigation mode.
+@returns Full-screen file surface with native back navigation.
+*/
+export function FileViewer({
+  filename,
+  pocketId = "main",
+  overlay = false,
+}: {
+  filename: string;
+  pocketId?: string;
+  overlay?: boolean;
+}) {
   const router = useRouter();
-  const dialog = useRef<HTMLDialogElement>(null);
-  const drag = useRef<{ x: number; y: number } | null>(null);
-  const [offset, setOffset] = useState(0);
-  const [file, setFile] = useState<z.infer<typeof fileSchema> | null>(null);
-  const [error, setError] = useState("");
-  const back = () => {
-    if (overlay) {
-      router.back();
-    } else {
-      router.push(pocketUrl("/"));
-    }
-  };
-  const url = pocketUrl(`/api/files?path=${encodeURIComponent(filename)}`);
+  const [runtime] = useReducer(retainFileView, { filename, pocketId, overlay, router }, createFileView);
+  const { dialog, store, connect, cancel, down, move, up, cancelGesture, back, url } = runtime;
+  const { file, error, offset } = useStore(store);
 
-  function movePointer(event: React.PointerEvent<HTMLDialogElement>, start: { x: number; y: number }) {
-    const x = event.clientX - start.x;
-
-    if (Math.abs(event.clientY - start.y) > Math.max(EDGE_WIDTH, x)) {
-      drag.current = null;
-      setOffset(0);
-
-      return;
-    }
-
-    setOffset(Math.max(0, x));
-
-    if (x > EDGE_WIDTH) {
-      event.currentTarget.setPointerCapture(event.pointerId);
-    }
-  }
-
-  useEffect(() => {
-    const controller = new AbortController();
-
-    async function readMetadata() {
-      const response = await fetch(`${url}&metadata=1`, { signal: controller.signal });
-
-      if (!response.ok) {
-        throw new Error("File is unavailable.");
-      }
-
-      return fileSchema.parse(await response.json());
-    }
-
-    async function load() {
-      const result = await captureResult(readMetadata);
-
-      if (controller.signal.aborted) {
-        return;
-      }
-
-      if (result.ok) {
-        setFile(result.value);
-      } else {
-        setError(result.error instanceof Error ? result.error.message : "File is unavailable.");
-      }
-    }
-
-    void load();
-
-    return () => {
-      controller.abort();
-    };
-  }, [url]);
-
-  useEffect(() => {
-    dialog.current?.showModal();
-  }, []);
+  useEffect(connect, [connect]);
 
   return (
-    <dialog
-      ref={dialog}
-      className="file-viewer"
-      aria-label={file?.name ?? "File"}
-      style={{ transform: `translateX(${String(offset)}px)` }}
-      onCancel={(event) => {
-        event.preventDefault();
-        back();
-      }}
-      onPointerDown={(event) => {
-        if (
-          !(event.target instanceof HTMLElement) ||
-          !event.target.classList.contains("file-viewer-edge") ||
-          globalThis.getSelection()?.toString()
-        ) {
-          return;
-        }
-
-        event.preventDefault();
-        drag.current = { x: event.clientX, y: event.clientY };
-        event.currentTarget.setPointerCapture(event.pointerId);
-      }}
-      onPointerMove={(event) => {
-        const start = drag.current;
-
-        if (!start) {
-          return;
-        }
-
-        movePointer(event, start);
-      }}
-      onPointerUp={() => {
-        drag.current = null;
-
-        if (offset >= window.innerWidth / SWIPE_DIVISOR) {
-          back();
-        }
-
-        setOffset(0);
-      }}
-      onPointerCancel={() => {
-        drag.current = null;
-        setOffset(0);
-      }}
-    >
-      <header className="file-viewer-header">
-        <Button variant="ghost" size="icon-xl" aria-label="Back to chat" onClick={back}>
-          <ArrowLeftIcon />
-        </Button>
-        <h1 title={file?.name}>{file?.name ?? filename.split("/").at(LAST_COMPONENT)}</h1>
-      </header>
-      <div className="file-viewer-edge" aria-hidden="true" />
-      <div className="file-viewer-content">
-        <FileContent file={file} error={error} url={url} />
-      </div>
-    </dialog>
+    <PocketNavigationContext value={pocketId}>
+      <dialog
+        ref={dialog}
+        className="file-viewer"
+        aria-label={file?.name ?? "File"}
+        style={{ transform: `translateX(${String(offset)}px)` }}
+        onCancel={cancel}
+        onPointerDown={down}
+        onPointerMove={move}
+        onPointerUp={up}
+        onPointerCancel={cancelGesture}
+      >
+        <header className="file-viewer-header">
+          <Button variant="ghost" size="icon-xl" aria-label="Back to chat" onClick={back}>
+            <ArrowLeftIcon />
+          </Button>
+          <h1 title={file?.name}>{file?.name ?? filename.split("/").at(LAST_COMPONENT)}</h1>
+        </header>
+        <div className="file-viewer-edge" aria-hidden="true" />
+        <div className="file-viewer-content">
+          <FileContent file={file} error={error} url={url} />
+        </div>
+      </dialog>
+    </PocketNavigationContext>
   );
 }

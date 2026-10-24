@@ -1,3 +1,5 @@
+import { optionalFile } from "./optional-file";
+import { log } from "./logging";
 import { readdir, stat } from "node:fs/promises";
 import { type AgentRecord } from "./agent-sources";
 import { object } from "../lib/protocol";
@@ -36,14 +38,11 @@ async function locateRoot(directory: string, root: string) {
       continue;
     }
 
-    const outcome = await attempt(existingRoot, directory, entry.name, root);
+    const candidate = await optionalFile(existingRoot, directory, entry.name, root);
 
-    if (outcome.ok) {
-      return outcome.value;
+    if (candidate) {
+      return candidate;
     }
-    /*
-    Try the next project.
-    */
   }
 }
 
@@ -136,15 +135,18 @@ export async function agentRevision(record: AgentRecord) {
     const revision = await attempt(claudeRevision, record);
 
     // The SDK read supplies the user-facing availability state.
+    if (!revision.ok) {
+      log().warn({ err: revision.error, agent: record.agent.id }, "agents.revision_failed");
+    }
+
     fileRevision = revision.ok ? revision.value : undefined;
   }
 
-  record.fileRevision = fileRevision;
   const owner = record.pocket ?? record.runtimeOwner;
   const writes =
     owner && record.agent.harness === "claude" ? object(JSON.parse(owner.metadata)).claudeWrites : undefined;
 
-  return JSON.stringify({
+  const revision = JSON.stringify({
     parent: record.agent.parentId,
     session: record.sessionId,
     agent: record.claudeAgent,
@@ -157,4 +159,6 @@ export async function agentRevision(record: AgentRecord) {
     fileRevision,
     writes,
   });
+
+  return { record: { ...record, fileRevision }, revision };
 }

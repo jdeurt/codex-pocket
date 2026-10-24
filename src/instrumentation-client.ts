@@ -1,4 +1,4 @@
-import { clientError, flushClientLogs, reportClient } from "./lib/client-logging";
+import { clientError, flushClientLogs, reportClient } from "./runtime/client-logging";
 
 globalThis.addEventListener("error", (event) => {
   reportClient(

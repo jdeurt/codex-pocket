@@ -1,25 +1,18 @@
 "use client";
+import { nativeSlot } from "./native-slot";
 import { type VariantProps, cva } from "class-variance-authority";
 import { Label } from "@/components/ui/label";
 import { cn } from "cn";
 
 /**
 Group related native form controls in a semantic fieldset.
-@param props - Native attributes, children and the declared appearance or composition options.
-@returns The composed element with caller props and classes preserved.
 */
-function FieldSet({ className, ...props }: React.ComponentProps<"fieldset">) {
-  return (
-    <fieldset
-      data-slot="field-set"
-      className={cn(
-        "flex flex-col gap-4 has-[>[data-slot=checkbox-group]]:gap-3 has-[>[data-slot=radio-group]]:gap-3",
-        className
-      )}
-      {...props}
-    />
-  );
-}
+const FieldSet = (nativeSlot<"fieldset">).bind(
+  undefined,
+  "fieldset",
+  "field-set",
+  "flex flex-col gap-4 has-[>[data-slot=checkbox-group]]:gap-3 has-[>[data-slot=radio-group]]:gap-3"
+);
 
 /**
 Label a related-control group with the selected legend or label appearance.
@@ -43,21 +36,13 @@ function FieldLegend({
 
 /**
 Arrange related form fields using the shared responsive container and spacing.
-@param props - Native attributes, children and the declared appearance or composition options.
-@returns The composed element with caller props and classes preserved.
 */
-function FieldGroup({ className, ...props }: React.ComponentProps<"div">) {
-  return (
-    <div
-      data-slot="field-group"
-      className={cn(
-        "group/field-group @container/field-group flex w-full flex-col gap-5 data-[slot=checkbox-group]:gap-3 *:data-[slot=field-group]:gap-4",
-        className
-      )}
-      {...props}
-    />
-  );
-}
+const FieldGroup = (nativeSlot<"div">).bind(
+  undefined,
+  "div",
+  "field-group",
+  "group/field-group @container/field-group flex w-full flex-col gap-5 data-[slot=checkbox-group]:gap-3 *:data-[slot=field-group]:gap-4"
+);
 
 const fieldVariants = cva("group/field flex w-full gap-2 data-[invalid=true]:text-destructive", {
   variants: {

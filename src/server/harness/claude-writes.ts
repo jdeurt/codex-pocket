@@ -90,19 +90,30 @@ export class ClaudeWrites {
 @returns The same transcript with verified display labels attached.
 */
 export function applyClaudeWrites(turns: Turn[], writes: Data, sessionId: string, agentId = "") {
-  const items = turns.flatMap((turn) => turn.items);
+  const next: Turn[] = [];
 
-  for (const item of items) {
-    if (item.type !== "toolTrace" || item.tool !== "Write" || item.status !== "completed") {
-      continue;
+  for (const turn of turns) {
+    const items = [];
+
+    for (const item of turn.items) {
+      const write = savedWriteSchema.safeParse(writes[string(item.nativeId)]);
+      const isVerified =
+        item.type === "toolTrace" &&
+        item.tool === "Write" &&
+        item.status === "completed" &&
+        write.success &&
+        write.data.sessionId === sessionId &&
+        write.data.agentId === agentId;
+
+      items.push(
+        isVerified
+          ? { ...item, toolLabels: [`${write.data.type === "create" ? "Created" : "Edited"} ${write.data.filePath}`] }
+          : item
+      );
     }
 
-    const write = savedWriteSchema.safeParse(writes[string(item.nativeId)]);
-
-    if (write.success && write.data.sessionId === sessionId && write.data.agentId === agentId) {
-      item.toolLabels = [`${write.data.type === "create" ? "Created" : "Edited"} ${write.data.filePath}`];
-    }
+    next.push({ ...turn, items });
   }
 
-  return turns;
+  return next;
 }

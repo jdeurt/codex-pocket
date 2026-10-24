@@ -1,15 +1,8 @@
 import { readLocal, writeLocal } from "./local-state";
 import { createHash } from "node:crypto";
-import { turnSchema } from "../lib/protocol";
-import { z } from "zod";
+import { type PiState, piStateSchema } from "../state/pi-session";
 
-const piStateSchema = z.object({
-  sessionFile: z.string(),
-  name: z.string(),
-  turns: z.array(turnSchema),
-});
-
-export type PiState = z.infer<typeof piStateSchema>;
+export type { PiState } from "../state/pi-session";
 
 /** Namespace Pi's durable projection by the existing Pocket identity.
 @param owner - Parent conversation identity.
@@ -34,17 +27,4 @@ export async function readPiState(owner: string) {
 */
 export function savePiState(owner: string, state: PiState) {
   return writeLocal(piStateFile(owner), state);
-}
-
-/** Serialize captured projections without discarding earlier persistence failures.
-@param previous - Preceding durable write.
-@param owner - Parent identity.
-@param state - Projection captured when the caller queued this write.
-*/
-export async function savePiStateAfter(previous: Promise<void>, owner: string, state: PiState | undefined) {
-  await previous;
-
-  if (state) {
-    await savePiState(owner, state);
-  }
 }

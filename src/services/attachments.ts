@@ -1,293 +1,272 @@
-import { t as captureResult } from "try";
-import { type DraftAttachment, type SavedDraft, savedDraft, uploadFile } from "@/lib/draft-attachments";
-import { MAX_ATTACHMENTS, MAX_ATTACHMENT_BYTES, MAX_FILE_BYTES } from "@/lib/attachments";
-import { createAttachmentStore } from "../state/attachments";
+import {
+  attachmentState,
+  attachmentSelectionError,
+  patchedAttachment,
+  removedAttachments,
+  restoredAttachments,
+} from "../state/attachments";
+import { t } from "try";
+import { type DraftAttachment, type SavedDraft } from "@/lib/draft-attachments";
+import { observable } from "../runtime/stores";
+import { SerialQueue } from "../runtime/serial-queue";
+import { inactiveSubscription } from "../runtime/events";
+import { savedDraft } from "../runtime/attachment-storage";
+import { AttachmentUpload } from "./attachment-upload";
 
 export type { DraftAttachment } from "@/lib/draft-attachments";
-const PERCENT = 100;
-const empty: SavedDraft = { files: [] };
 
 /**
-Serialize draft writes while allowing a failed previous write to be retried.
-@param previous - Completion of the last queued write, whose result is intentionally unused.
-@param parent - Parent conversation that owns the new write.
-@param value - Exact draft and original file bytes to persist.
+Explicit runtime owner of file selection, persistence and upload cancellation.
 */
-async function persistDraftAfter(previous: Promise<void>, parent: string, value: SavedDraft) {
-  // A failed write must not block the next durable write.
-  await captureResult(previous);
+export class AttachmentController {
+  private scope: string | undefined;
+  private generation = 0;
+  private readonly writes = new SerialQueue();
+  private latestWrite: Promise<SavedDraft> | undefined;
+  private readonly uploads = new Map<string, AttachmentUpload>();
+  private readonly connections = new Map<string, () => () => void>();
 
-  await savedDraft(parent, value);
-}
+  /** Restore only into the lifetime that initiated the read.
+  @param parent - Conversation whose saved draft is being read.
+  @param generation - Exact mounted lifetime.
+  */
+  private restore = async (parent: string, generation: number) => {
+    const result = await t(savedDraft, parent);
 
-/**
-Restore one parent's draft while retaining ownership of late results and active uploads.
-@param parent - Conversation whose saved draft is being read.
-@param uploads - Existing controller map whose uploads must stop when this view leaves.
-@param restored - Receives a validated draft only while this subscription is active.
-@param failed - Receives a storage failure only while this subscription is active.
-@returns Cleanup that rejects late results and aborts this view's outstanding uploads.
-*/
-function restoreDraft(
-  parent: string,
-  uploads: Map<string, AbortController>,
-  restored: (value: SavedDraft) => void,
-  failed: (error: unknown) => void
-) {
-  let isActive = true;
-
-  async function restore() {
-    const result = await captureResult(savedDraft, parent);
-
-    if (!isActive) {
+    if (!this.isCurrent(generation)) {
       return;
     }
 
-    if (result.ok) {
-      restored(result.value);
-    } else {
-      failed(result.error);
-    }
-  }
-
-  void restore();
-
-  return () => {
-    isActive = false;
-
-    for (const controller of uploads.values()) {
-      controller.abort();
-    }
-
-    uploads.clear();
-  };
-}
-
-/**
-Restore and persist one parent draft while owning its original-byte uploads and cancellation.
-@returns Draft state, readiness/errors and the existing upload, retry, removal and send-persistence operations.
-*/
-export function createAttachmentController() {
-  const store = createAttachmentStore();
-  const uploads = new Map<string, AbortController>();
-
-  let scope: string | undefined;
-  let writes: Promise<void> = Promise.resolve();
-
-  const setError = (error: string) => {
-    store.setState({ error });
-  };
-
-  function update(value: SavedDraft) {
-    store.setState({ draft: value });
-  }
-
-  async function persist(value: SavedDraft) {
-    const owner = scope;
-    const pending = owner
-      ? persistDraftAfter(writes, owner, value)
-      : Promise.reject(new Error("Wait for the conversation to connect."));
-
-    store.setState({ isPersisted: false });
-
-    writes = pending;
-    const saved = await captureResult(pending);
-
-    if (!saved.ok) {
-      throw saved.error;
-    }
-
-    if (writes === pending) {
-      store.setState({ isPersisted: true });
-    }
-  }
-
-  function connect(parent: string) {
-    scope = parent;
-    store.setState({ ready: false, error: "", draft: empty });
-
-    return restoreDraft(
-      parent,
-      uploads,
-      (value) => {
-        update({
-          ...value,
-          files: value.files.map((file) =>
-            file.uploaded ? file : { ...file, error: "Upload interrupted. Retry to continue." }
-          ),
-        });
-        store.setState({ ready: true });
-      },
-      (error) => {
-        setError(error instanceof Error ? error.message : "Could not restore attachments.");
-        store.setState({ ready: true });
-      }
+    this.store.setState(
+      result.ok
+        ? { draft: restoredAttachments(result.value), ready: true }
+        : {
+            error: result.error instanceof Error ? result.error.message : "Could not restore attachments.",
+            ready: true,
+          }
     );
-  }
+  };
 
-  async function upload(entry: DraftAttachment) {
-    if (uploads.has(entry.id)) {
+  /** Run one upload and always release its identity lock.
+  @param entry - Original file and durable identity.
+  */
+  private upload = async (entry: DraftAttachment) => {
+    if (this.uploads.has(entry.id)) {
       return;
     }
 
-    const controller = new AbortController();
-    const owner = scope;
+    const upload = new AttachmentUpload(this, entry, this.generation);
 
-    uploads.set(entry.id, controller);
+    this.uploads.set(entry.id, upload);
+    const completed = await t(upload.run);
 
-    function patch(fields: Partial<DraftAttachment>) {
-      if (scope !== owner) {
-        return;
-      }
-
-      update({
-        ...store.getState().draft,
-        files: store.getState().draft.files.map((file) => (file.id === entry.id ? { ...file, ...fields } : file)),
-      });
+    if (this.uploads.get(entry.id) === upload) {
+      this.uploads.delete(entry.id);
     }
-
-    patch({ progress: 0, error: undefined });
-
-    async function transfer() {
-      const uploaded = await uploadFile(
-        entry,
-        (progress) => {
-          patch({ progress });
-        },
-        controller.signal
-      );
-
-      patch({ uploaded, progress: PERCENT });
-      await persist(store.getState().draft);
-    }
-
-    async function recover(error: unknown) {
-      if (controller.signal.aborted) {
-        return;
-      }
-
-      patch({
-        uploaded: undefined,
-        error: error instanceof Error ? error.message : "Upload failed. Retry to continue.",
-      });
-      const saved = await captureResult(persist, store.getState().draft);
-
-      if (!saved.ok) {
-        setError(saved.error instanceof Error ? saved.error.message : "Could not save attachments.");
-      }
-    }
-
-    const sent = await captureResult(transfer);
-    const completed = sent.ok ? sent : await captureResult(recover, sent.error);
-
-    uploads.delete(entry.id);
 
     if (!completed.ok) {
       throw completed.error;
     }
-  }
+  };
 
-  async function appendSelectedFiles(files: File[]) {
-    const existing = store.getState().draft.files;
-    const added = files.map((file) => ({ id: crypto.randomUUID(), file, progress: 0 }));
-    const value = { files: [...existing, ...added] };
+  /** Persist original bytes before starting any transfer.
+  @param files - Accepted native file selection.
+  */
+  private append = async (files: File[]) => {
+    const generation = this.generation;
+    const added: DraftAttachment[] = [];
+    const ids: string[] = [];
 
-    update(value);
+    for (const file of files) {
+      const id = crypto.randomUUID();
 
-    // Persist original bytes before starting uploads so interruption retains the selection.
-    const saved = await captureResult(persist, value);
+      added.push({ id, file, progress: 0 });
+      ids.push(id);
+    }
+
+    const draft = { files: [...this.store.getState().draft.files, ...added] };
+
+    this.store.setState({ draft });
+    const saved = await t(this.persist, draft);
+
+    if (!this.isCurrent(generation)) {
+      return;
+    }
 
     if (!saved.ok) {
-      update({ files: store.getState().draft.files.filter((file) => added.every((entry) => entry.id !== file.id)) });
-      setError(saved.error instanceof Error ? saved.error.message : "Couldn't save these files. Try again.");
+      this.store.setState({
+        draft: removedAttachments(this.store.getState().draft, ids),
+        error: saved.error instanceof Error ? saved.error.message : "Couldn't save these files. Try again.",
+      });
 
       return;
     }
 
-    await Promise.all(added.map((entry) => upload(entry)));
-  }
+    const uploads: Promise<void>[] = Array.from(added, this.upload);
 
-  async function add(files: File[]) {
+    await Promise.all(uploads);
+  };
+
+  readonly store = observable(attachmentState());
+  readonly retry = this.upload;
+
+  /** Persist one explicit draft through the serialized storage boundary.
+  @param value - Original bytes and receipts to save.
+  */
+  persist = async (value: SavedDraft) => {
+    const generation = this.generation;
+    const pending = this.scope
+      ? this.writes.run(savedDraft, this.scope, value)
+      : Promise.reject(new Error("Wait for the conversation to connect."));
+
+    this.store.setState({ isPersisted: false });
+    this.latestWrite = pending;
+    await pending;
+
+    if (this.latestWrite === pending && this.isCurrent(generation)) {
+      this.store.setState({ isPersisted: true });
+    }
+  };
+
+  /** Begin a conversation-specific attachment lifetime.
+  @param parent - Native conversation identity.
+  @returns Cleanup bound to this exact generation.
+  */
+  connect = (parent: string) => {
+    const generation = ++this.generation;
+
+    this.scope = parent;
+    this.store.setState({ ready: false, error: "", draft: { files: [] } });
+    void this.restore(parent, generation);
+
+    return this.disconnect.bind(this, generation);
+  };
+
+  /** Select a stable effect callback without opening browser resources during rendering.
+  @param parent - Connected native conversation identity, if available.
+  @returns Stable mounted-lifetime initializer for React.
+  */
+  connection = (parent?: string) => {
+    if (!parent) {
+      return inactiveSubscription;
+    }
+
+    const connect = this.connections.get(parent) ?? this.connect.bind(undefined, parent);
+
+    this.connections.set(parent, connect);
+
+    return connect;
+  };
+
+  /** Read persistence and upload status for navigation safeguards.
+  @returns Whether reload can preserve selected files.
+  */
+  canReload = () => this.store.getState().isPersisted && this.uploads.size === 0;
+
+  /** Validate selected files before performing persistence and upload effects.
+  @param files - Native file picker selection.
+  */
+  add = async (files: File[]) => {
     if (files.length === 0) {
       return;
     }
 
-    setError("");
+    const error = attachmentSelectionError(this.store.getState().draft.files, files);
 
-    if (store.getState().draft.files.length + files.length > MAX_ATTACHMENTS) {
-      setError("Attach up to 10 files at a time.");
+    this.store.setState({ error });
 
-      return;
+    if (!error) {
+      await this.append(files);
     }
-
-    if (files.some((file) => file.size === 0 || file.size > MAX_FILE_BYTES)) {
-      setError("Choose nonempty files up to 25 MB each.");
-
-      return;
-    }
-
-    if (
-      [...store.getState().draft.files.map((entry) => entry.file), ...files].reduce(
-        (total, file) => total + file.size,
-        0
-      ) > MAX_ATTACHMENT_BYTES
-    ) {
-      setError("Attachments must total 50 MB or less.");
-
-      return;
-    }
-
-    await appendSelectedFiles(files);
-  }
-
-  async function remove(id: string) {
-    const value = { files: store.getState().draft.files.filter((file) => file.id !== id) };
-
-    uploads.get(id)?.abort();
-    uploads.delete(id);
-
-    update(value);
-
-    const completed = await captureResult(persist(value));
-
-    if (completed.ok) {
-      return;
-    }
-
-    const error_ = completed.error;
-
-    setError(error_ instanceof Error ? error_.message : "Could not save attachments.");
-  }
-
-  async function commitDraft(value: SavedDraft) {
-    await persist(value);
-    update(value);
-  }
-
-  async function rememberSend(id: string, text: string) {
-    if (store.getState().draft.files.length === 0) {
-      return;
-    }
-
-    await commitDraft({ ...store.getState().draft, pending: { id, text } });
-  }
-
-  async function clear() {
-    if (store.getState().draft.files.length === 0) {
-      return;
-    }
-
-    await commitDraft(empty);
-  }
-
-  return {
-    store,
-    connect,
-    canReload: () => store.getState().isPersisted && uploads.size === 0,
-    add,
-    remove,
-    retry: upload,
-    rememberSend,
-    clear,
   };
+
+  /** Remove a selected file, abort its transfer and persist the remaining draft.
+  @param id - Original attachment identity.
+  */
+  remove = async (id: string) => {
+    const draft = removedAttachments(this.store.getState().draft, [id]);
+    const generation = this.generation;
+
+    this.uploads.get(id)?.controller.abort();
+    this.uploads.delete(id);
+    this.store.setState({ draft });
+    const saved = await t(this.persist, draft);
+
+    if (!saved.ok && this.isCurrent(generation)) {
+      this.store.setState({
+        error: saved.error instanceof Error ? saved.error.message : "Could not save attachments.",
+      });
+    }
+  };
+
+  /** Persist an idempotent send receipt before submitting attached files.
+  @param id - Durable delivery identity.
+  @param text - Original message text.
+  */
+  rememberSend = async (id: string, text: string) => {
+    const draft = this.store.getState().draft;
+
+    if (draft.files.length > 0) {
+      await this.commit({ ...draft, pending: { id, text } });
+    }
+  };
+
+  /**
+  Clear durable files only after successful message delivery.
+  */
+  clear = async () => {
+    if (this.store.getState().draft.files.length > 0) {
+      await this.commit({ files: [] });
+    }
+  };
+
+  /** Persist before publishing a complete draft replacement.
+  @param draft - Replacement original files and receipt.
+  */
+  private async commit(draft: SavedDraft) {
+    const generation = this.generation;
+
+    await this.persist(draft);
+
+    if (this.isCurrent(generation)) {
+      this.store.setState({ draft });
+    }
+  }
+
+  /** Reject late results and release this lifetime's transfers.
+  @param generation - Exact mounted lifetime being released.
+  */
+  private disconnect(generation: number) {
+    if (!this.isCurrent(generation)) {
+      return;
+    }
+
+    this.generation++;
+    this.scope = undefined;
+
+    for (const upload of this.uploads.values()) {
+      upload.controller.abort();
+    }
+
+    this.uploads.clear();
+  }
+
+  /** Read whether asynchronous work still belongs to the mounted conversation.
+  @param generation - Lifetime that initiated the work.
+  @returns Whether its result may be published.
+  */
+  isCurrent(generation: number) {
+    return this.generation === generation && this.scope !== undefined;
+  }
+
+  /** Publish one immutable upload transition if its lifetime remains active.
+  @param id - Original attachment identity.
+  @param fields - Progress, receipt or failure updates.
+  @param generation - Lifetime that owns the update.
+  */
+  patch(id: string, fields: Partial<DraftAttachment>, generation: number) {
+    if (this.isCurrent(generation)) {
+      this.store.setState({ draft: patchedAttachment(this.store.getState().draft, id, fields) });
+    }
+  }
 }

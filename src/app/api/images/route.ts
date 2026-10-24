@@ -1,4 +1,5 @@
 import { endpoint, guard } from "@/server/http";
+import { findItem } from "@/lib/protocol";
 import { itemImageSources } from "@/lib/images";
 import { renderImage } from "@/server/images";
 import { requestBridge } from "@/server/named-pockets";
@@ -17,7 +18,7 @@ Selects only an image belonging to the requested parent item, with the existing 
 async function parentImageSource(request: Request, url: URL, index: number) {
   const itemId = url.searchParams.get("item");
   const bridge = itemId ? await requestBridge(request) : undefined;
-  const item = bridge?.snapshot.turns.flatMap((turn) => turn.items).find((entry) => entry.id === itemId);
+  const item = findItem(bridge?.snapshot.turns ?? [], itemId);
 
   if (itemId) {
     return item ? itemImageSources(item)[index] : undefined;

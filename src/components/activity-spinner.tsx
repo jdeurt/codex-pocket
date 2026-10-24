@@ -1,37 +1,11 @@
 "use client";
-import { t as captureResult } from "try";
+import { useAgentRead } from "@/hooks/use-agents";
+import { subscribeMotion, isReducedMotion, isStaticMotion } from "@/runtime/motion";
 
 import "./activity-spinner.css";
-import { type SpinnerPreference, spinnerPreferenceSchema } from "@/lib/spinner";
-import { useEffect, useId, useState, useSyncExternalStore } from "react";
+import { spinnerPreferenceSchema } from "@/lib/spinner";
+import { useId, useState, useSyncExternalStore } from "react";
 import { Spinner } from "@/components/ui/spinner";
-
-const POLL_MS = 2000;
-const motionQuery = "(prefers-reduced-motion: reduce)";
-/**
-Observe the native reduced-motion preference for one mounted spinner.
-@param callback - Stable external-store listener registered for media-query changes.
-@returns Cleanup that removes the same listener.
-*/
-const subscribeMotion = (callback: () => void) => {
-  const media = globalThis.matchMedia(motionQuery);
-
-  media.addEventListener("change", callback);
-
-  return () => {
-    media.removeEventListener("change", callback);
-  };
-};
-/**
-Read the current browser reduced-motion preference.
-@returns Whether optional custom image motion should be avoided.
-*/
-const isReducedMotion = () => globalThis.matchMedia(motionQuery).matches;
-/**
-Use the conservative static-motion snapshot during server rendering.
-@returns True, keeping animated custom assets out of the server snapshot.
-*/
-const isStaticMotion = () => true;
 
 /**
 Display the selected custom spinner with reduced-motion and reconnect-safe preference updates.
@@ -39,55 +13,13 @@ Display the selected custom spinner with reduced-motion and reconnect-safe prefe
 */
 export function ActivitySpinner() {
   const filterId = `spinner-tone-${useId().replaceAll(":", "")}`;
-  const [current, setCurrent] = useState<SpinnerPreference["current"]>(null);
+  const { data } = useAgentRead("/api/spinner", spinnerPreferenceSchema);
+  const current = data?.current;
   const [loaded, setLoaded] = useState("");
   const [failed, setFailed] = useState("");
   const isMotionReduced = useSyncExternalStore(subscribeMotion, isReducedMotion, isStaticMotion);
 
   const showImage = current && !isMotionReduced && failed !== current.id;
-
-  useEffect(() => {
-    let isRefreshing = false;
-
-    const abort = new AbortController();
-
-    async function readPreference() {
-      const response = await fetch("/api/spinner", { cache: "no-store", signal: abort.signal });
-
-      if (response.ok) {
-        setCurrent(spinnerPreferenceSchema.parse(await response.json()).current);
-      }
-    }
-
-    async function refresh() {
-      if (isRefreshing || document.hidden || abort.signal.aborted) {
-        return;
-      }
-
-      isRefreshing = true;
-
-      // Retain the last preference through a transient disconnect.
-      await captureResult(readPreference);
-      isRefreshing = false;
-    }
-
-    const visible = () => void refresh();
-
-    function startPolling() {
-      document.addEventListener("visibilitychange", visible);
-      void refresh();
-
-      return setInterval(() => void refresh(), POLL_MS);
-    }
-
-    const timer = startPolling();
-
-    return () => {
-      abort.abort();
-      clearInterval(timer);
-      document.removeEventListener("visibilitychange", visible);
-    };
-  }, []);
 
   return (
     <span className="custom-activity-spinner-slot" aria-hidden="true" data-activity-spinner="">
@@ -122,12 +54,8 @@ export function ActivitySpinner() {
           width={28}
           height={28}
           alt=""
-          onLoad={() => {
-            setLoaded(current.id);
-          }}
-          onError={() => {
-            setFailed(current.id);
-          }}
+          onLoad={setLoaded.bind(undefined, current.id)}
+          onError={setFailed.bind(undefined, current.id)}
         />
       )}
     </span>

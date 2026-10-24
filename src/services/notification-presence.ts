@@ -1,93 +1,124 @@
 import { t } from "try";
-import { clientError, reportClient } from "@/lib/client-logging";
+import { clientError, reportClient } from "../runtime/client-logging";
 import { object, string } from "@/lib/protocol";
-import { post } from "@/lib/client-api";
+import { post } from "../runtime/client-api";
+import { notificationDeviceId } from "../state/notifications";
+import { EventBindings } from "../runtime/events";
 
-const HEX_RADIX = 16;
+/** Derive a device identity at the cryptographic runtime boundary.
+@param endpoint - Native push subscription endpoint.
+@returns Stable hexadecimal device identity.
+*/
+async function deviceIdentity(endpoint: string) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(endpoint));
+
+  return notificationDeviceId(new Uint8Array(digest));
+}
 
 /**
-Own the native presence source and visibility listeners for one subscribed device.
-@param endpoint - Native push endpoint hashed into the existing device identifier.
-@returns Cleanup that closes the source and prevents late digest completion from reconnecting.
+Runtime owner of one device's native presence connection and visibility listeners.
 */
-export function subscribeNotificationPresence(endpoint: string) {
-  let isActive = true;
-  let source: EventSource | undefined;
-  let deviceId = "";
+class NotificationPresence {
+  private isActive = true;
+  private source: EventSource | undefined;
+  private deviceId = "";
+  private readonly events: EventBindings;
 
-  function close() {
-    source?.close();
-    source = undefined;
-  }
+  /**
+  Close this owner's current source before a visibility change or teardown.
+  */
+  private close = () => {
+    this.source?.close();
+    this.source = undefined;
+  };
 
-  async function answerProbe(data: string) {
+  /** Decode and answer one provider probe at the network boundary.
+  @param data - Serialized probe payload.
+  */
+  private answerProbe = async (data: string) => {
     const challengeId = string(object(JSON.parse(data)).challengeId);
 
-    if (!challengeId) {
-      return;
+    if (challengeId) {
+      await post("/api/notifications/presence", { deviceId: this.deviceId, challengeId });
     }
+  };
 
-    const sent = await t(post, "/api/notifications/presence", { deviceId, challengeId });
+  /** Capture decoding and delivery failures for native probe callbacks.
+  @param data - Serialized probe payload.
+  */
+  private deliverProbe = async (data: string) => {
+    const sent = await t(this.answerProbe, data);
 
     if (!sent.ok) {
       reportClient("notifications.presence_failed", clientError(sent.error), "error");
     }
-  }
-
-  function receiveProbe(connection: EventSource, event: MessageEvent<string>) {
-    if (source !== connection || document.visibilityState !== "visible") {
-      return;
-    }
-
-    void answerProbe(event.data);
-  }
-
-  function openPresenceSource() {
-    const connection = new EventSource(`/api/notifications/presence?device=${deviceId}`);
-
-    source = connection;
-    connection.addEventListener("probe", (event: MessageEvent<string>) => {
-      receiveProbe(connection, event);
-    });
-  }
-
-  function connect() {
-    close();
-
-    if (!isActive || !deviceId || document.visibilityState !== "visible") {
-      return;
-    }
-
-    openPresenceSource();
-  }
-
-  async function identifyDevice() {
-    const result = await t(() => crypto.subtle.digest("SHA-256", new TextEncoder().encode(endpoint)));
-
-    if (!result.ok) {
-      reportClient("notifications.presence_failed", clientError(result.error), "error");
-
-      return;
-    }
-
-    deviceId = [...new Uint8Array(result.value)].map((value) => value.toString(HEX_RADIX).padStart(2, "0")).join("");
-    connect();
-  }
-
-  void identifyDevice();
-  document.addEventListener("visibilitychange", connect);
-  globalThis.addEventListener("pageshow", connect);
-  globalThis.addEventListener("pagehide", close);
-  globalThis.addEventListener("online", connect);
-  globalThis.addEventListener("offline", close);
-
-  return () => {
-    isActive = false;
-    close();
-    document.removeEventListener("visibilitychange", connect);
-    globalThis.removeEventListener("pageshow", connect);
-    globalThis.removeEventListener("pagehide", close);
-    globalThis.removeEventListener("online", connect);
-    globalThis.removeEventListener("offline", close);
   };
+
+  /** Ignore stale sources and probes received while the tab is hidden.
+  @param event - Native probe event.
+  */
+  private receiveProbe = (event: MessageEvent<string>) => {
+    if (event.currentTarget === this.source && document.visibilityState === "visible") {
+      void this.deliverProbe(event.data);
+    }
+  };
+
+  /**
+  Reopen presence only when the current browser lifecycle permits it.
+  */
+  private connect = () => {
+    this.close();
+
+    if (!(this.isActive && this.deviceId && document.visibilityState === "visible")) {
+      return;
+    }
+
+    this.source = new EventSource(`/api/notifications/presence?device=${this.deviceId}`);
+    this.source.addEventListener("probe", this.receiveProbe);
+  };
+
+  /** Derive the device identity, respecting disposal during asynchronous hashing.
+  @param endpoint - Push subscription endpoint.
+  */
+  private identify = async (endpoint: string) => {
+    const result = await t(deviceIdentity, endpoint);
+
+    if (result.ok) {
+      this.deviceId = result.value;
+      this.connect();
+    } else {
+      reportClient("notifications.presence_failed", clientError(result.error), "error");
+    }
+  };
+
+  /**
+  Invalidate late hashing and release source/listener resources.
+  */
+  stop = () => {
+    this.isActive = false;
+    this.close();
+    this.events.stop();
+  };
+
+  /** Start presence effects for one native subscription.
+  @param endpoint - Push subscription endpoint.
+  */
+  constructor(endpoint: string) {
+    this.events = new EventBindings([
+      [document, "visibilitychange", this.connect],
+      [globalThis, "pageshow", this.connect],
+      [globalThis, "pagehide", this.close],
+      [globalThis, "online", this.connect],
+      [globalThis, "offline", this.close],
+    ]);
+    void this.identify(endpoint);
+  }
+}
+
+/** Subscribe one device to host presence notifications.
+@param endpoint - Native push subscription endpoint.
+@returns Cleanup for the runtime owner.
+*/
+export function subscribeNotificationPresence(endpoint: string) {
+  return new NotificationPresence(endpoint).stop;
 }

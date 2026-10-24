@@ -1,5 +1,6 @@
 "use client";
-import { useEffect, useMemo } from "react";
+import { useEffect } from "react";
+import { inactiveSubscription } from "../runtime/events";
 import { useStore } from "zustand";
 import { type ZodType } from "zod";
 import { usePocketClient } from "../providers/pocket-state";
@@ -12,14 +13,11 @@ import { usePocketClient } from "../providers/pocket-state";
 */
 export function useAgentRead<T>(url: string, schema: ZodType<T>, isEnabled = true) {
   const { resources } = usePocketClient();
-  const resource = useMemo(() => resources.read(url, schema), [resources, url, schema]);
+  const resource = resources.read(url, schema);
   const result = useStore(resource.store);
-  const data = useMemo(
-    () => (result.data === undefined ? undefined : schema.parse(result.data)),
-    [result.data, schema]
-  );
+  const retain = isEnabled ? resource.retain : inactiveSubscription;
 
-  useEffect(() => (isEnabled ? resource.retain() : undefined), [resource, isEnabled]);
+  useEffect(retain, [retain]);
 
-  return { ...result, data, url };
+  return { ...result, url };
 }

@@ -1,45 +1,63 @@
-import { createStore } from "zustand/vanilla";
-import { persist, type PersistStorage } from "zustand/middleware";
-import { voiceHistorySchema } from "../lib/voice-history";
+import { voiceHistorySchema, type VoiceSegment } from "../lib/voice-history";
 import { z } from "zod";
 
 export const savedVoiceSchema = z.object({ segments: voiceHistorySchema });
 
 export type SavedVoice = z.infer<typeof savedVoiceSchema>;
 
-/** Create a persistent vanilla store with explicit async hydration and a versioned durable subset.
-@param name - Thread-scoped persistence identity.
-@param storage - Validated persistence implementation, including SQLite on the server.
-@returns Store and hydration that propagates storage failures instead of silently overwriting history.
+/** Create an empty durable caption ledger.
+@returns Caption data before runtime hydration.
 */
-export function createSavedVoiceStore(name: string, storage: PersistStorage<SavedVoice>) {
-  let hydrationError: unknown;
+export function savedVoiceState(): SavedVoice {
+  return { segments: [] };
+}
 
-  const rehydrated = (_state: SavedVoice | undefined, error: unknown) => {
-    hydrationError = error;
-  };
-  const store = createStore<SavedVoice>()(
-    persist<SavedVoice>(() => ({ segments: [] }), {
-      name,
-      storage,
-      version: 1,
-      skipHydration: true,
-      migrate: () => {
-        throw new Error("Saved voice history uses an unsupported version.");
-      },
-      partialize: ({ segments }) => ({ segments }),
-      onRehydrateStorage: () => rehydrated,
-    })
-  );
+/** Select only durable captions for persistence.
+@param state - Current caption ledger.
+@returns Persisted data, excluding runtime callbacks or resources.
+*/
+export function savedVoiceData(state: SavedVoice): SavedVoice {
+  return { segments: state.segments };
+}
 
-  return {
-    store,
-    hydrate: async () => {
-      await store.persist.rehydrate();
+/** Reject unsupported persistence versions without losing existing data.
+@returns Never returns; callers must surface the incompatible version.
+*/
+export function rejectVoiceMigration(): never {
+  throw new Error("Saved voice history uses an unsupported version.");
+}
 
-      if (hydrationError) {
-        throw new Error("Saved voice history could not be restored.", { cause: hydrationError });
-      }
-    },
-  };
+/** Add or replace finalized metadata without rewriting an existing caption's text.
+@param entries - Current immutable ledger.
+@param entry - Finalized caption.
+@returns Updated ledger, or a validation error for conflicting text.
+*/
+export function finalizedCaptions(entries: VoiceSegment[], entry: VoiceSegment): VoiceSegment[] {
+  const segments: VoiceSegment[] = [];
+
+  let isFound = false;
+
+  for (const candidate of entries) {
+    if (candidate.id !== entry.id) {
+      segments.push(candidate);
+      continue;
+    }
+
+    if (candidate.text !== entry.text) {
+      throw new Error("Finalized caption changed for an existing item.");
+    }
+
+    segments.push(entry);
+    isFound = true;
+  }
+
+  return isFound ? segments : [...segments, entry];
+}
+
+/** Restore a legacy send receipt without treating an interrupted send as confirmed.
+@param entry - Persisted legacy caption.
+@returns Caption with explicit uncertainty for an unfinished handoff.
+*/
+export function restoredVoiceSegment(entry: VoiceSegment): VoiceSegment {
+  return entry.handoff === "sending" ? { ...entry, handoff: "unknown" } : entry;
 }

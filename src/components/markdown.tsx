@@ -1,5 +1,7 @@
 "use client";
 import { CodeBlock, CodeBlockContent } from "@/components/ui/code-block";
+import { usePocketId } from "../providers/pocket-navigation-context";
+import { literalCodeText, isImageParagraph } from "../lib/markdown-rendering";
 import { type ComponentProps, memo } from "react";
 import ReactMarkdown, { type ExtraProps, defaultUrlTransform } from "react-markdown";
 import { fileViewerUrl, localFileLink } from "@/lib/file-links";
@@ -29,12 +31,7 @@ Render ordinary inline or block code using the parser's exact text children.
 @returns The existing literal inline or block code presentation.
 */
 function MarkdownLiteralCode({ children, className, node }: ComponentProps<"code"> & ExtraProps) {
-  const text =
-    node?.children
-      .filter((child) => child.type === "text")
-      .map((child) => child.value)
-      .join("")
-      .replace(/\n$/, "") ?? "";
+  const text = literalCodeText(node);
   const from = node?.properties["data-pocket-reveal-from"];
   const content =
     typeof from === "number" && from < text.length ? (
@@ -76,11 +73,7 @@ Allow block attachment composition only when a parsed paragraph contains images 
 @returns The existing image group or ordinary Markdown paragraph container.
 */
 function MarkdownParagraph({ children, node }: ComponentProps<"p"> & ExtraProps) {
-  const isImageGroup = node?.children.every((child) =>
-    child.type === "text" ? !child.value.trim() : child.type === "element" && child.tagName === "img"
-  );
-
-  return isImageGroup ? (
+  return isImageParagraph(node) ? (
     <AttachmentGroup layout="wrap" className="chat-images">
       {children}
     </AttachmentGroup>
@@ -106,6 +99,71 @@ function markdownUrl(url: string, key: string, imageBase: string | undefined) {
     : imageUrl(url);
 }
 
+/** Render the shared Markdown table surface.
+@param props - Parsed table children.
+@returns Scrollable accessible table.
+*/
+function MarkdownTable({ children }: ComponentProps<"table">) {
+  return (
+    <Table variant="markdown" containerProps={{ role: "region", "aria-label": "Scrollable table", tabIndex: 0 }}>
+      {children}
+    </Table>
+  );
+}
+
+/** Render parser-supplied images using guarded image presentation.
+@param props - Parsed image source and alternative text.
+@returns Image attachment, keyed by its source.
+*/
+function MarkdownImage({ src, alt = "Image from Pocket" }: ComponentProps<"img">) {
+  const source = typeof src === "string" ? src : "";
+
+  return <ChatImage key={source} source={source} alt={alt} />;
+}
+
+/** Render internal file navigation or a safe external link.
+@param props - Parsed link attributes and children.
+@returns Link with the matching navigation behavior.
+*/
+function MarkdownLink({ children, href, node: _node, ...props }: ComponentProps<"a"> & ExtraProps) {
+  return href?.startsWith("/files?") ? (
+    <Link {...props} href={href} scroll={false} prefetch={false}>
+      {children}
+    </Link>
+  ) : (
+    <a {...props} href={href} target="_blank" rel="noopener noreferrer">
+      {children}
+    </a>
+  );
+}
+
+/** Resolve parser URLs using explicit route and file context.
+@param context - Rendered conversation and optional local/agent source bases.
+@param url - Original parser URL.
+@param key - Native attribute being transformed.
+@returns Scoped file route or validated external/image URL.
+*/
+function renderedUrl(context: { pocketId: string; fileBase?: string; imageBase?: string }, url: string, key: string) {
+  const local = localFileLink(url, context.fileBase);
+
+  if (key === "href" && local) {
+    return fileViewerUrl(context.pocketId, local);
+  }
+
+  return key === "src" && local && context.fileBase
+    ? `/api/files?path=${encodeURIComponent(local)}`
+    : markdownUrl(url, key, context.imageBase);
+}
+
+const markdownComponents = {
+  table: MarkdownTable,
+  img: MarkdownImage,
+  p: MarkdownParagraph,
+  a: MarkdownLink,
+  pre: MarkdownPre,
+  code: MarkdownCode,
+};
+
 export const Markdown = memo(function MarkdownContent({
   children: source,
   allowCopyActions = false,
@@ -121,6 +179,7 @@ export const Markdown = memo(function MarkdownContent({
   revealFrom?: number;
   revealId?: string;
 }) {
+  const pocketId = usePocketId();
   const container = useContentReveal(revealId);
 
   if (!hasMarkdownOutput(source, allowCopyActions)) {
@@ -132,44 +191,8 @@ export const Markdown = memo(function MarkdownContent({
       <ReactMarkdown
         remarkPlugins={markdownPlugins(allowCopyActions)}
         rehypePlugins={revealFrom === undefined ? [] : [[rehypeReveal, { source, from: revealFrom }]]}
-        urlTransform={(url, key) => {
-          const local = localFileLink(url, fileBase);
-
-          if (key === "href" && local) {
-            return fileViewerUrl(local);
-          }
-
-          return key === "src" && fileBase && local
-            ? `/api/files?path=${encodeURIComponent(local)}`
-            : markdownUrl(url, key, imageBase);
-        }}
-        components={{
-          table: ({ children }) => (
-            <Table
-              variant="markdown"
-              containerProps={{ role: "region", "aria-label": "Scrollable table", tabIndex: 0 }}
-            >
-              {children}
-            </Table>
-          ),
-          img: ({ src, alt = "Image from Pocket" }) => (
-            <ChatImage key={typeof src === "string" ? src : ""} source={typeof src === "string" ? src : ""} alt={alt} />
-          ),
-          // Markdown permits images inside paragraphs; use a block container for attachment/dialog composition.
-          p: MarkdownParagraph,
-          a: ({ children, href, ...props }) =>
-            href?.startsWith("/files?") ? (
-              <Link {...props} href={href} scroll={false} prefetch={false}>
-                {children}
-              </Link>
-            ) : (
-              <a {...props} href={href} target="_blank" rel="noopener noreferrer">
-                {children}
-              </a>
-            ),
-          pre: MarkdownPre,
-          code: MarkdownCode,
-        }}
+        urlTransform={renderedUrl.bind(undefined, { pocketId, fileBase, imageBase })}
+        components={markdownComponents}
       >
         {source}
       </ReactMarkdown>
