@@ -1,19 +1,13 @@
 "use client";
 import { Bubble, BubbleContent } from "./ui/bubble";
 import { Message, MessageContent } from "./ui/message";
-import { Button } from "./ui/button";
 import { type VoiceSegment } from "@/lib/voice-history";
-import { realtimeCommand } from "@/lib/realtime-stream";
-import { useState } from "react";
 
-/** Display saved speech and allow an explicit, receipt-protected send after voice stops.
-@param props - Durable speech and its known delivery state.
-@returns A correctly attributed message with honest delivery and recovery controls.
+/** Display native realtime reply text and retain historical voice messages.
+@param props - Text supplied by the provider alongside its spoken response.
+@returns A transcript row, without treating speech as an unsent main-agent command.
 */
 export function VoiceMessage({ segment }: { segment: VoiceSegment }) {
-  const [isSending, setSending] = useState(false);
-  const [error, setError] = useState("");
-
   return (
     <Message align={segment.role === "user" ? "end" : "start"}>
       <MessageContent>
@@ -31,30 +25,6 @@ export function VoiceMessage({ segment }: { segment: VoiceSegment }) {
             Handoff delivery uncertain. Check Pocket before retrying.
           </p>
         )}
-        {segment.role === "user" && !segment.handoff && (
-          <Button
-            variant="ghost"
-            disabled={isSending}
-            onClick={() => {
-              void (async () => {
-                setSending(true);
-                setError("");
-
-                try {
-                  await realtimeCommand({ action: "retry", id: segment.id });
-                } catch (error_) {
-                  setError(error_ instanceof Error ? error_.message : "Saved speech could not be sent.");
-                } finally {
-                  globalThis.dispatchEvent(new Event("pocket-voice-history"));
-                  setSending(false);
-                }
-              })();
-            }}
-          >
-            Send saved speech
-          </Button>
-        )}
-        {error && <p role="alert">{error}</p>}
       </MessageContent>
     </Message>
   );

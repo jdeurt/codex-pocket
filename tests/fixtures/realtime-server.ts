@@ -36,6 +36,7 @@ try {
   }
 
   provider.server.close();
+  provider.http.close();
 }
 
 if (provider.failures.length > 0) {

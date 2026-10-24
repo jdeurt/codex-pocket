@@ -10,6 +10,7 @@ export interface Receipt {
   text: string;
   attachments?: FileAttachment[];
   source?: MessageSource;
+  voiceContext?: QueuedMessage["voiceContext"];
   status: QueuedMessage["status"];
 }
 export const outboxSchema = z.object({ threadId: z.string(), receipts: z.array(queuedMessageSchema) });
@@ -62,8 +63,8 @@ Persist unresolved and attachment receipts while bounding plain completed histor
 export async function persistReceipts(threadId: string, receipts: Receipt[], pocketId?: string) {
   const recent = [
     // Attachment receipts also hold the saved message's display metadata.
-    ...receipts.filter((r) => r.status === "sent" && r.attachments?.length),
-    ...receipts.filter((r) => r.status === "sent" && !r.attachments?.length).slice(-RECEIPT_LIMIT),
+    ...receipts.filter((r) => r.status === "sent" && (Boolean(r.attachments?.length) || Boolean(r.voiceContext))),
+    ...receipts.filter((r) => r.status === "sent" && !r.attachments?.length && !r.voiceContext).slice(-RECEIPT_LIMIT),
     ...receipts.filter((r) => r.status !== "sent"),
   ];
 

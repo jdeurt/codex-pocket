@@ -1,5 +1,7 @@
 # Workflow suite and replacement coverage
 
+> Realtime architecture update: current voice coverage is documented in [OpenAI realtime voice](openai-realtime.md). The earlier exact-transcript, PCM playback, truncation, and saved-speech recovery cases below describe the previous implementation and historical CI evidence. Current tests cover direct WebRTC, realtime-authored tool requests, independent captions, and context continuity.
+
 This suite follows Toolkit's integration and workflow guidance. A case must run a real application operation and reject an incorrect observable result. External protocol fixtures replace providers; Pocket's parsing, decisions, transport, storage and rendering execute normally. There are no isolated unit suites.
 
 ## Sources and requirements
@@ -108,8 +110,8 @@ npx playwright test tests/browser/workflows/conversation.spec.ts --project=pocke
 npx playwright test tests/browser/workflows/transcript.spec.ts --project=pockets-chromium --grep='saved native history' --reporter=line
 npx playwright test tests/browser/workflows/side-pockets.spec.ts --project=agents-chromium --grep='saved Codex and Claude work' --reporter=line
 npx playwright test tests/uploads/gif.spec.ts --project=uploads-chromium --grep='animated GIF exposes' --reporter=line
-npx playwright test --config=playwright.realtime.config.ts tests/browser/workflows/voice.spec.ts --project=realtime-chromium --grep='configured OpenAI voice hands' --reporter=line
-npx playwright test --config=playwright.realtime.config.ts tests/browser/workflows/voice-interruption.spec.ts --project=realtime-chromium --grep='speaking during playback' --reporter=line
+npx playwright test --config=playwright.realtime.config.ts tests/browser/workflows/voice.spec.ts --project=realtime-chromium --grep='realtime owns' --reporter=line
+npx playwright test --config=playwright.realtime.config.ts tests/browser/workflows/voice-interruption.spec.ts --project=realtime-chromium --grep='new speech uses' --reporter=line
 ```
 
 The first PR CI run, [40034335570](https://github.com/jdeurt/codex-pocket/actions/runs/40034335570), passed static checks and macOS workflows but exposed three fixture/assertion issues: the Codex question omitted the contract-required `isBlocking` field; the voice case asserted physical ledger arrival order instead of the documented predecessor anchors; and the browser interruption case reused a reply from earlier tests. Corrections supply the native field, assert exact speech identities/content/status plus predecessor anchors and complete ordered native handoffs, and use a distinct reply with current-session truncation evidence. No production behavior changed for these CI failures. The run also exposed setup-node's automatic npm cache, which is now disabled so only the explicitly scoped content cache runs.

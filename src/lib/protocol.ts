@@ -38,6 +38,7 @@ export interface QueuedMessage {
   text: string;
   attachments?: FileAttachment[];
   source?: MessageSource;
+  voiceContext?: { lastId: string; text: string };
   status: "queued" | "sending" | "unknown" | "sent";
 }
 export const messageSourceSchema = z.object({ type: z.literal("realtime"), sessionId: z.string(), itemId: z.string() });
@@ -155,6 +156,7 @@ export const realtimeItemAddedSchema = z
   })
   .transform(({ method, params }): RpcEvent => ({ method, params: { threadId: params.threadId } }));
 export const queuedMessageSchema = z.object({
+  voiceContext: z.object({ lastId: z.string(), text: z.string() }).optional(),
   source: messageSourceSchema.optional(),
   id: z.string(),
   text: z.string(),

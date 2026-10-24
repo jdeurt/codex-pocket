@@ -3,12 +3,11 @@ import { REALTIME_MODEL, REALTIME_VOICES } from "./openai-realtime";
 import { readOpenAIApiKey, readPocketSettings, updatePocketSettings } from "./pocket-settings";
 import type { Bridge } from "./bridge-session";
 import { OpenAIVoiceSession } from "./openai-voice-session";
+import { realtimeContext } from "./realtime-context";
 import { settingsSchema } from "./realtime-schema";
 import { visibleSnapshot } from "./visible-snapshot";
 import { hasMessageText, messageText } from "../lib/turn-messages";
 import { type Turn, string } from "../lib/protocol";
-
-const MISSING_ITEM = -1;
 
 /**
 Select an explicitly enabled loopback provider fixture; production always uses OpenAI.
@@ -22,7 +21,7 @@ function fixtureEndpoint() {
 
   const url = new URL(endpoint);
 
-  if (url.protocol !== "ws:" || url.hostname !== "127.0.0.1") {
+  if (url.protocol !== "http:" || url.hostname !== "127.0.0.1") {
     throw new Error("The realtime test provider must use loopback WebSocket transport.");
   }
 
@@ -59,13 +58,14 @@ export class RealtimeSession extends OpenAIVoiceSession {
           .turns.flatMap((turn) => turn.items)
           .findLast(hasMessageText)?.id ?? null,
       readKey: readOpenAIApiKey,
+      context: (history) => realtimeContext(bridge.snapshot, history),
       preferences,
       handoff: (input) => bridge.handoff(input),
     });
   }
 
-  /** Return the final answer only to the receipt that owns the completed main turn.
-  @param completed - Completed, parent-scoped native turn and its ordered items, when supplied.
+  /** Return worker results to the realtime agent as tool outputs, never as a read-aloud user message.
+  @param completed - Parent-scoped native turn supplied by the bridge.
   */
   completed(completed?: Turn) {
     if (!completed) {
@@ -74,36 +74,20 @@ export class RealtimeSession extends OpenAIVoiceSession {
 
     const turn = this.bridge.snapshot.turns.find((entry) => entry.id === completed.id) ?? completed;
 
-    if (turn.status !== "completed") {
-      return;
-    }
-
-    const lastUser = turn.items.findLastIndex((item) => item.type === "userMessage");
-    const user = turn.items.at(lastUser);
-    const finalIndex = turn.items.findLastIndex(
-      (item) => item.type === "agentMessage" && item.phase !== "commentary" && hasMessageText(item)
-    );
-
-    let firstIndex = finalIndex;
-
-    while (
-      firstIndex > lastUser + 1 &&
-      turn.items[firstIndex - 1].type === "agentMessage" &&
-      turn.items[firstIndex - 1].phase !== "commentary"
-    ) {
-      firstIndex--;
-    }
-
-    if (lastUser === MISSING_ITEM || !user || finalIndex <= lastUser) {
+    if (turn.status === "inProgress") {
       return;
     }
 
     const text = turn.items
-      .slice(firstIndex, finalIndex + 1)
+      .filter((item) => item.type === "agentMessage" && item.phase !== "commentary")
       .map((item) => messageText(item))
       .join("\n");
 
-    this.answer(string(user.clientId) || user.id, text);
+    for (const item of turn.items) {
+      if (item.type === "userMessage") {
+        this.answer(string(item.clientId) || item.id, text, turn.status);
+      }
+    }
   }
 
   /**
@@ -123,6 +107,17 @@ export class RealtimeSession extends OpenAIVoiceSession {
       modelCatalog: "OpenAI validates the selected realtime model when the next session starts.",
       history: await this.transcripts(),
     };
+  }
+
+  /**
+  Flush finalized captions before text resumes, without making live speech wait for storage.
+  */
+  async prepareText() {
+    if (this.status().type !== "idle") {
+      throw new Error("Stop realtime before sending a typed message.");
+    }
+
+    await this.transcripts();
   }
 
   /**
@@ -147,7 +142,7 @@ export class RealtimeSession extends OpenAIVoiceSession {
   /**
   Start speech on an independent provider connection after the owning main session is ready.
   */
-  override start() {
+  override start(sdp: string) {
     return this.bridge.exclusive(async () => {
       await this.bridge.ensureConnected();
 
@@ -155,7 +150,7 @@ export class RealtimeSession extends OpenAIVoiceSession {
         throw new Error("Pocket is not connected.");
       }
 
-      return super.start(fixtureEndpoint());
+      return super.start(sdp, fixtureEndpoint());
     });
   }
 }

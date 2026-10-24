@@ -5,6 +5,7 @@ import { currentActivity } from "./activity";
 import { delegationMessagePrefix } from "./delegation-mail";
 import { isRecoveryMessageId } from "./recovery";
 import { projectRestarts } from "./restart-events";
+import { REALTIME_TOOL_PREFIX } from "./realtime-tools";
 import { toolTrace } from "./tool-trace";
 
 /**
@@ -12,7 +13,10 @@ Recognize reserved recovery and delegation identities without inspecting message
 @param id - Untrusted native or receipt message identity.
 @returns Whether this message belongs to internal Pocket work.
 */
-const isInternal = (id: unknown) => isRecoveryMessageId(id) || string(id).startsWith(delegationMessagePrefix);
+const isInternal = (id: unknown) =>
+  isRecoveryMessageId(id) ||
+  string(id).startsWith(delegationMessagePrefix) ||
+  string(id).startsWith(REALTIME_TOOL_PREFIX);
 
 /**
 Keep uploaded original-file display text while removing private transport content from the phone snapshot.
@@ -120,9 +124,19 @@ export function visibleTurn(
 ): Turn {
   const scheduled = options.scheduled ?? new Set<string>();
 
+  let isWorker = false;
+
+  const items = turn.items.filter((item) => {
+    if (item.type === "userMessage") {
+      isWorker = [item.id, string(item.clientId)].some((id) => id.startsWith(REALTIME_TOOL_PREFIX));
+    }
+
+    return !isWorker || !["userMessage", "agentMessage"].includes(item.type);
+  });
+
   return {
     ...turn,
-    items: turn.items.flatMap<Item>((item) =>
+    items: items.flatMap<Item>((item) =>
       displayItem(item, scheduled, options.tools === true, options.reports ?? new Map<string, DelegateReport>())
     ),
   };

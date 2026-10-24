@@ -5,7 +5,7 @@ import { type Data, string } from "../lib/protocol";
 import { createHash } from "node:crypto";
 
 /**
-Persist only finalized speech and explicit handoff status; never store raw microphone audio.
+Persist finalized captions and retain legacy handoff status; never store raw microphone audio.
 */
 export class VoiceHistory {
   private entries?: Promise<VoiceSegment[]>;
@@ -43,7 +43,7 @@ export class VoiceHistory {
   }
 
   /**
-  Persist an immutable final transcript before exposing it to delivery or the UI.
+  Persist an immutable final caption independently of live audio and the UI.
   */
   async finalize(event: Data, sessionId: string, role: "user" | "assistant", afterItemId: string | null) {
     const itemId = string(event.item_id);
@@ -72,14 +72,14 @@ export class VoiceHistory {
   }
 
   /**
-  Persist the complete finalized transcript before acknowledging it to the browser.
+  Persist the complete finalized transcript on the independent history queue.
   */
   async save(entry: VoiceSegment) {
     const entries = await this.read();
     const existing = entries.find((candidate) => candidate.id === entry.id);
 
     if (existing && existing.text !== entry.text) {
-      throw new Error("Finalized speech changed for an existing item. No handoff was sent.");
+      throw new Error("Finalized caption changed for an existing item.");
     }
 
     if (existing) {

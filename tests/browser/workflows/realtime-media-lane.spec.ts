@@ -1,60 +1,34 @@
-/* eslint-disable @typescript-eslint/no-magic-numbers -- PCM dimensions and metadata counts exercise the complete HTTP/provider session boundary. */
 import { expect } from "@playwright/test";
 import { test } from "../../fixtures/browser-workflow";
-import { readFile, writeFile } from "node:fs/promises";
+import { configureVoice } from "../../fixtures/realtime-browser";
 import { dataSchema } from "../../../src/lib/protocol";
-import path from "node:path";
 
 const origin = "http://127.0.0.1:3119";
-const directory = path.resolve(".local/realtime-fixture");
+const sdp = "v=0\r\ns=API test offer\r\n";
 
-/** Count metadata-only provider frames without exposing microphone payloads.
-@returns Number of matching transport records.
-*/
-async function count() {
-  const log = await readFile(path.join(directory, "provider.jsonl"), "utf8");
+test("realtime accepts SDP controls, rejects legacy audio and isolates restarted call tokens", async ({ request }) => {
+  await configureVoice();
+  const start = await request.post("/api/realtime", { headers: { Origin: origin }, data: { action: "start", sdp } });
+  const first = dataSchema.parse(await start.json());
 
-  return log.split("\n").filter((line) => line.includes('"method":"provider/realtime/appendAudio"')).length;
-}
-
-test("old microphone tokens cannot enter a restarted OpenAI session", async ({ request }) => {
-  await writeFile(path.join(directory, "control.json"), "{}");
-  const startA = await request.post("/api/realtime", { headers: { Origin: origin }, data: { action: "start" } });
-  const first = dataSchema.parse(await startA.json());
-  const audio = {
-    data: Buffer.alloc(480).toString("base64"),
-    sampleRate: 24_000,
-    numChannels: 1,
-    samplesPerChannel: 240,
-  };
-  const sentA = await request.post("/api/realtime", {
+  expect(start.ok()).toBe(true);
+  expect(first.sdp).toContain("v=0");
+  expect(JSON.stringify(first)).not.toContain("dummy-openai-key");
+  const audio = await request.post("/api/realtime", {
     headers: { Origin: origin },
-    data: { action: "audio", token: first.token, audio },
+    data: { action: "audio", token: first.token, audio: {} },
   });
 
-  expect(startA.ok()).toBe(true);
-  expect(sentA.ok()).toBe(true);
+  expect(audio.ok()).toBe(false);
   await request.post("/api/realtime", { headers: { Origin: origin }, data: { action: "stop", token: first.token } });
-  const startB = await request.post("/api/realtime", { headers: { Origin: origin }, data: { action: "start" } });
-  const second = dataSchema.parse(await startB.json());
-  const before = await count();
-  const stale = await request.post("/api/realtime", {
-    headers: { Origin: origin },
-    data: { action: "audio", token: first.token, audio },
-  });
+  const restart = await request.post("/api/realtime", { headers: { Origin: origin }, data: { action: "start", sdp } });
+  const second = dataSchema.parse(await restart.json());
 
-  expect(startB.ok()).toBe(true);
-  expect(stale.ok()).toBe(false);
-  expect(await count()).toBe(before);
-  const sentB = await request.post("/api/realtime", {
-    headers: { Origin: origin },
-    data: { action: "audio", token: second.token, audio },
-  });
+  expect(restart.ok()).toBe(true);
+  expect(first.token).not.toBe(second.token);
+  await request.post("/api/realtime", { headers: { Origin: origin }, data: { action: "stop", token: first.token } });
+  const status = await request.get("/api/realtime");
 
-  expect(sentB.ok()).toBe(true);
-  await expect.poll(() => count()).toBe(before + 1);
+  expect(await status.json()).toMatchObject({ phase: "active" });
   await request.post("/api/realtime", { headers: { Origin: origin }, data: { action: "stop", token: second.token } });
-  const native = await readFile(path.join(directory, "native.jsonl"), "utf8");
-
-  expect(native).not.toContain("thread/realtime/");
 });
