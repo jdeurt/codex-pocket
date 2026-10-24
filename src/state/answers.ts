@@ -28,11 +28,20 @@ export function validateAnswer(request: PendingRequest, input: unknown): unknown
     const result = answers.parse(input);
     const questions = z.array(z.object({ id: z.string() })).parse(request.params.questions);
 
-    if (
-      questions.some((q) => !Object.hasOwn(result.answers, q.id)) ||
-      Object.keys(result.answers).some((id) => questions.every((q) => q.id !== id))
-    ) {
-      throw new Error("Answer each question.");
+    const expected = new Set<string>();
+
+    for (const question of questions) {
+      expected.add(question.id);
+
+      if (!Object.hasOwn(result.answers, question.id)) {
+        throw new Error("Answer each question.");
+      }
+    }
+
+    for (const id of Object.keys(result.answers)) {
+      if (!expected.has(id)) {
+        throw new Error("Answer each question.");
+      }
     }
 
     return result;

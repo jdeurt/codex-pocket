@@ -17,13 +17,16 @@ Read provider configuration without allowing a storage error to echo private cre
 @returns Current key and public voice preferences.
 */
 export async function readVoiceConfiguration(owner: VoiceSessionOwner) {
-  const configured = await t(() => Promise.all([owner.readKey(), owner.preferences()]));
+  const [credential, preferred] = await Promise.all([t(owner.readKey.bind(owner)), t(owner.preferences.bind(owner))]);
 
-  if (!configured.ok) {
-    throw new Error("Could not load realtime configuration from Settings.");
+  if (!credential.ok || !preferred.ok) {
+    throw new Error("Could not load realtime configuration from Settings.", {
+      cause: new AggregateError([credential.error, preferred.error], "Realtime settings reads failed."),
+    });
   }
 
-  const [key, preferences] = configured.value;
+  const key = credential.value;
+  const preferences = preferred.value;
   const configuration = { key, ...preferences };
 
   if (!configuration.key) {

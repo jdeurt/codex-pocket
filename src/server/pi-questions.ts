@@ -3,7 +3,7 @@ import { t } from "try";
 import { type PendingRequest, type RpcEvent } from "../lib/protocol";
 import { type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { Type } from "@earendil-works/pi-ai";
-import { validateAnswer } from "./answers";
+import { validateAnswer } from "../state/answers";
 
 const optionSchema = Type.Object({ label: Type.String(), description: Type.Optional(Type.String()) });
 const questionSchema = Type.Object({

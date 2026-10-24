@@ -18,7 +18,7 @@ import { loadHistory } from "../history";
 import { log } from "../logging";
 import { sidePocketInstructions } from "./instructions";
 import { steerCodex } from "./codex-steering";
-import { validateAnswer } from "../answers";
+import { validateAnswer } from "../../state/answers";
 
 /**
 Classify native approval methods without treating unsupported requests as approvals.

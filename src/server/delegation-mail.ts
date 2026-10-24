@@ -3,7 +3,7 @@ import type Database from "better-sqlite3";
 import { type HarnessRequest } from "./harness/types";
 import { createHash } from "node:crypto";
 import { object } from "../lib/protocol";
-import { validateAnswer } from "./answers";
+import { validateAnswer } from "../state/answers";
 import { z } from "zod";
 
 const MAX_BODY_LENGTH = 65_536;

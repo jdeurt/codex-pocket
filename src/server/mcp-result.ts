@@ -26,7 +26,7 @@ export async function toolResult(operation: () => unknown) {
     return toolError(result.error);
   }
 
-  const content = t(() => JSON.stringify(result.value));
+  const content = t(JSON.stringify, result.value);
 
   return content.ok ? { content: [{ type: "text" as const, text: content.value }] } : toolError(content.error);
 }

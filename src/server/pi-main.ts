@@ -46,7 +46,7 @@ export class PiMain {
     private onError: (error: unknown) => void,
     private openSession: typeof openPiSession = openPiSession
   ) {
-    this.history = new PiHistory(config.threadId, emit);
+    this.history = new PiHistory(config.threadId, emit, onError);
     this.tasks = new PiTaskContext(config.threadId, readKey, onError);
     this.questions = new PiQuestions(config.threadId, this.history.activeIdentity, emit);
     this.activity = new PiActivity(config.threadId, emit);
@@ -82,7 +82,7 @@ export class PiMain {
       void this.tasks.sync(manager);
     }
 
-    void this.event(event);
+    void this.history.event(this.messages, event);
     this.activity.accept(event, this.history.active?.id);
   }
 
@@ -133,40 +133,6 @@ export class PiMain {
       model: this.modelId(),
       reasoningEffort: this.effort,
     };
-  }
-
-  /** Normalize streamed messages and final source entries into existing Bridge notifications.
-  @param event - Authoritative Pi lifecycle or message event.
-  */
-  private async event(event: AgentSessionEvent) {
-    if (event.type === "compaction_end" && event.result) {
-      this.emit({ method: "thread/compacted", params: { threadId: this.config.threadId } });
-    }
-
-    if (event.type === "agent_settled" && event.aborted && this.history.active) {
-      this.history.update({ ...this.history.active, status: "interrupted" }, this.history.active.id);
-    }
-
-    if (
-      !this.history.active ||
-      (event.type !== "message_start" && event.type !== "message_update" && event.type !== "message_end")
-    ) {
-      return;
-    }
-
-    this.history.publish(
-      this.messages.project(event.message, this.history.active, this.history.saved?.turns ?? [], this.config.threadId)
-    );
-
-    if (event.type !== "message_end") {
-      return;
-    }
-
-    const saved = await captureResult(this.history.persist.bind(this.history));
-
-    if (!saved.ok) {
-      this.onError(saved.error);
-    }
   }
 
   /** Complete one run only when prompt resolves after Pi's retries and queued continuations.

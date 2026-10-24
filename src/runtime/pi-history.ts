@@ -1,3 +1,6 @@
+import { t } from "try";
+import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import type { PiMessages } from "../server/pi-projection";
 import type { RpcEvent, Turn } from "../lib/protocol";
 import { type PiState, type PiHistoryState, piTurnState } from "../state/pi-session";
 import { findById } from "../lib/identity";
@@ -21,11 +24,39 @@ export class PiHistory {
   /** Bind persistence and event publication to one verified parent.
   @param owner - Parent identity.
   @param emit - Canonical event sink.
+  @param onError - Private diagnostic sink for background projection failures.
   */
   constructor(
     private readonly owner: string,
-    private readonly emit: (event: RpcEvent) => void
+    private readonly emit: (event: RpcEvent) => void,
+    private readonly onError: (error: unknown) => void
   ) {}
+
+  /** Normalize streamed messages and final source entries into existing Bridge notifications.
+  @param messages - Native receipt identity owner.
+  @param event - Authoritative Pi lifecycle or message event.
+  @returns Whether the updated projection must be persisted.
+  */
+  private projectEvent(messages: PiMessages, event: AgentSessionEvent) {
+    if (event.type === "compaction_end" && event.result) {
+      this.emit({ method: "thread/compacted", params: { threadId: this.owner } });
+    }
+
+    if (event.type === "agent_settled" && event.aborted && this.active) {
+      this.update({ ...this.active, status: "interrupted" }, this.active.id);
+    }
+
+    if (
+      !this.active ||
+      (event.type !== "message_start" && event.type !== "message_update" && event.type !== "message_end")
+    ) {
+      return;
+    }
+
+    this.publish(messages.project(event.message, this.active, this.saved?.turns ?? [], this.owner));
+
+    return event.type === "message_end";
+  }
 
   /** Replace state after durable startup hydration.
   @param saved - Validated persisted native projection.
@@ -54,6 +85,19 @@ export class PiHistory {
   */
   update(turn: Turn, activeId: string | undefined) {
     this.store.setState(piTurnState(this.store.getState(), turn, activeId), true);
+  }
+
+  /** Report background projection or persistence failures without rejecting an unobserved event callback.
+  @param messages - Native receipt identity owner.
+  @param event - Native lifecycle event.
+  */
+  async event(messages: PiMessages, event: AgentSessionEvent) {
+    const projected = t(this.projectEvent.bind(this), messages, event);
+    const saved = projected.ok && projected.value ? await t(this.persist.bind(this)) : projected;
+
+    if (!saved.ok) {
+      this.onError(saved.error);
+    }
   }
 
   /** Publish a pure message projection after replacing canonical state.

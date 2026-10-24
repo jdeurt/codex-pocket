@@ -2,7 +2,7 @@ import { type Bridge } from "./bridge-session";
 import { type BridgeOutbox } from "./bridge-outbox";
 import { type MessageSource } from "../lib/protocol";
 import { findById, withoutId } from "../lib/identity";
-import { validateAnswer } from "./answers";
+import { validateAnswer } from "../state/answers";
 import { writeLocal } from "./local-state";
 import { requestFile } from "./request-files";
 

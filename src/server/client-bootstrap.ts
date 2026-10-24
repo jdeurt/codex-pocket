@@ -1,3 +1,5 @@
+import { findById } from "../lib/identity";
+import { log } from "./logging";
 import { type ClientBootstrap } from "../state/bootstrap";
 import { initialSnapshot } from "../lib/protocol";
 import { readConfig } from "./config";
@@ -30,10 +32,10 @@ export async function readClientBootstrap(request: Request): Promise<ClientBoots
 
   await pocketHost();
   // The catalog is loaded from SQLite, not inferred from browser selection.
-  initial.resources["/api/pockets"] = { pockets: pocketStore().list(), selectedId: pocketId };
-  const selected = pocketStore()
-    .list()
-    .find((entry) => entry.id === pocketId);
+  const pockets = pocketStore().list();
+
+  initial.resources["/api/pockets"] = { pockets, selectedId: pocketId };
+  const selected = findById(pockets, pocketId);
 
   initial.snapshot.threadId = selected?.threadId ?? undefined;
   initial.snapshot.title = selected?.name ?? "Pocket";
@@ -44,10 +46,14 @@ export async function readClientBootstrap(request: Request): Promise<ClientBoots
 
   if (settings.status === "fulfilled") {
     initial.resources["/api/settings"] = settings.value;
+  } else {
+    log().warn({ error: settings.reason, pocketId }, "bootstrap.settings_failed");
   }
 
   if (history.status === "fulfilled") {
     initial.captions = history.value;
+  } else {
+    log().warn({ error: history.reason, pocketId }, "bootstrap.captions_failed");
   }
 
   return initial;

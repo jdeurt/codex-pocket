@@ -1,3 +1,4 @@
+import { hasPiHistory, restoredPiState } from "../state/pi-session";
 import {
   ModelRuntime,
   SessionManager,
@@ -8,7 +9,7 @@ import {
 import { type PiState, readPiState } from "./pi-store";
 import { type Config } from "./config";
 import { type CodexRpc } from "./rpc";
-import { type Data, string, object } from "../lib/protocol";
+import { type Data, string, object, hasActiveTurn } from "../lib/protocol";
 import { InMemoryCredentialStore } from "@earendil-works/pi-ai";
 import { localDirectory } from "./local-state";
 import { loadHistory } from "./history";
@@ -29,8 +30,8 @@ import { t as attempt } from "try";
 */
 async function sessionManager(config: Config, saved: PiState | null, directory: string) {
   if (saved) {
-    const loaded = await attempt(() => readFile(saved.sessionFile, "utf8"));
-    const outcome = loaded.ok ? attempt(() => SessionManager.open(saved.sessionFile)) : loaded;
+    const loaded = await attempt(readFile, saved.sessionFile, "utf8");
+    const outcome = loaded.ok ? attempt(SessionManager.open.bind(SessionManager), saved.sessionFile) : loaded;
 
     if (outcome.ok) {
       return outcome.value;
@@ -38,9 +39,7 @@ async function sessionManager(config: Config, saved: PiState | null, directory: 
 
     const error = outcome.error;
 
-    const hasPiHistory = saved.turns.some((turn) => turn.items.some((item) => item.source === "pi"));
-
-    if (hasPiHistory || !(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+    if (hasPiHistory(saved.turns) || !(error instanceof Error && "code" in error && error.code === "ENOENT")) {
       throw error;
     }
   }
@@ -58,7 +57,7 @@ async function migrate(native: CodexRpc, config: Config, manager: SessionManager
   const { thread } = await native.request("thread/read", { threadId: config.threadId, includeTurns: true });
   const turns = await loadHistory(native, thread);
 
-  if (turns.some((turn) => turn.status === "inProgress")) {
+  if (hasActiveTurn(turns)) {
     throw new Error("Finish the active Codex main turn before migrating this Pocket to Pi.");
   }
 
@@ -101,23 +100,6 @@ export async function openPiSession(
   const manager = await sessionManager(config, saved, path.join(agentDir, "sessions"));
   const state = saved ?? (await migrate(native, config, manager));
 
-  for (const turn of state.turns) {
-    // Earlier Pi projections stored the receipt only as the item ID. Restore the
-    // canonical receipt field for delivery, attachments and internal notices.
-    for (const item of turn.items) {
-      if (item.source === "pi" && item.type === "userMessage") {
-        item.clientId ??= item.id;
-      }
-    }
-
-    if (turn.status !== "inProgress") {
-      continue;
-    }
-
-    turn.status = "interrupted";
-    turn.error = { message: "The host stopped during this Pi turn. Inspect saved context before continuing." };
-  }
-
   if (saved && manager.getEntryCount() === 0) {
     manager.appendCustomMessageEntry(
       "codex_migration",
@@ -126,7 +108,6 @@ export async function openPiSession(
     );
   }
 
-  state.sessionFile = manager.getSessionFile() ?? "";
   const runtime = await ModelRuntime.create({ credentials: new InMemoryCredentialStore(), modelsPath: null });
 
   await runtime.setRuntimeApiKey("openai", key);
@@ -149,7 +130,7 @@ export async function openPiSession(
     session,
     runtime,
     manager,
-    state,
+    state: restoredPiState(state, manager.getSessionFile() ?? ""),
     selection,
     nativeDelegationProfile: {
       sandbox: string(effective.sandbox_mode),
