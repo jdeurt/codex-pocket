@@ -1,4 +1,4 @@
-import { cp, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { installLauncher, selectRelease } from "../../scripts/install-commands.mjs";
 import assert from "node:assert/strict";
 import path from "node:path";
@@ -25,7 +25,10 @@ await test(
     await cp("scripts/pocket-cli.mjs", path.join(release, "scripts/pocket-cli.mjs"));
     await cp("scripts/pocket.mjs", path.join(release, "scripts/pocket.mjs"));
     await symlink(process.execPath, path.join(release, ".pocket-node"));
-    await writeFile(path.join(release, "install.sh"), `exit ${String(failure)}\n`);
+    await writeFile(
+      path.join(release, "install.sh"),
+      `printf '%s\\n' "$1" > "$HOME/installer-option"\nexit ${String(failure)}\n`
+    );
     await installLauncher(home);
     await selectRelease(home, release);
     assert.equal(
@@ -41,5 +44,6 @@ await test(
       }).status,
       failure
     );
+    assert.equal(await readFile(path.join(userHome, "installer-option"), "utf8"), "--update\n");
   }
 );
