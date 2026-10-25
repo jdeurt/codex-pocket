@@ -8,6 +8,7 @@ import { requireResults } from "../lib/results";
 import { piModel, piModelCatalog, piSettings, thinkingLevelSchema } from "./pi-models";
 import { type Config } from "./config";
 import { type CodexRpc } from "./rpc";
+import { preservePiBinding } from "../tasks/adapters/pi";
 import { PiTaskContext } from "../tasks/runtime";
 import { PiMessages } from "./pi-projection";
 import { openPiSession } from "./pi-session";
@@ -79,11 +80,20 @@ export class PiMain {
   @param event - Native lifecycle event.
   */
   private observed(manager: Awaited<ReturnType<typeof openPiSession>>["manager"], event: AgentSessionEvent) {
+    void this.history.event(this.messages, event);
+
+    if (event.type === "message_end" && event.message.role === "user") {
+      const receiptId = this.messages.receiptIdentity(event.message);
+
+      if (receiptId) {
+        preservePiBinding(manager, receiptId, event.message);
+      }
+    }
+
     if (event.type === "message_end" || event.type === "entry_appended") {
       void this.tasks.sync(manager);
     }
 
-    void this.history.event(this.messages, event);
     this.activity.accept(event, this.history.active?.id);
   }
 

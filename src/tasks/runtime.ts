@@ -1,3 +1,5 @@
+import path from "node:path";
+import { ingestNativeTaskEvent } from "./native-ingestion";
 import { SerialQueue } from "../runtime/serial-queue";
 import { valueAfterCleanup } from "../lib/results";
 import { t as captureResult } from "try";
@@ -63,7 +65,7 @@ export class PiTaskContext {
     }
 
     for (const entry of arrived) {
-      await this.ingest(entry);
+      await this.ingest(entry, manager.getEntries());
     }
   }
 
@@ -184,8 +186,9 @@ export class PiTaskContext {
 
   /** Persist one committed native entry before advancing its durable ingestion cursor.
   @param entry - Newly appended native entry, never a historical closed-group member.
+  @param entries - Exact native records for receipt and causal correlation.
   */
-  private async ingest(entry: SessionEntry) {
+  private async ingest(entry: SessionEntry, entries: SessionEntry[]) {
     if (!this.state) {
       throw new Error("Task context has not been initialized.");
     }
@@ -200,6 +203,12 @@ export class PiTaskContext {
       };
 
       await saveTaskSource(this.owner, source);
+      ingestNativeTaskEvent(
+        this.owner,
+        entries,
+        entry,
+        path.join(taskDirectory(this.owner), "source", `${String(source.sequence)}.json`)
+      );
       this.state = ingestTaskEntry(this.state, source);
     }
 

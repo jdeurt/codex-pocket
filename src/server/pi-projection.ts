@@ -14,6 +14,14 @@ export class PiMessages {
   private userIds: string[] = [];
   promptId?: string;
 
+  /** Read the receipt already correlated with a native message object.
+  @param message - Original provider object observed by projection.
+  @returns Accepted receipt identity when established.
+  */
+  receiptIdentity(message: AgentMessage) {
+    return this.identities.get(message);
+  }
+
   /** Reserve native correlation before sending and release receipts rejected by Pi.
   @param session - Native steering boundary.
   @param id - Durable correction receipt.

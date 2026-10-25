@@ -131,6 +131,16 @@ function isUserContext(fragment: VoiceSegment) {
   return fragment.role === "user" && !!fragment.text.trim();
 }
 
+/** Select observed current user speech separately from historical startup context.
+@param fragments - Current call's observed captions.
+@returns Latest observed user segment; incomplete speech remains explicit in the native handoff.
+*/
+function currentVoiceIntent(fragments: VoiceSegment[]) {
+  const users = groupedVoiceSegments(fragments).filter(isUserContext.bind(undefined));
+
+  return users.at(LAST)?.text ?? "";
+}
+
 /** Reserve ready backend receipts independently of media and persistence.
 @param state - Call-local delegation reservations.
 @param sessionId - Owning local call identity.
@@ -149,7 +159,11 @@ export function requestedTools(
   }
 
   const pending = new Map(state.pending);
-  const calls: { id: string; request: string; source: { type: "realtime"; sessionId: string; itemId: string } }[] = [];
+  const calls: {
+    id: string;
+    request: string;
+    source: { type: "realtime"; sessionId: string; itemId: string; intent: string };
+  }[] = [];
 
   for (const [delegationId, offset] of state.waiting) {
     const id = `${REALTIME_TOOL_PREFIX}${sessionId}:${delegationId}`;
@@ -158,7 +172,7 @@ export function requestedTools(
     calls.push({
       id,
       request: delegationRequest(sessionId, offset, fragments, historical),
-      source: { type: "realtime", sessionId, itemId: delegationId },
+      source: { type: "realtime", sessionId, itemId: delegationId, intent: currentVoiceIntent(fragments) },
     });
   }
 
