@@ -1,3 +1,4 @@
+import { acceptTaskReceipts } from "../tasks/ingestion";
 import { type Receipt, persistReceipts, restoreReceipts } from "./outbox";
 import { assertMessageContent, resolveUploads } from "./uploads";
 import type { BridgeSnapshots } from "./bridge-snapshots";
@@ -92,6 +93,7 @@ export class BridgeOutbox {
     }
 
     this.entries = await persistReceipts(threadId, this.entries, this.pocketId);
+    acceptTaskReceipts(threadId, this.entries, this.snapshots.state.scheduled);
     this.snapshots.state = { ...this.snapshots.state, queue: queuedReceipts(this.entries) };
     this.snapshots.publish(this.entries);
   }

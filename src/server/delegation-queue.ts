@@ -1,3 +1,4 @@
+import { inheritTaskCommand } from "../tasks/command-provenance";
 import { nextCommand, steeringTarget, selectedCommandIds } from "../state/delegation-queue";
 import { type DelegationCommand, delegationCommandSchema, pocket, storedPocketSchema } from "../state/delegation-data";
 import { CommandSteering } from "./delegation-steering";
@@ -103,7 +104,15 @@ Bind the native command database and its concrete child and notification owners.
     this.finish(command, status, result);
 
     if (report) {
-      this.store.mail.record(command.parentId, command.childId, report.sourceId, report.kind, report.payload);
+      this.store.mail.record(
+        command.parentId,
+        command.childId,
+        report.sourceId,
+        report.kind,
+        report.payload,
+        true,
+        command.id
+      );
     }
   }
 
@@ -150,6 +159,9 @@ Insert a validated new command only after retry and child-state guards succeed.
         target?.id ?? null,
         supersedes
       );
+    const originKey = key === "initial" ? `create:${child.createKey}` : `send:${childId}:${key}`;
+
+    inheritTaskCommand(parentId, childId, id, originKey);
     this.notifications.changed();
 
     return delegationCommandSchema.parse(this.db.prepare("SELECT * FROM delegation_commands WHERE id=?").get(id));

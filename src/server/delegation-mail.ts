@@ -1,3 +1,4 @@
+import { recordTaskReport } from "../tasks/command-provenance";
 import { delegationMessagePrefix } from "../state/delegation-queue";
 import { delegationMailSchema, delegationRequestSchema } from "../state/delegation-data";
 import type Database from "better-sqlite3";
@@ -45,7 +46,15 @@ Persist an active child's parent message under its content-derived retry identit
 */
   private recordMessage(parentId: string, childId: string, commandId: string, message: string) {
     const digest = createHash("sha256").update(message).digest("hex");
-    const mail = this.record(parentId, childId, `message:${commandId}:${digest}`, "message", { message });
+    const mail = this.record(
+      parentId,
+      childId,
+      `message:${commandId}:${digest}`,
+      "message",
+      { message },
+      true,
+      commandId
+    );
 
     return { id: mail.id, queued: true, note: "The parent receives this message and can reply in this saved session." };
   }
@@ -111,9 +120,18 @@ Persist a source-deduplicated child report before hinting that parent delivery i
 @param kind - Existing report, request or result discriminator.
 @param payload - Protocol data serialized exactly once for private persistence.
 @param shouldNotify - Whether the report enters parent delivery or remains local.
+@param commandId - Recorded producing command; absent provenance remains unknown.
 @returns Validated persisted report, including an existing report on retry.
 */
-  record(parentId: string, childId: string, sourceId: string, kind: string, payload: unknown, shouldNotify = true) {
+  record(
+    parentId: string,
+    childId: string,
+    sourceId: string,
+    kind: string,
+    payload: unknown,
+    shouldNotify = true,
+    commandId: string | null = null
+  ) {
     const id = `${delegationMessagePrefix}${crypto.randomUUID()}`;
 
     this.db
@@ -129,13 +147,17 @@ Persist a source-deduplicated child report before hinting that parent delivery i
         Date.now()
       );
 
+    const mail = delegationMailSchema.parse(
+      this.db.prepare("SELECT * FROM delegation_mail WHERE childId=? AND sourceId=?").get(childId, sourceId)
+    );
+
+    recordTaskReport(parentId, mail.id, commandId);
+
     if (shouldNotify) {
       this.changed();
     }
 
-    return delegationMailSchema.parse(
-      this.db.prepare("SELECT * FROM delegation_mail WHERE childId=? AND sourceId=?").get(childId, sourceId)
-    );
+    return mail;
   }
 
   /**

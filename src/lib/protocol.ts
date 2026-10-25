@@ -40,7 +40,12 @@ export interface QueuedMessage {
   voiceContext?: { lastId: string; text: string };
   status: "queued" | "sending" | "unknown" | "sent";
 }
-export const messageSourceSchema = z.object({ type: z.literal("realtime"), sessionId: z.string(), itemId: z.string() });
+export const messageSourceSchema = z.object({
+  type: z.literal("realtime"),
+  sessionId: z.string(),
+  itemId: z.string(),
+  intent: z.string().optional(),
+});
 
 export type MessageSource = z.infer<typeof messageSourceSchema>;
 export interface RestartEvent {

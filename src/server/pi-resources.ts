@@ -1,3 +1,4 @@
+import { taskProvenanceExtension } from "../tasks/command-provenance";
 import { localOrigin } from "../state/native-config";
 import { DefaultResourceLoader, createMcpExtension, type LoadedMcpConfig } from "@earendil-works/pi-coding-agent";
 import { type Config } from "./config";
@@ -58,7 +59,7 @@ export async function piResources(config: Config, agentDir: string, instructions
     agentDir,
     // Project executable extensions require an explicit host trust interface before loading.
     noExtensions: true,
-    extensionFactories: [mcp],
+    extensionFactories: [mcp, taskProvenanceExtension.bind(undefined, config.threadId)],
     appendSystemPrompt: [
       instructions,
       `Exact task archives for this Pocket are in ${taskDirectory(config.threadId)}. ` +
