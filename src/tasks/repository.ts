@@ -5,6 +5,7 @@ import path from "node:path";
 import { z } from "zod";
 import { privateDatabase } from "../server/private-database";
 import { taskDirectory } from "./archive";
+import { assertLedgerTransition } from "./invariants";
 import { initialLedger, ledgerSchema, type Ledger } from "./model";
 
 const rowSchema = z.object({ payload: z.string() });
@@ -48,7 +49,10 @@ export class TaskRepository {
       return current;
     }
 
-    const state = ledgerSchema.parse({ ...next, revision: current.revision + 1 });
+    const encoded = JSON.stringify({ ...next, revision: current.revision + 1 });
+    const state = ledgerSchema.parse(JSON.parse(encoded));
+
+    assertLedgerTransition(current, state);
 
     this.db.prepare("UPDATE checkpoint SET payload=? WHERE id=1").run(JSON.stringify(state));
     this.db.prepare("INSERT INTO commits VALUES (?, ?)").run(state.revision, reason);

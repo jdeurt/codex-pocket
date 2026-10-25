@@ -1,3 +1,4 @@
+import { recordTaskDelivery } from "../tasks/delivery-evidence";
 import { Type } from "@earendil-works/pi-ai";
 import { type ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { type PiHistory } from "../runtime/pi-history";
@@ -39,6 +40,7 @@ export class PiChat {
     }
 
     await this.history.persist();
+    recordTaskDelivery(this.threadId, callId);
     const delivered = { id: `pi-chat:${callId}`, status: "delivered", message: input.message };
 
     return { content: [{ type: "text" as const, text: JSON.stringify(delivered) }], details: delivered };

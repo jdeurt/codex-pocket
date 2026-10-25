@@ -17,7 +17,7 @@ function hasCommandId(id: string | undefined, command: Ledger["commands"][number
 @returns Identity equality.
 */
 function hasReference(id: string, event: TaskEvent) {
-  return [event.id, event.requestId, event.receiptId].includes(id);
+  return event.id === id || (id.startsWith("call:") && (event.callIds ?? []).includes(id.slice("call:".length)));
 }
 
 /** Order opaque task identities deterministically.
@@ -56,7 +56,8 @@ export function relatedTasks(state: Ledger, event: TaskEvent, visited: readonly 
       continue;
     }
 
-    const parent = state.events.find(hasReference.bind(undefined, reference));
+    const parents = state.events.filter(hasReference.bind(undefined, reference));
+    const parent = parents.length === 1 ? parents[0] : undefined;
 
     if (!parent) {
       continue;
@@ -70,6 +71,15 @@ export function relatedTasks(state: Ledger, event: TaskEvent, visited: readonly 
   }
 
   return [...ids].toSorted(compareIds);
+}
+
+/** Exclude an event's old derived assignment when reconsidering its causal relationships.
+@param eventId - Event being reconsidered.
+@param member - Existing membership.
+@returns Whether this is another event's authoritative association.
+*/
+function isOtherEvent(eventId: string, member: Ledger["memberships"][number]) {
+  return member.eventId !== eventId;
 }
 
 /** Route trusted application relationships before requesting semantic interpretation.
@@ -86,7 +96,8 @@ export function routeEvent(state: Ledger, event: TaskEvent): Assignment | null {
     return { kind: "conversation" };
   }
 
-  const taskIds = relatedTasks(state, event);
+  const memberships = state.memberships.filter(isOtherEvent.bind(undefined, event.id));
+  const taskIds = relatedTasks({ ...state, memberships }, event);
 
   if (taskIds.length > 0) {
     return { kind: "attach", taskIds };

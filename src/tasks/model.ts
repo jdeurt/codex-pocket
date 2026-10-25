@@ -31,6 +31,7 @@ export const eventSchema = z.object({
   delivery: z.enum(["not_delivered", "delivered", "uncertain"]),
 });
 export const taskSchema = z.object({
+  authority: z.enum(["proposal", "live", "legacy"]).default("proposal"),
   id: z.string(),
   revision: z.number().int().nonnegative(),
   title: z.string(),
@@ -74,6 +75,13 @@ export const commandSchema = z.object({ id: z.string(), childId: z.string(), req
 export const bindingSchema = z.object({ nativeEntryId: z.string(), receiptId: z.string() });
 const commandIntentSchema = z.object({ callId: z.string(), key: z.string(), requestId: z.string().nullable() });
 
+const lifecycleChangeSchema = z.object({
+  id: z.string(),
+  inputRevision: z.number().int(),
+  operation: z.unknown(),
+  reason: z.string(),
+});
+
 export const ledgerSchema = z.object({
   version: z.literal(1),
   parentId: z.string(),
@@ -86,6 +94,7 @@ export const ledgerSchema = z.object({
   commands: z.array(commandSchema),
   bindings: z.array(bindingSchema),
   commandIntents: z.array(commandIntentSchema).default([]),
+  changes: z.array(lifecycleChangeSchema).default([]),
   mode: z.enum(["shadow", "live"]),
 });
 
@@ -113,6 +122,7 @@ export function initialLedger(parentId: string): Ledger {
     commands: [],
     bindings: [],
     commandIntents: [],
+    changes: [],
     mode: "shadow",
   };
 }

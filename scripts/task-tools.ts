@@ -1,3 +1,4 @@
+import { registerTaskManagementTools } from "./task-management-tools";
 import { t as captureResult } from "try";
 import { type McpServer } from "@modelcontextprotocol/server";
 import { toolError } from "../src/server/mcp-result";
@@ -5,6 +6,20 @@ import { searchTaskArchivePage } from "../src/tasks/retrieval/runtime";
 import { z } from "zod";
 
 const MAX_QUERY_LENGTH = 2000;
+
+/** Encode source-validated retrieval output without changing passage evidence.
+@param page - Completed search page.
+@returns Native MCP content and metadata.
+*/
+function searchContent(page: Awaited<ReturnType<typeof searchTaskArchivePage>>) {
+  return {
+    content: [
+      { type: "text" as const, text: JSON.stringify(page.results) },
+      { type: "text" as const, text: JSON.stringify({ retrieval: page.retrieval, pagination: page.pagination }) },
+    ],
+    structuredContent: page,
+  };
+}
 
 /** Preserve the original result-array content while adding explicit mode/page information, even for no matches.
 @param owner - Authorized parent identity supplied by the MCP launcher.
@@ -20,15 +35,18 @@ async function search(owner: string, query: string, offset: number) {
   }
 
   const page = searched.value;
-  const encoded = captureResult(() => ({
-    content: [
-      { type: "text" as const, text: JSON.stringify(page.results) },
-      { type: "text" as const, text: JSON.stringify({ retrieval: page.retrieval, pagination: page.pagination }) },
-    ],
-    structuredContent: page,
-  }));
+  const encoded = captureResult(searchContent, page);
 
   return encoded.ok ? encoded.value : toolError(encoded.error);
+}
+
+/** Adapt validated search fields to the owned retrieval lifecycle.
+@param owner - Authorized parent.
+@param input - Validated query and offset.
+@returns Native search response.
+*/
+function searchInput(owner: string, input: { query: string; offset: number }) {
+  return search(owner, input.query, input.offset);
 }
 
 /** Register earlier-task retrieval at the existing model-facing MCP entry point.
@@ -36,6 +54,7 @@ async function search(owner: string, query: string, offset: number) {
 @param owner - Launcher-authorized parent, never supplied by a search caller.
 */
 export function registerTaskTools(server: McpServer, owner: string) {
+  registerTaskManagementTools(server, owner);
   server.registerTool(
     "pocket_task_search",
     {
@@ -47,6 +66,6 @@ export function registerTaskTools(server: McpServer, owner: string) {
         .object({ query: z.string().trim().max(MAX_QUERY_LENGTH), offset: z.number().int().nonnegative().default(0) })
         .strict(),
     },
-    ({ query, offset }) => search(owner, query, offset)
+    searchInput.bind(undefined, owner)
   );
 }

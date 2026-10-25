@@ -1,4 +1,5 @@
 import path from "node:path";
+import { shadowTaskPass } from "./shadow";
 import { ingestNativeTaskEvent } from "./native-ingestion";
 import { SerialQueue } from "../runtime/serial-queue";
 import { valueAfterCleanup } from "../lib/results";
@@ -166,6 +167,11 @@ export class PiTaskContext {
     }
 
     this.state = grouped.value.state;
+    const shadowed = await captureResult(shadowTaskPass, this.owner, key, signal);
+
+    if (!shadowed.ok && !signal.aborted) {
+      this.onError(shadowed.error);
+    }
 
     if (!this.state.compactionPending || session.isStreaming || signal.aborted) {
       return;
