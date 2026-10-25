@@ -84,6 +84,17 @@ function isVoiceActive(current: VoiceResources) {
   return current.active && !current.stopping;
 }
 
+/** Resume spectrum processing without making native capture wait for browser playback policy.
+@param current - Resources whose audio context is used only for visualization.
+*/
+async function resumeVoiceSpectrum(current: VoiceResources) {
+  const resumed = await captureResult(current.context.resume.bind(current.context));
+
+  if (!resumed.ok && isVoiceActive(current)) {
+    reportClient("realtime.spectrum_resume_failed", clientError(resumed.error), "error");
+  }
+}
+
 /** Mute local media immediately while keeping final session metadata receivable.
 @param current - Resources whose remote session is being finalized.
 */
@@ -175,7 +186,7 @@ export function releaseVoiceResources(current: VoiceResources) {
 @param fail - Report track loss without retaining microphone resources.
 */
 export async function connectVoice(current: VoiceResources, fail: (message: string) => void) {
-  await current.context.resume();
+  void resumeVoiceSpectrum(current);
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
   });
