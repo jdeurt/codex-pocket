@@ -5,7 +5,7 @@ import { CodexRpc } from "../../src/server/rpc";
 import { PiMain } from "../../src/server/pi-main";
 import { openPiSession } from "../../src/server/pi-session";
 import { nativeWorkspace, eventually } from "./workflow";
-import { settleTaskIndex } from "../../src/server/task-search";
+import { settleTaskIndex } from "../../src/tasks/retrieval/runtime";
 import assert from "node:assert/strict";
 
 /** Open real Pi parsing, tools and storage with the SDK's documented provider replay boundary.

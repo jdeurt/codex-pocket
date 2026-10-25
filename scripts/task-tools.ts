@@ -1,7 +1,7 @@
 import { t as captureResult } from "try";
 import { type McpServer } from "@modelcontextprotocol/server";
 import { toolError } from "../src/server/mcp-result";
-import { searchTaskArchivePage } from "../src/server/task-search";
+import { searchTaskArchivePage } from "../src/tasks/retrieval/runtime";
 import { z } from "zod";
 
 const MAX_QUERY_LENGTH = 2000;

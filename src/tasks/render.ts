@@ -1,5 +1,5 @@
 import path from "node:path";
-import { type ContextEntry } from "./task-archive";
+import { type ContextEntry } from "./archive-model";
 import { object, string } from "../lib/protocol";
 
 export interface RecordPart {

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
-import { contextEntrySchema, type ContextEntry } from "./task-archive";
-import { nativeText } from "./harness-transcript";
-import { object, string } from "../lib/protocol";
+import { contextEntrySchema, type ContextEntry } from "../archive-model";
+import { nativeText } from "../../state/harness-transcript";
+import { object, string } from "../../lib/protocol";
 import { z } from "zod";
 
 export const contextEntriesSchema = z.array(contextEntrySchema);

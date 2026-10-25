@@ -2,12 +2,18 @@ import { SerialQueue } from "../runtime/serial-queue";
 import { valueAfterCleanup } from "../lib/results";
 import { t as captureResult } from "try";
 import { type AgentSession, type SessionEntry, type SessionManager } from "@earendil-works/pi-coding-agent";
-import { type TaskContextState, groupTaskContext, ingestTaskEntry, readTaskState, saveTaskState } from "./task-context";
-import { isSameTask } from "./task-decisions";
+import {
+  type TaskContextState,
+  groupTaskContext,
+  ingestTaskEntry,
+  readTaskState,
+  saveTaskState,
+} from "./legacy-runtime";
+import { isSameTask } from "./classifier";
 import { nativeText } from "../state/harness-transcript";
-import { scheduleTaskIndex } from "./task-search";
-import { saveTaskSource, taskDirectory } from "./task-archive";
-import { internalContext } from "./internal-context";
+import { scheduleTaskIndex } from "./retrieval/runtime";
+import { saveTaskSource, taskDirectory } from "./archive";
+import { internalContext } from "../server/internal-context";
 
 const PASS_INTERVAL_MS = 600_000;
 const LAST_ENTRY = -1;

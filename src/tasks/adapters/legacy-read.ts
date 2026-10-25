@@ -1,8 +1,8 @@
 import { readFile } from "node:fs/promises";
-import { contextEntriesSchema, coherentEntries, legacyEntries } from "../state/task-archive-read";
-import { fileText, optionalFile } from "./optional-file";
+import { contextEntriesSchema, coherentEntries, legacyEntries } from "./legacy-model";
+import { fileText, optionalFile } from "../../server/optional-file";
 
-export { legacyEntries } from "../state/task-archive-read";
+export { legacyEntries } from "./legacy-model";
 
 /** Read an exact sidecar when present, falling back to the original fenced archive format.
 @param file - Authorized Markdown path discovered inside this parent's archive directory.

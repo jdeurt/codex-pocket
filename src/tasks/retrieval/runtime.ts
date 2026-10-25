@@ -1,8 +1,8 @@
 import { t } from "try";
 import { setTimeout as delay } from "node:timers/promises";
-import { log } from "./logging";
-import { taskIndexRequest } from "./task-index-protocol";
-import { indexWorker } from "./task-index-worker";
+import { log } from "../../server/logging";
+import { taskIndexRequest } from "./protocol";
+import { indexWorker } from "./worker";
 
 const COALESCE_MS = 250;
 

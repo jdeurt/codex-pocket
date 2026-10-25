@@ -1,16 +1,16 @@
-import { taskEnvelopeEntries, taskMessageId } from "../state/task-context";
+import { taskEnvelopeEntries, taskMessageId } from "./legacy-model";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { localDirectory } from "./local-state";
+import { localDirectory } from "../server/local-state";
 import path from "node:path";
-import { scheduleTaskIndex } from "./task-search";
-import { sourceLink, taskTimeline } from "../state/task-record";
+import { scheduleTaskIndex } from "./retrieval/runtime";
+import { sourceLink, taskTimeline } from "./render";
 
-export { searchTaskArchive } from "./task-search";
+export { searchTaskArchive } from "./retrieval/runtime";
 
 const LAST_ENTRY = -1;
 
-import { contextEntrySchema, type ContextEntry, type TaskGroup, type ActiveMessage } from "../state/task-archive";
+import { contextEntrySchema, type ContextEntry, type TaskGroup, type ActiveMessage } from "./archive-model";
 
 export {
   contextEntrySchema,
@@ -19,7 +19,7 @@ export {
   type ContextEntry,
   type TaskGroup,
   type ActiveMessage,
-} from "../state/task-archive";
+} from "./archive-model";
 
 /** Keep each parent's archive in a private namespace without interpreting thread IDs as paths.
 @param owner - Durable Pocket parent identity.

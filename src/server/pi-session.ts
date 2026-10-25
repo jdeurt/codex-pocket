@@ -17,8 +17,8 @@ import path from "node:path";
 import { piModel, thinkingLevelSchema } from "./pi-models";
 import { piResources } from "./pi-resources";
 import { readFile } from "node:fs/promises";
-import { taskDirectory } from "./task-archive";
-import { writeLegacyTask } from "./task-legacy";
+import { taskDirectory } from "../tasks/archive";
+import { writeLegacyTask } from "../tasks/adapters/legacy";
 import { internalContext } from "./internal-context";
 import { t as attempt } from "try";
 

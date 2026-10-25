@@ -1,8 +1,8 @@
-import { passage } from "../state/task-passage";
-import { optionalFile, fileText } from "./optional-file";
+import { passage } from "./passage";
+import { optionalFile, fileText } from "../../server/optional-file";
 import { type QMDStore } from "@tobilu/qmd";
 import path from "node:path";
-import { type TaskIndexDocument, isParentTaskFile, taskViewHash } from "./task-index-views";
+import { type TaskIndexDocument, isParentTaskFile, taskViewHash } from "./views";
 import { t as attempt } from "try";
 
 const RESULT_LIMIT = 5;
@@ -17,9 +17,9 @@ import {
   completedRetrieval,
   rankedHybridDocument,
   rankedLexicalDocument,
-} from "../state/task-retrieval";
+} from "./model";
 
-export type { RetrievalMode } from "../state/task-retrieval";
+export type { RetrievalMode } from "./model";
 
 /** Execute a native QMD model search with explicit capabilities.
 @param store - Parent-only native index.

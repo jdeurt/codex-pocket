@@ -1,14 +1,14 @@
-import { optionalFile, fileText, canonicalPath } from "./optional-file";
+import { optionalFile, fileText, canonicalPath } from "../../server/optional-file";
 import { createHash } from "node:crypto";
 import { lstat, mkdir, readFile, readdir, realpath, rm, stat } from "node:fs/promises";
 import path from "node:path";
-import { localDirectory } from "./local-state";
-import { readTaskArchive } from "./task-archive-read";
-import { contextEntrySchema, type ContextEntry, taskDirectory, writeTaskFile } from "./task-archive";
+import { localDirectory } from "../../server/local-state";
+import { readTaskArchive } from "../adapters/legacy-read";
+import { contextEntrySchema, type ContextEntry, taskDirectory, writeTaskFile } from "../archive";
 
-import { type TaskIndexDocument, taskPages, markdownNames, documentFilename } from "../state/task-documents";
+import { type TaskIndexDocument, taskPages, markdownNames, documentFilename } from "./documents";
 
-export type { TaskIndexDocument } from "../state/task-documents";
+export type { TaskIndexDocument } from "./documents";
 
 /** Hash the current reading view to reject stale search evidence after concurrent archive changes.
 @param content - Exact view contents.

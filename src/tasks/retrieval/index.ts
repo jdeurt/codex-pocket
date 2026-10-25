@@ -1,14 +1,14 @@
-import { optionalFile } from "./optional-file";
+import { optionalFile } from "../../server/optional-file";
 import { t as captureResult } from "try";
 import { createStore } from "@tobilu/qmd";
 import { stat } from "node:fs/promises";
 import { lock } from "proper-lockfile";
 import path from "node:path";
-import { taskDirectory } from "./task-archive";
-import { reconcileTaskViews, taskIndexDirectory } from "./task-index-views";
-import { retrievalCapabilities, keywordRetrieval } from "../state/task-retrieval";
-import { valueAfterCleanup } from "../lib/results";
-import { type RetrievalMode, searchTaskIndex } from "./task-index-search";
+import { taskDirectory } from "../archive";
+import { reconcileTaskViews, taskIndexDirectory } from "./views";
+import { retrievalCapabilities, keywordRetrieval } from "./model";
+import { valueAfterCleanup } from "../../lib/results";
+import { type RetrievalMode, searchTaskIndex } from "./search";
 
 const LOCK_RETRIES = 120;
 const LOCK_RETRY_MS = 250;

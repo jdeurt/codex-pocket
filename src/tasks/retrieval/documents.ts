@@ -1,6 +1,6 @@
 import path from "node:path";
-import { type ContextEntry } from "./task-archive";
-import { recordView, sourceLink, type RecordPart, indentedSourceLine } from "./task-record";
+import { type ContextEntry } from "../archive-model";
+import { recordView, sourceLink, type RecordPart, indentedSourceLine } from "../render";
 
 const PAGE_LENGTH = 6000;
 const PAGE_OVERLAP = 300;
