@@ -1,6 +1,6 @@
 import { t as captureResult } from "try";
-import { taskIndexRequest } from "../src/server/task-index-protocol";
-import { runTaskIndex } from "../src/server/task-index";
+import { taskIndexRequest } from "../src/tasks/retrieval/protocol";
+import { runTaskIndex } from "../src/tasks/retrieval/index";
 
 /** Return one IPC reply, then release the child process channel.
 @param reply - Serialized result or error.

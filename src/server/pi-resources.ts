@@ -4,7 +4,7 @@ import { type Config } from "./config";
 import { MAIN_INSTRUCTIONS } from "./pocket-prompts";
 import { localDirectory } from "./local-state";
 import path from "node:path";
-import { taskDirectory } from "./task-archive";
+import { taskDirectory } from "../tasks/archive";
 
 /** Read the host's narrowly scoped native MCP environment.
 @param config - Validated parent configuration.

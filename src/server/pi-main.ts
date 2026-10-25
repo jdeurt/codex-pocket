@@ -8,7 +8,7 @@ import { requireResults } from "../lib/results";
 import { piModel, piModelCatalog, piSettings, thinkingLevelSchema } from "./pi-models";
 import { type Config } from "./config";
 import { type CodexRpc } from "./rpc";
-import { PiTaskContext } from "./pi-task-context";
+import { PiTaskContext } from "../tasks/runtime";
 import { PiMessages } from "./pi-projection";
 import { openPiSession } from "./pi-session";
 import { piInput } from "./pi-input";

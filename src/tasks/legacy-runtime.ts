@@ -1,4 +1,4 @@
-import { archiveTask, taskDirectory, writeTaskFile } from "./task-archive";
+import { archiveTask, taskDirectory, writeTaskFile } from "./archive";
 import {
   type TaskContextState,
   activeStateSchema,
@@ -6,11 +6,11 @@ import {
   taskPass,
   groupedTask,
   taskMessageText,
-} from "../state/task-context";
-import { fileText, optionalFile } from "./optional-file";
+} from "./legacy-model";
+import { fileText, optionalFile } from "../server/optional-file";
 import path from "node:path";
 
-export { type TaskContextState, ingestTaskEntry } from "../state/task-context";
+export { type TaskContextState, ingestTaskEntry } from "./legacy-model";
 const NONMATCH_LIMIT = 5;
 
 /** Restore only active membership and its committed source cursor.

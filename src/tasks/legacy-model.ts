@@ -4,7 +4,7 @@ import {
   type ActiveMessage,
   activeMessageSchema,
   taskGroupSchema,
-} from "./task-archive";
+} from "./archive-model";
 import { findById } from "../lib/identity";
 import { z } from "zod";
 

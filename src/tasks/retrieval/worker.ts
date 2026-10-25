@@ -1,7 +1,7 @@
 import { fork, type ChildProcess } from "node:child_process";
 import path from "node:path";
 import { t } from "try";
-import { taskIndexReply, type taskIndexRequest, type taskSearchPage } from "./task-index-protocol";
+import { taskIndexReply, type taskIndexRequest, type taskSearchPage } from "./protocol";
 import { type z } from "zod";
 
 const INDEX_TIMEOUT_MS = 90_000;

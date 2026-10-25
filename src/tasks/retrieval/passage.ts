@@ -1,5 +1,5 @@
 import { extractSnippet } from "@tobilu/qmd";
-import { type TaskIndexDocument } from "./task-documents";
+import { type TaskIndexDocument } from "./documents";
 
 const NOT_FOUND = -1;
 const EXCERPT_LENGTH = 800;

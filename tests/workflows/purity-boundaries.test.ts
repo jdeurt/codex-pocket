@@ -13,7 +13,7 @@ import { valueAfterCleanup } from "../../src/lib/results";
 import { TextStream } from "../../src/server/text-stream";
 import { visibleSnapshot } from "../../src/state/visible-snapshot";
 import { initialSnapshot } from "../../src/lib/protocol";
-import { keywordRetrieval, completedRetrieval, retrievalCapabilities } from "../../src/state/task-retrieval";
+import { keywordRetrieval, completedRetrieval, retrievalCapabilities } from "../../src/tasks/retrieval/model";
 
 /**
 Verify immutable nested diagnostics retain useful structure without secrets.
