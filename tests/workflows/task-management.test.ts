@@ -9,6 +9,7 @@ import { TaskRepository } from "../../src/tasks/repository";
 import { assignmentDecision, reconcileRoutes } from "../../src/tasks/reconciliation";
 import { assignEvent, recordEvent, hasEventId } from "../../src/tasks/transitions";
 import { recordTaskReport, inheritTaskCommand } from "../../src/tasks/command-provenance";
+import { taskDelivery } from "../../src/tasks/context";
 import { delegations } from "../../src/server/delegations";
 import type { Ledger } from "../../src/tasks/model";
 
@@ -152,6 +153,9 @@ await test("Pi persists receipt-native bindings and call ownership across restar
     fauxAssistantMessage(fauxToolCall("write", { path: "projects.txt", content: "Synthetic project list" }), {
       stopReason: "toolUse",
     }),
+    fauxAssistantMessage(fauxToolCall("pocket_send_to_chat", { message: "Project list saved." }), {
+      stopReason: "toolUse",
+    }),
     fauxAssistantMessage("Project list saved."),
     fauxAssistantMessage("Received the second request."),
   ]);
@@ -170,6 +174,7 @@ await test("Pi persists receipt-native bindings and call ownership across restar
   const toolResult = routed.events.find(isToolResult.bind(undefined));
 
   assert.ok(toolResult);
+  assert.equal(taskDelivery(routed, routed.tasks[0]).state, "delivered");
   assert.deepEqual(memberTasks(routed, toolResult.id), ["project-task"]);
   assert.equal(routed.events.find(hasEventId.bind(undefined, "request:voice"))?.text, "Find the project list.");
   assert.equal(routed.events.find(hasEventId.bind(undefined, "history:voice"))?.text, "");

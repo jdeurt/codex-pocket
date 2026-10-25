@@ -20,3 +20,15 @@ Acceptance records a stable request ID before semantic assignment. The native Pi
 An awaited Pi tool hook records command-key provenance before managed delegate dispatch. Each command inherits that request, so reusing a child does not reuse its task assignment. Mailbox reports carry the exact producing command where the caller provides it. Reports with missing command origins remain unresolved. No correlation is extracted from a marker in message text.
 
 This stage runs deterministic routing in a shadow ledger and keeps the legacy live archive unchanged. Tests exercise real SQLite storage, the Pi SDK, and native MCP delegation tools with synthetic provider responses. They establish orchestration and persistence behavior, not model classification quality. Native records remain the evidence; navigation text is not evidence of completion or user delivery.
+
+## Lifecycle, semantic interpretation and repair
+
+`intent-classifier.ts` submits the current request and bounded descriptions of original task intent, summaries, and pending questions to the Decisions API. Archived tasks remain eligible. `interpretation.ts` applies explicit acceptance and rejection thresholds; multiple matches or uncertain probabilities remain unresolved. A contextual cancellation follows an established task, and an explicit correction can reopen work. Provider probabilities are retained as uncalibrated confidence, not accuracy guarantees.
+
+`classification-runtime.ts` holds no database lock during network calls and discards a result if new acceptance changes its expected revision. In the staged rollout, the idle pass records proposed assignments and `routing-shadow.json` comparisons without changing the legacy archive. Shadow tasks carry `authority: proposal`; they are not authoritative historical repairs.
+
+`lifecycle.ts` centralizes work state, retention, move, split, merge, and explicit original-text spans. Resolution and cancellation require task-member evidence. Repair decisions supersede prior membership, preserve unrelated spans, and retain original messages and original task intent. `invariants.ts` enforces append-only event, decision, and lifecycle evidence. `pocket_task_inspect` exposes the inspected revision; `pocket_task_change` requires that revision and a concrete explained operation. Historical repairs require the user's authorization of the concrete proposal.
+
+`context.ts` selects pending tasks, questions, unresolved requests, and command identities independently of grouping. Its planner refuses compaction when protected context exceeds the explicit budget. `delivery-evidence.ts` records confirmed canonical chat persistence from `pocket_send_to_chat`; an ordinary completed model turn cannot create that delivery evidence or resolve work.
+
+Focused workflow tests use actual persistence and the Pi/MCP boundary. Canned intent evidence verifies greetings and short cancellations, archived-task references, ambiguity, repairs, and stale-response handling. Authenticated model classification quality remains unmeasured.

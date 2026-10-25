@@ -68,6 +68,7 @@ export function assignEvent(state: Ledger, decision: Decision): Ledger {
     }
 
     tasks.push({
+      authority: state.mode === "shadow" ? "proposal" : "live",
       id: assignment.taskId,
       revision: 0,
       title: assignment.title,
@@ -97,12 +98,28 @@ export function assignEvent(state: Ledger, decision: Decision): Ledger {
   }
 
   const retained: Membership[] = [];
+  const changedTaskIds = new Set<string>();
+
+  for (const member of memberships) {
+    changedTaskIds.add(member.taskId);
+  }
 
   for (const member of state.memberships) {
-    if (!decision.supersedes.includes(member.decisionId)) {
+    if (decision.supersedes.includes(member.decisionId)) {
+      changedTaskIds.add(member.taskId);
+    } else {
       retained.push(member);
     }
   }
 
-  return { ...state, tasks, memberships: [...retained, ...memberships], decisions: [...state.decisions, decision] };
+  const revisedTasks = Array.from(tasks, (task) =>
+    changedTaskIds.has(task.id) ? { ...task, revision: task.revision + 1 } : task
+  );
+
+  return {
+    ...state,
+    tasks: revisedTasks,
+    memberships: [...retained, ...memberships],
+    decisions: [...state.decisions, decision],
+  };
 }
