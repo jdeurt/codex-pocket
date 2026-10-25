@@ -24,11 +24,13 @@
   opacity: 0;
   pointer-events: none;
 }
-.realtime-spectrum[data-state="stopping"] canvas {
+.realtime-spectrum[data-state="stopping"] canvas,
+.realtime-spectrum[data-state="starting"] canvas {
   filter: grayscale(1);
   opacity: 0.45;
 }
-.realtime-spectrum[data-state="stopping"] .realtime-spectrum-label {
+.realtime-spectrum[data-state="stopping"] .realtime-spectrum-label,
+.realtime-spectrum[data-state="starting"] .realtime-spectrum-label {
   opacity: 1;
   background: var(--secondary);
   padding-right: 8px;

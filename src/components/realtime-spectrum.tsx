@@ -38,7 +38,7 @@ export function RealtimeSpectrum({
     <div className="realtime-spectrum" data-state={status} role="status" aria-label={`Realtime voice ${status}`}>
       <canvas ref={canvas} aria-hidden="true" />
       <span className="realtime-spectrum-label">
-        {status === "stopping" && (
+        {(status === "starting" || status === "stopping") && (
           <Spinner className="size-3 motion-reduce:animate-none" aria-hidden="true" role={undefined} />
         )}
         {label}
