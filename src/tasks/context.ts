@@ -14,6 +14,16 @@ function isEventMember(eventId: string, member: Ledger["memberships"][number]) {
   return member.eventId === eventId;
 }
 
+/** Bound a navigation question without changing the retained original or protected context.
+@param question - Original pending question.
+@returns Bounded classifier reference with an explicit omission marker.
+*/
+function boundedQuestion(question: string) {
+  return question.length > DESCRIPTION_LENGTH
+    ? `${question.slice(0, DESCRIPTION_LENGTH)} [truncated reference]`
+    : question;
+}
+
 /** Describe a task without copying accumulated transport messages into classifier context.
 @param task - Authoritative task navigation value.
 @returns Bounded stable intent and explicit updates.
@@ -27,7 +37,7 @@ function taskDescription(task: Task) {
     summary: task.summary.slice(0, DESCRIPTION_LENGTH),
     work: task.work,
     retention: task.retention,
-    pendingQuestions: task.pendingQuestions.slice(0, QUESTION_LIMIT),
+    pendingQuestions: Array.from(task.pendingQuestions.slice(0, QUESTION_LIMIT), boundedQuestion),
   };
 }
 
