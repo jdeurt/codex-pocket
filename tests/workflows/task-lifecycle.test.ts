@@ -55,6 +55,7 @@ await test("task lifecycle keeps completion, retention and delivery separate and
       { id: "epd", text: "Prepare the synthetic EPD leadership update.", status: "sent" },
       { id: "software", text: "Update Pocket software.", status: "sent" },
       { id: "both", text: "Review EPD. Update Pocket.", status: "sent" },
+      { id: "accepted", text: "I confirm the EPD update is complete.", status: "sent" },
     ],
     {}
   );
@@ -103,7 +104,24 @@ await test("task lifecycle keeps completion, retention and delivery separate and
   state = await changeTask(
     "parent",
     state.revision,
-    { kind: "work", taskId: "epd-task", work: "resolved", evidence: ["request:epd"], pendingQuestions: [] },
+    { kind: "assign", eventId: "request:accepted", assignment: { kind: "attach", taskIds: ["epd-task"] } },
+    "Explicit later user acceptance."
+  );
+  state = await changeTask(
+    "parent",
+    state.revision,
+    {
+      kind: "work",
+      taskId: "epd-task",
+      work: "resolved",
+      evidence: ["request:accepted"],
+      pendingQuestions: [],
+      resolution: {
+        basis: "user_confirmation",
+        verification: "The user explicitly accepted the update.",
+        deliveryRequired: false,
+      },
+    },
     "Explicitly acknowledged result."
   );
   assert.equal(taskDelivery(state, state.tasks[0]).state, "not_delivered");

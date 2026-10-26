@@ -2,8 +2,9 @@ import type { ExtensionAPI, ContextWithSystemEvent } from "@earendil-works/pi-co
 import { internalContext } from "../server/internal-context";
 import { readTaskLedger } from "./management";
 import { planTaskContext } from "./context";
+import { TASK_RETENTION_POLICY } from "./classifier-definitions";
 
-const CONTEXT_BUDGET = 24_000;
+const CONTEXT_BUDGET = TASK_RETENTION_POLICY.contextBudget;
 
 /** Select protected pending work at every provider call, including after native auto-compaction.
 @param parentId - Owning parent.

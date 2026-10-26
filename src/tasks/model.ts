@@ -20,6 +20,7 @@ export const eventSchema = z.object({
   receiptId: z.string().optional(),
   voiceSource: messageSourceSchema.optional(),
   nativeEntryId: z.string().optional(),
+  nativeRole: z.string().optional(),
   requestId: z.string().optional(),
   requestIds: z.array(z.string()).default([]),
   turnId: z.string().optional(),
@@ -29,6 +30,8 @@ export const eventSchema = z.object({
   occurrenceId: z.string().optional(),
   callId: z.string().optional(),
   callIds: z.array(z.string()).default([]),
+  toolName: z.string().optional(),
+  isError: z.boolean().optional(),
   text: z.string(),
   contentRefs: z.array(z.string()),
   references: z.array(z.string()).default([]),
@@ -68,6 +71,11 @@ const idList = z.array(z.string()).min(1);
 const questionList = z.array(z.string());
 const operationSpanSchema = z.object({ taskId: z.string(), start: z.number().int(), end: z.number().int() });
 const operationSpans = z.array(operationSpanSchema);
+const resolutionSchema = z.object({
+  basis: z.enum(["result", "user_confirmation", "delivered_answer"]),
+  verification: z.string().trim().min(1).max(RATIONALE_LIMIT),
+  deliveryRequired: z.boolean(),
+});
 
 export const taskOperationSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("assign"), eventId: z.string(), assignment: assignmentSchema }),
@@ -78,6 +86,7 @@ export const taskOperationSchema = z.discriminatedUnion("kind", [
     evidence: idList,
     summary: z.string().optional(),
     pendingQuestions: questionList.optional(),
+    resolution: resolutionSchema.optional(),
   }),
   z.object({ kind: z.literal("retain"), taskId: z.string(), retention: z.enum(["active", "archived"]) }),
   z.object({
@@ -130,6 +139,22 @@ const lifecycleChangeSchema = z.object({
   operation: z.unknown(),
   reason: z.string(),
 });
+const lifecycleReviewSchema = z.object({
+  taskId: z.string(),
+  source: z.enum(["classification", "policy"]).default("classification"),
+  requestEventId: z.string().optional(),
+  inputEvents: z.array(z.string()).default([]),
+  requestEvents: z.array(z.string()).default([]),
+  isMainTurnActive: z.boolean().optional(),
+  inputHash: z.string(),
+  version: z.string(),
+  inputRevision: z.number().int(),
+  taskRevision: z.number().int(),
+  probabilities: z.record(z.string(), z.number()),
+  evidence: z.array(z.string()),
+  outcome: z.enum(["open", "waiting", "resolved", "canceled", "unchanged", "needs_resolution"]),
+  diagnostic: z.string(),
+});
 
 export const ledgerSchema = z.object({
   version: z.literal(1),
@@ -146,6 +171,7 @@ export const ledgerSchema = z.object({
   bindings: z.array(bindingSchema),
   commandIntents: z.array(commandIntentSchema).default([]),
   changes: z.array(lifecycleChangeSchema).default([]),
+  lifecycleReviews: z.array(lifecycleReviewSchema).default([]),
   mode: z.enum(["shadow", "live"]),
 });
 
@@ -176,6 +202,7 @@ export function initialLedger(parentId: string): Ledger {
     bindings: [],
     commandIntents: [],
     changes: [],
+    lifecycleReviews: [],
     mode: "shadow",
   };
 }

@@ -1,6 +1,7 @@
 import type { Ledger, Task, Membership, TaskOperation } from "./model";
 import { assignEvent, hasEventId, hasTaskId } from "./transitions";
 import { assignmentDecision, reconcileRoutes } from "./reconciliation";
+import { validateResolution } from "./work-policy";
 
 export { taskOperationSchema, type TaskOperation } from "./model";
 
@@ -115,12 +116,18 @@ function changeWork(state: Ledger, operation: Extract<TaskOperation, { kind: "wo
     }
   }
 
+  const priorQuestions = operation.work === "canceled" ? [] : task.pendingQuestions;
+  const pendingQuestions = operation.pendingQuestions ?? priorQuestions;
+
+  validateResolution(state, task, operation, pendingQuestions);
+
   return replaceTask(state, {
     ...task,
     work: operation.work,
     evidence: operation.evidence,
     summary: operation.summary ?? task.summary,
-    pendingQuestions: operation.pendingQuestions ?? task.pendingQuestions,
+    pendingQuestions,
+    retention: operation.work === "open" || operation.work === "waiting" ? "active" : task.retention,
   });
 }
 

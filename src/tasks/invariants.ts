@@ -113,6 +113,7 @@ export function assertLedgerTransition(current: Ledger, next: Ledger) {
   assertCorrelationPrefix(current.bindings, next.bindings, "receipt/native");
   assertCorrelationPrefix(current.commands, next.commands, "command/request");
   assertCorrelationPrefix(current.commandIntents, next.commandIntents, "native-call/request");
+  assertCorrelationPrefix(current.lifecycleReviews, next.lifecycleReviews, "lifecycle-review");
 
   if (next.nextSequence < current.nextSequence) {
     throw new Error("Exact source sequence cannot move backwards.");

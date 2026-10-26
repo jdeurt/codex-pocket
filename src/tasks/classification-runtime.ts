@@ -74,6 +74,18 @@ export function classifiedCheckpoint(state: Ledger, event: TaskEvent, evidence: 
     );
   }
 
+  if (work !== "canceled" && assignment.kind === "attach") {
+    for (const task of next.tasks) {
+      if (assignment.taskIds.includes(task.id) && task.retention === "archived") {
+        next = applyTaskOperation(
+          { kind: "retain", taskId: task.id, retention: "active" },
+          "The current request returned to this archived task.",
+          next
+        );
+      }
+    }
+  }
+
   return reconcileRoutes(next);
 }
 

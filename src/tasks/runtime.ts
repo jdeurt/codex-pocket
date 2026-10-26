@@ -12,9 +12,11 @@ import { classifyTaskLedger } from "./classification-runtime";
 import { saveTaskSource, taskDirectory } from "./archive";
 import { scheduleTaskIndex } from "./retrieval/runtime";
 import { regenerateTaskProjections } from "./projections";
+import { reviewTaskLifecycle } from "./lifecycle-runtime";
 
 const NOT_FOUND = -1;
 const PASS_INTERVAL_MS = 600_000;
+const REVIEW_DELAY_MS = 250;
 
 /** Match a recorded native cursor without interpreting source text.
 @param id - Native identity.
@@ -30,6 +32,12 @@ Effectful owner of native ingestion and preemptible background classification. T
 */
 export class PiTaskContext {
   private timer?: NodeJS.Timeout;
+  private reviewTimer?: NodeJS.Timeout;
+  private session?: AgentSession;
+  private reviewTask?: Promise<void>;
+  private needsReview = false;
+  private isStopped = false;
+  private generation = 0;
   private serial: Promise<void> = Promise.resolve();
   private readonly queue = new SerialQueue();
   private passController?: AbortController;
@@ -92,24 +100,33 @@ export class PiTaskContext {
     scheduleTaskIndex(this.owner);
   }
 
-  /** Run semantic interpretation only at an idle effect boundary; completion never changes work state.
-  @param session - Native session used for scheduling only.
+  /** Interpret pending intent and assess lifecycle independently of the working main agent.
+  @param key - Central provider credential.
+  @param session - Native execution-state observation.
+  @param signal - New-input preemption boundary.
   */
-  private async classify(session: AgentSession) {
-    if (!session.isIdle) {
-      return;
-    }
+  private async reconcile(key: string, session: AgentSession, signal: AbortSignal) {
+    await classifyTaskLedger(this.owner, key, signal);
+    signal.throwIfAborted();
+    await reviewTaskLifecycle(this.owner, key, !session.isIdle, signal);
+  }
 
+  /** Review a stable source snapshot without preventing ingestion while network work is pending.
+  @param session - Native execution-state observation; turn completion alone never resolves work.
+  @param generation - Runtime preemption generation captured before asynchronous source/key reads.
+  */
+  private async classify(session: AgentSession, generation: number) {
+    await this.serial;
     const key = await this.readKey();
 
-    if (!key) {
+    if (!key || generation !== this.generation) {
       return;
     }
 
     const controller = new AbortController();
 
     this.passController = controller;
-    const classified = await t(classifyTaskLedger, this.owner, key, controller.signal);
+    const classified = await t(this.reconcile.bind(this), key, session, controller.signal);
 
     this.passController = undefined;
 
@@ -119,6 +136,24 @@ export class PiTaskContext {
 
     await regenerateTaskProjections(this.owner);
     scheduleTaskIndex(this.owner);
+  }
+
+  /** Release the background-review lifetime and schedule another pass when source evidence changed during it.
+  @param session - Owning native session.
+  @param generation - Exact preemption generation of this review.
+  */
+  private async runReview(session: AgentSession, generation: number) {
+    const result = await t(this.classify.bind(this), session, generation);
+
+    this.reviewTask = undefined;
+
+    if (this.needsReview) {
+      this.reviewSoon();
+    }
+
+    if (!result.ok) {
+      throw result.error;
+    }
   }
 
   /** Report timer failures without leaving an unobserved rejection.
@@ -149,6 +184,8 @@ export class PiTaskContext {
     if (!result.ok) {
       this.onError(result.error);
     }
+
+    this.reviewSoon();
   }
 
   /** Restore ledger state and conservative legacy membership before accepting new native work.
@@ -156,6 +193,7 @@ export class PiTaskContext {
   @param session - Native session whose idle state gates classification.
   */
   async start(manager: SessionManager, session: AgentSession) {
+    this.session = session;
     await migrateTaskLedger(this.owner);
     await this.sync(manager);
     await this.flush();
@@ -164,20 +202,46 @@ export class PiTaskContext {
     this.timer.unref();
   }
 
-  /** Schedule one serialized idle interpretation, independently of context compaction.
-  @param session - Native session.
+  /**
+  Coalesce source and turn-state changes into a prompt-independent lifecycle review.
+  */
+  reviewSoon() {
+    if (!this.session || this.isStopped) {
+      return;
+    }
+
+    if (this.reviewTask) {
+      this.needsReview = true;
+
+      return;
+    }
+
+    this.needsReview = false;
+    clearTimeout(this.reviewTimer);
+    this.reviewTimer = setTimeout(this.tick.bind(this, this.session), REVIEW_DELAY_MS);
+    this.reviewTimer.unref();
+  }
+
+  /** Run one background review independently of the source-ingestion queue and context compaction.
+  @param session - Native session used only for runtime execution facts.
   @returns Completion of the background pass.
   */
   pass(session: AgentSession) {
-    this.serial = this.queue.run(this.classify.bind(this, session));
+    if (!this.reviewTask) {
+      this.needsReview = false;
+      this.reviewTask = this.runReview(session, this.generation);
+    }
 
-    return this.serial;
+    return this.reviewTask;
   }
 
   /**
   Give newly accepted work priority over provider interpretation.
   */
   interrupt() {
+    this.generation++;
+    clearTimeout(this.reviewTimer);
+    this.needsReview = false;
     this.passController?.abort();
   }
 
@@ -186,13 +250,23 @@ export class PiTaskContext {
   */
   async flush() {
     await this.serial;
+    await this.reviewTask;
+  }
+
+  /** Join native source persistence without waiting for independent network classification.
+  @returns Completion of the latest source observation.
+  */
+  flushSources() {
+    return this.serial;
   }
 
   /** Stop owned background resources and finish pending persistence.
   @returns Completion of shutdown.
   */
   async stop() {
+    this.isStopped = true;
     clearInterval(this.timer);
+    clearTimeout(this.reviewTimer);
     this.interrupt();
     await this.flush();
   }

@@ -2,7 +2,7 @@ import { isTaskAuthoritative, type Assignment, type Ledger, type TaskEvent } fro
 
 const BEFORE = -1;
 
-export const ROUTING_VERSION = "provenance-v1";
+export const ROUTING_VERSION = "provenance-v2";
 
 /** Match an explicit command identity.
 @param id - Requested identity.
@@ -123,6 +123,56 @@ function hasRecordedOutputOrigin(event: TaskEvent) {
   return event.origin !== "assistant" || event.nativeEntryId === undefined || event.turnId !== undefined;
 }
 
+/** Collect trusted causal references for work or conversational routing.
+@param state - Parent checkpoint.
+@param event - Recorded event.
+@returns Application-owned event, call and receipt references.
+*/
+function recordedReferences(state: Ledger, event: TaskEvent) {
+  const command = state.commands.find(hasCommandId.bind(undefined, event.commandId));
+  const origins = event.requestIds?.length ? event.requestIds : (command?.requestIds ?? []);
+  const references = [event.causedBy, event.inReplyTo, event.requestId, command?.requestId, ...origins];
+
+  for (const binding of state.bindings) {
+    if (binding.nativeEntryId === event.nativeEntryId) {
+      references.push(`request:${binding.receiptId}`);
+    }
+  }
+
+  return references;
+}
+
+/** Propagate an established conversational decision instead of inventing unresolved work for native aliases.
+@param state - Parent checkpoint.
+@param event - Native record whose known relationships establish no work.
+@returns Whether every recorded causal origin is explicitly conversational.
+*/
+function hasConversationalOrigins(state: Ledger, event: TaskEvent) {
+  if (!hasRecordedOutputOrigin(event)) {
+    return false;
+  }
+
+  const references = recordedReferences(state, event);
+
+  let hasOrigin = false;
+
+  for (const reference of references) {
+    if (!reference || reference === event.id) {
+      continue;
+    }
+
+    const parents = state.events.filter(hasReference.bind(undefined, reference));
+
+    if (parents.length !== 1 || !isConversationalOrigin(state, parents[0].id)) {
+      return false;
+    }
+
+    hasOrigin = true;
+  }
+
+  return hasOrigin;
+}
+
 /** Follow recorded causal identities without inspecting transport markers or recent-task order.
 @param state - Parent-scoped ledger.
 @param event - Source event to route.
@@ -151,22 +201,7 @@ export function relatedTasks(state: Ledger, event: TaskEvent, visited: readonly 
     return commonOriginTasks(state, origins);
   }
 
-  const boundRequests = [];
-
-  for (const binding of state.bindings) {
-    if (binding.nativeEntryId === event.nativeEntryId) {
-      boundRequests.push(`request:${binding.receiptId}`);
-    }
-  }
-
-  const references = [
-    event.causedBy,
-    event.inReplyTo,
-    command?.requestId,
-    event.requestId,
-    origins[0],
-    ...boundRequests,
-  ];
+  const references = recordedReferences(state, event);
 
   for (const reference of references) {
     if (!reference || reference === event.id) {
@@ -190,6 +225,29 @@ export function relatedTasks(state: Ledger, event: TaskEvent, visited: readonly 
   return [...ids].toSorted(compareIds);
 }
 
+/** Resolve a delegate assignment's task identities through its recorded originating requests.
+@param state - Authoritative parent checkpoint.
+@param command - Exact per-command relationship.
+@returns Established task identities; missing or conflicting work origins remain unknown.
+*/
+export function commandTaskIds(state: Ledger, command: Ledger["commands"][number]) {
+  const origins = command.requestIds.length > 0 ? command.requestIds : [];
+  const references = command.requestId ? [...origins, command.requestId] : origins;
+  const unique = [...new Set(references)];
+
+  if (unique.length > 1) {
+    return commonOriginTasks(state, unique);
+  }
+
+  for (const event of state.events) {
+    if (event.id === unique[0]) {
+      return relatedTasks(state, event);
+    }
+  }
+
+  return [];
+}
+
 /** Exclude an event's old derived assignment when reconsidering its causal relationships.
 @param eventId - Event being reconsidered.
 @param member - Existing membership.
@@ -209,7 +267,7 @@ export function routeEvent(state: Ledger, event: TaskEvent): Assignment | null {
     throw new Error("Task event belongs to another parent.");
   }
 
-  if (["recovery", "voice_history"].includes(event.origin)) {
+  if (event.nativeRole === "system" || ["recovery", "voice_history"].includes(event.origin)) {
     return { kind: "conversation" };
   }
 
@@ -218,6 +276,10 @@ export function routeEvent(state: Ledger, event: TaskEvent): Assignment | null {
 
   if (taskIds.length > 0) {
     return { kind: "attach", taskIds };
+  }
+
+  if (hasConversationalOrigins(state, event)) {
+    return { kind: "conversation" };
   }
 
   return ["typed", "voice_request", "scheduled"].includes(event.origin)

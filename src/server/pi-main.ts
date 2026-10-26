@@ -40,6 +40,7 @@ export class PiMain {
   @param readKey - Settings workstream's server-only key reader.
   @param onError - Private diagnostic sink.
   @param openSession - Session factory; offline flows replace provider streaming at this boundary.
+  @param readTaskKey - Optional independent classifier credential reader for provider-isolated workflows.
   */
   constructor(
     private config: Config,
@@ -47,10 +48,11 @@ export class PiMain {
     private emit: (event: RpcEvent) => void,
     private readKey: () => Promise<string | null>,
     private onError: (error: unknown) => void,
-    private openSession: typeof openPiSession = openPiSession
+    private openSession: typeof openPiSession = openPiSession,
+    readTaskKey: () => Promise<string | null> = readKey
   ) {
     this.history = new PiHistory(config.threadId, emit, onError);
-    this.tasks = new PiTaskContext(config.threadId, readKey, onError);
+    this.tasks = new PiTaskContext(config.threadId, readTaskKey, onError);
     this.questions = new PiQuestions(config.threadId, this.history.activeIdentity, emit);
     this.activity = new PiActivity(config.threadId, emit);
   }
@@ -110,7 +112,8 @@ export class PiMain {
     this.selection = opened.selection;
     this.effort = opened.session.thinkingLevel;
     await this.tasks.start(opened.manager, opened.session);
-    reconcileTaskDeliveries(this.config.threadId, opened.state.turns);
+    await reconcileTaskDeliveries(this.config.threadId, opened.state.turns);
+    this.tasks.reviewSoon();
     opened.session.subscribe(this.observed.bind(this, opened.manager));
     await opened.session.bindExtensions({});
     await this.history.persist();
@@ -160,7 +163,10 @@ export class PiMain {
     this.history.update(completed, undefined);
     this.messages.promptId = undefined;
     await this.history.persist();
+    await this.tasks.flushSources();
+    await reconcileTaskDeliveries(this.config.threadId, [completed]);
     this.emit({ method: "turn/completed", params: { threadId: this.config.threadId, turn: completed } });
+    this.tasks.reviewSoon();
   }
 
   /** Accept a durable submission through Pi's preflight acknowledgment, never waiting for full inference.
@@ -177,7 +183,7 @@ export class PiMain {
 
     this.tasks.interrupt();
     session.abortCompaction();
-    await this.tasks.flush();
+    await this.tasks.flushSources();
     const { text, images } = await piInput(params.input);
 
     if (isSteer) {

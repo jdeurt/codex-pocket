@@ -178,6 +178,7 @@ export function piTaskEvent(state: Ledger, entries: readonly SessionEntry[], ent
     parentId: state.parentId,
     origin,
     nativeEntryId: entry.id,
+    nativeRole: entry.message.role,
     receiptId,
     requestId: receiptId ? requestIdentity(receiptId) : outputRequest,
     requestIds,
@@ -191,6 +192,8 @@ export function piTaskEvent(state: Ledger, entries: readonly SessionEntry[], ent
 
   if (entry.message.role === "toolResult") {
     event.origin = "tool_result";
+    event.toolName = entry.message.toolName;
+    event.isError = entry.message.isError;
     event.callId = string(message.toolCallId);
     const owners: TaskEvent[] = [];
 
