@@ -1,6 +1,7 @@
 "use client";
 import "./focused-composer.css";
 import { useRef, useState } from "react";
+import { useNavigationSwipe } from "@/hooks/use-navigation-swipe";
 import { usePathname } from "next/navigation";
 import { AgentBrowser } from "./agent-browser";
 import { AgentNavigationContext } from "@/lib/agent-navigation-context";
@@ -33,6 +34,10 @@ export function Chat() {
   const openAgent = useBoundCallback(openChatAgent, agentReturnFocus, setSelectedAgent, setAgentsOpen);
   const canReload = useBoundCallback(canReloadChat, client, pocketsOpen);
 
+  const showAgents = useBoundCallback(setAgentsOpen, true);
+  const showPockets = useBoundCallback(setPocketsOpen, true);
+  const swipe = useNavigationSwipe<HTMLElement>(!agentsOpen && !pocketsOpen && !isViewingFile, showAgents, showPockets);
+
   useAppUpdate(canReload);
 
   const agentControl = (
@@ -47,8 +52,9 @@ export function Chat() {
 
   return (
     <AgentNavigationContext value={openAgent}>
-      <main className="chat-shell">
+      <main ref={swipe} className="chat-shell">
         <PocketMenu
+          open={pocketsOpen}
           model={modelDescription(state)}
           status={connectionStatus(state, streamConnected)}
           onOpenChange={setPocketsOpen}

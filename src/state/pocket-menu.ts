@@ -36,3 +36,13 @@ export function pocketMenuChanged(state: PocketMenuState, action: PocketMenuActi
     }
   }
 }
+
+/** Enable catalog dismissal only when no editor or persistence operation is active.
+@param state - Local menu section and editor.
+@param isOpen - Controlled modal visibility.
+@param isBusy - Combined persistence lock.
+@returns Whether a swipe can return to the selected Pocket.
+*/
+export function canSwipePocketList(state: PocketMenuState, isOpen: boolean, isBusy: boolean) {
+  return isOpen && !state.isSettingsOpen && !state.edit && !isBusy;
+}
