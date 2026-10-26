@@ -2,10 +2,10 @@ import { Client } from "@modelcontextprotocol/client";
 import { StdioClientTransport } from "@modelcontextprotocol/client/stdio";
 import { readFile } from "node:fs/promises";
 import { fauxAssistantMessage } from "@earendil-works/pi-ai";
-import { groupTaskContext, readTaskState } from "../../src/tasks/legacy-runtime";
-import { isSameTask } from "../../src/tasks/classifier";
+import { classifyTaskLedger } from "../../src/tasks/classification-runtime";
+import { readTaskLedger } from "../../src/tasks/management";
+import { acceptTaskReceipts } from "../../src/tasks/ingestion";
 import { piWorkflow } from "../fixtures/pi-workflow";
-import { eventually } from "../fixtures/workflow";
 import { taskSearchPage } from "../../src/tasks/retrieval/protocol";
 import { turnSchema } from "../../src/lib/protocol";
 import assert from "node:assert/strict";
@@ -75,11 +75,98 @@ await test("Pi migration preserves saved native history and search returns origi
   assert.equal(restored.results.find((entry) => entry.source.id === "calendar-tool")?.excerpt, hit.excerpt);
 });
 
-await test("Pi source ingestion archives a continuing task after five unrelated messages and retrieves its original content", async (t) => {
+const describedTaskSchema = z.object({ id: z.string(), originalIntent: z.string() });
+const predicateQuestion = z.object({ name: z.string() });
+const predicateQuestions = z.array(predicateQuestion);
+const intentRequestSchema = z.object({ model: z.string(), input: z.string(), questions: predicateQuestions });
+const intentInputSchema = z.object({ current_request: z.string(), tasks: z.array(describedTaskSchema) });
+
+/** Return canned predicate evidence for this orchestration workflow, without claiming classification quality.
+@param input - Exact current request and bounded task descriptions.
+@param question - Requested predicate.
+@returns Synthetic provider answer.
+*/
+function intentAnswer(input: z.infer<typeof intentInputSchema>, question: { name: string }) {
+  const isFollowup = input.current_request === "Make launchcalendar weekly.";
+
+  let probability = 0;
+
+  if (question.name === "actionable") {
+    probability = 1;
+  } else if (question.name === "independent") {
+    probability = isFollowup ? 0 : 1;
+  } else if (question.name.startsWith("task_")) {
+    const index = Number(question.name.slice("task_".length));
+
+    probability = isFollowup && input.tasks[index]?.originalIntent === "Plan launchcalendar." ? 1 : 0;
+  }
+
+  return { type: "predicate", name: question.name, probability };
+}
+
+/** Replay the external Decisions contract against bounded intent evidence.
+@param url - Requested endpoint.
+@param options - Actual provider request.
+@returns Synthetic predicate response.
+*/
+function intentResponse(url: unknown, options: RequestInit) {
+  assert.equal(url, "https://api.openai.com/v1/decisions");
+  assert.equal(options.method, "POST");
+  const body = z.string().parse(options.body);
+  const request = intentRequestSchema.parse(JSON.parse(body));
+  const input = intentInputSchema.parse(JSON.parse(request.input));
+
+  assert.equal(request.model, "gpt-6-luna");
+
+  const answers = Array.from(request.questions, intentAnswer.bind(undefined, input));
+
+  return Promise.resolve(Response.json({ answers }));
+}
+
+/** Encode one synthetic accepted request.
+@param text - Original request.
+@param index - Stable fixture identity.
+@returns Durable receipt.
+*/
+function acceptedRequest(text: string, index: number) {
+  return { id: `message-${String(index)}`, text, status: "sent" as const };
+}
+
+/** Provide one exact recorded provider answer.
+@param message - Original request.
+@returns Synthetic main-agent response.
+*/
+function recordedAnswer(message: string) {
+  return fauxAssistantMessage(`Recorded: ${message}`);
+}
+
+/** Read exact original evidence from a source-validated search result.
+@param hit - Actual search result.
+@returns Exact source bytes.
+*/
+function originalText(hit: z.infer<typeof taskSearchPage>["results"][number]) {
+  return readFile(hit.source.file, "utf8");
+}
+
+/** Check literal evidence within an exact original.
+@param expected - Original request text.
+@param text - Exact source bytes.
+@returns Whether the exact original is retained.
+*/
+function hasOriginal(expected: string, text: string) {
+  return text.includes(expected);
+}
+
+/** Check source-backed task associations are present in retrieval.
+@param hit - Actual search result.
+@returns Whether the source has task membership.
+*/
+function hasAssociation(hit: z.infer<typeof taskSearchPage>["results"][number]) {
+  return hit.taskAssociations.length > 0;
+}
+
+await test("Pi source ingestion keeps interleaved tasks open and searchable without nonmatch closure across restart", async (t) => {
   const flow = await piWorkflow(t, 2);
-  const source = await readFile(new URL("../fixtures/history/task-decisions.json", import.meta.url), "utf8");
-  const exchange = z.object({ candidate: z.string(), matched: z.array(z.string()), continues: z.boolean() });
-  const exchanges = z.array(exchange).parse(JSON.parse(source));
   const messages = [
     "Plan launchcalendar.",
     "Make launchcalendar weekly.",
@@ -90,88 +177,41 @@ await test("Pi source ingestion archives a continuing task after five unrelated 
     "Check notifications.",
   ];
 
-  flow.provider.setResponses(messages.map((message) => fauxAssistantMessage(`Recorded: ${message}`)));
+  acceptTaskReceipts(flow.parent.id, Array.from(messages, acceptedRequest), {});
+  flow.provider.setResponses(Array.from(messages, recordedAnswer));
 
   for (const [index, message] of messages.entries()) {
     const completed = turnSchema.parse(await flow.send(`message-${String(index)}`, message));
 
     assert.equal(completed.status, "completed");
-    assert.equal(completed.items.find((item) => item.type === "agentMessage")?.text, `Recorded: ${message}`);
   }
 
-  const canonical = await flow.history();
-
-  assert.equal(canonical.length, messages.length);
-  await eventually(async () => {
-    const state = await readTaskState(flow.parent.id);
-
-    return (
-      state.messages.length === messages.length &&
-      state.messages.every((message, index) =>
-        message.entries.some((entry) => entry.role === "assistant" && entry.text === `Recorded: ${messages[index]}`)
-      )
-    );
-  }, "All seven user messages and their final answers must reach active context before shutdown");
-  const active = await readTaskState(flow.parent.id);
-
-  assert.equal(active.messages.length, messages.length);
-  assert.deepEqual(
-    active.messages.map((message) => message.text),
-    messages
-  );
-  assert.deepEqual(
-    active.messages.map((message) => message.entries.map((entry) => [entry.role, entry.text])),
-    messages.map((text) => [
-      ["user", text],
-      ["assistant", `Recorded: ${text}`],
-    ])
-  );
   await flow.main.close();
+  const active = readTaskLedger(flow.parent.id);
+
+  assert.equal(active.bindings.length, messages.length);
   const reopened = flow.create();
 
   await reopened.request("thread/resume", {});
   await reopened.close();
-  const resumed = await readTaskState(flow.parent.id);
+  assert.deepEqual(readTaskLedger(flow.parent.id), active, "Restart must not replay source ingestion");
+  t.mock.method(globalThis, "fetch", intentResponse);
+  const grouped = await classifyTaskLedger(flow.parent.id, "synthetic-classifier-key");
 
-  assert.deepEqual(resumed.messages, active.messages, "Resuming must not replay already ingested native messages");
-  assert.equal(resumed.revision, active.revision);
-  t.mock.method(globalThis, "fetch", (url: unknown, options: RequestInit) => {
-    assert.equal(url, "https://api.openai.com/v1/decisions");
-    assert.equal(options.method, "POST");
-    const body = z.string().parse(options.body);
-    const request = z.object({ model: z.string(), input: z.string() }).parse(JSON.parse(body));
-    const evidence = z
-      .object({ matched_user_messages: z.array(z.string()), candidate_user_message: z.string() })
-      .parse(JSON.parse(request.input));
-    const expected = exchanges.shift();
+  assert.equal(grouped.tasks.length, messages.length - 1);
 
-    assert.ok(expected, "Unexpected classifier request");
-    assert.equal(request.model, "gpt-6-luna");
-    assert.deepEqual(evidence, { matched_user_messages: expected.matched, candidate_user_message: expected.candidate });
+  for (const task of grouped.tasks) {
+    assert.equal(task.work, "open", "Neither model turn completion nor nonmatches establish resolution");
+  }
 
-    return Promise.resolve(
-      Response.json({ answers: [{ type: "predicate", name: "same_task", probability: expected.continues ? 1 : 0 }] })
-    );
-  });
-  const grouped = await groupTaskContext(flow.parent.id, resumed, (candidate, matched) =>
-    isSameTask("synthetic-classifier-key", undefined, candidate, matched)
-  );
-
-  assert.equal(exchanges.length, 0, "All required classifier inputs must be consumed");
-  assert.equal(grouped.closed.length, 1);
-  const restored = await readTaskState(flow.parent.id);
-
-  assert.deepEqual(
-    restored.messages.map((message) => message.text),
-    messages.slice(2)
-  );
   const client = await searchClient(flow, flow.parent.id);
   const result = await client.callTool({ name: "pocket_task_search", arguments: { query: "launchcalendar" } });
 
   assert.equal(result.isError, undefined);
   const page = taskSearchPage.parse(result.structuredContent);
-  const texts = await Promise.all(page.results.map((hit) => readFile(hit.source.file, "utf8")));
+  const texts = await Promise.all(Array.from(page.results, originalText));
 
-  assert.ok(texts.some((text) => text.includes("Plan launchcalendar.")));
-  assert.ok(texts.some((text) => text.includes("Make launchcalendar weekly.")));
+  assert.ok(texts.some(hasOriginal.bind(undefined, "Plan launchcalendar.")));
+  assert.ok(texts.some(hasOriginal.bind(undefined, "Make launchcalendar weekly.")));
+  assert.ok(page.results.some(hasAssociation.bind(undefined)));
 });

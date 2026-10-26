@@ -150,8 +150,8 @@ export class DelegationWorker {
       },
       parentTools: parentToolServer(child.id, command.id),
       callbacks: {
-        request: this.questions.request.bind(this.questions, child),
-        output: recordDelegationOutput.bind(undefined, this.store, child),
+        request: this.questions.request.bind(this.questions, child, command.id),
+        output: recordDelegationOutput.bind(undefined, this.store, child, command.id),
         metadata: this.store.metadata.bind(this.store, child.parentId, child.id),
       },
     });

@@ -141,6 +141,7 @@ function neighboringDocuments(documents: readonly TaskIndexDocument[], document:
 
   for (const entry of documents) {
     if (
+      entry.sourceNamespace === document.sourceNamespace &&
       entry.taskFile === document.taskFile &&
       Math.abs(entry.sequence - document.sequence) === 1 &&
       !neighbors.has(entry.sequence)
@@ -186,12 +187,14 @@ async function searchResult(
   return {
     file: document.file,
     taskFile: document.taskFile,
+    taskAssociations: document.taskAssociations,
     score: hit.score,
     excerpt: excerpt.text,
     passage: excerpt,
     context,
     source: {
       id: document.sourceId,
+      namespace: document.sourceNamespace,
       sequence: document.sequence,
       file: document.sourceFile,
       timestamp: document.timestamp,

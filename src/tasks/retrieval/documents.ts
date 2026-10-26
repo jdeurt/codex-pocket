@@ -3,15 +3,16 @@ import { type ContextEntry } from "../archive-model";
 import { recordView, sourceLink, type RecordPart, indentedSourceLine } from "../render";
 
 const PAGE_LENGTH = 6000;
-const PAGE_OVERLAP = 300;
-const PAGE_STRIDE = PAGE_LENGTH - PAGE_OVERLAP;
+const PAGE_STRIDE = PAGE_LENGTH;
 
 export interface TaskIndexDocument {
+  taskAssociations: { taskId: string; eventId: string; span?: { start: number; end: number } }[];
   file: string;
   taskFile: string;
   taskHash: string;
   sourceFile: string;
   sourceId: string;
+  sourceNamespace: "codex" | "native";
   sequence: number;
   timestamp: string | null;
   body: string;

@@ -59,7 +59,7 @@ function hasUserContent(parts: readonly RecordPart[]) {
   return false;
 }
 
-export type TaskSources = { directory: string } | { file: string };
+export type TaskSources = { directory: string } | { file: string } | { records: ReadonlyMap<ContextEntry, string> };
 
 /** Resolve explicit source metadata without accessing the filesystem.
 @param sources - Directory of exact records or one retained legacy envelope.
@@ -67,6 +67,16 @@ export type TaskSources = { directory: string } | { file: string };
 @returns Exact source pathname.
 */
 function recordSource(sources: TaskSources, entry: ContextEntry) {
+  if ("records" in sources) {
+    const file = sources.records.get(entry);
+
+    if (!file) {
+      throw new Error("Exact original source reference is missing from the chronological projection.");
+    }
+
+    return file;
+  }
+
   return "file" in sources ? sources.file : path.join(sources.directory, "source", `${String(entry.sequence)}.json`);
 }
 

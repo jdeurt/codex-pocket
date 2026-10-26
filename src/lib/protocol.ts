@@ -45,6 +45,7 @@ export const messageSourceSchema = z.object({
   sessionId: z.string(),
   itemId: z.string(),
   intent: z.string().optional(),
+  intentContext: z.array(z.string()).optional(),
 });
 
 export type MessageSource = z.infer<typeof messageSourceSchema>;

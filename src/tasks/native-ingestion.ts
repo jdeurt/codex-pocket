@@ -1,6 +1,6 @@
 import type { SessionEntry } from "@earendil-works/pi-coding-agent";
 import type { Ledger } from "./model";
-import { recordEvent } from "./transitions";
+import { recordEvent, hasEventId } from "./transitions";
 import { updateTasks } from "./repository";
 import { piTaskEvent } from "./adapters/pi";
 import { reconcileRoutes } from "./reconciliation";
@@ -18,13 +18,23 @@ function hasNativeBinding(nativeEntryId: string, binding: Ledger["bindings"][num
 @param entries - Native originals, used only for recorded causal identities.
 @param entry - Committed native source.
 @param sourceFile - Immutable original reference.
+@param sequence - Source sequence committed with the cursor.
 @param state - Current checkpoint.
 @returns Reconciled checkpoint without replaying any native work.
 */
-function nativeTransition(entries: readonly SessionEntry[], entry: SessionEntry, sourceFile: string, state: Ledger) {
+function nativeTransition(
+  entries: readonly SessionEntry[],
+  entry: SessionEntry,
+  sourceFile: string,
+  sequence: number,
+  state: Ledger
+) {
   const event = piTaskEvent(state, entries, entry, sourceFile);
 
-  let next = event ? recordEvent(state, event) : state;
+  const prior = event ? state.events.find(hasEventId.bind(undefined, event.id)) : undefined;
+  const isExisting = prior !== undefined;
+
+  let next = event && !isExisting ? recordEvent(state, event) : state;
 
   if (event?.receiptId && event.nativeEntryId) {
     const isExists = next.bindings.some(hasNativeBinding.bind(undefined, event.nativeEntryId));
@@ -37,7 +47,11 @@ function nativeTransition(entries: readonly SessionEntry[], entry: SessionEntry,
     }
   }
 
-  return reconcileRoutes({ ...next, cursor: entry.id });
+  return reconcileRoutes({
+    ...next,
+    cursor: entry.id,
+    nextSequence: entry.type === "message" ? Math.max(next.nextSequence, sequence + 1) : next.nextSequence,
+  });
 }
 
 /** Persist native provenance and memberships independently of the legacy archive.
@@ -45,17 +59,19 @@ function nativeTransition(entries: readonly SessionEntry[], entry: SessionEntry,
 @param entries - Exact native records.
 @param entry - New committed source.
 @param sourceFile - Exact immutable source reference.
+@param sequence - Explicit source sequence.
 @returns Committed ledger checkpoint.
 */
 export function ingestNativeTaskEvent(
   parentId: string,
   entries: readonly SessionEntry[],
   entry: SessionEntry,
-  sourceFile: string
+  sourceFile: string,
+  sequence: number
 ) {
   return updateTasks(
     parentId,
     "Ingest native provenance and reconcile pending relationships",
-    nativeTransition.bind(undefined, entries, entry, sourceFile)
+    nativeTransition.bind(undefined, entries, entry, sourceFile, sequence)
   );
 }

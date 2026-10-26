@@ -27,11 +27,12 @@ export class DelegationQuestions {
   /**
   Persists a native question and waits for a durable answer or cancellation.
   @param child - Child asking the question.
+  @param commandId - Exact native assignment asking the question.
   @param request - Native harness question and response contract.
   @returns Answer supplied by the parent; cancellation rejects.
   */
-  request(child: SidePocket, request: HarnessRequest) {
-    const id = this.store.mail.request(child.parentId, child.id, request);
+  request(child: SidePocket, commandId: string, request: HarnessRequest) {
+    const id = this.store.mail.request(child.parentId, child.id, request, commandId);
 
     this.store.setStatus(child.parentId, child.id, "waiting");
 
