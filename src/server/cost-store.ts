@@ -2,7 +2,7 @@ import { mkdirSync } from "node:fs";
 import path from "node:path";
 import { t } from "try";
 import { costObservationSchema, costGroupSchema, type CostObservation, type CostQuery } from "../lib/costs";
-import { costDay, validatedCostQuery } from "../state/costs";
+import { validatedCostQuery } from "../state/costs";
 import { privateDatabase } from "./private-database";
 import { localDirectory } from "./local-state";
 import { log } from "./logging";
@@ -65,12 +65,12 @@ export function observeCost(observation: CostObservation, directory = localDirec
 }
 
 /** Bind the viewer's timezone to SQLite's deterministic calendar grouping.
-@param timezone - Explicit report timezone.
+@param formatter - Calendar formatter configured once for this report timezone.
 @param timestamp - Stored UTC accounting instant.
 @returns Sortable local calendar date.
 */
-function calendarCostDay(timezone: string, timestamp: string) {
-  return costDay(timestamp, timezone);
+function calendarCostDay(formatter: Intl.DateTimeFormat, timestamp: string) {
+  return formatter.format(new Date(timestamp));
 }
 
 /** Query disjoint daily contributions inside SQLite instead of loading a year of raw events.
@@ -79,7 +79,14 @@ function calendarCostDay(timezone: string, timestamp: string) {
 @returns Content-free dashboard report.
 */
 function queriedCosts(db: Database.Database, query: CostQuery) {
-  db.function("cost_day", { deterministic: true }, calendarCostDay.bind(undefined, query.timezone));
+  const formatter = new Intl.DateTimeFormat("en-CA", {
+    timeZone: query.timezone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  });
+
+  db.function("cost_day", { deterministic: true }, calendarCostDay.bind(undefined, formatter));
   const statement = db.prepare(`SELECT cost_day(timestamp) AS day,
     feature, model, provider, COUNT(*) AS calls,
     SUM(json_extract(record,'$.amountUSD') IS NULL) AS unknownCosts,
