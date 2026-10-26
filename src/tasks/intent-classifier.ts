@@ -34,6 +34,16 @@ function probability(answers: z.infer<typeof answerSchema>[], name: string) {
   return values[0];
 }
 
+/** Select one task's requested provider predicate.
+@param answers - Exact validated response.
+@param task - Bounded task description.
+@param index - Requested predicate index.
+@returns Provider evidence associated with the stable task identity.
+*/
+function matchedTaskEvidence(answers: z.infer<typeof answerSchema>[], task: { id: string }, index: number) {
+  return { taskId: task.id, probability: probability(answers, `task_${String(index)}`) };
+}
+
 /** Interpret only current intent against bounded, stable task descriptions.
 @param apiKey - Server-only key.
 @param signal - Cancellation when new input arrives.
@@ -97,7 +107,7 @@ export async function classifyTaskIntent(
     signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
     body: JSON.stringify({
       model: "gpt-6-luna",
-      input: JSON.stringify({ current_request: event.text, tasks }),
+      input: JSON.stringify({ current_request: event.text, relevant_references: event.references ?? [], tasks }),
       questions,
     }),
   });
@@ -112,10 +122,7 @@ export async function classifyTaskIntent(
     throw new Error("Unexpected task classifier predicate count.");
   }
 
-  const matches = Array.from(tasks, (task, index) => ({
-    taskId: task.id,
-    probability: probability(answers, `task_${String(index)}`),
-  }));
+  const matches = Array.from(tasks, matchedTaskEvidence.bind(undefined, answers));
 
   return {
     actionable: probability(answers, "actionable"),

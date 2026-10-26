@@ -1,34 +1,68 @@
 # Task management architecture
 
-`src/tasks/` owns task ingestion, membership, archives, and retrieval. Surrounding server adapters consume its interfaces.
+`src/tasks/` owns task provenance, membership, lifecycle, context selection, storage, and retrieval. Delivery, voice, delegation, and Pi submit application-owned records or consume projections. They do not choose the most recent task as a destination.
 
 ## Boundaries
 
-- Pure values and transformations: `archive-model.ts`, `legacy-model.ts`, `render.ts`, `adapters/legacy-model.ts`, and `retrieval/{model,documents,passage,protocol}.ts`.
-- Effectful owners: `runtime.ts` coordinates Pi ingestion and background work; `legacy-runtime.ts` coordinates the existing grouping pass; `classifier.ts` calls the Decisions API; `archive.ts` writes exact sources and projections; `adapters/{legacy,legacy-read}.ts` read or import existing archives; retrieval's remaining modules own files, QMD, locks, and subprocesses.
+| Responsibility                               | Modules                                                                                                                                                                           | Boundary                                                                                  |
+| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Values, schemas, invariants                  | `model.ts`, `invariants.ts`                                                                                                                                                       | Pure                                                                                      |
+| Origin interpretation, assignment, lifecycle | `provenance.ts`, `routing.ts`, `transitions.ts`, `reconciliation.ts`, `interpretation.ts`, `lifecycle.ts`                                                                         | Pure                                                                                      |
+| Context and navigation transformations       | `context.ts`, `projection-model.ts`, `render.ts`, retrieval's `model.ts`, `documents.ts`, `passage.ts`, `protocol.ts`                                                             | Pure                                                                                      |
+| Native ingestion, provider calls, timers     | `runtime.ts`, `native-ingestion.ts`, `ingestion.ts`, `intent-classifier.ts`, `classification-runtime.ts`, `command-provenance.ts`, `context-extension.ts`, `delivery-evidence.ts` | Effectful                                                                                 |
+| Storage, migration, projection writes        | `repository.ts`, `source-io.ts`, `archive.ts`, `sources.ts`, `migration.ts`, `management.ts`, `projections.ts`, `proposals.ts`, `shadow.ts`                                       | Effectful                                                                                 |
+| Native and legacy adapters                   | `adapters/`                                                                                                                                                                       | Native persistence is effectful; parsing and identity transformations use explicit inputs |
+| Search and indexing                          | `retrieval/`                                                                                                                                                                      | Files, QMD, subprocesses, and locks have explicit runtime owners                          |
 
-This first consolidation preserves the existing grouping algorithm and storage formats. It does not establish task completion semantics. The legacy five-nonmatch rule, source duplication in chronological envelopes, and grouping-triggered compaction remain until the provenance and lifecycle rollout replaces them. Effects have explicit module owners; legacy runtime methods still contain decisions to be extracted during that rollout.
+Pure functions receive identities, state, revisions, and configuration explicitly and return new values. Filesystem operations, credentials, provider calls, clocks, timers, and queues remain in effectful modules. Compatibility schemas in `archive-model.ts` and `legacy-model.ts` describe retained historical data; they do not run a second live task manager.
 
-The planned ledger records trusted request and command relationships before semantic classification. Its deterministic routing and state transitions are separate from provider interpretation, retention, delivery evidence, and generated Markdown. Historical membership remains a legacy decision, and missing historical provenance remains unknown. Migration must never replay a request or delegate command.
+## Trusted provenance
 
-## Provenance ledger and shadow routing
+Acceptance allocates a stable request ID from the durable receipt identity before classification. Events retain their parent scope, origin, request and command relationships, receipt/native identities, content references, visibility, and delivery evidence. Reserved internal receipt IDs belong to server-owned delivery paths; the public typed-message endpoint accepts UUIDs. A marker in message text cannot establish an internal origin.
 
-`model.ts` defines the ledger; `provenance.ts`, `routing.ts`, `transitions.ts`, and `reconciliation.ts` make deterministic decisions from explicit inputs. `repository.ts` owns a private per-parent SQLite checkpoint. One immediate transaction commits events, membership, decisions, correlations, and cursor changes together. Classification proposals use an expected revision so concurrent ingestion cannot silently overwrite them.
+Pi writes metadata-only binding intents before appending native user records. Exact object fingerprints include the native timestamp; missing or conflicting matches remain unresolved. Assistant output records retain the application-owned run and consumed request identities. Session ancestry alone is chronological evidence, not proof that an output answers the latest user message. Multiple work origins must establish the same task set before automatic attachment; otherwise the output remains unresolved. Tool results follow exact native call ownership.
 
-Acceptance records a stable request ID before semantic assignment. The native Pi adapter writes a metadata-only binding intent before Pi appends a user message; restart reconciliation uses an exact object fingerprint, including the native timestamp. Missing or conflicting bindings remain unresolved. Recovery and saved voice history are operational or historical context. The current voice intent is a separate structured field; speech may still be incomplete.
+The awaited Pi tool hook records delegate command origins before dispatch. Each managed command inherits its own request identity or retains ambiguous origins. Reusing a saved Side Pocket does not reuse a permanent task assignment. Reports, native questions, and output records retain their producing command where known. A result can therefore reconnect after unrelated input, classification, or restart.
 
-An awaited Pi tool hook records command-key provenance before managed delegate dispatch. Each command inherits that request, so reusing a child does not reuse its task assignment. Mailbox reports carry the exact producing command where the caller provides it. Reports with missing command origins remain unresolved. No correlation is extracted from a marker in message text.
+Voice carries the latest observed user speech and bounded current-call references separately from saved startup history. These references help interpret brief answers and cancellations; incomplete speech remains incomplete. Saved history is historical context, and recovery is operational context. Scheduled input follows the application-owned occurrence identity and authorized instruction. None of these distinctions depend on prose markers.
 
-This stage runs deterministic routing in a shadow ledger and keeps the legacy live archive unchanged. Tests exercise real SQLite storage, the Pi SDK, and native MCP delegation tools with synthetic provider responses. They establish orchestration and persistence behavior, not model classification quality. Native records remain the evidence; navigation text is not evidence of completion or user delivery.
+## Routing and interpretation
 
-## Lifecycle, semantic interpretation and repair
+Deterministic routing follows known requests, commands, and calls first. Missing correlation produces a retained diagnostic. Classification interprets only current intent that lacks an established relationship, using bounded original task descriptions, explicit summaries, pending questions, and relevant references. Archived tasks remain eligible. It never compares a candidate with an accumulating matched transport set.
 
-`intent-classifier.ts` submits the current request and bounded descriptions of original task intent, summaries, and pending questions to the Decisions API. Archived tasks remain eligible. `interpretation.ts` applies explicit acceptance and rejection thresholds; multiple matches or uncertain probabilities remain unresolved. A contextual cancellation follows an established task, and an explicit correction can reopen work. Provider probabilities are retained as uncalibrated confidence, not accuracy guarantees.
+The semantic outcomes are attachment, creation, conversation only, and needs resolution. Predicate probabilities above the acceptance threshold support a decision; uncertain and conflicting matches remain unresolved. A message discussing multiple tasks can receive explicitly reviewed content spans. Short instructions such as `stop` remain actionable in context. Greetings and acknowledgments do not automatically create tasks.
 
-`classification-runtime.ts` holds no database lock during network calls and discards a result if new acceptance changes its expected revision. In the staged rollout, the idle pass records proposed assignments and `routing-shadow.json` comparisons without changing the legacy archive. Shadow tasks carry `authority: proposal`; they are not authoritative historical repairs.
+Each assignment retains its source, policy/classifier version, input revision, task revisions, supporting confidence where available, bounded rationale, and superseded decisions. Provider probabilities are not calibrated accuracy guarantees. Background interpretation holds no persistence lock during a provider call and discards stale results when new acceptance changes the input revision. Provider failures leave the request eligible for another pass.
 
-`lifecycle.ts` centralizes work state, retention, move, split, merge, and explicit original-text spans. Resolution and cancellation require task-member evidence. Repair decisions supersede prior membership, preserve unrelated spans, and retain original messages and original task intent. `invariants.ts` enforces append-only event, decision, and lifecycle evidence. `pocket_task_inspect` exposes the inspected revision; `pocket_task_change` requires that revision and a concrete explained operation. Historical repairs require the user's authorization of the concrete proposal.
+## Independent state dimensions
 
-`context.ts` selects pending tasks, questions, unresolved requests, and command identities independently of grouping. Its planner refuses compaction when protected context exceeds the explicit budget. `delivery-evidence.ts` records confirmed canonical chat persistence from `pocket_send_to_chat`; an ordinary completed model turn cannot create that delivery evidence or resolve work.
+- Work: `open`, `waiting`, `resolved`, or `canceled`.
+- Retention: `active` or `archived`.
+- Delivery evidence: `not_delivered`, `delivered`, or `uncertain`.
+- Membership: event-to-task associations, optionally with original-text spans.
 
-Focused workflow tests use actual persistence and the Pi/MCP boundary. Canned intent evidence verifies greetings and short cancellations, archived-task references, ambiguity, repairs, and stale-response handling. Authenticated model classification quality remains unmeasured.
+A completed model turn does not resolve work. Work transitions require supporting task-member event references. Explicit corrections can reopen work. Retention changes do not establish completion. Legacy delivery remains uncertain unless actual evidence establishes delivery. Confirmed canonical `pocket_send_to_chat` persistence supplies delivery evidence; restart reconciliation recovers these identities from the application-owned projection.
+
+The context planner preserves pending requests, constraints, questions, and command identities independently of grouping. Native model calls receive this protected context, including after auto-compaction. Compaction is refused when the protected context exceeds the explicit budget. There is no nonmatch-based closure or grouping-triggered compaction.
+
+## Ledger and projections
+
+Each parent has a private `tasks/<parent-hash>/ledger.sqlite`. An immediate SQLite transaction commits membership, decisions, correlations, lifecycle changes, and source checkpoints together. Expected revisions reject stale writes. Original events, decisions, and correlation records remain immutable; corrections append history. Exact native sources are installed once through an atomic exclusive link, and an interrupted cursor commit reuses the original source sequence and bytes.
+
+Generated task Markdown includes original intent, work and retention state, delivery evidence, current summary, pending questions, delegate assignments, member timeline previews, and links to originals. A separate chronological view makes surrounding context explicit. Navigation text is a projection; exact originals and the ledger remain evidence.
+
+Retrieval creates one primary representation per exact source passage, independently of task membership. It returns current task associations, their event IDs, and any explicit content spans. Source namespaces keep imported Codex history separate from native source sequences; chronological views sort within those namespaces rather than by task filename. Association spans refer to the named event's intent text; search passage offsets refer to the returned Markdown file. Parent namespace checks, source validation, projection hashes, and truthful keyword/hybrid fallback reporting remain enforced.
+
+## Review and repair
+
+`pocket_task_inspect` exposes authoritative state and its revision. `pocket_task_change` applies a concrete explained assign, move, split, merge, work, or retention operation against that inspected revision and regenerates task projections. Split and merge preserve unrelated memberships and spans. Originals and original task intent are not rewritten.
+
+`pocket_task_propose` prepares a semantic proposal without committing it or dispatching work. Historical membership repairs require the user's authorization of the concrete proposal. Missing historical intent cannot be invented by the classifier.
+
+## Migration and verification
+
+The rollout separates ownership consolidation, durable provenance, shadow interpretation, and live ledger projections. Shadow assignments carry `authority: proposal`; source-aligned comparisons are written separately from the legacy archive. The shadow runner refuses a live ledger.
+
+Live migration adopts explicit archive and checkpoint memberships as legacy decisions. Old closed groups become archived navigation with conservative open work state, rather than asserted completion. Ungrouped historical sources and missing provenance remain unknown. Shadow semantic proposals do not silently become authoritative historical memberships. Migration is idempotent, preserves old files, and never submits historical requests or delegate commands.
+
+Focused workflows exercise actual SQLite storage, Pi SDK events, native MCP calls, exact source writes, QMD/MCP retrieval, late reports, reused delegates, current versus historical voice context, operational inputs, archived-task corrections, multi-task spans, multiple consumed request origins, stale results, uncertain input, restart windows, identical same-timestamp inputs, delivery reconciliation, and parent isolation. Synthetic provider responses establish orchestration behavior. Authenticated classifier quality, physical-device voice behavior, and optional live GGUF inference remain unmeasured. Full suites belong to CI.

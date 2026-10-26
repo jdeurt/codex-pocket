@@ -1,40 +1,8 @@
-import { z } from "zod";
-import type { Ledger, Task, Membership } from "./model";
+import type { Ledger, Task, Membership, TaskOperation } from "./model";
 import { assignEvent, hasEventId, hasTaskId } from "./transitions";
 import { assignmentDecision, reconcileRoutes } from "./reconciliation";
 
-const idList = z.array(z.string()).min(1);
-const questionList = z.array(z.string());
-const operationSpanSchema = z.object({ taskId: z.string(), start: z.number().int(), end: z.number().int() });
-const operationSpans = z.array(operationSpanSchema);
-
-export const taskOperationSchema = z.discriminatedUnion("kind", [
-  z.object({
-    kind: z.literal("work"),
-    taskId: z.string(),
-    work: z.enum(["open", "waiting", "resolved", "canceled"]),
-    evidence: idList,
-    summary: z.string().optional(),
-    pendingQuestions: questionList.optional(),
-  }),
-  z.object({ kind: z.literal("retain"), taskId: z.string(), retention: z.enum(["active", "archived"]) }),
-  z.object({
-    kind: z.literal("move"),
-    eventId: z.string(),
-    taskIds: idList,
-    spans: operationSpans.optional(),
-  }),
-  z.object({
-    kind: z.literal("split"),
-    taskId: z.string(),
-    newTaskId: z.string(),
-    title: z.string(),
-    eventIds: idList,
-  }),
-  z.object({ kind: z.literal("merge"), taskIds: idList, targetTaskId: z.string() }),
-]);
-
-export type TaskOperation = z.infer<typeof taskOperationSchema>;
+export { taskOperationSchema, type TaskOperation } from "./model";
 
 /** Require a task from the authorized parent's checkpoint.
 @param state - Current ledger.
@@ -51,15 +19,22 @@ function requireTask(state: Ledger, taskId: string) {
   return task;
 }
 
+/** Select one immutable updated task revision.
+@param updated - Explicit changed task fields.
+@param task - Prior task value.
+@returns Updated revision for the selected task.
+*/
+function revisedTask(updated: Task, task: Task) {
+  return task.id === updated.id ? { ...updated, revision: task.revision + 1 } : task;
+}
+
 /** Publish an immutable task revision while preserving its original intent.
 @param state - Current checkpoint.
 @param updated - Task with explicit changed fields.
 @returns Next task set.
 */
 function replaceTask(state: Ledger, updated: Task): Ledger {
-  const tasks: Task[] = Array.from(state.tasks, (task) =>
-    task.id === updated.id ? { ...updated, revision: task.revision + 1 } : task
-  );
+  const tasks = Array.from(state.tasks, revisedTask.bind(undefined, updated));
 
   return { ...state, tasks };
 }
@@ -298,6 +273,20 @@ export function applyTaskOperation(operation: TaskOperation, reason: string, sta
   let next: Ledger;
 
   switch (operation.kind) {
+    case "assign": {
+      const decision = assignmentDecision(
+        state,
+        operation.eventId,
+        operation.assignment,
+        "correction",
+        "task-repair-v1",
+        reason
+      );
+
+      next = assignEvent(state, decision);
+      break;
+    }
+
     case "work": {
       next = changeWork(state, operation);
       break;

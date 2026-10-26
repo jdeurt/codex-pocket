@@ -1,5 +1,5 @@
 import { latestDecision } from "./reconciliation";
-import type { Ledger, Task } from "./model";
+import { isTaskAuthoritative, type Ledger, type Task } from "./model";
 
 const DESCRIPTION_LENGTH = 1200;
 const TITLE_LENGTH = 160;
@@ -14,12 +14,12 @@ function isEventMember(eventId: string, member: Ledger["memberships"][number]) {
   return member.eventId === eventId;
 }
 
-/** Build bounded task descriptions from stable intent and explicit updates, including archived tasks.
-@param state - Parent ledger.
-@returns Classifier references without accumulated raw transport history.
+/** Describe a task without copying accumulated transport messages into classifier context.
+@param task - Authoritative task navigation value.
+@returns Bounded stable intent and explicit updates.
 */
-export function taskDescriptions(state: Ledger) {
-  const descriptions = Array.from(state.tasks, (task) => ({
+function taskDescription(task: Task) {
+  return {
     id: task.id,
     revision: task.revision,
     title: task.title.slice(0, TITLE_LENGTH),
@@ -28,9 +28,17 @@ export function taskDescriptions(state: Ledger) {
     work: task.work,
     retention: task.retention,
     pendingQuestions: task.pendingQuestions.slice(0, QUESTION_LIMIT),
-  }));
+  };
+}
 
-  return descriptions;
+/** Build bounded task descriptions from stable intent and explicit updates, including archived tasks.
+@param state - Parent ledger.
+@returns Classifier references without accumulated raw transport history.
+*/
+export function taskDescriptions(state: Ledger) {
+  const tasks = state.tasks.filter(isTaskAuthoritative.bind(undefined, state.mode));
+
+  return Array.from(tasks, taskDescription.bind(undefined));
 }
 
 /** Derive user delivery from explicit recorded evidence, independently of model turn status.
@@ -41,7 +49,7 @@ export function taskDescriptions(state: Ledger) {
 export function taskDelivery(state: Ledger, task: Task) {
   const evidence: string[] = [];
 
-  let delivery: Ledger["events"][number]["delivery"] = "not_delivered";
+  let delivery: Ledger["events"][number]["delivery"] = task.authority === "legacy" ? "uncertain" : "not_delivered";
 
   for (const member of state.memberships) {
     if (member.taskId !== task.id) {
@@ -100,7 +108,7 @@ export function planTaskContext(state: Ledger, budget: number) {
       decision?.assignment.kind !== "conversation" &&
       !state.memberships.some(isEventMember.bind(undefined, event.id))
     ) {
-      unresolved.push({ id: event.id, text: event.text, contentRefs: event.contentRefs });
+      unresolved.push({ id: event.id, text: event.text, references: event.references, contentRefs: event.contentRefs });
     }
   }
 

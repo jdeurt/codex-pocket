@@ -7,6 +7,8 @@ import { type voiceWorkerResult } from "./voice-context";
 export const REALTIME_TOOL_PREFIX = "realtime-tool:";
 const RESULT_BYTES = 400;
 const CONTEXT_BYTES = 24_000;
+const INTENT_CONTEXT_SEGMENTS = 4;
+const INTENT_REFERENCE_LENGTH = 1200;
 const LAST = -1;
 
 export interface RealtimeToolState {
@@ -141,6 +143,24 @@ function currentVoiceIntent(fragments: VoiceSegment[]) {
   return users.at(LAST)?.text ?? "";
 }
 
+/** Retain a bounded current-call reference without historical startup conversation.
+@param fragment - Observed current-call caption group.
+@returns Role-labeled quoted speech reference for interpreting brief instructions.
+*/
+function voiceIntentReference(fragment: VoiceSegment) {
+  return `${fragment.role}: ${fragment.text.slice(0, INTENT_REFERENCE_LENGTH)}`;
+}
+
+/** Select relevant observed speech separately from saved historical context.
+@param fragments - Current call's observed captions.
+@returns Bounded current-call references, including questions needed to interpret brief answers.
+*/
+function currentVoiceReferences(fragments: VoiceSegment[]) {
+  const recent = groupedVoiceSegments(fragments).slice(-INTENT_CONTEXT_SEGMENTS);
+
+  return Array.from(recent, voiceIntentReference);
+}
+
 /** Reserve ready backend receipts independently of media and persistence.
 @param state - Call-local delegation reservations.
 @param sessionId - Owning local call identity.
@@ -162,7 +182,7 @@ export function requestedTools(
   const calls: {
     id: string;
     request: string;
-    source: { type: "realtime"; sessionId: string; itemId: string; intent: string };
+    source: { type: "realtime"; sessionId: string; itemId: string; intent: string; intentContext: string[] };
   }[] = [];
 
   for (const [delegationId, offset] of state.waiting) {
@@ -172,7 +192,13 @@ export function requestedTools(
     calls.push({
       id,
       request: delegationRequest(sessionId, offset, fragments, historical),
-      source: { type: "realtime", sessionId, itemId: delegationId, intent: currentVoiceIntent(fragments) },
+      source: {
+        type: "realtime",
+        sessionId,
+        itemId: delegationId,
+        intent: currentVoiceIntent(fragments),
+        intentContext: currentVoiceReferences(fragments),
+      },
     });
   }
 

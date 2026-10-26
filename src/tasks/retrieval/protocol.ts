@@ -34,12 +34,17 @@ const contextSchema = z.object({
   truncated: z.boolean(),
 });
 const sourceSchema = z.object({
+  namespace: z.enum(["codex", "native"]),
   id: z.string(),
   sequence: z.number(),
   file: z.string(),
   timestamp: z.string().nullable(),
 });
+const associationSpan = z.object({ start: z.number().int(), end: z.number().int() });
+const associationSchema = z.object({ taskId: z.string(), eventId: z.string(), span: associationSpan.optional() });
+
 const resultSchema = z.object({
+  taskAssociations: z.array(associationSchema),
   file: z.string(),
   taskFile: z.string(),
   score: z.number(),

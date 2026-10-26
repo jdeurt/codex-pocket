@@ -81,6 +81,25 @@ function assertMemberships(state: Ledger) {
   }
 }
 
+/** Require stable application-owned correlation records across commits.
+@param current - Previously committed records.
+@param next - Proposed records.
+@param label - Correlation diagnostic label.
+*/
+function assertCorrelationPrefix(current: readonly unknown[], next: readonly unknown[], label: string) {
+  if (JSON.stringify(current) !== JSON.stringify(next.slice(0, current.length))) {
+    throw new Error(`Original ${label} correlations are immutable; use an explicit membership correction.`);
+  }
+}
+
+/** Select a native binding identity for uniqueness checks.
+@param binding - Durable receipt correlation.
+@returns Exact native entry identity.
+*/
+function bindingId(binding: Ledger["bindings"][number]) {
+  return binding.nativeEntryId;
+}
+
 /** Enforce append-only evidence, stable original intent, and referential membership integrity.
 @param current - Committed checkpoint.
 @param next - Proposed replacement.
@@ -90,6 +109,15 @@ export function assertLedgerTransition(current: Ledger, next: Ledger) {
   assertUnique(Array.from(next.tasks, recordId), "task");
   assertUnique(Array.from(next.decisions, recordId), "decision");
   assertUnique(Array.from(next.commands, recordId), "command");
+  assertUnique(Array.from(next.bindings, bindingId), "native binding");
+  assertCorrelationPrefix(current.bindings, next.bindings, "receipt/native");
+  assertCorrelationPrefix(current.commands, next.commands, "command/request");
+  assertCorrelationPrefix(current.commandIntents, next.commandIntents, "native-call/request");
+
+  if (next.nextSequence < current.nextSequence) {
+    throw new Error("Exact source sequence cannot move backwards.");
+  }
+
   assertOriginalEvents(current, next);
   assertOriginalTasks(current, next);
   assertMemberships(next);

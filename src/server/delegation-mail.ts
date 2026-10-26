@@ -260,15 +260,16 @@ Persist a native child request before recording its informational parent report.
 @param parentId - Recorded parent scope.
 @param childId - Managed child that owns the native request.
 @param request - Normalized native question or approval request.
+@param commandId - Recorded producing command; unknown remains null.
 @returns Stable persisted request identity used for parent answers.
 */
-  request(parentId: string, childId: string, request: HarnessRequest) {
+  request(parentId: string, childId: string, request: HarnessRequest, commandId: string | null = null) {
     const id = crypto.randomUUID();
 
     this.db
       .prepare("INSERT INTO delegation_requests VALUES (?,?,?,?,?,?,NULL,'pending',?)")
       .run(id, childId, parentId, request.id, request.method, JSON.stringify(request.input), Date.now());
-    this.record(parentId, childId, `request:${id}`, "request", { ...request, id });
+    this.record(parentId, childId, `request:${id}`, "request", { ...request, id }, true, commandId);
 
     return id;
   }

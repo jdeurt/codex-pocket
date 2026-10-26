@@ -87,8 +87,18 @@ await test("task ledger connects late per-command reports after interleaved requ
     {
       ...original,
       commandIntents: [
-        { key: "send:reused:first", callId: "call-first", requestId: "request:projects" },
-        { key: "send:reused:second", callId: "call-second", requestId: "request:software" },
+        {
+          key: "send:reused:first",
+          callId: "call-first",
+          requestId: "request:projects",
+          requestIds: ["request:projects"],
+        },
+        {
+          key: "send:reused:second",
+          callId: "call-second",
+          requestId: "request:software",
+          requestIds: ["request:software"],
+        },
       ],
     },
     "Observed native delegate calls"

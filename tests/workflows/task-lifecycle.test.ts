@@ -66,7 +66,7 @@ await test("task lifecycle keeps completion, retention and delivery separate and
 
   const originals = Array.from(state.events, eventText);
 
-  state = changeTask(
+  state = await changeTask(
     "parent",
     state.revision,
     {
@@ -79,7 +79,7 @@ await test("task lifecycle keeps completion, retention and delivery separate and
     },
     "The reporting period is missing."
   );
-  state = changeTask(
+  state = await changeTask(
     "parent",
     state.revision,
     { kind: "retain", taskId: "epd-task", retention: "archived" },
@@ -90,30 +90,30 @@ await test("task lifecycle keeps completion, retention and delivery separate and
 
   assert.match(context.text, /Which reporting period/);
   assert.equal(planTaskContext(state, 1).canCompact, false);
-  assert.equal(
-    capture(
-      changeTask,
-      "parent",
-      state.revision,
-      { kind: "work", taskId: "epd-task", work: "resolved", evidence: ["request:software"] },
-      "Wrong evidence"
-    ).ok,
-    false
+  const rejected = await capture(
+    changeTask,
+    "parent",
+    state.revision,
+    { kind: "work", taskId: "epd-task", work: "resolved", evidence: ["request:software"] },
+    "Wrong evidence"
   );
-  state = changeTask(
+
+  assert.equal(rejected.ok, false);
+
+  state = await changeTask(
     "parent",
     state.revision,
     { kind: "work", taskId: "epd-task", work: "resolved", evidence: ["request:epd"], pendingQuestions: [] },
     "Explicitly acknowledged result."
   );
   assert.equal(taskDelivery(state, state.tasks[0]).state, "not_delivered");
-  state = changeTask(
+  state = await changeTask(
     "parent",
     state.revision,
     { kind: "work", taskId: "epd-task", work: "open", evidence: ["request:epd"] },
     "A correction reopens the work."
   );
-  state = changeTask(
+  state = await changeTask(
     "parent",
     state.revision,
     {
@@ -128,7 +128,7 @@ await test("task lifecycle keeps completion, retention and delivery separate and
     "Reviewed separate content spans."
   );
   assert.equal(state.memberships.filter(isBothMember.bind(undefined)).length, 2);
-  state = changeTask(
+  state = await changeTask(
     "parent",
     state.revision,
     {
@@ -140,7 +140,7 @@ await test("task lifecycle keeps completion, retention and delivery separate and
     },
     "Reviewed split."
   );
-  state = changeTask(
+  state = await changeTask(
     "parent",
     state.revision,
     { kind: "merge", taskIds: ["update-task", "software-task"], targetTaskId: "software-task" },
@@ -171,7 +171,7 @@ await test("canned intent evidence preserves greetings, ambiguous multi-task req
   t.after(repository.close.bind(repository));
   let state = interpreted(repository, "work", "software-task");
 
-  state = changeTask(
+  state = await changeTask(
     "parent",
     state.revision,
     { kind: "retain", taskId: "software-task", retention: "archived" },

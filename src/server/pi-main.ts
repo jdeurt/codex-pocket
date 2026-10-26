@@ -8,7 +8,8 @@ import { requireResults } from "../lib/results";
 import { piModel, piModelCatalog, piSettings, thinkingLevelSchema } from "./pi-models";
 import { type Config } from "./config";
 import { type CodexRpc } from "./rpc";
-import { preservePiBinding } from "../tasks/adapters/pi";
+import { reconcileTaskDeliveries } from "../tasks/delivery-evidence";
+import { preservePiOrigins } from "../tasks/adapters/pi";
 import { PiTaskContext } from "../tasks/runtime";
 import { PiMessages } from "./pi-projection";
 import { openPiSession } from "./pi-session";
@@ -82,12 +83,8 @@ export class PiMain {
   private observed(manager: Awaited<ReturnType<typeof openPiSession>>["manager"], event: AgentSessionEvent) {
     void this.history.event(this.messages, event);
 
-    if (event.type === "message_end" && event.message.role === "user") {
-      const receiptId = this.messages.receiptIdentity(event.message);
-
-      if (receiptId) {
-        preservePiBinding(manager, receiptId, event.message);
-      }
+    if (event.type === "message_end") {
+      preservePiOrigins(manager, this.messages.receiptIdentity(event.message), event.message, this.history.active?.id);
     }
 
     if (event.type === "message_end" || event.type === "entry_appended") {
@@ -113,6 +110,7 @@ export class PiMain {
     this.selection = opened.selection;
     this.effort = opened.session.thinkingLevel;
     await this.tasks.start(opened.manager, opened.session);
+    reconcileTaskDeliveries(this.config.threadId, opened.state.turns);
     opened.session.subscribe(this.observed.bind(this, opened.manager));
     await opened.session.bindExtensions({});
     await this.history.persist();

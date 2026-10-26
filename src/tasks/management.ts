@@ -1,3 +1,4 @@
+import { regenerateTaskProjections } from "./projections";
 import { t } from "try";
 import { valueAfterCleanup } from "../lib/results";
 import { TaskRepository, updateTasks } from "./repository";
@@ -38,6 +39,10 @@ function reviewedOperation(revision: number, operation: TaskOperation, reason: s
 @param reason - Operator explanation.
 @returns Committed checkpoint.
 */
-export function changeTask(parentId: string, revision: number, operation: TaskOperation, reason: string) {
-  return updateTasks(parentId, reason, reviewedOperation.bind(undefined, revision, operation, reason));
+export async function changeTask(parentId: string, revision: number, operation: TaskOperation, reason: string) {
+  const state = updateTasks(parentId, reason, reviewedOperation.bind(undefined, revision, operation, reason));
+
+  await regenerateTaskProjections(parentId);
+
+  return state;
 }

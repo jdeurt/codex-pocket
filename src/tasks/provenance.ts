@@ -40,6 +40,7 @@ export function receiptEvent(parentId: string, receipt: Receipt, scheduled: Snap
     text: receipt.source?.intent ?? (receipt.source ? "" : receipt.text),
     occurrenceId: origin === "scheduled" ? receipt.id : undefined,
     contentRefs: [`receipt:${receipt.id}`],
+    references: receipt.source?.intentContext ?? [],
     visibility: isRequest && origin !== "scheduled" ? "user" : "internal",
     delivery: "not_delivered",
   };

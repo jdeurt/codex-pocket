@@ -46,10 +46,11 @@ export async function observeDelegation(done: Promise<void>, childId: string) {
 /** Persist native output with a runtime-generated source identity.
 @param store - Durable output owner.
 @param child - Scoped child identity.
+@param commandId - Exact assignment producing the output.
 @param text - Native output.
 */
-export function recordDelegationOutput(store: DelegationStore, child: SidePocket, text: string) {
-  store.mail.record(child.parentId, child.id, `output:${crypto.randomUUID()}`, "output", { text }, false);
+export function recordDelegationOutput(store: DelegationStore, child: SidePocket, commandId: string, text: string) {
+  store.mail.record(child.parentId, child.id, `output:${crypto.randomUUID()}`, "output", { text }, false, commandId);
 }
 
 /**

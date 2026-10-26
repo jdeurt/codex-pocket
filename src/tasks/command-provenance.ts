@@ -2,7 +2,7 @@ import type { ExtensionAPI, ExtensionContext, ToolCallEvent } from "@earendil-wo
 import { object, string } from "../lib/protocol";
 import type { Ledger } from "./model";
 import { updateTasks } from "./repository";
-import { piReceiptIdentity } from "./adapters/pi";
+import { piOutputOrigins } from "./adapters/pi";
 import { reconcileRoutes } from "./reconciliation";
 import { recordEvent } from "./transitions";
 import { requestIdentity } from "./provenance";
@@ -41,10 +41,8 @@ function beforeTaskTool(parentId: string, event: ToolCallEvent, context: Extensi
   }
 
   const entries = context.sessionManager.getBranch();
-  // Walk native ancestry from the assistant that owns the call, including nested calls.
   const rootCall = event.parentToolCallId ?? event.toolCallId;
-
-  let current: string | null = null;
+  const requestIds = new Set<string>();
 
   for (const entry of entries) {
     if (entry.type !== "message" || entry.message.role !== "assistant") {
@@ -52,44 +50,26 @@ function beforeTaskTool(parentId: string, event: ToolCallEvent, context: Extensi
     }
 
     for (const part of entry.message.content) {
-      if (part.type === "toolCall" && part.id === rootCall) {
-        current = entry.parentId;
+      if (part.type !== "toolCall" || part.id !== rootCall) {
+        continue;
+      }
+
+      const origin = piOutputOrigins(entries, entry);
+
+      const origins = origin?.requestIds ?? [];
+
+      for (const request of origins) {
+        requestIds.add(request);
       }
     }
   }
 
-  let requestId: string | null = null;
-
-  const seen = new Set<string>();
-
-  while (current && !seen.has(current)) {
-    seen.add(current);
-    let next: string | null = null;
-
-    for (const entry of entries) {
-      if (entry.id !== current) {
-        continue;
-      }
-
-      next = entry.parentId;
-
-      if (entry.type !== "message" || entry.message.role !== "user") {
-        continue;
-      }
-
-      const receiptId = piReceiptIdentity(entries, entry);
-
-      requestId = receiptId ? requestIdentity(receiptId) : null;
-      next = null;
-    }
-
-    current = next;
-  }
+  const requestId = requestIds.size === 1 ? [...requestIds][0] : null;
 
   updateTasks(
     parentId,
     "Record native command request origin before dispatch",
-    recordIntent.bind(undefined, { callId: event.toolCallId, key, requestId })
+    recordIntent.bind(undefined, { callId: event.toolCallId, key, requestId, requestIds: [...requestIds] })
   );
 }
 
@@ -115,16 +95,26 @@ function inheritCommand(command: { id: string; childId: string }, key: string, s
   }
 
   const requests = new Set<string | null>();
+  const requestIds = new Set<string>();
 
   for (const intent of state.commandIntents) {
-    if (intent.key === key) {
-      requests.add(intent.requestId);
+    if (intent.key !== key) {
+      continue;
+    }
+
+    requests.add(intent.requestId);
+
+    for (const origin of intent.requestIds) {
+      requestIds.add(origin);
     }
   }
 
   const requestId = requests.size === 1 ? [...requests][0] : null;
 
-  return reconcileRoutes({ ...state, commands: [...state.commands, { ...command, requestId }] });
+  return reconcileRoutes({
+    ...state,
+    commands: [...state.commands, { ...command, requestId, requestIds: [...requestIds] }],
+  });
 }
 
 /** Persist a managed command's per-command origin before returning its accepted identity.

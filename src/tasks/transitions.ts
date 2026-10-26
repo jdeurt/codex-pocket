@@ -42,6 +42,15 @@ export function recordEvent(state: Ledger, event: TaskEvent): Ledger {
   return { ...state, events: [...state.events, canonical] };
 }
 
+/** Advance the revision of each task whose membership changed.
+@param changed - Explicit changed task identities.
+@param task - Prior task.
+@returns Revised task when membership changed.
+*/
+function reviseMembershipTask(changed: ReadonlySet<string>, task: Ledger["tasks"][number]) {
+  return changed.has(task.id) ? { ...task, revision: task.revision + 1 } : task;
+}
+
 /** Apply one explainable assignment against its exact input revision.
 @param state - Current ledger.
 @param decision - Validated policy or classifier output.
@@ -67,14 +76,21 @@ export function assignEvent(state: Ledger, decision: Decision): Ledger {
       throw new Error("Task identity already exists.");
     }
 
+    const references = event.references;
+    const contextualIntent =
+      references.length > 0
+        ? `${event.text}\n\nObserved current-call context (bounded):\n${references.join("\n")}`
+        : event.text;
+    const originalIntent = assignment.originalIntent ?? contextualIntent;
+
     tasks.push({
       authority: state.mode === "shadow" ? "proposal" : "live",
       id: assignment.taskId,
       revision: 0,
       title: assignment.title,
       originalEventId: event.id,
-      originalIntent: event.text,
-      summary: event.text,
+      originalIntent,
+      summary: originalIntent,
       work: "open",
       retention: "active",
       pendingQuestions: [],
@@ -112,9 +128,7 @@ export function assignEvent(state: Ledger, decision: Decision): Ledger {
     }
   }
 
-  const revisedTasks = Array.from(tasks, (task) =>
-    changedTaskIds.has(task.id) ? { ...task, revision: task.revision + 1 } : task
-  );
+  const revisedTasks = Array.from(tasks, reviseMembershipTask.bind(undefined, changedTaskIds));
 
   return {
     ...state,

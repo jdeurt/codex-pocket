@@ -2,9 +2,10 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { z } from "zod";
 import { taskDirectory, writeTaskFile } from "./archive";
+import { readTaskLedger } from "./management";
 import { classifyTaskLedger } from "./classification-runtime";
 import { latestDecision } from "./reconciliation";
-import { isParentTaskFile } from "./retrieval/views";
+import { isParentTaskFile } from "./retrieval/paths";
 import type { Ledger } from "./model";
 
 const legacyGroupSchema = z.object({
@@ -91,6 +92,10 @@ export function shadowComparison(state: Ledger, legacy: LegacyMembership[]) {
 @returns Shadow checkpoint and reviewable comparison.
 */
 export async function shadowTaskPass(parentId: string, apiKey: string, signal?: AbortSignal) {
+  if (readTaskLedger(parentId).mode !== "shadow") {
+    throw new Error("Shadow classification requires a shadow ledger; the live ledger was not changed.");
+  }
+
   const state = await classifyTaskLedger(parentId, apiKey, signal);
   const comparison = shadowComparison(state, await legacyMemberships(parentId));
 

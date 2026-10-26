@@ -19,6 +19,8 @@ export const eventSchema = z.object({
   receiptId: z.string().optional(),
   nativeEntryId: z.string().optional(),
   requestId: z.string().optional(),
+  requestIds: z.array(z.string()).default([]),
+  turnId: z.string().optional(),
   commandId: z.string().optional(),
   causedBy: z.string().optional(),
   inReplyTo: z.string().optional(),
@@ -27,6 +29,7 @@ export const eventSchema = z.object({
   callIds: z.array(z.string()).default([]),
   text: z.string(),
   contentRefs: z.array(z.string()),
+  references: z.array(z.string()).default([]),
   visibility: z.enum(["user", "internal", "unknown"]),
   delivery: z.enum(["not_delivered", "delivered", "uncertain"]),
 });
@@ -55,10 +58,44 @@ const RATIONALE_LIMIT = 1000;
 
 export const assignmentSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("attach"), taskIds: nonemptyTaskIds, span: spanSchema.optional() }),
-  z.object({ kind: z.literal("create"), taskId: z.string(), title: z.string() }),
+  z.object({ kind: z.literal("create"), taskId: z.string(), title: z.string(), originalIntent: z.string().optional() }),
   z.object({ kind: z.literal("conversation") }),
   z.object({ kind: z.literal("unresolved"), diagnostic: z.string() }),
 ]);
+const idList = z.array(z.string()).min(1);
+const questionList = z.array(z.string());
+const operationSpanSchema = z.object({ taskId: z.string(), start: z.number().int(), end: z.number().int() });
+const operationSpans = z.array(operationSpanSchema);
+
+export const taskOperationSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("assign"), eventId: z.string(), assignment: assignmentSchema }),
+  z.object({
+    kind: z.literal("work"),
+    taskId: z.string(),
+    work: z.enum(["open", "waiting", "resolved", "canceled"]),
+    evidence: idList,
+    summary: z.string().optional(),
+    pendingQuestions: questionList.optional(),
+  }),
+  z.object({ kind: z.literal("retain"), taskId: z.string(), retention: z.enum(["active", "archived"]) }),
+  z.object({
+    kind: z.literal("move"),
+    eventId: z.string(),
+    taskIds: idList,
+    spans: operationSpans.optional(),
+  }),
+  z.object({
+    kind: z.literal("split"),
+    taskId: z.string(),
+    newTaskId: z.string(),
+    title: z.string(),
+    eventIds: idList,
+  }),
+  z.object({ kind: z.literal("merge"), taskIds: idList, targetTaskId: z.string() }),
+]);
+
+export type TaskOperation = z.infer<typeof taskOperationSchema>;
+
 export const decisionSchema = z.object({
   id: z.string(),
   eventId: z.string(),
@@ -71,9 +108,19 @@ export const decisionSchema = z.object({
   assignment: assignmentSchema,
   supersedes: z.array(z.string()),
 });
-export const commandSchema = z.object({ id: z.string(), childId: z.string(), requestId: z.string().nullable() });
+export const commandSchema = z.object({
+  id: z.string(),
+  childId: z.string(),
+  requestId: z.string().nullable(),
+  requestIds: z.array(z.string()).default([]),
+});
 export const bindingSchema = z.object({ nativeEntryId: z.string(), receiptId: z.string() });
-const commandIntentSchema = z.object({ callId: z.string(), key: z.string(), requestId: z.string().nullable() });
+const commandIntentSchema = z.object({
+  callId: z.string(),
+  key: z.string(),
+  requestId: z.string().nullable(),
+  requestIds: z.array(z.string()).default([]),
+});
 
 const lifecycleChangeSchema = z.object({
   id: z.string(),
@@ -87,6 +134,8 @@ export const ledgerSchema = z.object({
   parentId: z.string(),
   revision: z.number().int().nonnegative(),
   cursor: z.string().nullable(),
+  nextSequence: z.number().int().nonnegative().default(0),
+  migrationVersion: z.number().int().nonnegative().default(0),
   events: z.array(eventSchema),
   tasks: z.array(taskSchema),
   memberships: z.array(membershipSchema),
@@ -115,6 +164,8 @@ export function initialLedger(parentId: string): Ledger {
     parentId,
     revision: 0,
     cursor: null,
+    nextSequence: 0,
+    migrationVersion: 0,
     events: [],
     tasks: [],
     memberships: [],
@@ -125,4 +176,13 @@ export function initialLedger(parentId: string): Ledger {
     changes: [],
     mode: "shadow",
   };
+}
+
+/** Keep shadow proposals separate from authoritative live and legacy tasks.
+@param mode - Explicit ledger mode.
+@param task - Task navigation value.
+@returns Whether this task participates in the current authoritative view.
+*/
+export function isTaskAuthoritative(mode: Ledger["mode"], task: Task) {
+  return mode === "shadow" || task.authority !== "proposal";
 }
