@@ -50,7 +50,8 @@ export async function classifyTaskIntent(
     apiKey,
     signal,
     { current_request: event.text, relevant_references: event.references ?? [], tasks },
-    questions
+    questions,
+    { parentId: state.parentId, feature: "task_intent", provider: "openai", model: TASK_CLASSIFIERS.model }
   );
   const matches = Array.from(tasks, matchedEvidence.bind(undefined, probabilities));
 

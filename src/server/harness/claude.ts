@@ -32,6 +32,7 @@ import { claudePermissions } from "../../state/harness-permissions";
 import { log } from "../logging";
 import { waitForProcessExit } from "./process";
 import { z } from "zod";
+import { observeDelegateCost } from "../cost-tracking";
 
 export { claudeOptions } from "./claude-options";
 
@@ -121,6 +122,7 @@ Publish native display metadata before forwarding assistant text.
 @param message - Native SDK message from the owned query.
 */
   private event(message: SDKMessage) {
+    observeDelegateCost(this.options, message, this.sessionId, "unknown");
     log().debug({ childId: this.options.child.id, message }, "side_pocket.claude.event");
 
     this.publishNative(message);

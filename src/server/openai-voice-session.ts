@@ -6,6 +6,8 @@ import { RealtimeTools } from "./realtime-tools";
 import { RealtimeCaptions } from "./realtime-captions";
 import { log } from "./logging";
 import { type voiceWorkerResult } from "../state/voice-context";
+import { startVoiceCost, finishVoiceCost } from "./cost-tracking";
+import type { CostObservation } from "../lib/costs";
 
 /**
 Own call controls and history while WebRTC carries audio directly between the browser and OpenAI.
@@ -20,6 +22,7 @@ export class OpenAIVoiceSession extends EventTarget {
   private readonly captions;
   private sessionId?: string;
   private closing?: Promise<void>;
+  private cost?: CostObservation;
 
   /**
   Bind the main agent used as a tool by the realtime conversational agent.
@@ -52,6 +55,7 @@ export class OpenAIVoiceSession extends EventTarget {
 
     switch (event.type) {
       case "session.closed": {
+        finishVoiceCost(this.cost, event);
         this.providerClosed();
         break;
       }
@@ -142,6 +146,8 @@ export class OpenAIVoiceSession extends EventTarget {
     }
 
     const sessionId = crypto.randomUUID();
+
+    this.cost = startVoiceCost(this.owner.threadId(), settings.model, sessionId);
     const transport = new OpenAIRealtime(this.received.bind(this, attempt, sessionId));
 
     this.token = crypto.randomUUID();

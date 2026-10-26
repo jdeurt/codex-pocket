@@ -3,6 +3,9 @@ import { test } from "../../fixtures/browser-workflow";
 import { z } from "zod";
 import { pocketSchema } from "../../../src/lib/pockets";
 import { POCKETS_ORIGIN } from "../../fixtures/browser-defaults";
+import { costDashboardFlow } from "../cost-dashboard";
+
+test("Settings costs graph filters recorded contributions by time, feature and model", costDashboardFlow);
 
 /** Create an independent conversation through the application's Pocket menu.
 @param page - Browser displaying the actual application.

@@ -21,6 +21,7 @@ import { log } from "../logging";
 import { sidePocketInstructions } from "../../state/harness-instructions";
 import { steerCodex } from "./codex-steering";
 import { validateAnswer } from "../../state/answers";
+import { observeDelegateCost } from "../cost-tracking";
 
 /**
 Classify native approval methods without treating unsupported requests as approvals.
@@ -47,6 +48,7 @@ export class CodexAdapter implements HarnessAdapter {
   private rpc = new CodexRpc();
 
   private sessionId?: string;
+  private model = "unknown";
 
   private active?: string;
 
@@ -112,6 +114,8 @@ export class CodexAdapter implements HarnessAdapter {
     if (event.params.threadId && event.params.threadId !== this.sessionId) {
       return;
     }
+
+    observeDelegateCost(this.options, event, this.sessionId ?? "unknown", this.model);
 
     if (event.id !== undefined) {
       void this.settleRequest(this.answerRequest({ ...event, id: event.id }));
@@ -189,6 +193,7 @@ export class CodexAdapter implements HarnessAdapter {
     });
 
     this.sessionId = thread.id;
+    this.model = model;
     callbacks.metadata({
       model,
       effort: child.effort ?? child.policy.effort ?? reasoningEffort,

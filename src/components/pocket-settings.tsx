@@ -8,6 +8,7 @@ import { useStore } from "zustand";
 import { changeToolVisibility, submitKey, removeKey } from "@/runtime/settings-form";
 import { updateInput } from "@/runtime/form-events";
 import { useState } from "react";
+import { usePocketId } from "@/providers/pocket-navigation-context";
 
 /** Keep the visibility control responsive while persisting its global preference.
 @param props - Latest saved value, shared submission lock, and durable update callback.
@@ -47,6 +48,7 @@ function ToolCallSetting({
 @returns Central settings content, with credential values confined to the password input.
 */
 export function PocketSettingsPanel() {
+  const pocketId = usePocketId();
   const { settings } = usePocketClient();
   const { data, error: readError } = usePocketSettings();
   const [apiKey, setApiKey] = useState("");
@@ -55,6 +57,11 @@ export function PocketSettingsPanel() {
 
   return (
     <div className="pocket-settings">
+      <section aria-labelledby="usage-settings-heading">
+        <h3 id="usage-settings-heading">Usage</h3>
+        <a href={`/settings/usage?pocket=${encodeURIComponent(pocketId)}`}>Usage &amp; costs →</a>
+        <p className="pocket-settings-help">Explore recorded costs over time, by feature and model.</p>
+      </section>
       {(error || readError) && <p role="alert">{error || readError}</p>}
       <p role="status">{status || (data || readError ? "" : "Loading settings…")}</p>
       {data && (

@@ -51,3 +51,9 @@
   padding-inline: 12px;
   background: var(--secondary);
 }
+
+.pocket-settings section > a {
+  display: flex;
+  align-items: center;
+  min-height: 44px;
+}

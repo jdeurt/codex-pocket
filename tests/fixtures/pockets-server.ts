@@ -4,6 +4,7 @@ import { POCKETS_ORIGIN } from "./browser-defaults";
 import path from "node:path";
 import { runNextFixture } from "./next-server";
 import { simulatorArgs } from "../simulators/launch";
+import { seedCostFixture } from "./costs";
 
 const HISTORY_ROWS = 320;
 const USER_CADENCE = 4;
@@ -68,6 +69,8 @@ async function prepare() {
 }
 
 const prepared = await prepare();
+
+seedCostFixture(path.join(directory, "state"), Date.now());
 
 await runNextFixture("pockets", POCKETS_ORIGIN, {
   CODEX_THREAD_ID: prepared.parent.id,
