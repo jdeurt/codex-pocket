@@ -67,6 +67,14 @@ export function sourceTaskAssociations(state: Ledger, nativeEntryId: string) {
   return associations;
 }
 
+/** Keep untrusted navigation titles on one line without interpreting their Markdown as task metadata.
+@param text - User-derived title.
+@returns Readable literal heading text.
+*/
+function navigationTitle(text: string) {
+  return text.replaceAll(/\s+/gu, " ").replaceAll(/([\\`*_{}[\]()#+\-.!<>|])/gu, String.raw`\$1`);
+}
+
 /** Render one member with a bounded native preview and exact source references.
 @param event - Original event metadata.
 @param member - Authoritative association.
@@ -94,7 +102,10 @@ function memberMarkdown(event: TaskEvent, member: Membership, sources: TaskSourc
     for (const part of view.parts) {
       const preview = part.text.slice(0, PREVIEW_LENGTH);
 
-      lines.push(...Array.from(preview.split("\n"), indentedSourceLine));
+      lines.push(
+        `${part.label}${part.callId ? ` · Call ID: ${part.callId}` : ""}`,
+        ...Array.from(preview.split("\n"), indentedSourceLine)
+      );
 
       if (preview.length < part.text.length) {
         lines.push("Preview truncated; read the exact original.");
@@ -122,7 +133,7 @@ function memberMarkdown(event: TaskEvent, member: Membership, sources: TaskSourc
 */
 export function taskMarkdown(state: Ledger, task: Task, directory: string, sources: TaskSource[]) {
   const lines = [
-    `# ${task.title}`,
+    `# ${navigationTitle(task.title)}`,
     "",
     `Task ID: ${JSON.stringify(task.id)}`,
     `Ledger revision: ${String(state.revision)} · Task revision: ${String(task.revision)}`,
