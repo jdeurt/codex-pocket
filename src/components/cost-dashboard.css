@@ -1,0 +1,235 @@
+.cost-page {
+  height: 100dvh;
+  overflow: auto;
+  padding: max(24px, env(safe-area-inset-top)) 24px max(32px, env(safe-area-inset-bottom));
+}
+.cost-page-inner {
+  max-width: 1000px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 24px;
+  min-width: 0;
+}
+.cost-page-inner > * {
+  min-width: 0;
+}
+.cost-back,
+.cost-heading,
+.cost-heading button {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.cost-back {
+  color: var(--muted-foreground);
+  width: fit-content;
+  min-height: 44px;
+}
+.cost-back svg,
+.cost-heading svg {
+  width: 18px;
+  height: 18px;
+}
+.cost-heading {
+  justify-content: space-between;
+}
+.cost-heading h1 {
+  font-size: clamp(24px, 4vw, 32px);
+  font-weight: 600;
+}
+.cost-updated,
+.cost-heading p,
+.cost-notes,
+.cost-chart figcaption {
+  color: var(--muted-foreground);
+  font-size: 14px;
+}
+.cost-heading button,
+.cost-page select,
+.cost-page input {
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--secondary);
+  color: var(--foreground);
+  font: inherit;
+}
+.cost-page button,
+.cost-notes summary {
+  cursor: pointer;
+}
+.cost-page button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.cost-filters {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+}
+.cost-filters > div,
+.cost-grouping {
+  display: grid;
+  gap: 8px;
+  font-size: 14px;
+  min-width: 0;
+}
+.cost-filters select,
+.cost-filters input {
+  width: 100%;
+  min-width: 0;
+}
+.cost-grouping {
+  grid-template-columns: auto minmax(100px, 160px);
+  align-items: center;
+  justify-content: end;
+}
+.cost-summary {
+  display: grid;
+  gap: 8px;
+  padding-block: 8px;
+}
+.cost-summary p:not(.cost-total) {
+  color: var(--muted-foreground);
+  font-size: 14px;
+  line-height: 1.6;
+}
+.cost-summary .cost-total-label {
+  font-size: 16px;
+  color: var(--foreground);
+}
+.cost-total-label span {
+  color: var(--muted-foreground);
+  font-size: 14px;
+}
+.cost-total {
+  font-size: clamp(36px, 6vw, 48px);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  line-height: 1.2;
+}
+.cost-summary .cost-coverage {
+  color: var(--foreground);
+  border-left: 2px solid var(--border);
+  padding-left: 12px;
+}
+.cost-chart-scroll,
+.cost-table-scroll {
+  overflow-x: auto;
+}
+.cost-chart svg {
+  height: auto;
+  width: 100%;
+  min-width: 0;
+  display: block;
+}
+.cost-chart rect:focus {
+  stroke: var(--foreground);
+  stroke-width: 2px;
+  outline: none;
+}
+.cost-axis {
+  fill: var(--muted-foreground);
+  font-size: 12px;
+}
+.cost-axis line {
+  stroke: var(--border);
+  stroke-opacity: 0.5;
+}
+.cost-chart figcaption {
+  padding-top: 4px;
+}
+.cost-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  padding-top: 16px;
+  font-size: 13px;
+  list-style: none;
+}
+.cost-legend li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow-wrap: anywhere;
+}
+.cost-legend span {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex: none;
+}
+.cost-page h2 {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 12px;
+}
+.cost-page table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.cost-page th,
+.cost-page td {
+  text-align: right;
+  padding: 14px 12px;
+  border-bottom: 1px solid var(--border);
+  white-space: nowrap;
+}
+.cost-page th:first-child {
+  text-align: left;
+  padding-left: 0;
+}
+.cost-page thead th {
+  color: var(--muted-foreground);
+  font-weight: 400;
+}
+.cost-page tbody th {
+  font-weight: 500;
+}
+.cost-page small {
+  display: block;
+  color: var(--muted-foreground);
+  font-size: 12px;
+  font-weight: 400;
+  margin-top: 4px;
+}
+.cost-empty {
+  color: var(--muted-foreground);
+  padding-block: 32px;
+}
+.cost-notes {
+  border-top: 1px solid var(--border);
+  padding-top: 20px;
+  line-height: 1.6;
+  overflow-wrap: anywhere;
+}
+.cost-notes summary {
+  color: var(--foreground);
+  min-height: 44px;
+}
+.cost-notes p,
+.cost-notes ul {
+  margin-bottom: 12px;
+}
+.cost-notes ul {
+  padding-left: 20px;
+  list-style: disc;
+}
+@media (max-width: 600px) {
+  .cost-page {
+    padding-inline: 16px;
+  }
+  .cost-filters {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .cost-filters > div:first-child {
+    grid-column: 1 / -1;
+  }
+  .cost-heading button {
+    padding-inline: 10px;
+  }
+}

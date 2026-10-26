@@ -7,6 +7,7 @@ import { MAIN_INSTRUCTIONS } from "./pocket-prompts";
 import { localDirectory } from "./local-state";
 import path from "node:path";
 import { taskDirectory } from "../tasks/archive";
+import { costAccountingExtension } from "./cost-extension";
 
 /** Read the host's narrowly scoped native MCP environment.
 @param config - Validated parent configuration.
@@ -62,6 +63,7 @@ export async function piResources(config: Config, agentDir: string, instructions
     noExtensions: true,
     extensionFactories: [
       mcp,
+      costAccountingExtension.bind(undefined, config.threadId),
       taskProvenanceExtension.bind(undefined, config.threadId),
       taskContextExtension.bind(undefined, config.threadId),
     ],

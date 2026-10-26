@@ -1,5 +1,27 @@
 # Usage reports
 
+## Settings dashboard
+
+Open **Settings → Usage & costs** to see recorded usage across all Pockets on this computer. The D3 stacked bar chart groups daily known costs by feature or model. Choose the last 7, 30 or 90 calendar days, or a custom interval of up to 366 days. Feature and qualified provider/model filters apply to the chart, totals and contribution table together. Dates use the browser's timezone; custom end dates are inclusive. Refresh reads local accounting without calling a model.
+
+Pocket retains content-free observations in the private `costs.sqlite` ledger under its configured state directory. SQLite upserts use stable native entry/request identities; reopening a Pi session does not count its source usage twice. Each actual Decisions HTTP attempt gets a new identity before dispatch, so an aborted or failed attempt without returned usage remains visible as unknown. Concurrent Pocket processes share the ledger safely. The guarded, non-cacheable `/api/costs` endpoint exposes aggregates, never prompts, outputs, credentials or source paths.
+
+Recorded features include:
+
+- Main agent: native Pi assistant usage, including errors and interrupted requests when the SDK exposes accounting.
+- Context & compaction: native compaction, branch-summary and usage entries, including cache warming when exposed. Aggregate native summary usage may represent multiple internal calls.
+- Task membership and task completion: separate feature identities, actual returned token counts and dated Decisions-specific estimates. Decisions output tokens are free; cache reads and writes are subsets of total input. The initial standard estimate assumes 30-minute cache writes.
+- Live voice: the final provider `usage.seconds`, counted once per application-owned call, with backend work accounted separately.
+- Side Pockets: incremental managed Codex notifications and Claude assistant-request usage. Unknown model rates remain unknown. Unrelated local native conversations are not scanned.
+
+Known dollars combine estimates and any reported amounts, displayed separately. Unknown costs are excluded from dollar totals and counted explicitly, rather than treated as free. Token estimates from native SDK catalogs are API-equivalent estimates, not invoices or subscription consumption. Pricing provenance is saved with each observation; streaming updates replace the same request rather than adding a new charge. Service tiers, regional and long-context premiums, discounts, separately billed tools and unexposed SDK accounting can change the actual bill. Recorded token and time totals are partial when providers do not return accounting.
+
+Reopening an existing Pi conversation imports accounting in its immutable native records. Older classifier, voice and delegate calls are not reconstructed. Running or interrupted calls can lack final usage permanently. Tracking is observational and does not enforce a spending limit.
+
+Decisions and voice rate sources: [Decisions pricing](https://developers.openai.com/api/docs/guides/decisions#pricing-and-availability), [model and cache pricing](https://developers.openai.com/api/docs/pricing), and [GPT-Live per-second billing](https://developers.openai.com/api/docs/models/gpt-live-1), checked October 26, 2026 UTC.
+
+## CLI reports
+
 Run these commands from a source checkout after `npm ci`, using Node.js 24. They read local Codex and Claude Code records; they are developer scripts, not `pocket` CLI subcommands. Choose an explicit interval or a local calendar day and IANA timezone:
 
 ```sh

@@ -6,9 +6,15 @@ import type { LifecycleInput } from "./lifecycle-evidence";
 @param apiKey - Current server-only provider credential.
 @param signal - Runtime-owned preemption boundary.
 @param input - Bounded source evidence and application-owned execution/delivery facts.
+@param parentId - Trusted owning Pocket identity for accounting.
 @returns Validated assessment probabilities; deterministic policy owns transitions.
 */
-export function classifyTaskLifecycle(apiKey: string, signal: AbortSignal | undefined, input: LifecycleInput) {
+export function classifyTaskLifecycle(
+  apiKey: string,
+  signal: AbortSignal | undefined,
+  input: LifecycleInput,
+  parentId: string
+) {
   const definition = TASK_CLASSIFIERS.lifecycle;
   const questions: ClassifierQuestion[] = [...definition.questions];
 
@@ -35,5 +41,10 @@ export function classifyTaskLifecycle(apiKey: string, signal: AbortSignal | unde
     });
   }
 
-  return classifyPredicates(apiKey, signal, input, questions);
+  return classifyPredicates(apiKey, signal, input, questions, {
+    parentId,
+    feature: "task_lifecycle",
+    provider: "openai",
+    model: TASK_CLASSIFIERS.model,
+  });
 }

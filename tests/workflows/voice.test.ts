@@ -5,12 +5,14 @@ import { nativeText } from "../../src/state/harness-transcript";
 import { type Snapshot, type Data, object } from "../../src/lib/protocol";
 import { visibleSnapshot } from "../../src/state/visible-snapshot";
 import { groupedVoiceSegments } from "../../src/state/voice";
+import { readCostReport } from "../../src/server/cost-store";
 import { VoiceHistory } from "../../src/server/voice-history";
 import { voiceWorkflow, TEST_SDP } from "../fixtures/voice-workflow";
 import { eventually } from "../fixtures/workflow";
 import assert from "node:assert/strict";
 import test from "node:test";
 
+const COST_WINDOW_MS = 60_000;
 const LAST = -1;
 const RESULT_BYTES = 400;
 const INPUT_END_MS = 500;
@@ -307,6 +309,15 @@ await test("backend voice hangup waits for final usage and preserves active main
   assert.equal(flow.bridge.snapshot.activeTurnId, activeTurnId);
   flow.emit({ type: "session.closed", usage: { seconds: 2 }, reason: "client_close" });
   assert.equal(await ending, true);
+  const costs = readCostReport({
+    start: new Date(Date.now() - COST_WINDOW_MS).toISOString(),
+    end: new Date(Date.now() + COST_WINDOW_MS).toISOString(),
+    timezone: "UTC",
+    feature: "voice",
+  });
+
+  assert.equal(costs.groups[0]?.calls, 1);
+  assert.equal(costs.groups[0]?.seconds, 2);
   assert.equal(flow.voice.owns(started.token), false);
   assert.equal(flow.calls.filter(isHangup.bind(undefined)).length, 0);
   const next = await flow.voice.start(TEST_SDP);

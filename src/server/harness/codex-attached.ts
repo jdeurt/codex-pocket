@@ -9,6 +9,7 @@ import { harnessMessages } from "../../state/harness-transcript";
 import { loadHistory } from "../history";
 import { requireLoadedSession } from "../session-adoption";
 import { steerCodex } from "./codex-steering";
+import { observeDelegateCost } from "../cost-tracking";
 
 /**
 Observe and address the actual owning app-server while retaining its policy and process ownership.
@@ -16,6 +17,7 @@ Observe and address the actual owning app-server while retaining its policy and 
 export class AttachedCodexAdapter implements HarnessAdapter {
   private rpc = new CodexRpc();
   private active?: string;
+  private model = "unknown";
   private pending?: { resolve: (result: HarnessResult) => void; reject: (error: Error) => void };
   private completed = new Map<string, HarnessResult>();
   private output = new Map<string, string>();
@@ -55,6 +57,8 @@ export class AttachedCodexAdapter implements HarnessAdapter {
     if (event.params.threadId !== this.options.child.sessionId || event.id !== undefined) {
       return;
     }
+
+    observeDelegateCost(this.options, event, this.options.child.sessionId ?? "unknown", this.model);
 
     if (event.method === "turn/started") {
       this.active = event.params.turn?.id;
@@ -102,6 +106,7 @@ export class AttachedCodexAdapter implements HarnessAdapter {
     }
 
     this.active = activeNativeTurn(thread.turns, this.completed);
+    this.model = model;
     this.options.callbacks.metadata({ model, effort: reasoningEffort, sessionStarted: true });
 
     return thread.id;

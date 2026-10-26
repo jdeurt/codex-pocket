@@ -87,7 +87,7 @@ async function reviewLifecycle(
     const isKnownWaiting = input.pendingQuestions.length > 0 || (!isMainTurnActive && !areCommandsSettled(input));
     const probabilities = isKnownWaiting
       ? new Map<string, number>()
-      : await classifyTaskLifecycle(apiKey, signal, input);
+      : await classifyTaskLifecycle(apiKey, signal, input, state.parentId);
 
     signal?.throwIfAborted();
     const currentFacts = readCommandEvidence(state.parentId, commands);

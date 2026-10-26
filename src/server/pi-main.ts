@@ -17,6 +17,7 @@ import { piInput } from "./pi-input";
 import { PiQuestions } from "./pi-questions";
 import { PiActivity } from "./pi-activity";
 import { PiChat } from "./pi-chat";
+import { PiCosts } from "./cost-tracking";
 
 /**
 Embed Pi behind Pocket's canonical parent lifecycle while keeping native delegates separate.
@@ -32,6 +33,7 @@ export class PiMain {
   private tasks: PiTaskContext;
   private questions: PiQuestions;
   private activity: PiActivity;
+  private costs?: PiCosts;
 
   /** Bind this parent's existing identity, native read-only compatibility transport and event sink.
   @param config - Validated host-owned parent configuration.
@@ -90,7 +92,10 @@ export class PiMain {
     }
 
     if (event.type === "message_end" || event.type === "entry_appended") {
+      this.costs?.sync(manager.getEntries());
       void this.tasks.sync(manager);
+    } else if (["turn_end", "agent_end", "auto_compaction_end"].includes(event.type)) {
+      this.costs?.sync(manager.getEntries());
     }
 
     this.activity.accept(event, this.history.active?.id);
@@ -109,6 +114,8 @@ export class PiMain {
     this.history.restore(opened.state);
     this.session = opened.session;
     this.runtime = opened.runtime;
+    this.costs = new PiCosts(this.config.threadId);
+    this.costs.sync(opened.manager.getEntries());
     this.selection = opened.selection;
     this.effort = opened.session.thinkingLevel;
     await this.tasks.start(opened.manager, opened.session);
