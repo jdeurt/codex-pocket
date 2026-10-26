@@ -35,6 +35,7 @@ export function receiptEvent(parentId: string, receipt: Receipt, scheduled: Snap
     id: requestIdentity(receipt.id),
     parentId,
     receiptId: receipt.id,
+    voiceSource: receipt.source,
     requestId: isRequest ? requestIdentity(receipt.id) : undefined,
     origin,
     text: receipt.source?.intent ?? (receipt.source ? "" : receipt.text),

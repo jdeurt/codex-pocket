@@ -8,7 +8,7 @@
 | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
 | Values, schemas, invariants                  | `model.ts`, `invariants.ts`                                                                                                                                                       | Pure                                                                                      |
 | Origin interpretation, assignment, lifecycle | `provenance.ts`, `routing.ts`, `transitions.ts`, `reconciliation.ts`, `interpretation.ts`, `lifecycle.ts`                                                                         | Pure                                                                                      |
-| Context and navigation transformations       | `context.ts`, `projection-model.ts`, `render.ts`, retrieval's `model.ts`, `documents.ts`, `passage.ts`, `protocol.ts`                                                             | Pure                                                                                      |
+| Context and navigation transformations       | `context.ts`, `inspection.ts`, `projection-model.ts`, `render.ts`, retrieval's `model.ts`, `documents.ts`, `passage.ts`, `protocol.ts`                                            | Pure                                                                                      |
 | Native ingestion, provider calls, timers     | `runtime.ts`, `native-ingestion.ts`, `ingestion.ts`, `intent-classifier.ts`, `classification-runtime.ts`, `command-provenance.ts`, `context-extension.ts`, `delivery-evidence.ts` | Effectful                                                                                 |
 | Storage, migration, projection writes        | `repository.ts`, `source-io.ts`, `archive.ts`, `sources.ts`, `migration.ts`, `management.ts`, `projections.ts`, `proposals.ts`, `shadow.ts`                                       | Effectful                                                                                 |
 | Native and legacy adapters                   | `adapters/`                                                                                                                                                                       | Native persistence is effectful; parsing and identity transformations use explicit inputs |
@@ -43,7 +43,7 @@ Each assignment retains its source, policy/classifier version, input revision, t
 
 A completed model turn does not resolve work. Work transitions require supporting task-member event references. Explicit corrections can reopen work. Retention changes do not establish completion. Legacy delivery remains uncertain unless actual evidence establishes delivery. Confirmed canonical `pocket_send_to_chat` persistence supplies delivery evidence; restart reconciliation recovers these identities from the application-owned projection.
 
-The context planner preserves pending requests, constraints, questions, and command identities independently of grouping. Native model calls receive this protected context, including after auto-compaction. Compaction is refused when the protected context exceeds the explicit budget. There is no nonmatch-based closure or grouping-triggered compaction.
+The context planner preserves pending requests, constraints, questions, and command identities independently of grouping. Native model calls receive this protected context, including after auto-compaction. Compaction is refused when the protected context exceeds the explicit budget. Oversized protected work stays intact; the model receives a small navigation packet pointing to paged inspection rather than another copy of the oversized context. There is no nonmatch-based closure or grouping-triggered compaction.
 
 ## Ledger and projections
 
@@ -55,7 +55,7 @@ Retrieval creates one primary representation per exact source passage, independe
 
 ## Review and repair
 
-`pocket_task_inspect` exposes authoritative state and its revision. `pocket_task_change` applies a concrete explained assign, move, split, merge, work, or retention operation against that inspected revision and regenerates task projections. Split and merge preserve unrelated memberships and spans. Originals and original task intent are not rewritten.
+`pocket_task_inspect` exposes bounded navigation pages and their revision. Select `taskId`, `eventId`, or `decisionId` for exact detail; `offset` and `limit` page larger collections. `pocket_task_change` applies a concrete explained assign, move, split, merge, work, or retention operation against that inspected revision and regenerates task projections. Split and merge preserve unrelated memberships and spans. Originals and original task intent are not rewritten.
 
 `pocket_task_propose` prepares a semantic proposal without committing it or dispatching work. Historical membership repairs require the user's authorization of the concrete proposal. Missing historical intent cannot be invented by the classifier.
 

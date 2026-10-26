@@ -16,7 +16,7 @@ function taskModelContext(parentId: string, event: ContextWithSystemEvent) {
   const context = {
     role: "system" as const,
     timestamp: Date.now(),
-    content: internalContext("task_ledger_context", plan.text),
+    content: internalContext("task_ledger_context", plan.modelText),
   };
 
   return { messages: [...event.messages, context] };

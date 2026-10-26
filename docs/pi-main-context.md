@@ -32,7 +32,7 @@ Private `tasks/<parent-hash>/ledger.sqlite` atomically records events, membershi
 
 An idle-session timer runs approximately every ten minutes. New user input preempts interpretation. Application-owned relationships route first; missing correlation remains unresolved. Semantic interpretation uses current intent and bounded task descriptions, including archived work. Unrelated requests do not close work. Explicit work changes require supporting event references, and actual chat-delivery evidence is independent of model completion.
 
-Native compaction uses a separate protected-context planner. Every model call receives pending work, constraints, questions, unresolved requests, and command identities. Compaction is refused if this protected context exceeds its budget. Historical memberships are retained as legacy decisions, and reclassification produces a reviewable proposal without replaying requests or delegate assignments.
+Native compaction uses a separate protected-context planner. Every model call receives pending work, constraints, questions, unresolved requests, and command identities. Compaction is refused if this protected context exceeds its budget. Oversized packets remain in the ledger while the model receives bounded navigation to paged task inspection. Historical memberships are retained as legacy decisions, and reclassification produces a reviewable proposal without replaying requests or delegate assignments.
 
 ### Local earlier-task search
 

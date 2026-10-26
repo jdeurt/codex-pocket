@@ -80,6 +80,56 @@ export function taskDelivery(state: Ledger, task: Task) {
   return { state: delivery, evidence };
 }
 
+const NAVIGATION_LIMIT = 5;
+
+/** Preserve task identities and provenance in a small model-navigation packet.
+@param task - Retained task value.
+@returns Bounded task navigation without replaying historical instructions.
+*/
+function contextTaskReference(task: Task) {
+  return {
+    id: task.id,
+    title: task.title.slice(0, TITLE_LENGTH),
+    authority: task.authority,
+    retention: task.retention,
+    work: task.work,
+    originalEventId: task.originalEventId,
+  };
+}
+
+/** Preserve delegate identities when full protected context must remain outside the prompt.
+@param command - Recorded delegate assignment.
+@returns Exact assignment and delegate identities.
+*/
+function contextCommandReference(command: Ledger["commands"][number]) {
+  return { id: command.id, childId: command.childId, requestId: command.requestId };
+}
+
+/** Select a bounded model packet while retaining the full protected checkpoint for compaction policy.
+@param state - Parent checkpoint.
+@param text - Complete protected context.
+@param budget - Explicit model-navigation budget.
+@returns Full context when it fits, otherwise navigation to exact inspection records.
+*/
+function modelContextText(state: Ledger, text: string, budget: number) {
+  if (text.length <= budget) {
+    return text;
+  }
+
+  const navigation = JSON.stringify({
+    revision: state.revision,
+    compactionAllowed: false,
+    diagnostic:
+      "Protected work exceeds the context budget. Existing history was retained. " +
+      "Use pocket_task_inspect pages or a taskId/eventId to read exact work before continuing.",
+    tasks: Array.from(state.tasks.slice(0, NAVIGATION_LIMIT), contextTaskReference),
+    commands: Array.from(state.commands.slice(0, NAVIGATION_LIMIT), contextCommandReference),
+    totals: { tasks: state.tasks.length, commands: state.commands.length },
+  });
+
+  return navigation.length <= budget ? navigation : "";
+}
+
 /** Select pending context independently of task grouping and completion.
 @param state - Current ledger.
 @param budget - Explicit available character budget for navigation context.
@@ -93,13 +143,12 @@ export function planTaskContext(state: Ledger, budget: number) {
       continue;
     }
 
-    if (state.mode === "live" && task.authority === "proposal") {
-      continue;
-    }
-
     if (task.work === "open" || task.work === "waiting" || task.pendingQuestions.length > 0) {
       required.push({
         id: task.id,
+        authority: task.authority,
+        retention: task.retention,
+        evidence: task.evidence,
         work: task.work,
         originalIntent: task.originalIntent,
         summary: task.summary,
@@ -122,12 +171,20 @@ export function planTaskContext(state: Ledger, budget: number) {
     }
   }
 
-  const protectedContext = { tasks: required, unresolved, commands: state.commands };
+  const protectedContext = {
+    policy:
+      "Legacy open state is conservative uncertainty, not a new request to replay " +
+      "historical work. Inspect original evidence and current authorization before acting.",
+    tasks: required,
+    unresolved,
+    commands: state.commands,
+  };
   const text = JSON.stringify(protectedContext);
 
   return {
     protectedContext,
     text,
+    modelText: modelContextText(state, text, budget),
     canCompact: text.length <= budget,
     diagnostic: text.length > budget ? "Pending work exceeds the context budget; retain source context." : null,
   };

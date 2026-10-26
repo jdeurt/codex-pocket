@@ -187,6 +187,7 @@ await test("Pi persists receipt-native bindings and call ownership across restar
   assert.equal(taskDelivery(routed, routed.tasks[0]).state, "delivered");
   assert.deepEqual(memberTasks(routed, toolResult.id), ["project-task"]);
   assert.equal(routed.events.find(hasEventId.bind(undefined, "request:voice"))?.text, "Find the project list.");
+  assert.equal(routed.events.find(hasEventId.bind(undefined, "request:voice"))?.voiceSource?.sessionId, "call");
   assert.equal(routed.events.find(hasEventId.bind(undefined, "history:voice"))?.text, "");
   assert.deepEqual(memberTasks(routed, "request:pocket-recovery:fixture"), []);
   const resumed = flow.create();

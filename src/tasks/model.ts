@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { messageSourceSchema } from "../lib/protocol";
 
 export const originSchema = z.enum([
   "typed",
@@ -17,6 +18,7 @@ export const eventSchema = z.object({
   parentId: z.string(),
   origin: originSchema,
   receiptId: z.string().optional(),
+  voiceSource: messageSourceSchema.optional(),
   nativeEntryId: z.string().optional(),
   requestId: z.string().optional(),
   requestIds: z.array(z.string()).default([]),
