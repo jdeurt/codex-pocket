@@ -121,3 +121,20 @@ export function openAgentBrowser(
 export function selectAgent(select: (id: string | null) => void, agent: AgentEntry) {
   select(agent.id);
 }
+
+/** Return from the agent list while resetting this visit's retained entries.
+@param open - Parent modal setter.
+@param select - Parent selection setter.
+@param publishVisit - Retained catalog setter.
+@param data - Latest catalog.
+*/
+export function closeAgentBrowser(
+  open: (isOpen: boolean) => void,
+  select: (id: string | null) => void,
+  publishVisit: (visit: AgentVisit) => void,
+  data: AgentCatalog | undefined
+) {
+  open(false);
+  select(null);
+  publishVisit({ data, entries: new Map() });
+}

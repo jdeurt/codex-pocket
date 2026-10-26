@@ -12,7 +12,7 @@ import { type PocketEdit as Edit } from "@/services/pockets";
 import { useBoundCallback } from "@/hooks/use-bound-callback";
 import { findById } from "@/lib/identity";
 import { isOperationBusy } from "@/state/resource";
-import { initialPocketMenu, pocketMenuChanged } from "@/state/pocket-menu";
+import { initialPocketMenu, pocketMenuChanged, canSwipePocketList } from "@/state/pocket-menu";
 import {
   createPocketEdit,
   renamePocketEdit,
@@ -22,6 +22,7 @@ import {
   openPocketMenu,
 } from "@/runtime/pocket-menu";
 import { focusControl, submitOperation, updateInput } from "@/runtime/form-events";
+import { useNavigationSwipe } from "@/hooks/use-navigation-swipe";
 import { useAgentRead } from "@/hooks/use-agents";
 
 /** Show a saved name, current work preview, and explicit management controls.
@@ -162,18 +163,18 @@ function MenuHeading({ isSettings, busy, back }: { isSettings: boolean; busy: bo
 @returns Header and accessible menu retaining the selected parent's independent URL.
 */
 export function PocketMenu({
+  open,
   model,
   status,
   onOpenChange,
 }: {
+  open: boolean;
   model: string;
   status: string;
   onOpenChange: (isOpen: boolean) => void;
 }) {
-  const [{ isOpen: open, isSettingsOpen: settingsOpen, edit }, dispatch] = useReducer(
-    pocketMenuChanged,
-    initialPocketMenu
-  );
+  const [menu, dispatch] = useReducer(pocketMenuChanged, initialPocketMenu);
+  const { isSettingsOpen: settingsOpen, edit } = menu;
   const { pockets, settings } = usePocketClient();
   const operation = useStore(pockets.store);
   const isSavingSettings = useStore(settings.store, isOperationBusy);
@@ -182,16 +183,19 @@ export function PocketMenu({
   const { data, error: readError } = useAgentRead("/api/pockets", pocketsSchema);
   const selected = usePocketId();
   const current = findById(data?.pockets ?? [], selected);
+  const changeOpen = useBoundCallback(openPocketMenu, pockets, dispatch, onOpenChange, isBusy);
+  const close = useBoundCallback(openPocketMenu, pockets, dispatch, onOpenChange, isBusy, false);
+  const swipe = useNavigationSwipe(canSwipePocketList(menu, open, isBusy), close);
 
   return (
     <header className="chat-header pocket-header">
-      <Dialog.Root open={open} onOpenChange={openPocketMenu.bind(undefined, pockets, dispatch, onOpenChange, isBusy)}>
+      <Dialog.Root open={open} onOpenChange={changeOpen}>
         <Dialog.Trigger className="pocket-menu-trigger" aria-label="Open Pockets">
           <MenuIcon aria-hidden="true" />
         </Dialog.Trigger>
         <Dialog.Portal>
           <Dialog.Backdrop className="agents-backdrop" />
-          <Dialog.Popup className="pockets-panel">
+          <Dialog.Popup ref={swipe} className="pockets-panel">
             <MenuHeading
               isSettings={settingsOpen}
               busy={isBusy}
