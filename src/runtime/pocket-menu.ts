@@ -73,10 +73,10 @@ export function openPocketMenu(
   publishOpen: (isOpen: boolean) => void,
   isBusy: boolean,
   isOpen: boolean,
-  details: { cancel: () => void }
+  details?: { cancel: () => void }
 ) {
   if (isBusy) {
-    details.cancel();
+    details?.cancel();
 
     return;
   }

@@ -1,4 +1,5 @@
 "use client";
+import { useNavigationSwipe } from "@/hooks/use-navigation-swipe";
 import { useAgentCatalog } from "@/hooks/use-agent-catalog";
 import { useBoundCallback } from "@/hooks/use-bound-callback";
 import { type AgentVisit, retainedAgents, compareAgents } from "@/state/agent-browser";
@@ -9,6 +10,7 @@ import {
   focusAgentRow,
   openAgentBrowser,
   selectAgent,
+  closeAgentBrowser,
 } from "@/runtime/agent-navigation";
 import { type RefObject, useContext, useEffect, useRef, useState } from "react";
 import { ActivityIndicatorContext } from "@/lib/activity-indicator-context";
@@ -52,6 +54,8 @@ export function AgentBrowser({
 
   const back = useBoundCallback(backFromAgent, returnFocusRef, lastSelected, selectedId, onOpenChange, onSelect);
   const restoreRow = useBoundCallback(focusAgentRow, rows, lastSelected, selectedId, open);
+  const close = useBoundCallback(closeAgentBrowser, onOpenChange, onSelect, setVisit, data);
+  const swipe = useNavigationSwipe(open, undefined, selectedId ? back : close);
   const finalFocus = useBoundCallback(agentFinalFocus, returnFocusRef);
 
   useEffect(restoreRow, [restoreRow]);
@@ -73,7 +77,7 @@ export function AgentBrowser({
       </ActivityRow>
       <Dialog.Portal>
         <Dialog.Backdrop className="agents-backdrop" />
-        <Dialog.Popup className="agents-panel" finalFocus={finalFocus}>
+        <Dialog.Popup ref={swipe} className="agents-panel" finalFocus={finalFocus}>
           <Dialog.Title className="sr-only">Agents</Dialog.Title>
           <Dialog.Description className="sr-only">
             Agents working in this parent chat. Open an agent to read its conversation.
