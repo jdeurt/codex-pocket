@@ -2,8 +2,10 @@ import type { Ledger, Task, TaskEvent } from "./model";
 import { hasEventId, hasTaskId } from "./transitions";
 import { taskDelivery } from "./context";
 import { latestDecision } from "./reconciliation";
+import { commandTaskIds } from "./routing";
 
 const SUMMARY_LENGTH = 300;
+const LAST = -1;
 
 export interface TaskInspection {
   taskId?: string;
@@ -49,6 +51,10 @@ function eventNavigation(state: Ledger, event: TaskEvent) {
     requestId: event.requestId,
     nativeEntryId: event.nativeEntryId,
     commandId: event.commandId,
+    callId: event.callId,
+    callIds: event.callIds,
+    toolName: event.toolName,
+    isError: event.isError,
     contentRefs: event.contentRefs,
     text: event.text.slice(0, SUMMARY_LENGTH),
     textOmitted: Math.max(0, event.text.length - SUMMARY_LENGTH),
@@ -65,6 +71,25 @@ function eventNavigation(state: Ledger, event: TaskEvent) {
 */
 function isTaskMember(taskId: string, member: Ledger["memberships"][number]) {
   return member.taskId === taskId;
+}
+
+/** Recover per-command delegate identities for a selected task, including archived work.
+@param taskId - Exact task being inspected.
+@param state - Parent checkpoint.
+@param command - Application-owned assignment.
+@returns Whether the command follows this task's originating request.
+*/
+function isTaskCommand(taskId: string, state: Ledger, command: Ledger["commands"][number]) {
+  return commandTaskIds(state, command).includes(taskId);
+}
+
+/** Select dedicated assessment history for one exact task.
+@param taskId - Selected task.
+@param review - Immutable lifecycle assessment.
+@returns Task identity equality.
+*/
+function isTaskReview(taskId: string, review: Ledger["lifecycleReviews"][number]) {
+  return review.taskId === taskId;
 }
 
 /** Inspect one original event with paged decision history.
@@ -139,7 +164,20 @@ export function inspectTaskLedger(state: Ledger, input: TaskInspection) {
       }
     }
 
-    return { revision: state.revision, task: task ?? null, events, totalMemberships: members.length };
+    const commands = state.commands.filter(isTaskCommand.bind(undefined, input.taskId, state));
+    const reviews = state.lifecycleReviews.filter(isTaskReview.bind(undefined, input.taskId));
+
+    return {
+      revision: state.revision,
+      task: task ?? null,
+      events,
+      commands: commands.slice(offset, offset + limit),
+      totalCommands: commands.length,
+      lifecycleReviews: reviews.slice(offset, offset + limit),
+      latestLifecycleReview: reviews.at(LAST) ?? null,
+      totalLifecycleReviews: reviews.length,
+      totalMemberships: members.length,
+    };
   }
 
   const unresolved = [];

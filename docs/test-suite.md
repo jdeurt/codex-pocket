@@ -80,7 +80,7 @@ Unreferenced helpers for removed scenarios were deleted after tracing imports an
 
 Focused cases passed for Codex receipt/reconnect, Pi file work, Pi question/steering/interruption, voice handoff/playback/reconnect, interruption/truncation/stale-output rejection, uncertain voice delivery, Side Pocket corrections/reports, full parent-report visibility, native migration/search, installer activation/overlap, Chromium HTTP retry/isolation and Chromium saved-history bookmark restoration, and Chromium voice handoff/audio playback. Each command selected one file and a test-name filter. Initial fixture failures were corrected without production changes: explicit native configuration; recovery history distinguished from original human receipts; authoritative tool-write outcomes; report `agentId`; provider response correlation; asynchronous catalog status; and complete Pi provider scripts.
 
-The Node collection includes dedicated task-management, task-lifecycle, task-inputs, and task-rollout workflow files. Default browser discovery reports 21 cases in six files; realtime discovery reports 21 cases in five files, including the focused browser interruption journey. Discovery is not execution.
+The Node collection includes dedicated task-management, task-lifecycle, task-inputs, task-rollout, task-auto-lifecycle, and task-policy workflow files. Default browser discovery reports 21 cases in six files; realtime discovery reports 21 cases in five files, including the focused browser interruption journey. Discovery is not execution.
 
 The exact Node command prefix below is `node --import tsx scripts/test-flows.ts`. Each row ran that prefix followed by its file and `--test-name-pattern` value; these were individual development checks, not a full-suite run.
 
@@ -131,6 +131,17 @@ That run exposed two Node workflow cleanup races: synchronous `Bridge.close()` r
 Running the schedule case after an earlier conversation exposed an additional fixture lifetime bug: the process-wide schedule store still referenced the earlier deleted workspace, so the new bridge could not identify the scheduled receipt. The focused command `node --import tsx scripts/test-flows.ts tests/workflows/conversation.test.ts '--test-name-pattern=Codex delivery retains|due schedule'` reproduced the strict envelope assertion failure before the fix. Workspace teardown now closes and unregisters that store before restoring the environment or removing private state. The same two-case sequence then passes without changing production behavior or assertions.
 
 The local host lacks WebKit system libraries; CI installs them regardless of cache hit and the realtime WebKit cases passed there. Complete final-head CI, production-update builds, physical-phone behavior, live provider calls and live audio remain unverified at this checkpoint. Prior base-commit CI is not evidence for this replacement.
+
+### Automatic task lifecycle and classifier audit
+
+`src/tasks/classifier-definitions.ts` is the shared audit point for intent and lifecycle prompts, predicate templates, models, thresholds, limits and versions. The working-agent prompt delegates bookkeeping to the task subsystem. Native work and external classifier responses have independent replay boundaries.
+
+```sh
+node --import tsx scripts/test-flows.ts tests/workflows/task-auto-lifecycle.test.ts --test-name-pattern='dedicated classification completes|a positive classifier|native questions|voice backend|a lifecycle assessment arriving'
+node --import tsx scripts/test-flows.ts tests/workflows/task-policy.test.ts --test-name-pattern='explicit task repairs|a delivered ordinary question|context and lifecycle assessment|new Pi input|greeting bindings'
+```
+
+These workflows exercise real Pi/file/MCP/SQLite paths with synthetic external classification. They verify evidence guards and automatic transitions, including question answers, actual chat visibility, cancellation-resistant provider preemption, conversational native bindings, stale results, independent archive capacity, protected later constraints, explicit content spans and repair tokens. They do not measure authenticated model accuracy.
 
 ### Task provenance and source ingestion
 

@@ -1,9 +1,10 @@
 import type { Assignment, Ledger, TaskEvent } from "./model";
+import { TASK_CLASSIFIERS } from "./classifier-definitions";
 
-const ACCEPT_THRESHOLD = 0.8;
-const REJECT_THRESHOLD = 0.2;
-const TITLE_LENGTH = 160;
-export const CLASSIFIER_VERSION = "bounded-intent-v1";
+const ACCEPT_THRESHOLD = TASK_CLASSIFIERS.accept;
+const REJECT_THRESHOLD = TASK_CLASSIFIERS.reject;
+const TITLE_LENGTH = TASK_CLASSIFIERS.intent.titleLength;
+export const CLASSIFIER_VERSION = TASK_CLASSIFIERS.intent.version;
 
 export interface IntentEvidence {
   actionable: number;

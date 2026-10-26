@@ -4,6 +4,7 @@ import { valueAfterCleanup } from "../lib/results";
 import { TaskRepository, updateTasks } from "./repository";
 import { applyTaskOperation, type TaskOperation } from "./lifecycle";
 import type { Ledger } from "./model";
+import { taskReviewToken } from "./review";
 
 /** Read an authorized parent's ledger and release its native handle.
 @param parentId - Authorized parent identity.
@@ -21,11 +22,20 @@ export function readTaskLedger(parentId: string) {
 @param revision - Operator's inspected revision.
 @param operation - Reviewed work, retention or membership change.
 @param reason - Explanation retained in the audit ledger.
+@param reviewToken - Optional inspection token that tolerates passive native bookkeeping.
 @param state - Current checkpoint.
 @returns Repaired state, or an error requiring a fresh review.
 */
-function reviewedOperation(revision: number, operation: TaskOperation, reason: string, state: Ledger) {
-  if (state.revision !== revision) {
+function reviewedOperation(
+  revision: number,
+  operation: TaskOperation,
+  reason: string,
+  reviewToken: string | undefined,
+  state: Ledger
+) {
+  const isCurrent = reviewToken ? taskReviewToken(state) === reviewToken : state.revision === revision;
+
+  if (!isCurrent) {
     throw new Error("Task state changed after inspection; review the new revision before applying this operation.");
   }
 
@@ -37,10 +47,18 @@ function reviewedOperation(revision: number, operation: TaskOperation, reason: s
 @param revision - Inspected expected revision.
 @param operation - Concrete reviewed operation.
 @param reason - Operator explanation.
+@param reviewToken - Optional inspected work-state token for native agent tool loops.
 @returns Committed checkpoint.
 */
-export async function changeTask(parentId: string, revision: number, operation: TaskOperation, reason: string) {
-  const state = updateTasks(parentId, reason, reviewedOperation.bind(undefined, revision, operation, reason));
+export async function changeTask(
+  parentId: string,
+  revision: number,
+  operation: TaskOperation,
+  reason: string,
+  reviewToken?: string
+) {
+  const transition = reviewedOperation.bind(undefined, revision, operation, reason, reviewToken);
+  const state = updateTasks(parentId, reason, transition);
 
   await regenerateTaskProjections(parentId);
 

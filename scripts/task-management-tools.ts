@@ -6,11 +6,16 @@ import { readOpenAIApiKey } from "../src/server/pocket-settings";
 import { proposeTaskAssignment } from "../src/tasks/proposals";
 import { inspectTaskLedger, type TaskInspection } from "../src/tasks/inspection";
 import { taskOperationSchema } from "../src/tasks/lifecycle";
+import { taskReviewToken } from "../src/tasks/review";
 
 const REASON_LENGTH = 1000;
 const changeSchema = z
   .object({
     revision: z.number().int().nonnegative(),
+    reviewToken: z
+      .string()
+      .regex(/^[a-f0-9]{64}$/u)
+      .optional(),
     operation: taskOperationSchema,
     reason: z.string().trim().min(1).max(REASON_LENGTH),
   })
@@ -34,7 +39,9 @@ const inspectSchema = z
 @returns Paged navigation or selected evidence.
 */
 function inspectParentTasks(parentId: string, input: TaskInspection) {
-  return inspectTaskLedger(readTaskLedger(parentId), input);
+  const state = readTaskLedger(parentId);
+
+  return { ...inspectTaskLedger(state, input), reviewToken: taskReviewToken(state) };
 }
 
 /** Return the current task revision and explainable decisions for review.
@@ -52,11 +59,12 @@ function inspectTasks(parentId: string, input: TaskInspection) {
 @returns Bounded committed-revision confirmation.
 */
 async function applyParentChange(parentId: string, input: z.infer<typeof changeSchema>) {
-  const state = await changeTask(parentId, input.revision, input.operation, input.reason);
+  const state = await changeTask(parentId, input.revision, input.operation, input.reason, input.reviewToken);
 
   return {
     applied: true,
     revision: state.revision,
+    reviewToken: taskReviewToken(state),
     operation: input.operation.kind,
     inspect: "Use pocket_task_inspect with a taskId or eventId to review the updated evidence.",
   };
@@ -106,7 +114,8 @@ export function registerTaskManagementTools(server: McpServer, parentId: string)
       description:
         "Inspect tasks, exact source references, unresolved provenance, lifecycle evidence and decision history. " +
         "Pass taskId, eventId or decisionId for exact detail, or offset/limit for bounded navigation pages. " +
-        "The returned revision is required for reviewed changes. Model turn completion does not establish resolution.",
+        "Use the returned revision and reviewToken for changes during your tool loop. " +
+        "Model turn completion does not establish resolution.",
       inputSchema: inspectSchema,
     },
     inspectTasks.bind(undefined, parentId)
@@ -126,7 +135,9 @@ export function registerTaskManagementTools(server: McpServer, parentId: string)
     "pocket_task_change",
     {
       description:
-        "Apply a concrete reviewed work, retention, move, split or merge operation at the inspected revision. " +
+        "Apply a concrete reviewed assignment, work, retention, move, split or merge operation. " +
+        "Pass revision and reviewToken from inspection or the last change. New requests and work changes " +
+        "invalidate reviewToken; passive recording of your native tool calls does not. " +
         "Work changes require supporting task-member event IDs. Resolve explicit content spans for multi-task messages. " +
         "Apply historical membership repairs only after the user authorizes the concrete proposal; never silently " +
         "reclassify history. Source originals remain immutable. Retention does not imply completion.",

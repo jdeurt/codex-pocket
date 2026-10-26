@@ -1,9 +1,13 @@
 import { latestDecision } from "./reconciliation";
 import { isTaskAuthoritative, type Ledger, type Task } from "./model";
+import { taskReviewToken } from "./review";
+import { commandTaskIds } from "./routing";
+import { TASK_CLASSIFIERS } from "./classifier-definitions";
+import { taskRequestUpdates, type TaskRequestUpdate } from "./intent-context";
 
-const DESCRIPTION_LENGTH = 1200;
-const TITLE_LENGTH = 160;
-const QUESTION_LIMIT = 10;
+const DESCRIPTION_LENGTH = TASK_CLASSIFIERS.intent.descriptionLength;
+const TITLE_LENGTH = TASK_CLASSIFIERS.intent.titleLength;
+const QUESTION_LIMIT = TASK_CLASSIFIERS.intent.questionLimit;
 
 /** Check whether one request has explicit membership.
 @param eventId - Request identity.
@@ -24,11 +28,22 @@ function boundedQuestion(question: string) {
     : question;
 }
 
+/** Bound an explicit user-intent update without treating it as replacement original intent.
+@param update - Task-scoped current request.
+@returns Bounded source-backed update for intent interpretation.
+*/
+function boundedTaskUpdate(update: TaskRequestUpdate) {
+  return { eventId: update.eventId, text: update.text.slice(0, DESCRIPTION_LENGTH) };
+}
+
 /** Describe a task without copying accumulated transport messages into classifier context.
+@param state - Explicit source checkpoint.
 @param task - Authoritative task navigation value.
 @returns Bounded stable intent and explicit updates.
 */
-function taskDescription(task: Task) {
+function taskDescription(state: Ledger, task: Task) {
+  const updates = taskRequestUpdates(state, task.id, task.originalEventId);
+
   return {
     id: task.id,
     revision: task.revision,
@@ -38,6 +53,7 @@ function taskDescription(task: Task) {
     work: task.work,
     retention: task.retention,
     pendingQuestions: Array.from(task.pendingQuestions.slice(0, QUESTION_LIMIT), boundedQuestion),
+    updates: Array.from(updates.slice(-TASK_CLASSIFIERS.intent.updateLimit), boundedTaskUpdate),
   };
 }
 
@@ -48,7 +64,7 @@ function taskDescription(task: Task) {
 export function taskDescriptions(state: Ledger) {
   const tasks = state.tasks.filter(isTaskAuthoritative.bind(undefined, state.mode));
 
-  return Array.from(tasks, taskDescription.bind(undefined));
+  return Array.from(tasks, taskDescription.bind(undefined, state));
 }
 
 /** Derive user delivery from explicit recorded evidence, independently of model turn status.
@@ -81,6 +97,50 @@ export function taskDelivery(state: Ledger, task: Task) {
 }
 
 const NAVIGATION_LIMIT = 5;
+
+/** Select foreground tasks independently of their completion state.
+@param mode - Explicit ledger mode.
+@param task - Stored task.
+@returns Whether this task belongs in active model context.
+*/
+function isActiveContextTask(mode: Ledger["mode"], task: Task) {
+  return isTaskAuthoritative(mode, task) && task.retention === "active";
+}
+
+/** Preserve outstanding archived questions and identities without copying the archived request into active context.
+@param task - Explicitly archived task.
+@returns Compact pending-work checkpoint, retrievable by exact identity.
+*/
+function deferredTaskContext(task: Task) {
+  return {
+    id: task.id,
+    title: task.title.slice(0, TITLE_LENGTH),
+    work: task.work,
+    originalEventId: task.originalEventId,
+    pendingQuestions: task.pendingQuestions,
+  };
+}
+
+/** Select commands still relevant to foreground work or whose origin remains unresolved.
+@param state - Parent checkpoint.
+@param command - Per-command assignment.
+@returns Whether command identity must remain in active model context.
+*/
+function isActiveContextCommand(state: Ledger, command: Ledger["commands"][number]) {
+  const ids = commandTaskIds(state, command);
+
+  if (ids.length === 0) {
+    return true;
+  }
+
+  for (const task of state.tasks) {
+    if (ids.includes(task.id) && task.retention === "active") {
+      return true;
+    }
+  }
+
+  return false;
+}
 
 /** Preserve task identities and provenance in a small model-navigation packet.
 @param task - Retained task value.
@@ -116,14 +176,17 @@ function modelContextText(state: Ledger, text: string, budget: number) {
     return text;
   }
 
+  const activeTasks = state.tasks.filter(isActiveContextTask.bind(undefined, state.mode));
+  const activeCommands = state.commands.filter(isActiveContextCommand.bind(undefined, state));
   const navigation = JSON.stringify({
     revision: state.revision,
+    reviewToken: taskReviewToken(state),
     compactionAllowed: false,
     diagnostic:
       "Protected work exceeds the context budget. Existing history was retained. " +
       "Use pocket_task_inspect pages or a taskId/eventId to read exact work before continuing.",
-    tasks: Array.from(state.tasks.slice(0, NAVIGATION_LIMIT), contextTaskReference),
-    commands: Array.from(state.commands.slice(0, NAVIGATION_LIMIT), contextCommandReference),
+    tasks: Array.from(activeTasks.slice(0, NAVIGATION_LIMIT), contextTaskReference),
+    commands: Array.from(activeCommands.slice(0, NAVIGATION_LIMIT), contextCommandReference),
     totals: { tasks: state.tasks.length, commands: state.commands.length },
   });
 
@@ -137,13 +200,14 @@ function modelContextText(state: Ledger, text: string, budget: number) {
 */
 export function planTaskContext(state: Ledger, budget: number) {
   const required = [];
+  const deferred = [];
 
   for (const task of state.tasks) {
     if (state.mode === "live" && task.authority === "proposal") {
       continue;
     }
 
-    if (task.work === "open" || task.work === "waiting" || task.pendingQuestions.length > 0) {
+    if (task.retention === "active") {
       required.push({
         id: task.id,
         authority: task.authority,
@@ -153,7 +217,10 @@ export function planTaskContext(state: Ledger, budget: number) {
         originalIntent: task.originalIntent,
         summary: task.summary,
         pendingQuestions: task.pendingQuestions,
+        requestUpdates: taskRequestUpdates(state, task.id, task.originalEventId),
       });
+    } else if (task.work === "open" || task.work === "waiting" || task.pendingQuestions.length > 0) {
+      deferred.push(deferredTaskContext(task));
     }
   }
 
@@ -163,6 +230,7 @@ export function planTaskContext(state: Ledger, budget: number) {
     const decision = latestDecision(state, event.id);
 
     if (
+      ["typed", "voice_request", "scheduled"].includes(event.origin) &&
       event.requestId &&
       decision?.assignment.kind !== "conversation" &&
       !state.memberships.some(isEventMember.bind(undefined, event.id))
@@ -172,12 +240,16 @@ export function planTaskContext(state: Ledger, budget: number) {
   }
 
   const protectedContext = {
+    revision: state.revision,
+    reviewToken: taskReviewToken(state),
     policy:
       "Legacy open state is conservative uncertainty, not a new request to replay " +
-      "historical work. Inspect original evidence and current authorization before acting.",
+      "historical work. Archived work is deferred; inspect its exact task before resuming authorized work. " +
+      "The task subsystem assesses lifecycle independently; ledger state is context, not new authorization.",
     tasks: required,
+    deferred,
     unresolved,
-    commands: state.commands,
+    commands: state.commands.filter(isActiveContextCommand.bind(undefined, state)),
   };
   const text = JSON.stringify(protectedContext);
 
